@@ -1,0 +1,592 @@
+import { useState, useMemo, useCallback } from "react";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useAppData } from "@/contexts/AppDataContext";
+import { Upload, FileText, CheckCircle2, AlertTriangle, Copy, Landmark, X, Search, Download } from "lucide-react";
+import { format, parseISO } from "date-fns";
+import { toast } from "sonner";
+
+interface BankTransaction {
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  reference?: string;
+  rawLine: string;
+}
+
+interface UploadedStatement {
+  id: string;
+  fileName: string;
+  type: "bank" | "cash";
+  transactions: BankTransaction[];
+  uploadedAt: string;
+}
+
+type FlagType = "matched" | "unmatched" | "duplicate" | "bank-charge" | "possible-match";
+
+interface ReconciliationEntry {
+  bankTransaction: BankTransaction;
+  flag: FlagType;
+  matchedLedgerEntry?: {
+    id: string;
+    type: string;
+    description: string;
+    amount: number;
+    date: string;
+  };
+  notes?: string;
+  statementId: string;
+  statementName: string;
+}
+
+const BANK_CHARGE_KEYWORDS = [
+  "bank charge", "service charge", "sms charge", "annual fee", "maintenance charge",
+  "interest charge", "penalty", "min bal", "minimum balance", "ach charge",
+  "neft charge", "rtgs charge", "imps charge", "cheque return", "ecs charge",
+  "gst on charge", "folio charge", "debit card fee", "atm charge",
+];
+
+const parseCSV = (content: string): BankTransaction[] => {
+  const lines = content.trim().split("\n");
+  if (lines.length < 2) return [];
+
+  const header = lines[0].toLowerCase();
+  const headers = header.split(",").map(h => h.trim().replace(/"/g, ""));
+
+  const dateIdx = headers.findIndex(h => h.includes("date") || h.includes("txn") || h.includes("value"));
+  const descIdx = headers.findIndex(h => h.includes("description") || h.includes("narration") || h.includes("particular") || h.includes("remark"));
+  const debitIdx = headers.findIndex(h => h.includes("debit") || h.includes("withdrawal") || h.includes("dr"));
+  const creditIdx = headers.findIndex(h => h.includes("credit") || h.includes("deposit") || h.includes("cr"));
+  const balIdx = headers.findIndex(h => h.includes("balance") || h.includes("closing"));
+  const refIdx = headers.findIndex(h => h.includes("ref") || h.includes("chq") || h.includes("utr"));
+
+  if (dateIdx === -1 || descIdx === -1) {
+    // Fallback: assume standard format Date, Description, Debit, Credit, Balance
+    return lines.slice(1).filter(l => l.trim()).map(line => {
+      const cols = line.split(",").map(c => c.trim().replace(/"/g, ""));
+      return {
+        date: cols[0] || "",
+        description: cols[1] || "",
+        debit: parseFloat(cols[2]?.replace(/,/g, "")) || 0,
+        credit: parseFloat(cols[3]?.replace(/,/g, "")) || 0,
+        balance: parseFloat(cols[4]?.replace(/,/g, "")) || 0,
+        reference: cols[5] || "",
+        rawLine: line,
+      };
+    });
+  }
+
+  return lines.slice(1).filter(l => l.trim()).map(line => {
+    const cols = line.split(",").map(c => c.trim().replace(/"/g, ""));
+    return {
+      date: cols[dateIdx] || "",
+      description: cols[descIdx] || "",
+      debit: debitIdx >= 0 ? (parseFloat(cols[debitIdx]?.replace(/,/g, "")) || 0) : 0,
+      credit: creditIdx >= 0 ? (parseFloat(cols[creditIdx]?.replace(/,/g, "")) || 0) : 0,
+      balance: balIdx >= 0 ? (parseFloat(cols[balIdx]?.replace(/,/g, "")) || 0) : 0,
+      reference: refIdx >= 0 ? cols[refIdx] : "",
+      rawLine: line,
+    };
+  });
+};
+
+const normalizeDate = (dateStr: string): string => {
+  if (!dateStr) return "";
+  // Try common Indian bank formats: DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD
+  const formats = [
+    /^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/, // DD/MM/YYYY or DD-MM-YYYY
+    /^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/, // YYYY-MM-DD
+  ];
+  
+  const m1 = dateStr.match(formats[0]);
+  if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
+  
+  const m2 = dateStr.match(formats[1]);
+  if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+  
+  return dateStr;
+};
+
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
+  const { expenses, incomes, payments, vendorPayments } = useAppData();
+  const [statements, setStatements] = useState<UploadedStatement[]>([]);
+  const [activeTab, setActiveTab] = useState("upload");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Build ledger entries from all financial data
+  const ledgerEntries = useMemo(() => {
+    const entries: { id: string; type: string; description: string; amount: number; date: string; direction: "debit" | "credit" }[] = [];
+
+    expenses.forEach(e => {
+      entries.push({
+        id: e.id,
+        type: "Expense",
+        description: `${e.category}${e.subCategory ? ` - ${e.subCategory}` : ""}${e.notes ? ` (${e.notes})` : ""}`,
+        amount: e.amount,
+        date: e.date,
+        direction: "debit",
+      });
+    });
+
+    incomes.forEach(inc => {
+      entries.push({
+        id: inc.id,
+        type: "Income",
+        description: `${inc.category}${inc.projectName ? ` - ${inc.projectName}` : ""}${inc.notes ? ` (${inc.notes})` : ""}`,
+        amount: inc.amount,
+        date: inc.date,
+        direction: "credit",
+      });
+    });
+
+    payments.forEach(p => {
+      entries.push({
+        id: p.id,
+        type: p.direction === "in" ? "Payment Received" : "Payment Paid",
+        description: `${p.counterpartyName || ""}${p.notes ? ` (${p.notes})` : ""}`,
+        amount: p.amount,
+        date: p.date,
+        direction: p.direction === "in" ? "credit" : "debit",
+      });
+    });
+
+    vendorPayments.forEach(vp => {
+      entries.push({
+        id: vp.id,
+        type: "Vendor Payment",
+        description: `Vendor Bill ${vp.billId}${vp.reference ? ` - ${vp.reference}` : ""}`,
+        amount: vp.amount,
+        date: vp.date,
+        direction: "debit",
+      });
+    });
+
+    return entries;
+  }, [expenses, incomes, payments, vendorPayments]);
+
+  // Reconcile uploaded statements against ledger
+  const reconciliationResults = useMemo((): ReconciliationEntry[] => {
+    if (statements.length === 0) return [];
+
+    const results: ReconciliationEntry[] = [];
+    const usedLedgerIds = new Set<string>();
+    const seenAmounts = new Map<string, number>(); // track for duplicates
+
+    for (const stmt of statements) {
+      for (const txn of stmt.transactions) {
+        const txnAmount = txn.debit || txn.credit;
+        if (txnAmount === 0) continue;
+
+        const txnDate = normalizeDate(txn.date);
+        const desc = txn.description.toLowerCase();
+
+        // Check bank charges first
+        const isBankCharge = BANK_CHARGE_KEYWORDS.some(kw => desc.includes(kw));
+        if (isBankCharge) {
+          results.push({
+            bankTransaction: txn,
+            flag: "bank-charge",
+            notes: "Auto-detected bank charge/fee",
+            statementId: stmt.id,
+            statementName: stmt.fileName,
+          });
+          continue;
+        }
+
+        // Check for duplicates within uploaded statements
+        const dupeKey = `${txnDate}-${txnAmount}`;
+        const dupeCount = seenAmounts.get(dupeKey) || 0;
+        seenAmounts.set(dupeKey, dupeCount + 1);
+        if (dupeCount > 0) {
+          results.push({
+            bankTransaction: txn,
+            flag: "duplicate",
+            notes: `Duplicate: same amount ₹${txnAmount.toLocaleString("en-IN")} on ${txnDate} appears ${dupeCount + 1} times`,
+            statementId: stmt.id,
+            statementName: stmt.fileName,
+          });
+          continue;
+        }
+
+        // Try exact match (amount + date within 2 days)
+        const direction = txn.debit > 0 ? "debit" : "credit";
+        let matched = false;
+
+        for (const entry of ledgerEntries) {
+          if (usedLedgerIds.has(entry.id)) continue;
+          if (Math.abs(entry.amount - txnAmount) > 0.5) continue;
+          if (entry.direction !== direction) continue;
+
+          // Date match: within 3 days
+          try {
+            const entryDate = parseISO(entry.date);
+            const bankDate = parseISO(txnDate);
+            const diffDays = Math.abs((entryDate.getTime() - bankDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 3) {
+              usedLedgerIds.add(entry.id);
+              results.push({
+                bankTransaction: txn,
+                flag: "matched",
+                matchedLedgerEntry: { id: entry.id, type: entry.type, description: entry.description, amount: entry.amount, date: entry.date },
+                statementId: stmt.id,
+                statementName: stmt.fileName,
+              });
+              matched = true;
+              break;
+            }
+          } catch { /* skip date parse errors */ }
+        }
+
+        if (!matched) {
+          // Try possible match (same amount, any date)
+          const possibleMatch = ledgerEntries.find(
+            e => !usedLedgerIds.has(e.id) && Math.abs(e.amount - txnAmount) < 1 && e.direction === direction
+          );
+
+          if (possibleMatch) {
+            results.push({
+              bankTransaction: txn,
+              flag: "possible-match",
+              matchedLedgerEntry: { id: possibleMatch.id, type: possibleMatch.type, description: possibleMatch.description, amount: possibleMatch.amount, date: possibleMatch.date },
+              notes: "Amount matches but date differs significantly",
+              statementId: stmt.id,
+              statementName: stmt.fileName,
+            });
+          } else {
+            results.push({
+              bankTransaction: txn,
+              flag: "unmatched",
+              notes: "No matching ledger entry found",
+              statementId: stmt.id,
+              statementName: stmt.fileName,
+            });
+          }
+        }
+      }
+    }
+
+    return results;
+  }, [statements, ledgerEntries]);
+
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>, type: "bank" | "cash") => {
+    const files = e.target.files;
+    if (!files) return;
+
+    for (const file of Array.from(files)) {
+      if (!file.name.endsWith(".csv")) {
+        toast.error(`${file.name}: Only CSV files supported`);
+        continue;
+      }
+
+      const content = await file.text();
+      const transactions = parseCSV(content);
+
+      if (transactions.length === 0) {
+        toast.error(`${file.name}: No transactions found. Check CSV format.`);
+        continue;
+      }
+
+      setStatements(prev => [
+        ...prev,
+        {
+          id: `stmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          fileName: file.name,
+          type,
+          transactions,
+          uploadedAt: new Date().toISOString(),
+        },
+      ]);
+
+      toast.success(`${file.name}: ${transactions.length} transactions imported`);
+    }
+
+    e.target.value = "";
+    if (statements.length === 0) {
+      setActiveTab("results");
+    }
+  }, [statements.length]);
+
+  const removeStatement = (id: string) => {
+    setStatements(prev => prev.filter(s => s.id !== id));
+  };
+
+  const flagCounts = useMemo(() => {
+    const counts = { matched: 0, unmatched: 0, duplicate: 0, "bank-charge": 0, "possible-match": 0 };
+    reconciliationResults.forEach(r => counts[r.flag]++);
+    return counts;
+  }, [reconciliationResults]);
+
+  const filteredResults = useMemo(() => {
+    if (!searchQuery) return reconciliationResults;
+    const q = searchQuery.toLowerCase();
+    return reconciliationResults.filter(r =>
+      r.bankTransaction.description.toLowerCase().includes(q) ||
+      r.flag.includes(q) ||
+      r.matchedLedgerEntry?.description.toLowerCase().includes(q) ||
+      r.statementName.toLowerCase().includes(q)
+    );
+  }, [reconciliationResults, searchQuery]);
+
+  const getFlagBadge = (flag: FlagType) => {
+    switch (flag) {
+      case "matched":
+        return <Badge className="bg-blue-500/15 text-blue-700 border-blue-200 text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Matched</Badge>;
+      case "unmatched":
+        return <Badge variant="destructive" className="text-xs"><AlertTriangle className="w-3 h-3 mr-1" />Unmatched</Badge>;
+      case "duplicate":
+        return <Badge className="bg-amber-500/15 text-amber-700 border-amber-200 text-xs"><Copy className="w-3 h-3 mr-1" />Duplicate</Badge>;
+      case "bank-charge":
+        return <Badge className="bg-blue-500/15 text-blue-700 border-blue-200 text-xs"><Landmark className="w-3 h-3 mr-1" />Bank Charge</Badge>;
+      case "possible-match":
+        return <Badge className="bg-purple-500/15 text-purple-700 border-purple-200 text-xs"><Search className="w-3 h-3 mr-1" />Possible Match</Badge>;
+    }
+  };
+
+  const fmt = (v: number) => v ? `₹${v.toLocaleString("en-IN")}` : "-";
+
+  const exportResults = () => {
+    if (reconciliationResults.length === 0) return;
+    const csvLines = [
+      "Statement,Date,Description,Debit,Credit,Flag,Matched Entry,Notes",
+      ...reconciliationResults.map(r =>
+        [
+          r.statementName,
+          r.bankTransaction.date,
+          `"${r.bankTransaction.description}"`,
+          r.bankTransaction.debit || "",
+          r.bankTransaction.credit || "",
+          r.flag,
+          r.matchedLedgerEntry ? `"${r.matchedLedgerEntry.type}: ${r.matchedLedgerEntry.description}"` : "",
+          r.notes ? `"${r.notes}"` : "",
+        ].join(",")
+      ),
+    ];
+    const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `reconciliation-report-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Report exported");
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <AppSheetContent layout="document" size="wide" className="gap-4">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2 text-foreground">
+            <Landmark className="w-5 h-5 text-primary" />
+            Verify Against Cash & Bank Statements
+          </SheetTitle>
+        </SheetHeader>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+          <TabsList className="grid grid-cols-2 w-full max-w-sm">
+            <TabsTrigger value="upload">Upload Statements</TabsTrigger>
+            <TabsTrigger value="results" disabled={statements.length === 0}>
+              Results {reconciliationResults.length > 0 && `(${reconciliationResults.length})`}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="upload" className="flex-1 space-y-4 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Bank Statement Upload */}
+              <Card className="border-dashed border-2 hover:border-primary/50 transition-colors">
+                <CardContent className="p-6 text-center">
+                  <Landmark className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+                  <h3 className="font-semibold text-foreground mb-1">Bank Statement</h3>
+                  <p className="text-xs text-muted-foreground mb-4">Upload CSV from your bank portal</p>
+                  <Label htmlFor="bank-upload" className="cursor-pointer">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+                      <Upload className="w-4 h-4" />
+                      Choose Files
+                    </div>
+                    <Input
+                      id="bank-upload"
+                      type="file"
+                      accept=".csv"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => handleFileUpload(e, "bank")}
+                    />
+                  </Label>
+                </CardContent>
+              </Card>
+
+              {/* Cash Statement Upload */}
+              <Card className="border-dashed border-2 hover:border-primary/50 transition-colors">
+                <CardContent className="p-6 text-center">
+                  <FileText className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+                  <h3 className="font-semibold text-foreground mb-1">Cash Statement</h3>
+                  <p className="text-xs text-muted-foreground mb-4">Upload cash register or petty cash CSV</p>
+                  <Label htmlFor="cash-upload" className="cursor-pointer">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-secondary text-secondary-foreground text-sm font-medium hover:bg-secondary/80 transition-colors">
+                      <Upload className="w-4 h-4" />
+                      Choose Files
+                    </div>
+                    <Input
+                      id="cash-upload"
+                      type="file"
+                      accept=".csv"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => handleFileUpload(e, "cash")}
+                    />
+                  </Label>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Uploaded statements list */}
+            {statements.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold text-foreground">Uploaded Statements ({statements.length})</h4>
+                {statements.map(s => (
+                  <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border">
+                    <div className="flex items-center gap-3">
+                      {s.type === "bank" ? <Landmark className="w-4 h-4 text-primary" /> : <FileText className="w-4 h-4 text-muted-foreground" />}
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{s.fileName}</p>
+                        <p className="text-xs text-muted-foreground">{s.transactions.length} transactions • {s.type === "bank" ? "Bank" : "Cash"}</p>
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => removeStatement(s.id)}>
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button className="w-full mt-2" onClick={() => setActiveTab("results")}>
+                  Run Reconciliation
+                </Button>
+              </div>
+            )}
+
+            {/* CSV Format Guide */}
+            <Card className="bg-muted/30">
+              <CardContent className="p-4">
+                <h4 className="text-sm font-semibold text-foreground mb-2">Expected CSV Format</h4>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Your CSV should have headers like: <span className="font-mono text-foreground">Date, Description/Narration, Debit/Withdrawal, Credit/Deposit, Balance</span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Most Indian banks (SBI, HDFC, ICICI, Axis, Kotak) export in compatible formats. Download your statement as CSV from net banking.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="results" className="flex-1 flex flex-col overflow-hidden mt-4 space-y-4">
+            {/* Summary KPIs */}
+            <div className="grid grid-cols-5 gap-2">
+              {[
+                { label: "Matched", count: flagCounts.matched, color: "text-blue-600" },
+                { label: "Unmatched", count: flagCounts.unmatched, color: "text-destructive" },
+                { label: "Possible", count: flagCounts["possible-match"], color: "text-purple-600" },
+                { label: "Duplicates", count: flagCounts.duplicate, color: "text-amber-600" },
+                { label: "Bank Charges", count: flagCounts["bank-charge"], color: "text-blue-600" },
+              ].map(k => (
+                <Card key={k.label}>
+                  <CardContent className="p-3 text-center">
+                    <p className={`text-xl font-bold ${k.color}`}>{k.count}</p>
+                    <p className="text-xs text-muted-foreground">{k.label}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Search + Export */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search transactions..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Button variant="outline" size="sm" onClick={exportResults} disabled={reconciliationResults.length === 0}>
+                <Download className="w-4 h-4 mr-1" />
+                Export
+              </Button>
+            </div>
+
+            {/* Results Table */}
+            <ScrollArea className="flex-1 border rounded-lg">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[100px]">Date</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-right w-[90px]">Debit</TableHead>
+                    <TableHead className="text-right w-[90px]">Credit</TableHead>
+                    <TableHead className="w-[120px]">Flag</TableHead>
+                    <TableHead>Matched Ledger Entry</TableHead>
+                    <TableHead className="w-[140px]">Source</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredResults.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        {statements.length === 0 ? "Upload statements to begin" : "No results found"}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {filteredResults.map((r, i) => (
+                    <TableRow key={i} className={
+                      r.flag === "unmatched" ? "bg-destructive/5" :
+                      r.flag === "duplicate" ? "bg-amber-500/5" :
+                      r.flag === "bank-charge" ? "bg-blue-500/5" :
+                      r.flag === "possible-match" ? "bg-purple-500/5" :
+                      ""
+                    }>
+                      <TableCell className="text-xs font-mono">{r.bankTransaction.date}</TableCell>
+                      <TableCell className="text-xs max-w-[200px] truncate" title={r.bankTransaction.description}>
+                        {r.bankTransaction.description}
+                      </TableCell>
+                      <TableCell className="text-right text-xs font-mono">{fmt(r.bankTransaction.debit)}</TableCell>
+                      <TableCell className="text-right text-xs font-mono">{fmt(r.bankTransaction.credit)}</TableCell>
+                      <TableCell>{getFlagBadge(r.flag)}</TableCell>
+                      <TableCell className="text-xs">
+                        {r.matchedLedgerEntry ? (
+                          <div>
+                            <span className="font-medium text-foreground">{r.matchedLedgerEntry.type}</span>
+                            <span className="text-muted-foreground"> — {r.matchedLedgerEntry.description.slice(0, 40)}</span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground italic">{r.notes || "-"}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground truncate" title={r.statementName}>
+                        {r.statementName}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
+      </AppSheetContent>
+    </Sheet>
+  );
+};
+
+export default BankReconciliationModal;

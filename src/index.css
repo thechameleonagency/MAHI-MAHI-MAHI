@@ -1,0 +1,150 @@
+@import '@fontsource/lexend/300.css';
+@import '@fontsource/lexend/400.css';
+@import '@fontsource/lexend/500.css';
+@import '@fontsource/lexend/600.css';
+@import '@fontsource/lexend/700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Page canvas: slightly cool grey — reduces “all blue” feel */
+    --canvas: 220 18% 97%;
+    --app-max-width: 1680px;
+
+    --background: 220 18% 97%;
+    --foreground: 222 20% 18%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 20% 18%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 20% 18%;
+
+    /* Primary: one strong blue; use sparingly (CTA, key links) */
+    --primary: 221 70% 44%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 16% 94%;
+    --secondary-foreground: 222 20% 20%;
+
+    --muted: 220 16% 94%;
+    --muted-foreground: 220 10% 44%;
+
+    /* Non-primary fill: cool slate, not blue (chips, hover bands, KPI backgrounds) */
+    --accent: 220 20% 93%;
+    --accent-foreground: 222 20% 22%;
+
+    /* Optional lavender-grey highlight for variety */
+    --tint: 255 30% 96%;
+    --tint-foreground: 260 20% 30%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --warning: 38 92% 48%;
+    --warning-foreground: 0 0% 100%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 220 14% 88%;
+    --input: 220 14% 90%;
+    --ring: 221 60% 50%;
+
+    --radius: 0.5rem;
+
+    /* Sidebar: neutral active row; logo remains primary */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 10% 40%;
+    --sidebar-primary: 221 70% 44%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 20% 96%;
+    --sidebar-accent-foreground: 222 20% 20%;
+    --sidebar-border: 220 14% 90%;
+    --sidebar-ring: 221 60% 50%;
+
+    --chart-revenue: 221 70% 44%;
+    --chart-info: 220 12% 50%;
+    --chart-cost: 0 70% 48%;
+  }
+
+  .dark {
+    --canvas: 222 20% 9%;
+    --background: 222 20% 10%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 20% 14%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 20% 14%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 218 80% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 217 20% 20%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 20% 20%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 25% 22%;
+    --accent-foreground: 210 40% 98%;
+
+    --tint: 260 20% 18%;
+    --tint-foreground: 260 30% 85%;
+
+    --destructive: 0 62% 40%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 70% 48%;
+    --success-foreground: 222 47% 8%;
+
+    --border: 217 20% 24%;
+    --input: 217 20% 24%;
+    --ring: 218 80% 58%;
+
+    --sidebar-background: 222 20% 12%;
+    --sidebar-foreground: 210 30% 70%;
+    --sidebar-primary: 218 80% 58%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 25% 19%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 20% 24%;
+    --sidebar-ring: 218 80% 58%;
+
+    --chart-info: 215 16% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-lexend antialiased;
+  }
+}
+
+/* App-wide page rhythm: use on route roots or via AppLayout wrapper */
+@layer components {
+  .ds-page {
+    @apply w-full min-w-0 space-y-6 md:space-y-7;
+  }
+
+  .ds-section {
+    @apply space-y-3;
+  }
+
+  .ds-section-title {
+    @apply text-xs font-semibold uppercase tracking-wider text-muted-foreground;
+  }
+
+  .ds-card-elevated {
+    @apply border border-border/80 bg-card shadow-sm;
+  }
+}

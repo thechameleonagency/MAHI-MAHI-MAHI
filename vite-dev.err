@@ -1,0 +1,54 @@
+Browserslist: browsers data (caniuse-lite) is 10 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+[2m11:22:20 am[22m [31m[1m[vite][22m[39m [31mInternal server error:   x 'import', and 'export' cannot be used outside of module code
+     ,-[C:/Users/jites/Downloads/MSS/src/pages/Projects.tsx:203:1]
+ 200 |     const [projectType, setProjectType] = useState("epc");
+ 201 |     const [projectOwnerType, setProjectOwnerType] = useState<"solo" | "partnership" | "outsourced">("solo");
+ 202 |     const [projectSource, setProjectSource] = useState<"fresh" | "from-quotation" | "from-customer">("fresh");
+ 203 | import { Card, CardContent } from "@/components/ui/card";
+     : ^^^^^^
+ 204 | import { Badge } from "@/components/ui/badge";
+ 205 | import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+ 206 | import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+     `----
+
+
+Caused by:
+    Syntax Error[39m
+  Plugin: [35mvite:react-swc[39m
+  File: [36mC:/Users/jites/Downloads/MSS/src/pages/Projects.tsx[39m
+  
+[2m11:23:36 am[22m [31m[1m[vite][22m[39m Pre-transform error:   x 'import', and 'export' cannot be used outside of module code
+     ,-[C:/Users/jites/Downloads/MSS/src/pages/Projects.tsx:203:1]
+ 200 |     const [projectType, setProjectType] = useState("epc");
+ 201 |     const [projectOwnerType, setProjectOwnerType] = useState<"solo" | "partnership" | "outsourced">("solo");
+ 202 |     const [projectSource, setProjectSource] = useState<"fresh" | "from-quotation" | "from-customer">("fresh");
+ 203 | import { Card, CardContent } from "@/components/ui/card";
+     : ^^^^^^
+ 204 | import { Badge } from "@/components/ui/badge";
+ 205 | import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+ 206 | import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+     `----
+
+
+Caused by:
+    Syntax Error
+[2m11:23:37 am[22m [31m[1m[vite][22m[39m [31mInternal server error:   x 'import', and 'export' cannot be used outside of module code
+     ,-[C:/Users/jites/Downloads/MSS/src/pages/Projects.tsx:203:1]
+ 200 |     const [projectType, setProjectType] = useState("epc");
+ 201 |     const [projectOwnerType, setProjectOwnerType] = useState<"solo" | "partnership" | "outsourced">("solo");
+ 202 |     const [projectSource, setProjectSource] = useState<"fresh" | "from-quotation" | "from-customer">("fresh");
+ 203 | import { Card, CardContent } from "@/components/ui/card";
+     : ^^^^^^
+ 204 | import { Badge } from "@/components/ui/badge";
+ 205 | import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+ 206 | import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+     `----
+
+
+Caused by:
+    Syntax Error[39m
+  Plugin: [35mvite:react-swc[39m
+  File: [36mC:/Users/jites/Downloads/MSS/src/pages/Projects.tsx[39m
+  

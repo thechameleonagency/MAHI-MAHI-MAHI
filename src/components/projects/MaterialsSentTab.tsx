@@ -1,0 +1,838 @@
+import { useState, useMemo, useEffect } from "react";
+import { Package, Check, AlertTriangle, ArrowUp, ArrowDown, Plus, Send, Truck, Calendar, CheckCircle2, Wrench, ChevronDown, ChevronRight, User, RotateCcw } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DataTableShell } from "@/components/data-table/DataTableShell";
+import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
+import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
+import { usePagedSlice } from "@/hooks/usePagedSlice";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { toast } from "@/hooks/use-toast";
+import { format } from "date-fns";
+import { useAppData } from "@/contexts/AppDataContext";
+
+interface MaterialIssue {
+  date: string;
+  quantity: number;
+}
+
+interface MaterialItem {
+  id: number;
+  name: string;
+  totalQuantitySent: number;
+  unitPrice: number;
+  unit: string;
+  category?: string;
+  issues: MaterialIssue[];
+}
+
+interface PresetItem {
+  id: number;
+  name: string;
+  quantity: number;
+  unit: string;
+}
+
+interface InventoryItem {
+  id: number;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  unit?: string;
+  category?: string;
+  size?: string;
+  allowDecimalReturn?: boolean;
+}
+
+interface ToolAssigned {
+  id: number;
+  name: string;
+  assignedTo: string;
+  dateIssued: string;
+  status?: string;
+}
+
+interface MaterialsSentTabProps {
+  projectName: string;
+  projectId?: string;
+  materials: MaterialItem[];
+  presetItems: PresetItem[];
+  inventoryItems: InventoryItem[];
+  toolsAssigned?: ToolAssigned[];
+  onIssueMaterials?: (items: { id: number; quantity: number; notes?: string }[], expenses?: { type: string; amount: number; notes?: string }[], taskInfo?: { assigneeId: number; notes: string }) => void | Promise<void>;
+  onReturnMaterial?: (itemId: number, quantity: number) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
+  onScrapMaterial?: (itemId: number, quantity: number) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
+  onConsumeMaterial?: (itemId: number, quantity: number) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
+}
+
+type MatchStatus = "match" | "over" | "under" | "no-preset";
+
+const CATEGORY_ORDER = ["Structure", "Panel/Module", "Wiring", "Earthing", "Meter", "Civil"];
+
+export default function MaterialsSentTab({
+  projectName,
+  projectId: _projectId,
+  materials,
+  presetItems,
+  inventoryItems,
+  toolsAssigned = [],
+  onIssueMaterials,
+  onReturnMaterial,
+  onScrapMaterial,
+  onConsumeMaterial,
+}: MaterialsSentTabProps) {
+  const { employees, addTask, generateId, sites, inventoryItems: globalInventoryItems } = useAppData();
+
+  const [toolsPage, setToolsPage] = useState(1);
+  const [toolsPageSize, setToolsPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const { pagedItems: pagedTools, safePage: safeToolsPage } = usePagedSlice(toolsAssigned, toolsPage, toolsPageSize);
+
+  useEffect(() => {
+    setToolsPage(1);
+  }, [toolsAssigned.length]);
+
+  const [isToolsSectionOpen, setIsToolsSectionOpen] = useState(true);
+  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
+  const [issuingItems, setIssuingItems] = useState<Record<number, number>>({});
+  const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
+  const [isSendMoreModalOpen, setIsSendMoreModalOpen] = useState(false);
+  const [selectedMaterialForSendMore, setSelectedMaterialForSendMore] = useState<MaterialItem | null>(null);
+  const [sendMoreQuantity, setSendMoreQuantity] = useState("");
+  const [issueNotes, setIssueNotes] = useState("");
+  
+  // Return to warehouse
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+  const [returnMaterial, setReturnMaterial] = useState<MaterialItem | null>(null);
+  const [returnQuantity, setReturnQuantity] = useState("");
+  const [isScrapModalOpen, setIsScrapModalOpen] = useState(false);
+  const [scrapMaterial, setScrapMaterial] = useState<MaterialItem | null>(null);
+  const [scrapQuantity, setScrapQuantity] = useState("");
+  const [isConsumeModalOpen, setIsConsumeModalOpen] = useState(false);
+  const [consumeMaterial, setConsumeMaterial] = useState<MaterialItem | null>(null);
+  const [consumeQuantity, setConsumeQuantity] = useState("");
+  
+  // Expense during issue
+  const [addExpenseWithIssue, setAddExpenseWithIssue] = useState(false);
+  const [expenseType, setExpenseType] = useState("transport");
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseNotes, setExpenseNotes] = useState("");
+  
+  // Task assignment during issue
+  const [assignTaskWithIssue, setAssignTaskWithIssue] = useState(false);
+  const [taskAssignee, setTaskAssignee] = useState("");
+  const [taskNotes, setTaskNotes] = useState("");
+  const [taskDate, setTaskDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  
+  // Category collapse state
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+
+  // Match materials against preset
+  const getMatchStatus = (material: MaterialItem): { status: MatchStatus; preset?: PresetItem; difference: number } => {
+    const preset = presetItems.find(p => 
+      material.name.toLowerCase().includes(p.name.toLowerCase().split(' ')[0]) ||
+      p.name.toLowerCase().includes(material.name.toLowerCase().split(' ')[0])
+    );
+    
+    if (!preset) return { status: "no-preset", difference: 0 };
+    
+    const difference = material.totalQuantitySent - preset.quantity;
+    if (difference === 0) return { status: "match", preset, difference: 0 };
+    else if (difference > 0) return { status: "over", preset, difference };
+    else return { status: "under", preset, difference };
+  };
+
+  const materialsWithStatus = useMemo(() => {
+    return materials.map(m => ({
+      ...m,
+      matchInfo: getMatchStatus(m)
+    }));
+  }, [materials, presetItems]);
+
+  // Group materials by category
+  const groupedMaterials = useMemo(() => {
+    const groups: Record<string, typeof materialsWithStatus> = {};
+    
+    for (const mat of materialsWithStatus) {
+      // Try to find category from global inventory
+      const invItem = globalInventoryItems.find(i => i.id === mat.id || i.name.toLowerCase().includes(mat.name.toLowerCase().split(' ')[0]));
+      const category = mat.category || invItem?.category || "Other";
+      if (!groups[category]) groups[category] = [];
+      groups[category].push(mat);
+    }
+    
+    // Sort by category order
+    const sorted: Record<string, typeof materialsWithStatus> = {};
+    for (const cat of CATEGORY_ORDER) {
+      if (groups[cat]) sorted[cat] = groups[cat];
+    }
+    for (const cat in groups) {
+      if (!sorted[cat]) sorted[cat] = groups[cat];
+    }
+    return sorted;
+  }, [materialsWithStatus, globalInventoryItems]);
+
+  const totalValue = materials.reduce((sum, m) => sum + (m.totalQuantitySent * m.unitPrice), 0);
+
+  const toggleCategory = (cat: string) => {
+    setCollapsedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  };
+
+  const handleSelectItem = (id: number, checked: boolean) => {
+    const newSelected = new Set(selectedItems);
+    if (checked) {
+      newSelected.add(id);
+      setIssuingItems(prev => ({ ...prev, [id]: 1 }));
+    } else {
+      newSelected.delete(id);
+      const newIssuing = { ...issuingItems };
+      delete newIssuing[id];
+      setIssuingItems(newIssuing);
+    }
+    setSelectedItems(newSelected);
+  };
+
+  const handleQuantityChange = (id: number, quantity: number) => {
+    setIssuingItems(prev => ({ ...prev, [id]: quantity }));
+  };
+
+  const handleOpenIssueModal = () => {
+    if (selectedItems.size === 0) {
+      toast({ title: "No Items Selected", description: "Please select items to issue", variant: "destructive" });
+      return;
+    }
+    setIsIssueModalOpen(true);
+  };
+
+  const handleConfirmIssue = async () => {
+    const itemsToIssue = Array.from(selectedItems).map(id => ({
+      id,
+      quantity: issuingItems[id] || 1,
+      notes: issueNotes
+    }));
+    
+    const expenses = addExpenseWithIssue && parseFloat(expenseAmount) > 0 
+      ? [{ type: expenseType, amount: parseFloat(expenseAmount), notes: expenseNotes }]
+      : undefined;
+    
+    const taskInfo = assignTaskWithIssue && taskAssignee
+      ? { assigneeId: parseInt(taskAssignee), notes: taskNotes }
+      : undefined;
+
+    await onIssueMaterials?.(itemsToIssue, expenses, taskInfo);
+    
+    // Create transport task if assigned
+    if (assignTaskWithIssue && taskAssignee) {
+      const assignee = employees.find(e => e.id.toString() === taskAssignee);
+      const site = sites.find(s => s.name === projectName) || { id: 0, name: projectName };
+      
+      const materialNames = itemsToIssue.map(item => {
+        const mat = materials.find(m => m.id === item.id);
+        return mat?.name.toLowerCase() || "";
+      });
+      
+      let workType = "Material Transport";
+      let stageKey = "structure-transport";
+      
+      if (materialNames.some(n => n.includes("panel") || n.includes("module"))) {
+        workType = "Panel Transport";
+        stageKey = "panel-transport";
+      } else if (materialNames.some(n => n.includes("inverter"))) {
+        workType = "Inverter Transport";
+        stageKey = "inverter-transport";
+      } else if (materialNames.some(n => n.includes("structure") || n.includes("leg") || n.includes("raftor"))) {
+        workType = "Structure Transport";
+        stageKey = "structure-transport";
+      }
+      
+      addTask({
+        id: generateId("TASK"),
+        employeeId: parseInt(taskAssignee),
+        siteId: site.id.toString(),
+        siteName: projectName,
+        workType,
+        workTag: "Transport",
+        notes: taskNotes || `Transport ${itemsToIssue.length} item(s) to site`,
+        createdDate: format(new Date(), "yyyy-MM-dd"),
+        workDate: taskDate,
+        originalDate: taskDate,
+        status: "sent",
+        createdBy: "Admin",
+        workItems: [{ stageKey, stageName: workType, subItems: [] }]
+      });
+      
+      toast({ title: "Task Assigned", description: `Transport task assigned to ${assignee?.name || "employee"}` });
+    }
+    
+    toast({ title: "Materials Issued", description: `${itemsToIssue.length} item(s) issued to ${projectName}` });
+    
+    // Reset
+    setSelectedItems(new Set());
+    setIssuingItems({});
+    setIssueNotes("");
+    setAddExpenseWithIssue(false);
+    setExpenseType("transport");
+    setExpenseAmount("");
+    setExpenseNotes("");
+    setAssignTaskWithIssue(false);
+    setTaskAssignee("");
+    setTaskNotes("");
+    setTaskDate(format(new Date(), "yyyy-MM-dd"));
+    setIsIssueModalOpen(false);
+  };
+
+  const handleOpenSendMore = (material: MaterialItem) => {
+    setSelectedMaterialForSendMore(material);
+    setSendMoreQuantity("");
+    setIsSendMoreModalOpen(true);
+  };
+
+  const handleConfirmSendMore = async () => {
+    if (!selectedMaterialForSendMore || !sendMoreQuantity) return;
+    await onIssueMaterials?.([{ id: selectedMaterialForSendMore.id, quantity: parseInt(sendMoreQuantity) }]);
+    toast({ title: "Material Sent", description: `${sendMoreQuantity} units of ${selectedMaterialForSendMore.name} sent to site` });
+    setSendMoreQuantity("");
+    setSelectedMaterialForSendMore(null);
+    setIsSendMoreModalOpen(false);
+  };
+
+  const handleOpenReturn = (material: MaterialItem) => {
+    setReturnMaterial(material);
+    setReturnQuantity("");
+    setIsReturnModalOpen(true);
+  };
+
+  const handleConfirmReturn = async () => {
+    if (!returnMaterial || !returnQuantity) return;
+    const qty = parseFloat(returnQuantity);
+    if (qty <= 0 || qty > returnMaterial.totalQuantitySent) {
+      toast({ title: "Invalid quantity", variant: "destructive" });
+      return;
+    }
+    const result = (await (onReturnMaterial?.(returnMaterial.id, qty) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
+    if (!result.ok) {
+      toast({ title: "Return Failed", description: result.error || "Unable to return material", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Items Returned", description: `${qty} ${returnMaterial.unit} of ${returnMaterial.name} returned to warehouse` });
+    setReturnMaterial(null);
+    setReturnQuantity("");
+    setIsReturnModalOpen(false);
+  };
+
+  const handleOpenScrap = (material: MaterialItem) => {
+    setScrapMaterial(material);
+    setScrapQuantity("");
+    setIsScrapModalOpen(true);
+  };
+
+  const handleConfirmScrap = async () => {
+    if (!scrapMaterial || !scrapQuantity) return;
+    const qty = parseFloat(scrapQuantity);
+    if (qty <= 0 || qty > scrapMaterial.totalQuantitySent) {
+      toast({ title: "Invalid quantity", variant: "destructive" });
+      return;
+    }
+    const result = (await (onScrapMaterial?.(scrapMaterial.id, qty) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
+    if (!result.ok) {
+      toast({ title: "Scrap Failed", description: result.error || "Unable to scrap material", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Material Scrapped", description: `${qty} ${scrapMaterial.unit} of ${scrapMaterial.name} marked as scrap at site` });
+    setScrapMaterial(null);
+    setScrapQuantity("");
+    setIsScrapModalOpen(false);
+  };
+
+  const handleOpenConsume = (material: MaterialItem) => {
+    setConsumeMaterial(material);
+    setConsumeQuantity("");
+    setIsConsumeModalOpen(true);
+  };
+
+  const handleConfirmConsume = async () => {
+    if (!consumeMaterial || !consumeQuantity) return;
+    const qty = parseFloat(consumeQuantity);
+    if (qty <= 0 || qty > consumeMaterial.totalQuantitySent) {
+      toast({ title: "Invalid quantity", variant: "destructive" });
+      return;
+    }
+    const result = (await (onConsumeMaterial?.(consumeMaterial.id, qty) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
+    if (!result.ok) {
+      toast({ title: "Consumption Failed", description: result.error || "Unable to record consumption", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Consumption Recorded", description: `${qty} ${consumeMaterial.unit} of ${consumeMaterial.name} marked consumed at site` });
+    setConsumeMaterial(null);
+    setConsumeQuantity("");
+    setIsConsumeModalOpen(false);
+  };
+
+  const getStatusBadge = (status: MatchStatus, difference: number) => {
+    switch (status) {
+      case "match":
+        return <Badge className="bg-blue-500/10 text-blue-600 border-0 flex items-center gap-1"><Check className="w-3 h-3" /> Match</Badge>;
+      case "over":
+        return <Badge className="bg-red-500/10 text-red-600 border-0 flex items-center gap-1"><ArrowUp className="w-3 h-3" /> +{difference} Over</Badge>;
+      case "under":
+        return <Badge className="bg-amber-500/10 text-amber-600 border-0 flex items-center gap-1"><ArrowDown className="w-3 h-3" /> {difference} Under</Badge>;
+      default:
+        return <Badge variant="outline" className="text-xs">Not in Preset</Badge>;
+    }
+  };
+
+  // Check if an item allows decimal return
+  const getAllowDecimal = (material: MaterialItem): boolean => {
+    const invItem = globalInventoryItems.find(i => i.id === material.id);
+    return invItem?.allowDecimalReturn || false;
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Materials Sent to Site</h2>
+          <p className="text-sm text-muted-foreground">
+            Total Value: <span className="text-primary font-semibold">₹{totalValue.toLocaleString()}</span>
+            {presetItems.length > 0 && (
+              <span className="ml-2">• Matched against {presetItems.length} preset items</span>
+            )}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {selectedItems.size > 0 && (
+            <Button onClick={handleOpenIssueModal}>
+              <Send className="w-4 h-4 mr-2" />
+              Issue Selected ({selectedItems.size})
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Materials by Category */}
+      {materialsWithStatus.length === 0 ? (
+        <Card className="bg-muted/30">
+          <CardContent className="py-12 text-center">
+            <Package className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+            <p className="text-muted-foreground">No materials sent to this project yet</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {Object.entries(groupedMaterials).map(([category, catMaterials]) => {
+            const isCollapsed = collapsedCategories.has(category);
+            const catValue = catMaterials.reduce((s, m) => s + (m.totalQuantitySent * m.unitPrice), 0);
+            
+            return (
+              <Collapsible key={category} open={!isCollapsed} onOpenChange={() => toggleCategory(category)}>
+                <CollapsibleTrigger asChild>
+                  <div className="flex items-center justify-between p-3 bg-muted/40 rounded-lg cursor-pointer hover:bg-muted/60 transition-colors">
+                    <div className="flex items-center gap-3">
+                      {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      <h3 className="font-semibold text-sm">{category}</h3>
+                      <Badge variant="secondary" className="text-xs">{catMaterials.length} items</Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground font-medium">₹{catValue.toLocaleString()}</span>
+                  </div>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-3 mt-3">
+                    {catMaterials.map((material) => {
+                      const isSelected = selectedItems.has(material.id);
+                      const { status, preset, difference } = material.matchInfo;
+                      
+                      return (
+                        <Card 
+                          key={material.id} 
+                          className={`transition-all ${isSelected ? "border-primary/50 bg-primary/5" : "hover:border-primary/30"}`}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-4">
+                              <div className="pt-1">
+                                <Checkbox 
+                                  checked={isSelected}
+                                  onCheckedChange={(checked) => handleSelectItem(material.id, !!checked)}
+                                />
+                              </div>
+                              
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <h3 className="font-semibold text-base">{material.name}</h3>
+                                      {getStatusBadge(status, difference)}
+                                    </div>
+                                    
+                                    {preset && (
+                                      <p className="text-xs text-muted-foreground mb-2">
+                                        Preset requires: {preset.quantity} {preset.unit || material.unit}
+                                      </p>
+                                    )}
+                                    
+                                    <div className="flex flex-wrap gap-2 mt-2">
+                                      {material.issues.map((issue, idx) => (
+                                        <Badge key={idx} variant="outline" className="text-xs font-normal">
+                                          <Calendar className="w-3 h-3 mr-1" />
+                                          {format(new Date(issue.date), "dd MMM")}: <span className="font-medium ml-1">{issue.quantity}</span>
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="text-right shrink-0">
+                                    <div className="flex items-baseline gap-2 justify-end">
+                                      <span className="text-2xl font-bold">{material.totalQuantitySent}</span>
+                                      <span className="text-sm text-muted-foreground">{material.unit}</span>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                      @ ₹{material.unitPrice.toLocaleString()}/{material.unit}
+                                    </p>
+                                    <p className="text-base font-semibold text-primary mt-1">
+                                      ₹{(material.totalQuantitySent * material.unitPrice).toLocaleString()}
+                                    </p>
+                                  </div>
+                                </div>
+                                
+                                {/* Actions Row */}
+                                <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                                  <div className="flex gap-2">
+                                    <Button variant="outline" size="sm" onClick={() => handleOpenSendMore(material)}>
+                                      <Plus className="w-3 h-3 mr-1" /> Send More
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={() => handleOpenReturn(material)}>
+                                      <RotateCcw className="w-3 h-3 mr-1" /> Return Unused
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={() => handleOpenConsume(material)}>
+                                      <Check className="w-3 h-3 mr-1" /> Consume
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={() => handleOpenScrap(material)}>
+                                      <AlertTriangle className="w-3 h-3 mr-1" /> Scrap
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => handleSelectItem(material.id, !isSelected)}>
+                                      {isSelected ? "Remove from Issue List" : "Add to Issue List"}
+                                    </Button>
+                                  </div>
+                                  
+                                  {isSelected && (
+                                    <div className="flex items-center gap-2">
+                                      <Label className="text-xs">Issue Qty:</Label>
+                                      <Input
+                                        type="number"
+                                        className="w-20 h-8 text-center"
+                                        value={issuingItems[material.id] || 1}
+                                        min={1}
+                                        onChange={(e) => handleQuantityChange(material.id, parseInt(e.target.value) || 1)}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Tools Assigned Section */}
+      {toolsAssigned.length > 0 && (
+        <Collapsible open={isToolsSectionOpen} onOpenChange={setIsToolsSectionOpen}>
+          <Card className="mt-6">
+            <CollapsibleTrigger asChild>
+              <CardHeader className="cursor-pointer hover:bg-muted/30 transition-colors py-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Wrench className="w-5 h-5 text-primary" />
+                    <CardTitle className="text-base">Tools Assigned to Site</CardTitle>
+                    <Badge variant="secondary" className="ml-2">{toolsAssigned.length}</Badge>
+                  </div>
+                  {isToolsSectionOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="pt-0 pb-4">
+                <DataTableShell
+                  maxHeight={listTableViewportMaxHeight(toolsPageSize)}
+                  scrollResetKey={`${safeToolsPage}-${toolsPageSize}-${toolsAssigned.length}`}
+                  footer={
+                    <TablePaginationBar
+                      page={safeToolsPage}
+                      pageSize={toolsPageSize}
+                      total={toolsAssigned.length}
+                      onPageChange={setToolsPage}
+                      onPageSizeChange={(n) => {
+                        setToolsPageSize(n);
+                        setToolsPage(1);
+                      }}
+                    />
+                  }
+                >
+                  <TableHeader>
+                    <TableRow className={dataTableClasses.headRow}>
+                      <TableHead>Tool Name</TableHead>
+                      <TableHead>Assigned To</TableHead>
+                      <TableHead>Date Issued</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pagedTools.map((tool) => (
+                      <TableRow key={tool.id}>
+                        <TableCell className="font-medium">{tool.name}</TableCell>
+                        <TableCell>{tool.assignedTo}</TableCell>
+                        <TableCell>{tool.dateIssued}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              tool.status === "Returned"
+                                ? "border-blue-500/30 bg-blue-500/10 text-blue-600"
+                                : "border-amber-500/30 bg-amber-500/10 text-amber-600"
+                            }
+                          >
+                            {tool.status || "In Use"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </DataTableShell>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+      )}
+
+      {/* Issue Confirmation Modal - with expense & task assignment options */}
+      <Sheet open={isIssueModalOpen} onOpenChange={setIsIssueModalOpen}>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Truck className="w-5 h-5 text-primary" /> Confirm Issue
+            </SheetTitle>
+            <SheetDescription>Review items to be issued to {projectName}</SheetDescription>
+          </SheetHeader>
+          
+          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+            {/* Items Summary */}
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {Array.from(selectedItems).map(id => {
+                const material = materials.find(m => m.id === id);
+                if (!material) return null;
+                const qty = issuingItems[id] || 1;
+                return (
+                  <div key={id} className="flex justify-between items-center p-2 bg-muted/30 rounded">
+                    <span className="text-sm">{material.name}</span>
+                    <span className="font-medium">Qty: {qty}</span>
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* Issue Notes */}
+            <div className="space-y-2">
+              <Label>Issue Notes (Optional)</Label>
+              <Textarea placeholder="Add notes for this issue..." value={issueNotes} onChange={(e) => setIssueNotes(e.target.value)} rows={2} />
+            </div>
+            
+            {/* Add Expense Option */}
+            <div className="space-y-3 p-3 border rounded-lg">
+              <div className="flex items-center gap-2">
+                <Checkbox id="add-expense" checked={addExpenseWithIssue} onCheckedChange={(checked) => setAddExpenseWithIssue(!!checked)} />
+                <Label htmlFor="add-expense" className="cursor-pointer">Add related expense (transport, etc.)</Label>
+              </div>
+              
+              {addExpenseWithIssue && (
+                <div className="space-y-3 pt-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="text-xs">Expense Type</Label>
+                      <Select value={expenseType} onValueChange={setExpenseType}>
+                        <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="transport">Transport</SelectItem>
+                          <SelectItem value="loading">Loading/Unloading</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Amount (₹)</Label>
+                      <Input type="number" className="h-8" placeholder="0" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} />
+                    </div>
+                  </div>
+                  <Input placeholder="Expense notes (optional)" value={expenseNotes} onChange={(e) => setExpenseNotes(e.target.value)} className="h-8 text-sm" />
+                </div>
+              )}
+            </div>
+            
+            {/* Assign Transport Task Option */}
+            <div className="space-y-3 p-3 border rounded-lg">
+              <div className="flex items-center gap-2">
+                <Checkbox id="assign-task" checked={assignTaskWithIssue} onCheckedChange={(checked) => setAssignTaskWithIssue(!!checked)} />
+                <Label htmlFor="assign-task" className="cursor-pointer flex items-center gap-2">
+                  <User className="w-4 h-4 text-muted-foreground" /> Assign transport task to someone
+                </Label>
+              </div>
+              
+              {assignTaskWithIssue && (
+                <div className="space-y-3 pt-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="text-xs">Assign To *</Label>
+                      <Select value={taskAssignee} onValueChange={setTaskAssignee}>
+                        <SelectTrigger className="h-8"><SelectValue placeholder="Select employee" /></SelectTrigger>
+                        <SelectContent>
+                          {employees.filter(e => e.status === "Active").map(emp => (
+                            <SelectItem key={emp.id} value={emp.id.toString()}>{emp.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Task Date</Label>
+                      <Input type="date" className="h-8" value={taskDate} onChange={(e) => setTaskDate(e.target.value)} />
+                    </div>
+                  </div>
+                  <Textarea placeholder="Task notes (optional)" value={taskNotes} onChange={(e) => setTaskNotes(e.target.value)} rows={2} className="text-sm" />
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setIsIssueModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleConfirmIssue}>
+              <CheckCircle2 className="w-4 h-4 mr-2" /> Confirm Issue
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Send More Modal */}
+      <Sheet open={isSendMoreModalOpen} onOpenChange={setIsSendMoreModalOpen}>
+        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+          <SheetHeader>
+            <SheetTitle>Send More</SheetTitle>
+            <SheetDescription>{selectedMaterialForSendMore?.name}</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-3 bg-muted/30 rounded-lg">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Already Sent:</span>
+                <span className="font-medium">{selectedMaterialForSendMore?.totalQuantitySent} {selectedMaterialForSendMore?.unit}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Quantity to Send</Label>
+              <Input type="number" placeholder="Enter quantity" value={sendMoreQuantity} onChange={(e) => setSendMoreQuantity(e.target.value)} />
+            </div>
+          </div>
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setIsSendMoreModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleConfirmSendMore} disabled={!sendMoreQuantity}>
+              <Send className="w-4 h-4 mr-2" /> Send
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Return to Warehouse Modal */}
+      <Sheet open={isReturnModalOpen} onOpenChange={setIsReturnModalOpen}>
+        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <RotateCcw className="w-5 h-5 text-primary" /> Return to Warehouse
+            </SheetTitle>
+            <SheetDescription>{returnMaterial?.name}</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-3 bg-muted/30 rounded-lg">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Total Issued:</span>
+                <span className="font-medium">{returnMaterial?.totalQuantitySent} {returnMaterial?.unit}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Return Quantity</Label>
+              <Input 
+                type="number" 
+                placeholder="Enter quantity to return" 
+                value={returnQuantity} 
+                onChange={(e) => setReturnQuantity(e.target.value)}
+                step={returnMaterial && getAllowDecimal({ ...returnMaterial }) ? "0.1" : "1"}
+                max={returnMaterial?.totalQuantitySent}
+                min={0}
+              />
+              {returnMaterial && getAllowDecimal({ ...returnMaterial }) && (
+                <p className="text-xs text-muted-foreground">Decimal values allowed for this item</p>
+              )}
+            </div>
+          </div>
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setIsReturnModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleConfirmReturn} disabled={!returnQuantity || parseFloat(returnQuantity) <= 0}>
+              <RotateCcw className="w-4 h-4 mr-2" /> Confirm Return
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Scrap at Site Modal */}
+      <Sheet open={isScrapModalOpen} onOpenChange={setIsScrapModalOpen}>
+        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+          <SheetHeader>
+            <SheetTitle>Scrap at Site</SheetTitle>
+            <SheetDescription>{scrapMaterial?.name}</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-4">
+            <Label>Scrap Quantity</Label>
+            <Input type="number" value={scrapQuantity} onChange={(e) => setScrapQuantity(e.target.value)} min={0} />
+          </div>
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setIsScrapModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleConfirmScrap} disabled={!scrapQuantity || parseFloat(scrapQuantity) <= 0}>Confirm Scrap</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Consumption Modal */}
+      <Sheet open={isConsumeModalOpen} onOpenChange={setIsConsumeModalOpen}>
+        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+          <SheetHeader>
+            <SheetTitle>Record Site Consumption</SheetTitle>
+            <SheetDescription>{consumeMaterial?.name}</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-4">
+            <Label>Consumed Quantity</Label>
+            <Input type="number" value={consumeQuantity} onChange={(e) => setConsumeQuantity(e.target.value)} min={0} />
+          </div>
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setIsConsumeModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleConfirmConsume} disabled={!consumeQuantity || parseFloat(consumeQuantity) <= 0}>Record</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
