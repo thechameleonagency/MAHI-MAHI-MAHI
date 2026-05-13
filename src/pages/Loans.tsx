@@ -1,9 +1,8 @@
-import { useState, useMemo } from "react";
-import { Plus, Search, CreditCard, IndianRupee, Calendar, Building2, User, Clock, Bell, AlertCircle } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Plus, Search, CreditCard, IndianRupee, Calendar, Building2, User, Clock, Bell, AlertCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
@@ -11,16 +10,49 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import type { Loan, LoanRepayment } from "@/types/finance";
+import { emiComponents } from "@/lib/emiCalc";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { formatINR } from "@/lib/formatCurrency";
+import { differenceInCalendarDays, parseISO, addMonths, format, isValid } from "date-fns";
+
+function lastLoanRepaymentDate(loanId: string, repayments: LoanRepayment[]): string | null {
+  const dates = repayments.filter((r) => r.loanId === loanId).map((r) => r.date);
+  if (!dates.length) return null;
+  return dates.reduce((a, b) => (a > b ? a : b));
+}
+
+/** Prototype schedule: EMI #n due at start + n months; overdue when that date is past and principal remains. */
+function loanDaysOverdue(loan: Loan, repayments: LoanRepayment[]): number {
+  const todayIso = new Date().toISOString().split("T")[0];
+  if (loan.status !== "Active") return 0;
+
+  if (loan.paymentType === "one-time" && loan.dueDate && loan.outstanding > 0.01 && loan.dueDate < todayIso) {
+    return differenceInCalendarDays(parseISO(todayIso), parseISO(loan.dueDate));
+  }
+  if (loan.paymentType === "emi" && loan.startDate && loan.outstanding > 0.01) {
+    const paidCount = repayments.filter((r) => r.loanId === loan.id).length;
+    const nextDueIso = format(addMonths(parseISO(loan.startDate), paidCount + 1), "yyyy-MM-dd");
+    if (nextDueIso < todayIso) {
+      return differenceInCalendarDays(parseISO(todayIso), parseISO(nextDueIso));
+    }
+    return 0;
+  }
+  if (loan.paymentType === "reminder-only" && loan.reminderDate && loan.reminderDate < todayIso) {
+    return differenceInCalendarDays(parseISO(todayIso), parseISO(loan.reminderDate));
+  }
+  return 0;
+}
 
 const Loans = () => {
-  const { loans, loanRepayments, addLoan, addLoanRepayment, generateId } = useAppData();
+  const { loans, loanRepayments, addLoan, addLoanRepayment, deleteLoanRepayment, updateLoan, generateId, canDo } = useAppData();
   
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -32,6 +64,7 @@ const Loans = () => {
   const [isAddLoanOpen, setIsAddLoanOpen] = useState(false);
   const [isRepaymentOpen, setIsRepaymentOpen] = useState(false);
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
+  const [deleteRepaymentId, setDeleteRepaymentId] = useState<string | null>(null);
   
   // Form state
   const [loanSourceType, setLoanSourceType] = useState<"bank" | "person" | "partner" | "nbfc" | "other">("bank");
@@ -50,6 +83,15 @@ const Loans = () => {
   const [repaymentAmount, setRepaymentAmount] = useState("");
   const [repaymentDate, setRepaymentDate] = useState(new Date().toISOString().split('T')[0]);
 
+  const todayIso = () => new Date().toISOString().split("T")[0];
+
+  /** Repayment sheet: default date to today each time it opens (avoids stale "yesterday" after midnight). */
+  useEffect(() => {
+    if (isRepaymentOpen) {
+      setRepaymentDate(todayIso());
+    }
+  }, [isRepaymentOpen]);
+
   const resetLoanForm = () => {
     setLoanSourceType("bank");
     setLoanPaymentType("emi");
@@ -61,7 +103,7 @@ const Loans = () => {
     setLoanDueDate("");
     setLoanReminderDate("");
     setLoanReminderNotes("");
-    setLoanStartDate(new Date().toISOString().split('T')[0]);
+    setLoanStartDate(todayIso());
   };
 
   const handleAddLoan = () => {
@@ -70,13 +112,38 @@ const Loans = () => {
       return;
     }
 
+    const t = todayIso();
+    if (loanStartDate > t) {
+      toast({ title: "Invalid start date", description: "Loan start date cannot be in the future.", variant: "destructive" });
+      return;
+    }
+    if (loanStartDate < "2000-01-01") {
+      toast({ title: "Invalid start date", description: "Loan start date is too far in the past.", variant: "destructive" });
+      return;
+    }
+
     if (loanPaymentType === "emi" && !loanEmi) {
       toast({ title: "Error", description: "EMI amount is required for EMI loans", variant: "destructive" });
       return;
     }
 
+    if (loanPaymentType === "emi" && (parseInt(loanTenure) || 0) < 1) {
+      toast({ title: "Error", description: "Tenure must be at least 1 month", variant: "destructive" });
+      return;
+    }
+
     if (loanPaymentType === "one-time" && !loanDueDate) {
       toast({ title: "Error", description: "Due date is required for one-time payment loans", variant: "destructive" });
+      return;
+    }
+
+    if (loanPaymentType === "one-time" && loanDueDate && loanDueDate < loanStartDate) {
+      toast({ title: "Invalid Dates", description: "Due date cannot be earlier than start date.", variant: "destructive" });
+      return;
+    }
+
+    if (loanPaymentType === "reminder-only" && loanReminderDate && loanReminderDate < loanStartDate) {
+      toast({ title: "Invalid Dates", description: "Reminder date cannot be earlier than start date.", variant: "destructive" });
       return;
     }
 
@@ -109,17 +176,59 @@ const Loans = () => {
       return;
     }
 
+    const t = todayIso();
+    if (repaymentDate > t) {
+      toast({ title: "Invalid date", description: "Repayment date cannot be in the future.", variant: "destructive" });
+      return;
+    }
+    if (selectedLoan.startDate && repaymentDate < selectedLoan.startDate) {
+      toast({ title: "Invalid date", description: "Repayment cannot be before the loan start date.", variant: "destructive" });
+      return;
+    }
+
     const amount = parseFloat(repaymentAmount);
     const emiCount = loanRepayments.filter(r => r.loanId === selectedLoan.id).length + 1;
-    
+
+    let principalPaid: number;
+    let interestPaid: number;
+    if (
+      selectedLoan.paymentType === "emi" &&
+      selectedLoan.tenure > 0 &&
+      selectedLoan.interestRate > 0
+    ) {
+      const { principalComponent, interestComponent } = emiComponents(
+        selectedLoan.principal,
+        selectedLoan.interestRate,
+        selectedLoan.tenure,
+        emiCount,
+      );
+      const scheduledTotal = principalComponent + interestComponent;
+      const paysScheduledEmi =
+        Math.abs(amount - selectedLoan.emiAmount) < 1.5 ||
+        Math.abs(amount - scheduledTotal) < 1.5;
+      if (paysScheduledEmi && scheduledTotal > 0) {
+        const scale = amount / scheduledTotal;
+        principalPaid = Math.round(principalComponent * scale * 100) / 100;
+        interestPaid = Math.round((amount - principalPaid) * 100) / 100;
+      } else {
+        const r = selectedLoan.interestRate / 12 / 100;
+        interestPaid = Math.min(amount, Math.round(selectedLoan.outstanding * r));
+        principalPaid = Math.round((amount - interestPaid) * 100) / 100;
+      }
+      principalPaid = Math.min(principalPaid, selectedLoan.outstanding);
+    } else {
+      principalPaid = Math.min(amount, selectedLoan.outstanding);
+      interestPaid = Math.round((amount - principalPaid) * 100) / 100;
+    }
+
     const repayment: LoanRepayment = {
       id: generateId('REP'),
       loanId: selectedLoan.id,
       loanSource: selectedLoan.source,
       date: repaymentDate,
       emiNumber: emiCount,
-      principalPaid: amount * 0.7,
-      interestPaid: amount * 0.3,
+      principalPaid,
+      interestPaid,
       totalPaid: amount,
     };
 
@@ -142,7 +251,7 @@ const Loans = () => {
 
   const { pagedItems: pagedLoans, safePage } = usePagedSlice(filteredLoans, tablePage, tablePageSize);
 
-  const formatCurrency = (amount: number) => `₹${amount.toLocaleString()}`;
+  const formatCurrency = (amount: number) => formatINR(amount);
 
   // Stats - only count EMI loans for monthly EMI calculation
   const totalPrincipal = loans.reduce((sum, l) => sum + l.principal, 0);
@@ -182,16 +291,13 @@ const Loans = () => {
   };
 
   const getPaymentTypeBadge = (type: string) => {
-    switch (type) {
-      case "emi":
-        return <Badge className="bg-primary/10 text-primary border-0 text-xs">EMI</Badge>;
-      case "one-time":
-        return <Badge className="bg-warning/10 text-warning border-0 text-xs">One-Time</Badge>;
-      case "reminder-only":
-        return <Badge className="bg-muted text-muted-foreground border-0 text-xs">Reminder</Badge>;
-      default:
-        return null;
-    }
+    const labels: Record<string, string> = {
+      emi: "EMI",
+      "one-time": "One-Time",
+      "reminder-only": "Reminder",
+    };
+    if (!labels[type]) return null;
+    return <StatusBadge status={type} label={labels[type]} className="text-xs" />;
   };
 
   return (
@@ -210,7 +316,7 @@ const Loans = () => {
           />
         }
       >
-        <Button size="sm" onClick={() => { resetLoanForm(); setIsAddLoanOpen(true); }}>
+        <Button size="sm" onClick={() => { resetLoanForm(); setIsAddLoanOpen(true); }} disabled={!canDo("loan:update")}>
           <Plus className="h-4 w-4 mr-2" />
           Add
         </Button>
@@ -290,12 +396,17 @@ const Loans = () => {
             <TableHead className="text-right">Rate</TableHead>
             <TableHead className="text-right">Payment Info</TableHead>
             <TableHead className="text-right">Outstanding</TableHead>
+            <TableHead className="text-right">Days overdue</TableHead>
+            <TableHead>Last payment</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-            {pagedLoans.map((loan) => (
+            {pagedLoans.map((loan) => {
+              const lastPay = lastLoanRepaymentDate(loan.id, loanRepayments);
+              const overdueDays = loanDaysOverdue(loan, loanRepayments);
+              return (
               <TableRow key={loan.id} className="border-border">
                 <TableCell>
                   <div className="flex items-center gap-2">
@@ -308,10 +419,18 @@ const Loans = () => {
                 <TableCell className="text-right">{loan.interestRate > 0 ? `${loan.interestRate}%` : '-'}</TableCell>
                 <TableCell className="text-right">{getPaymentTypeDisplay(loan)}</TableCell>
                 <TableCell className="text-right text-warning">{formatCurrency(loan.outstanding)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {overdueDays > 0 ? (
+                    <span className="font-medium text-destructive">{overdueDays}</span>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {lastPay && isValid(parseISO(lastPay)) ? format(parseISO(lastPay), "dd MMM yyyy") : "—"}
+                </TableCell>
                 <TableCell>
-                  <Badge className={loan.status === "Active" ? "bg-primary/10 text-primary border-0" : "bg-muted text-muted-foreground border-0"}>
-                    {loan.status}
-                  </Badge>
+                  <StatusBadge status={loan.status} label={loan.status} className="text-xs" />
                 </TableCell>
                 <TableCell className="text-right">
                   {loan.status === "Active" && loan.paymentType !== "reminder-only" && (
@@ -331,15 +450,50 @@ const Loans = () => {
                   {loan.status === "Active" && loan.paymentType === "reminder-only" && (
                     <span className="text-xs text-muted-foreground italic">View only</span>
                   )}
+                  {loan.status === "Active" && loan.outstanding <= 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="ml-1 text-green-700 border-green-300 hover:bg-green-50"
+                      onClick={() => updateLoan(loan.id, { status: "Closed", outstanding: 0 })}
+                    >
+                      Close Loan
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
       </DataTableShell>
       {filteredLoans.length === 0 && (
         <div className="text-center py-12">
           <CreditCard className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">No loans found</p>
+          <p className="text-muted-foreground">
+            {loans.length === 0 ? "No loans recorded yet." : "No loans match the current filters."}
+          </p>
+          {loans.length === 0 ? (
+            <Button className="mt-4" onClick={() => { resetLoanForm(); setIsAddLoanOpen(true); }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add your first loan
+            </Button>
+          ) : (
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setStatusFilter("all");
+                  setTypeFilter("all");
+                  setTablePage(1);
+                }}
+              >
+                Clear filters
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -355,7 +509,19 @@ const Loans = () => {
                     <p className="font-medium">{rep.loanSource}</p>
                     <p className="text-xs text-muted-foreground">#{rep.emiNumber} • {new Date(rep.date).toLocaleDateString('en-IN')}</p>
                   </div>
-                  <span className="font-semibold text-primary">{formatCurrency(rep.totalPaid)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-primary">{formatCurrency(rep.totalPaid)}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-destructive hover:text-destructive"
+                      onClick={() => setDeleteRepaymentId(rep.id)}
+                      disabled={!canDo("loan:delete")}
+                      aria-label="Delete repayment"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -365,14 +531,14 @@ const Loans = () => {
 
       {/* Add Loan Sheet */}
       <Sheet open={isAddLoanOpen} onOpenChange={setIsAddLoanOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add New Loan</SheetTitle>
           </SheetHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Source Type</Label>
-              <Select value={loanSourceType} onValueChange={(v) => setLoanSourceType(v as any)}>
+              <Select value={loanSourceType} onValueChange={(v) => setLoanSourceType(v as "bank" | "person" | "partner" | "nbfc" | "other")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -388,7 +554,7 @@ const Loans = () => {
 
             <div className="space-y-2">
               <Label>Payment Type</Label>
-              <Select value={loanPaymentType} onValueChange={(v) => setLoanPaymentType(v as any)}>
+              <Select value={loanPaymentType} onValueChange={(v) => setLoanPaymentType(v as "emi" | "one-time" | "reminder-only")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -445,7 +611,7 @@ const Loans = () => {
                 </div>
                 <div className="space-y-2">
                   <Label>Tenure (months)</Label>
-                  <Input type="number" value={loanTenure} onChange={(e) => setLoanTenure(e.target.value)} placeholder="60" />
+                  <Input type="number" min="1" value={loanTenure} onChange={(e) => setLoanTenure(e.target.value)} placeholder="60" />
                 </div>
               </div>
             )}
@@ -454,7 +620,7 @@ const Loans = () => {
             {loanPaymentType === "one-time" && (
               <div className="space-y-2">
                 <Label>Due Date *</Label>
-                <Input type="date" value={loanDueDate} onChange={(e) => setLoanDueDate(e.target.value)} />
+                <Input type="date" min={loanStartDate || undefined} value={loanDueDate} onChange={(e) => setLoanDueDate(e.target.value)} />
               </div>
             )}
 
@@ -463,7 +629,7 @@ const Loans = () => {
               <>
                 <div className="space-y-2">
                   <Label>Reminder Date (optional)</Label>
-                  <Input type="date" value={loanReminderDate} onChange={(e) => setLoanReminderDate(e.target.value)} />
+                  <Input type="date" min={loanStartDate || undefined} value={loanReminderDate} onChange={(e) => setLoanReminderDate(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label>Notes</Label>
@@ -487,7 +653,7 @@ const Loans = () => {
 
       {/* Record Repayment Sheet */}
       <Sheet open={isRepaymentOpen} onOpenChange={setIsRepaymentOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>
               {selectedLoan?.paymentType === "emi" ? "Record EMI Payment" : "Record Payment"}
@@ -523,6 +689,19 @@ const Loans = () => {
           </div>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={!!deleteRepaymentId} onOpenChange={(open) => { if (!open) setDeleteRepaymentId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete repayment?</AlertDialogTitle>
+            <AlertDialogDescription>This will reverse the repayment and restore the outstanding balance on the loan.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => { if (deleteRepaymentId) { deleteLoanRepayment(deleteRepaymentId); setDeleteRepaymentId(null); } }}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 };

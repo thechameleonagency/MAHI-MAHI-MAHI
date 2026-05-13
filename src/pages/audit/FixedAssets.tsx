@@ -91,8 +91,9 @@ const FixedAssets = () => {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Asset Register ({method === "wdv" ? "WDV" : "SLM"} @ {method === "wdv" ? "15%" : "10 yrs"})</CardTitle>
         </CardHeader>
-        <CardContent className="p-0 pt-4">
+        <CardContent className="p-0">
           <DataTableShell
+            variant="inline"
             maxHeight={listTableViewportMaxHeight(pageSize)}
             scrollResetKey={`${safePage}-${pageSize}-${method}-${assetsWithDepreciation.length}`}
             footer={
@@ -123,22 +124,22 @@ const FixedAssets = () => {
             <TableBody>
               {pagedAssets.map((asset) => (
                 <TableRow key={asset.id}>
-                  <TableCell className="text-sm font-medium">{asset.name}</TableCell>
+                  <TableCell className="font-medium">{asset.name}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-xs">
                       {asset.category}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-sm">{asset.purchaseDate || "-"}</TableCell>
-                  <TableCell className="text-right text-sm">{fmt(asset.cost)}</TableCell>
-                  <TableCell className="text-right text-sm text-orange-600">{fmt(asset.accumulatedDepreciation)}</TableCell>
-                  <TableCell className="text-right text-sm font-medium">{fmt(asset.bookValue)}</TableCell>
+                  <TableCell >{asset.purchaseDate || "-"}</TableCell>
+                  <TableCell className="text-right">{fmt(asset.cost)}</TableCell>
+                  <TableCell className="text-right text-orange-600">{fmt(asset.accumulatedDepreciation)}</TableCell>
+                  <TableCell className="text-right font-medium">{fmt(asset.bookValue)}</TableCell>
                   <TableCell>
                     <Badge variant={asset.status === "In Use" ? "default" : "secondary"} className="text-xs">
                       {asset.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{asset.site}</TableCell>
+                  <TableCell className="text-muted-foreground">{asset.site}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

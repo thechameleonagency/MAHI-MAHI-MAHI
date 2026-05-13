@@ -1,5 +1,25 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, Building2, Users, FileText, Package, Handshake, Receipt, X } from "lucide-react";
+import {
+  Search,
+  Building2,
+  Users,
+  FileText,
+  Package,
+  Handshake,
+  Receipt,
+  X,
+  Warehouse,
+  Wrench,
+  UserPlus,
+  ClipboardList,
+  UsersRound,
+  Landmark,
+  ListTodo,
+  ShieldCheck,
+  HardHat,
+  MapPin,
+  LayoutTemplate,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -10,19 +30,48 @@ import { cn } from "@/lib/utils";
 type SearchResult = {
   id: string;
   name: string;
-  type: "project" | "customer" | "employee" | "invoice" | "quotation" | "partner" | "vendor";
+  type:
+    | "project"
+    | "customer"
+    | "employee"
+    | "invoice"
+    | "quotation"
+    | "partner"
+    | "vendor"
+    | "inventory"
+    | "tool"
+    | "agent"
+    | "enquiry"
+    | "team"
+    | "loan"
+    | "task"
+    | "vendorship_company"
+    | "inc_source"
+    | "site"
+    | "template";
   subtitle?: string;
   path: string;
 };
 
 const typeConfig = {
-  project: { icon: Building2, label: "Project", color: "bg-blue-500/20 text-blue-400" },
-  customer: { icon: Users, label: "Customer", color: "bg-blue-500/20 text-blue-400" },
+  project: { icon: Building2, label: "Project", color: "bg-primary/20 text-primary" },
+  customer: { icon: Users, label: "Customer", color: "bg-primary/20 text-primary" },
   employee: { icon: Users, label: "Employee", color: "bg-purple-500/20 text-purple-400" },
   invoice: { icon: Receipt, label: "Invoice", color: "bg-orange-500/20 text-orange-400" },
   quotation: { icon: FileText, label: "Quotation", color: "bg-cyan-500/20 text-cyan-400" },
   partner: { icon: Handshake, label: "Partner", color: "bg-yellow-500/20 text-yellow-400" },
   vendor: { icon: Package, label: "Vendor", color: "bg-pink-500/20 text-pink-400" },
+  inventory: { icon: Warehouse, label: "Inventory", color: "bg-emerald-500/20 text-emerald-400" },
+  tool: { icon: Wrench, label: "Tool", color: "bg-slate-500/20 text-slate-400" },
+  agent: { icon: UserPlus, label: "Agent", color: "bg-indigo-500/20 text-indigo-400" },
+  enquiry: { icon: ClipboardList, label: "Enquiry", color: "bg-teal-500/20 text-teal-400" },
+  team: { icon: UsersRound, label: "Team", color: "bg-violet-500/20 text-violet-400" },
+  loan: { icon: Landmark, label: "Loan", color: "bg-rose-500/20 text-rose-400" },
+  task: { icon: ListTodo, label: "Task", color: "bg-amber-500/20 text-amber-400" },
+  vendorship_company: { icon: ShieldCheck, label: "Vendorship", color: "bg-sky-500/20 text-sky-400" },
+  inc_source: { icon: HardHat, label: "INC source", color: "bg-orange-500/20 text-orange-300" },
+  site: { icon: MapPin, label: "Site", color: "bg-lime-500/20 text-lime-400" },
+  template: { icon: LayoutTemplate, label: "Template", color: "bg-fuchsia-500/20 text-fuchsia-400" },
 };
 
 const GlobalSearch = () => {
@@ -33,7 +82,27 @@ const GlobalSearch = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const { projects, customers, employees, invoices, saleBills, quotations, partners, vendors } = useAppData();
+  const {
+    projects,
+    customers,
+    employees,
+    invoices,
+    saleBills,
+    quotations,
+    partners,
+    vendors,
+    inventoryItems,
+    tools,
+    agents,
+    enquiries,
+    teams,
+    loans,
+    tasks,
+    vendorshipCompanies,
+    incGiverCompanies,
+    sites,
+    quotationTemplates,
+  } = useAppData();
 
   useEffect(() => {
     if (!query.trim()) {
@@ -118,7 +187,7 @@ const GlobalSearch = () => {
           name: p.name,
           type: "partner",
           subtitle: p.phone,
-          path: `/finance?tab=partners&partner=${p.id}`,
+          path: `/partners/${p.id}`,
         });
       }
     });
@@ -136,9 +205,171 @@ const GlobalSearch = () => {
       }
     });
 
-    setResults(searchResults.slice(0, 10));
+    inventoryItems.forEach((it) => {
+      const hay = `${it.name} ${it.category ?? ""} ${it.hsn ?? ""}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
+        searchResults.push({
+          id: `inv-item-${it.id}`,
+          name: it.name,
+          type: "inventory",
+          subtitle: it.category,
+          path: `/inventory`,
+        });
+      }
+    });
+
+    tools.forEach((t) => {
+      const hay = `${t.name} ${t.category} ${t.status}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
+        searchResults.push({
+          id: `tool-${t.id}`,
+          name: t.name,
+          type: "tool",
+          subtitle: t.status,
+          path: `/inventory/tools`,
+        });
+      }
+    });
+
+    agents.forEach((a) => {
+      if (a.name.toLowerCase().includes(searchQuery) || a.phone?.includes(searchQuery)) {
+        searchResults.push({
+          id: a.id,
+          name: a.name,
+          type: "agent",
+          subtitle: a.phone,
+          path: `/agents/${a.id}`,
+        });
+      }
+    });
+
+    enquiries.forEach((e) => {
+      const hay = `${e.customerName} ${e.customerPhone} ${e.status}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
+        searchResults.push({
+          id: e.id,
+          name: e.customerName,
+          type: "enquiry",
+          subtitle: e.status,
+          path: `/enquiries`,
+        });
+      }
+    });
+
+    teams.forEach((team) => {
+      if (team.name.toLowerCase().includes(searchQuery)) {
+        searchResults.push({
+          id: team.id,
+          name: team.name,
+          type: "team",
+          subtitle: team.status,
+          path: `/teams`,
+        });
+      }
+    });
+
+    loans.forEach((loan) => {
+      const hay = `${loan.source} ${loan.personName ?? ""}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
+        searchResults.push({
+          id: loan.id,
+          name: loan.source,
+          type: "loan",
+          subtitle: loan.personName,
+          path: `/loans/person/${encodeURIComponent(loan.source)}`,
+        });
+      }
+    });
+
+    tasks.forEach((task) => {
+      const hay = `${task.notes} ${task.workType} ${task.siteName}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
+        searchResults.push({
+          id: task.id,
+          name: task.workType || "Task",
+          type: "task",
+          subtitle: task.siteName,
+          path: `/projects/${task.projectId}`,
+        });
+      }
+    });
+
+    (vendorshipCompanies ?? []).forEach((c) => {
+      const hay = `${c.name} ${c.registrationCode ?? ""} ${c.email ?? ""} ${c.phone ?? ""}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
+        searchResults.push({
+          id: c.id,
+          name: c.name,
+          type: "vendorship_company",
+          subtitle: c.registrationCode,
+          path: `/vendorship-companies`,
+        });
+      }
+    });
+
+    (incGiverCompanies ?? []).forEach((c) => {
+      const hay = `${c.name} ${c.email ?? ""} ${c.phone ?? ""}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
+        searchResults.push({
+          id: c.id,
+          name: c.name,
+          type: "inc_source",
+          subtitle: c.phone,
+          path: `/inc-work-sources`,
+        });
+      }
+    });
+
+    sites.forEach((s) => {
+      const hay = `${s.name} ${s.projectName ?? ""} ${s.projectId}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
+        searchResults.push({
+          id: `site-${s.id}-${s.projectId}`,
+          name: s.name,
+          type: "site",
+          subtitle: s.projectName || s.projectId,
+          path: `/projects/${s.projectId}`,
+        });
+      }
+    });
+
+    quotationTemplates.forEach((t) => {
+      const hay = `${t.name} ${t.segment}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
+        searchResults.push({
+          id: t.id,
+          name: t.name,
+          type: "template",
+          subtitle: t.segment,
+          path: `/templates`,
+        });
+      }
+    });
+
+    setResults(searchResults.slice(0, 20));
     setSelectedIndex(0);
-  }, [query, projects, customers, employees, invoices, saleBills, quotations, partners, vendors]);
+  }, [
+    query,
+    projects,
+    customers,
+    employees,
+    invoices,
+    saleBills,
+    quotations,
+    partners,
+    vendors,
+    inventoryItems,
+    tools,
+    agents,
+    enquiries,
+    teams,
+    loans,
+    tasks,
+    vendorshipCompanies,
+    incGiverCompanies,
+    sites,
+    quotationTemplates,
+  ]);
 
   // Handle click outside
   useEffect(() => {
@@ -182,6 +413,7 @@ const GlobalSearch = () => {
           ref={inputRef}
           type="text"
           placeholder="Search..."
+          aria-label="Global search"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -193,6 +425,8 @@ const GlobalSearch = () => {
         />
         {query && (
           <button
+            type="button"
+            aria-label="Clear search"
             onClick={() => {
               setQuery("");
               setResults([]);
@@ -231,7 +465,7 @@ const GlobalSearch = () => {
                         <p className="text-xs text-muted-foreground truncate">{result.subtitle}</p>
                       )}
                     </div>
-                    <Badge variant="outline" className="text-[10px] shrink-0">
+                    <Badge variant="outline" className="text-2xs shrink-0">
                       {config.label}
                     </Badge>
                   </button>

@@ -1,490 +1,287 @@
-import { useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useMemo, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import {
+  AlertTriangle,
+  Calendar,
+  IndianRupee,
+  Package,
+  FileText,
+  Bell,
+  Truck,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { 
-  Calendar, 
-  IndianRupee, 
-  MapPin, 
-  Clock, 
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-} from "lucide-react";
-import { format } from "date-fns";
-import { 
-  dummyLeaveRequests, 
-  dummyExpenseRequests, 
-  dummyBlockageResolutionRequests,
-  type LeaveRequest,
-  type ExpenseRequest,
-  type BlockageResolutionRequest
-} from "@/data/notificationsData";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { useAppData } from "@/contexts/AppDataContext";
+import { DataTableShell } from "@/components/data-table/DataTableShell";
+import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DEFAULT_TABLE_PAGE_SIZE, listTableViewportMaxHeight } from "@/lib/tableConstants";
+import { usePagedSlice } from "@/hooks/usePagedSlice";
+import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/businessAlerts";
 
-// Detail Modal Component
-interface DetailModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  type: "leave" | "expense" | "blockage";
-  data: LeaveRequest | ExpenseRequest | BlockageResolutionRequest | null;
-  onApprove: () => void;
-  onReject: () => void;
-}
-
-const DetailModal = ({ open, onOpenChange, type, data, onApprove, onReject }: DetailModalProps) => {
-  if (!data) return null;
-
-  const renderContent = () => {
-    if (type === "leave") {
-      const leave = data as LeaveRequest;
-      return (
-        <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <Avatar className="h-14 w-14 bg-primary">
-              <AvatarFallback className="text-lg font-bold">{leave.employeeAvatar}</AvatarFallback>
-            </Avatar>
-            <div>
-              <h3 className="font-semibold text-lg">{leave.employeeName}</h3>
-              <Badge variant="outline">{leave.leaveType}</Badge>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
-            <div>
-              <p className="text-xs text-muted-foreground">Start Date</p>
-              <p className="font-medium">{format(new Date(leave.startDate), "dd MMM yyyy")}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">End Date</p>
-              <p className="font-medium">{format(new Date(leave.endDate), "dd MMM yyyy")}</p>
-            </div>
-            <div className="col-span-2">
-              <p className="text-xs text-muted-foreground">Duration</p>
-              <p className="font-medium">
-                {leave.leaveType === "Half Day" ? "Half Day" : 
-                  `${Math.ceil((new Date(leave.endDate).getTime() - new Date(leave.startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1} Day(s)`}
-              </p>
-            </div>
-          </div>
-          
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Reason</p>
-            <p className="text-sm bg-muted/30 p-3 rounded-lg">{leave.reason}</p>
-          </div>
-          
-          <div className="text-xs text-muted-foreground">
-            Requested on {format(new Date(leave.requestedAt), "dd MMM yyyy, hh:mm a")}
-          </div>
-        </div>
-      );
-    }
-    
-    if (type === "expense") {
-      const expense = data as ExpenseRequest;
-      return (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Avatar className="h-12 w-12 bg-primary">
-                <AvatarFallback>{expense.employeeName.charAt(0)}</AvatarFallback>
-              </Avatar>
-              <div>
-                <h3 className="font-semibold">{expense.employeeName}</h3>
-                <Badge variant="outline">{expense.category}</Badge>
-              </div>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-primary">₹{expense.amount.toLocaleString()}</p>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
-            <div>
-              <p className="text-xs text-muted-foreground">Date</p>
-              <p className="font-medium">{format(new Date(expense.date), "dd MMM yyyy")}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Project</p>
-              <p className="font-medium text-sm">{expense.projectName}</p>
-            </div>
-          </div>
-          
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Description</p>
-            <p className="text-sm bg-muted/30 p-3 rounded-lg">{expense.description}</p>
-          </div>
-          
-          <div className="text-xs text-muted-foreground">
-            Requested on {format(new Date(expense.requestedAt), "dd MMM yyyy, hh:mm a")}
-          </div>
-        </div>
-      );
-    }
-    
-    if (type === "blockage") {
-      const blockage = data as BlockageResolutionRequest;
-      return (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-lg bg-amber-500/20 flex items-center justify-center">
-              <AlertTriangle className="h-6 w-6 text-amber-500" />
-            </div>
-            <div>
-              <h3 className="font-semibold">{blockage.blockageTitle}</h3>
-              <p className="text-sm text-muted-foreground">{blockage.projectName}</p>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
-            <div>
-              <p className="text-xs text-muted-foreground">Marked By</p>
-              <p className="font-medium">{blockage.markedBy}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Resolution Date</p>
-              <p className="font-medium">{format(new Date(blockage.resolutionDate), "dd MMM yyyy")}</p>
-            </div>
-          </div>
-          
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Resolution Notes</p>
-            <p className="text-sm bg-muted/30 p-3 rounded-lg">{blockage.notes}</p>
-          </div>
-          
-          <div className="text-xs text-muted-foreground">
-            Submitted on {format(new Date(blockage.requestedAt), "dd MMM yyyy, hh:mm a")}
-          </div>
-        </div>
-      );
-    }
-  };
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
-        <SheetHeader>
-          <SheetTitle>
-            {type === "leave" && "Leave Request Details"}
-            {type === "expense" && "Expense Request Details"}
-            {type === "blockage" && "Blockage Resolution Details"}
-          </SheetTitle>
-        </SheetHeader>
-        
-        {renderContent()}
-        
-        <div className="flex gap-3 mt-4">
-          <Button 
-            variant="outline" 
-            className="flex-1 border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
-            onClick={onReject}
-          >
-            <XCircle className="w-4 h-4 mr-2" />
-            Reject
-          </Button>
-          <Button 
-            className="flex-1"
-            onClick={onApprove}
-          >
-            <CheckCircle2 className="w-4 h-4 mr-2" />
-            Approve
-          </Button>
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
+type LiveAlert = {
+  id: string;
+  severity: "high" | "medium" | "low";
+  title: string;
+  detail: string;
+  href: string;
+  icon: typeof Bell;
 };
 
+function iconForAlertKind(kind: BusinessAlertKind): typeof Bell {
+  switch (kind) {
+    case "invoice":
+      return IndianRupee;
+    case "loan":
+      return Calendar;
+    case "stock":
+      return Package;
+    case "blockage":
+    case "blockage_stale":
+      return AlertTriangle;
+    case "quotation":
+      return FileText;
+    case "vendor_bill":
+      return Truck;
+    case "approval":
+    default:
+      return Bell;
+  }
+}
+
 const Notifications = () => {
-  const [activeTab, setActiveTab] = useState("leave");
-  const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<LeaveRequest | ExpenseRequest | BlockageResolutionRequest | null>(null);
-  const [selectedType, setSelectedType] = useState<"leave" | "expense" | "blockage">("leave");
-  
-  // Local state for notifications (to simulate approve/reject)
-  const [leaveRequests, setLeaveRequests] = useState(dummyLeaveRequests.filter(r => r.status === "pending"));
-  const [expenseRequests, setExpenseRequests] = useState(dummyExpenseRequests.filter(r => r.status === "pending"));
-  const [blockageRequests, setBlockageRequests] = useState(dummyBlockageResolutionRequests.filter(r => r.status === "pending_verification"));
+  const {
+    invoices,
+    loans,
+    lowStockItems,
+    blockages,
+    quotations,
+    projects,
+    projectTimelineByProjectId,
+  } = useAppData();
 
-  const handleViewDetails = (type: "leave" | "expense" | "blockage", item: LeaveRequest | ExpenseRequest | BlockageResolutionRequest) => {
-    setSelectedType(type);
-    setSelectedItem(item);
-    setDetailModalOpen(true);
-  };
+  const alerts = useMemo(() => {
+    const out: LiveAlert[] = [];
+    const today = new Date();
 
-  const handleApprove = () => {
-    if (!selectedItem) return;
-    
-    if (selectedType === "leave") {
-      setLeaveRequests(prev => prev.filter(r => r.id !== selectedItem.id));
-    } else if (selectedType === "expense") {
-      setExpenseRequests(prev => prev.filter(r => r.id !== selectedItem.id));
-    } else {
-      setBlockageRequests(prev => prev.filter(r => r.id !== selectedItem.id));
-    }
-    
-    setDetailModalOpen(false);
-    setSelectedItem(null);
-  };
+    invoices.forEach((inv) => {
+      if (inv.status === "paid" || inv.status === "overpaid") return;
+      const due = inv.dueDate ? parseISO(inv.dueDate) : null;
+      if (due && isValid(due) && due < today) {
+        out.push({
+          id: `inv-${inv.id}`,
+          severity: "high",
+          title: `Overdue invoice ${inv.invoiceNumber}`,
+          detail: `${inv.customerName} — ₹${(inv.total - (inv.amountReceived ?? 0)).toLocaleString("en-IN")} outstanding`,
+          href: `/invoices?invoice=${inv.id}`,
+          icon: IndianRupee,
+        });
+      }
+    });
 
-  const handleReject = () => {
-    if (!selectedItem) return;
-    
-    if (selectedType === "leave") {
-      setLeaveRequests(prev => prev.filter(r => r.id !== selectedItem.id));
-    } else if (selectedType === "expense") {
-      setExpenseRequests(prev => prev.filter(r => r.id !== selectedItem.id));
-    } else {
-      setBlockageRequests(prev => prev.filter(r => r.id !== selectedItem.id));
-    }
-    
-    setDetailModalOpen(false);
-    setSelectedItem(null);
-  };
+    loans.forEach((l) => {
+      if (l.status !== "Active" || l.paymentType !== "emi" || !l.dueDate) return;
+      const due = parseISO(l.dueDate);
+      if (!isValid(due)) return;
+      const days = differenceInCalendarDays(due, today);
+      if (days < 0) {
+        out.push({
+          id: `loan-${l.id}-over`,
+          severity: "high",
+          title: `Overdue EMI — ${l.source}`,
+          icon: Calendar,
+          detail: `Due ${l.dueDate} — ₹${l.emiAmount?.toLocaleString("en-IN") ?? ""}`,
+          href: `/loans`,
+        });
+      } else if (days <= 7) {
+        out.push({
+          id: `loan-${l.id}-soon`,
+          severity: "medium",
+          title: `EMI due within 7 days — ${l.source}`,
+          icon: Calendar,
+          detail: `Due ${l.dueDate} — ₹${l.emiAmount?.toLocaleString("en-IN") ?? ""}`,
+          href: `/loans`,
+        });
+      }
+    });
 
-  const totalPending = leaveRequests.length + expenseRequests.length + blockageRequests.length;
+    (lowStockItems ?? []).forEach((item) => {
+      out.push({
+        id: `stock-${item.id}`,
+        severity: "medium",
+        title: `Low stock: ${item.name}`,
+        detail: `${item.stock ?? 0} on hand (min ${item.minStock ?? 0})`,
+        href: `/inventory`,
+        icon: Package,
+      });
+    });
 
-  const getLeaveTypeBadgeColor = (type: string) => {
-    switch (type) {
-      case "Sick Leave": return "bg-red-500/10 text-red-500 border-red-500/20";
-      case "Casual Leave": return "bg-accent text-foreground border-border/60";
-      case "Emergency Leave": return "bg-orange-500/10 text-orange-500 border-orange-500/20";
-      case "Paid Leave": return "bg-accent text-foreground border-border/60";
-      case "Half Day": return "bg-purple-500/10 text-purple-500 border-purple-500/20";
-      default: return "bg-muted text-muted-foreground";
-    }
-  };
+    blockages.forEach((b) => {
+      if (b.status === "resolved") return;
+      const start = b.startDate ? parseISO(b.startDate) : null;
+      const daysOpen = start && isValid(start) ? differenceInCalendarDays(today, start) : 0;
+      if (daysOpen > 14) {
+        const proj = projects.find((p) => p.id === b.projectId);
+        out.push({
+          id: `blk-${b.id}`,
+          severity: "high",
+          title: `Blockage open ${daysOpen}+ days`,
+          detail: `${proj?.name ?? b.projectId}: ${b.reason ?? b.description ?? ""}`,
+          href: `/projects/${b.projectId}`,
+          icon: AlertTriangle,
+        });
+      }
+    });
 
-  const getCategoryBadgeColor = (category: string) => {
-    switch (category) {
-      case "Travel": return "bg-accent text-foreground border-border/60";
-      case "Materials": return "bg-amber-500/10 text-amber-500 border-amber-500/20";
-      case "Food": return "bg-accent text-foreground border-border/60";
-      case "Tools": return "bg-purple-500/10 text-purple-500 border-purple-500/20";
-      case "Fuel": return "bg-red-500/10 text-red-500 border-red-500/20";
-      default: return "bg-muted text-muted-foreground";
-    }
-  };
+    quotations.forEach((q) => {
+      if (q.status !== "sent") return;
+      const sent = q.sentAt ?? q.createdAt;
+      const d = sent ? parseISO(sent) : null;
+      if (d && isValid(d) && differenceInCalendarDays(today, d) > 7) {
+        out.push({
+          id: `quo-${q.id}`,
+          severity: "low",
+          title: `Quotation awaiting response`,
+          detail: `${q.clientName} — ${q.quotationNumber ?? q.id}`,
+          href: `/quotations?quotation=${q.id}`,
+          icon: FileText,
+        });
+      }
+    });
+
+    projects.forEach((p) => {
+      const tl = projectTimelineByProjectId[p.id];
+      const approvals = tl?.workStatusApprovals;
+      if (!approvals) return;
+      Object.entries(approvals).forEach(([stageKey, info]) => {
+        if (info?.status === "requested") {
+          out.push({
+            id: `ws-${p.id}-${stageKey}`,
+            severity: "medium",
+            title: `Work status approval requested`,
+            detail: `${p.name} — ${stageKey}`,
+            href: `/projects/${p.id}`,
+            icon: Bell,
+          });
+        }
+        const subs = info?.subItemApprovals;
+        if (subs) {
+          Object.entries(subs).forEach(([subKey, sub]) => {
+            if (sub?.status === "requested") {
+              out.push({
+                id: `ws-${p.id}-${stageKey}-${subKey}`,
+                severity: "medium",
+                title: `Work status sub-item approval`,
+                detail: `${p.name} — ${stageKey} / ${subKey}`,
+                href: `/projects/${p.id}`,
+                icon: Bell,
+              });
+            }
+          });
+        }
+      });
+    });
+
+    return out;
+  }, [invoices, loans, lowStockItems, blockages, quotations, projects, projectTimelineByProjectId]);
+
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+  const visible = alerts.filter((a) => !dismissed.has(a.id));
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  useEffect(() => {
+    setPage(1);
+  }, [visible.length]);
+
+  const { pagedItems: pagedAlerts, safePage } = usePagedSlice(visible, page, pageSize);
 
   return (
     <PageShell>
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <div className="space-y-6">
-          <StickyPageHeader
-            breadcrumbs={[{ label: "Home", to: "/" }, { label: "Notifications" }]}
-            subRow={
-              <>
-                <TabsList className="grid h-9 w-full max-w-md grid-cols-3 sm:w-auto">
-                  <TabsTrigger value="leave" className="gap-1.5 text-xs sm:text-sm">
-                    Leave
-                    {leaveRequests.length > 0 && (
-                      <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 text-xs">
-                        {leaveRequests.length}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger value="expense" className="gap-1.5 text-xs sm:text-sm">
-                    Expenses
-                    {expenseRequests.length > 0 && (
-                      <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 text-xs">
-                        {expenseRequests.length}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger value="blockage" className="gap-1.5 text-xs sm:text-sm">
-                    Blockages
-                    {blockageRequests.length > 0 && (
-                      <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 text-xs">
-                        {blockageRequests.length}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                </TabsList>
-                <InlineKpiStrip
-                  className="w-full sm:w-auto sm:justify-end"
-                  items={[
-                    { label: "Leave", value: leaveRequests.length },
-                    { label: "Expenses", value: expenseRequests.length },
-                    { label: "Blockages", value: blockageRequests.length },
-                    { label: "Total pending", value: totalPending },
-                  ]}
-                />
-              </>
-            }
-          >
-            {totalPending > 0 && (
-              <Badge variant="destructive" className="px-2 py-0.5 text-xs">{totalPending} pending</Badge>
-            )}
-          </StickyPageHeader>
-
-          {/* Leave Requests Tab */}
-        <TabsContent value="leave" className="mt-0">
-          {leaveRequests.length === 0 ? (
-            <Card className="bg-card">
-              <CardContent className="py-12 text-center">
-                <Calendar className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-50" />
-                <p className="text-muted-foreground">No pending leave requests</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {leaveRequests.map((request) => (
-                <Card key={request.id} className="bg-card hover:shadow-lg transition-all cursor-pointer" onClick={() => handleViewDetails("leave", request)}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <Avatar className="h-11 w-11 bg-primary/10">
-                        <AvatarFallback className="text-primary font-medium">
-                          {request.employeeAvatar}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <h4 className="font-medium">{request.employeeName}</h4>
-                          <Badge className={`text-xs ${getLeaveTypeBadgeColor(request.leaveType)}`}>
-                            {request.leaveType}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                          <Calendar className="w-3.5 h-3.5" />
-                          <span>
-                            {format(new Date(request.startDate), "dd MMM")}
-                            {request.startDate !== request.endDate && 
-                              ` - ${format(new Date(request.endDate), "dd MMM")}`}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
-                          {request.reason}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {format(new Date(request.requestedAt), "dd MMM, hh:mm a")}
-                      </span>
-                      <Button size="sm" variant="outline">View Details</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Expense Requests Tab */}
-        <TabsContent value="expense" className="mt-0">
-          {expenseRequests.length === 0 ? (
-            <Card className="bg-card">
-              <CardContent className="py-12 text-center">
-                <IndianRupee className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-50" />
-                <p className="text-muted-foreground">No pending expense requests</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {expenseRequests.map((request) => (
-                <Card key={request.id} className="bg-card hover:shadow-lg transition-all cursor-pointer" onClick={() => handleViewDetails("expense", request)}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3 flex-1 min-w-0">
-                        <Avatar className="h-11 w-11 bg-primary/10">
-                          <AvatarFallback className="text-primary font-medium">
-                            {request.employeeName.charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-medium">{request.employeeName}</h4>
-                          <Badge className={`text-xs mt-1 ${getCategoryBadgeColor(request.category)}`}>
-                            {request.category}
-                          </Badge>
-                          <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                            <MapPin className="w-3.5 h-3.5" />
-                            <span className="truncate">{request.projectName}</span>
+      <div className="space-y-6">
+        <StickyPageHeader breadcrumbs={[{ label: "Home", to: "/" }, { label: "Notifications" }]} />
+        <InlineKpiStrip
+          items={[
+            { label: "Open alerts", value: String(visible.length) },
+            { label: "High priority", value: String(visible.filter((a) => a.severity === "high").length) },
+          ]}
+        />
+        <Card>
+          <CardContent className="pt-6">
+            {visible.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+                <Bell className="w-10 h-10 opacity-30" />
+                <p className="text-sm">No alerts right now. Invoices, EMIs, stock, and project signals will appear here.</p>
+              </div>
+            ) : (
+              <DataTableShell
+                variant="inline"
+                maxHeight={listTableViewportMaxHeight(pageSize)}
+                scrollResetKey={`${safePage}-${pageSize}-${visible.length}`}
+                footer={
+                  <TablePaginationBar
+                    page={safePage}
+                    pageSize={pageSize}
+                    total={visible.length}
+                    onPageChange={setPage}
+                    onPageSizeChange={(n) => {
+                      setPageSize(n);
+                      setPage(1);
+                    }}
+                  />
+                }
+              >
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10" />
+                    <TableHead>Alert</TableHead>
+                    <TableHead>Detail</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pagedAlerts.map((a) => {
+                    const Icon = a.icon;
+                    return (
+                      <TableRow key={a.id}>
+                        <TableCell>
+                          <div className="rounded-md bg-muted p-2 w-fit">
+                            <Icon className="h-4 w-4 text-muted-foreground" />
                           </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-bold text-lg text-primary">₹{request.amount.toLocaleString()}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {format(new Date(request.date), "dd MMM")}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-3 line-clamp-2">
-                      {request.description}
-                    </p>
-                    <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {format(new Date(request.requestedAt), "dd MMM, hh:mm a")}
-                      </span>
-                      <Button size="sm" variant="outline">View Details</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Blockage Requests Tab */}
-        <TabsContent value="blockage" className="mt-0">
-          {blockageRequests.length === 0 ? (
-            <Card className="bg-card">
-              <CardContent className="py-12 text-center">
-                <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-50" />
-                <p className="text-muted-foreground">No pending blockage resolutions to verify</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {blockageRequests.map((request) => (
-                <Card key={request.id} className="bg-card hover:shadow-lg transition-all cursor-pointer" onClick={() => handleViewDetails("blockage", request)}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="h-11 w-11 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                        <AlertTriangle className="h-5 w-5 text-amber-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium">{request.blockageTitle}</h4>
-                        <p className="text-sm text-muted-foreground">{request.projectName}</p>
-                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                          <span>Resolved by: <span className="font-medium text-foreground">{request.markedBy}</span></span>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-3 line-clamp-2">
-                      {request.notes}
-                    </p>
-                    <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {format(new Date(request.resolutionDate), "dd MMM yyyy")}
-                      </span>
-                      <Button size="sm" variant="outline">View Details</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-        </div>
-      </Tabs>
-
-      <DetailModal
-        open={detailModalOpen}
-        onOpenChange={setDetailModalOpen}
-        type={selectedType}
-        data={selectedItem}
-        onApprove={handleApprove}
-        onReject={handleReject}
-      />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{a.title}</span>
+                            <Badge variant="outline" className="text-2xs capitalize">
+                              {a.severity}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-md">{a.detail}</TableCell>
+                        <TableCell className="text-right space-x-2">
+                          <Button variant="outline" size="sm" asChild>
+                            <Link to={a.href}>Open</Link>
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => setDismissed((s) => new Set(s).add(a.id))}>
+                            Dismiss
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </DataTableShell>
+            )}
+          </CardContent>
+        </Card>
+        <p className="text-xs text-muted-foreground">
+          Derived from invoices, loans, inventory, blockages, quotations, and work-status approvals. Dismissals are session-only.
+        </p>
+      </div>
     </PageShell>
   );
 };

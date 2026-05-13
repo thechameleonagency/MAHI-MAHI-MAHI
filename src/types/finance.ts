@@ -12,6 +12,7 @@ export interface Customer {
   state?: string;
   itemsBought: string[];
   totalPurchases: number;
+  amountReceived?: number;
   lastPurchase?: string;
   createdAt: string;
 }
@@ -54,10 +55,10 @@ export interface Invoice {
   sgst: number;
   igst: number;
   total: number;
-  amountReceived: number;
+  amountReceived?: number;
   receivedIn?: string;
   receivedDate?: string;
-  status: "pending" | "partial" | "paid" | "overdue";
+  status: "pending" | "partial" | "paid" | "overdue" | "overpaid";
   invoiceDate: string;
   dueDate: string;
   createdAt: string;
@@ -78,6 +79,7 @@ export interface Payment {
   counterpartyType: "customer" | "vendor" | "partner" | "employee" | "other";
   counterpartyId?: string;
   counterpartyName?: string;
+  customerId?: string;
   projectId?: string;
   projectName?: string;
   invoiceId?: string;
@@ -155,6 +157,8 @@ export interface Expense {
   attachmentUrl?: string;
   isRecurring?: boolean;
   paymentMode?: string;
+  vendorshipCompanyId?: string;
+  createdAt?: string;
 }
 
 // Legacy Income (Keeping for backward compatibility during Phase 1 migration)
@@ -190,10 +194,19 @@ export interface PartnerSiteInvestment {
   profitSharePercent: number;
 }
 
+export type PartnerType =
+  | "Profit-Share"
+  | "Fixed-Rate"
+  | "Channel"
+  | "Subcontractor";
+
 export interface Partner {
   id: string;
   name: string;
   phone: string;
+  type: PartnerType;
+  /** Default per-kW rate for this partner (₹). Overridable per project. */
+  defaultRatePerKw?: number;
   email?: string;
   address?: string;
   notes?: string;
@@ -332,5 +345,67 @@ export interface Agent {
   rateType: "per-kw" | "per-project";
   flatRate?: number;
   status: "active" | "inactive";
+  totalReferrals?: number; // Optional as it can be calculated, but seed data uses it
   createdAt: string;
+}
+
+export interface AgentCommissionPayment {
+  id: string;
+  agentId: string;
+  projectId: string;
+  projectName?: string;
+  amount: number;
+  date: string;
+  mode: "cash" | "bank_transfer" | "cheque" | "upi" | "other";
+  notes?: string;
+  createdAt: string;
+}
+
+/** A company or individual whose DISCOM vendor registration code MSS uses on projects. Not a partner. */
+export interface VendorshipCompany {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  registrationCode?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** A company or contractor that gives MSS INC (installation & commissioning) work to execute. Not a partner. */
+export interface INCGiverCompany {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface INCGiverTransaction {
+  id: string;
+  incGiverCompanyId: string;
+  projectId?: string;
+  projectName?: string;
+  date: string;
+  amount: number;
+  type: "collection" | "adjustment";
+  notes?: string;
+}
+
+export interface EmployeePayrollRecord {
+  id: string;
+  employeeId: number;
+  employeeName: string;
+  month: string;
+  year: number;
+  daysPresent: number;
+  grossAmount: number;
+  deductions: number;
+  netAmount: number;
+  paidDate: string;
+  mode: "cash" | "bank_transfer" | "cheque" | "upi" | "other";
+  notes?: string;
 }

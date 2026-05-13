@@ -60,7 +60,7 @@ function ChartDetailLedgerTable({
       <TableHeader>
         <TableRow className={dataTableClasses.headRow}>
           {columns.map((col) => (
-            <TableHead key={col} className="text-xs">
+            <TableHead key={col} >
               {col}
             </TableHead>
           ))}
@@ -77,7 +77,7 @@ function ChartDetailLedgerTable({
           pagedRows.map((row, i) => (
             <TableRow key={`${resetKey}-${i}`}>
               {row.map((cell, j) => (
-                <TableCell key={j} className="py-2 text-sm">
+                <TableCell key={j} >
                   {cell}
                 </TableCell>
               ))}

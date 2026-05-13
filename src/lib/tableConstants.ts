@@ -10,13 +10,13 @@ export const VISIBLE_ROW_TARGET = 13;
 
 export const dataTableClasses = {
   scrollWrap: "w-full min-w-0 overflow-x-auto overscroll-x-contain",
-  table: "w-full caption-bottom border-separate border-spacing-0 bg-white dark:bg-card",
+  table: "w-full caption-bottom border-separate border-spacing-0 bg-white dark:bg-card text-sm",
   /** Apply to header `<TableRow>` */
   headRow:
-    "sticky top-0 z-[12] bg-white shadow-[0_6px_10px_-6px_rgb(0_0_0/0.08)] backdrop-blur-[1px] dark:bg-card",
+    "sticky top-0 z-[12] bg-white shadow-[0_6px_10px_-6px_rgb(0_0_0/0.08)] backdrop-blur-[1px] dark:bg-card text-sm",
   /** Apply to totals `<TableRow>` in `<tfoot>` (sticky bottom of scroll viewport). */
   footRow:
-    "sticky bottom-0 z-[11] border-t border-border bg-white shadow-[0_-8px_12px_-8px_rgb(0_0_0/0.08)] dark:bg-card font-medium",
+    "sticky bottom-0 z-[11] border-t border-border bg-white shadow-[0_-8px_12px_-8px_rgb(0_0_0/0.08)] dark:bg-card font-medium text-sm",
 } as const;
 
 /**

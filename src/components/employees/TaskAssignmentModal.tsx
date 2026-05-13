@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Check, Plus, X, ChevronDown, ChevronRight, Calendar } from "lucide-react";
+import { Check, Plus, X, ChevronDown, ChevronRight, Calendar, ClipboardList, Users, User } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -18,20 +18,27 @@ import { WORK_STATUS_STAGES } from "@/types/blockage";
 interface TaskAssignmentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  employeeId: number;
-  employeeName: string;
+  // Pre-selected target
+  employeeId?: number;
+  employeeName?: string;
+  teamId?: string;
+  teamName?: string;
 }
 
 interface SelectedWorkItem {
   stageKey: string;
   stageName: string;
-  subItems: string[]; // Empty array = whole stage, or specific sub-items
+  subItems: string[]; 
   subItemLabels: string[];
-  dateOffset: number; // T+0, T+1, T+2, etc.
+  dateOffset: number; 
 }
 
-export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName }: TaskAssignmentModalProps) {
-  const { sites, addTask, generateId } = useAppData();
+export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName, teamId, teamName }: TaskAssignmentModalProps) {
+  const { sites, employees, teams, addTask, generateId } = useAppData();
+  
+  // Selection Logic
+  const [assignmentType, setAssignmentType] = useState<"individual" | "team">(teamId ? "team" : "individual");
+  const [selectedTargetId, setSelectedTargetId] = useState<string>(teamId || employeeId?.toString() || "");
   
   const [selectedSite, setSelectedSite] = useState("");
   const [notes, setNotes] = useState("");
@@ -39,12 +46,14 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
   
-  // Multi-select work items with date offsets
   const [selectedWorkItems, setSelectedWorkItems] = useState<SelectedWorkItem[]>([]);
   
   const allSites = [{ id: 0, name: "Office" }, ...sites];
   
   const resetForm = () => {
+    if (!teamId && !employeeId) {
+      setSelectedTargetId("");
+    }
     setSelectedSite("");
     setNotes("");
     setBaseDate(format(new Date(), "yyyy-MM-dd"));
@@ -72,7 +81,6 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
   
   const toggleWholeStage = (stage: typeof WORK_STATUS_STAGES[0], checked: boolean) => {
     if (checked) {
-      // Remove any existing entries for this stage and add whole stage
       setSelectedWorkItems(prev => [
         ...prev.filter(w => w.stageKey !== stage.value),
         {
@@ -84,7 +92,6 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
         }
       ]);
     } else {
-      // Remove stage entirely
       setSelectedWorkItems(prev => prev.filter(w => w.stageKey !== stage.value));
     }
   };
@@ -94,7 +101,6 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
     
     if (checked) {
       if (existingItem) {
-        // If whole stage was selected, convert to specific sub-items
         if (existingItem.subItems.length === 0) {
           setSelectedWorkItems(prev => prev.map(w => 
             w.stageKey === stage.value 
@@ -102,7 +108,6 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
               : w
           ));
         } else {
-          // Add sub-item to existing entry
           setSelectedWorkItems(prev => prev.map(w => 
             w.stageKey === stage.value 
               ? { ...w, subItems: [...w.subItems, subItem.value], subItemLabels: [...w.subItemLabels, subItem.label] }
@@ -110,7 +115,6 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
           ));
         }
       } else {
-        // Create new entry with this sub-item
         setSelectedWorkItems(prev => [
           ...prev,
           {
@@ -123,7 +127,6 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
         ]);
       }
     } else {
-      // Remove sub-item
       if (existingItem) {
         const newSubItems = existingItem.subItems.filter(s => s !== subItem.value);
         const newLabels = existingItem.subItemLabels.filter((_, i) => existingItem.subItems[i] !== subItem.value);
@@ -153,10 +156,10 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
   };
   
   const handleSubmit = () => {
-    if (!selectedSite || selectedWorkItems.length === 0) {
+    if (!selectedTargetId || !selectedSite || selectedWorkItems.length === 0) {
       toast({
         title: "Missing Information",
-        description: "Please select a site and at least one work item",
+        description: "Please select a recipient, site and at least one work item",
         variant: "destructive",
       });
       return;
@@ -168,7 +171,10 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
   const confirmSubmit = () => {
     const site = allSites.find(s => s.id.toString() === selectedSite);
     
-    // Create one task per selected work item
+    const targetName = assignmentType === "individual" 
+      ? employees.find(e => e.id.toString() === selectedTargetId)?.name || employeeName
+      : teams.find(t => t.id === selectedTargetId)?.name || teamName;
+
     selectedWorkItems.forEach(workItem => {
       const workDate = getWorkDate(workItem.dateOffset);
       const workType = workItem.subItems.length === 0 
@@ -177,7 +183,9 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
       
       const task: Task = {
         id: generateId("TASK"),
-        employeeId,
+        employeeId: assignmentType === "individual" ? parseInt(selectedTargetId) : undefined,
+        teamId: assignmentType === "team" ? selectedTargetId : undefined,
+        projectId: "manual-assignment", // Usually linked to a site which is linked to project
         siteId: selectedSite,
         siteName: site?.name || "Unknown",
         workType: workType,
@@ -185,8 +193,8 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
         notes,
         createdDate: format(new Date(), "yyyy-MM-dd"),
         workDate,
-        originalDate: workDate, // Track original date for delay shifting
-        status: "sent", // Merge created and sent - auto-send on creation
+        originalDate: workDate,
+        status: "sent",
         createdBy: "Admin",
         workItems: [{
           stageKey: workItem.stageKey,
@@ -201,7 +209,7 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
     
     toast({
       title: "Tasks Assigned",
-      description: `${selectedWorkItems.length} task(s) assigned to ${employeeName}`,
+      description: `${selectedWorkItems.length} task(s) assigned to ${targetName}`,
     });
     
     setIsConfirmOpen(false);
@@ -222,21 +230,69 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
   return (
     <>
       <Sheet open={isOpen} onOpenChange={(open) => { if (!open) { resetForm(); onClose(); } }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle className="text-xl font-semibold">Assign Task</SheetTitle>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+          <SheetHeader className="pb-4 border-b">
+            <SheetTitle className="text-xl font-semibold flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-primary" />
+              Assign Work Task
+            </SheetTitle>
           </SheetHeader>
           
-          <div className="space-y-4 py-4">
-            {/* Employee Info */}
-            <div className="p-3 bg-primary/5 rounded-lg">
-              <p className="text-xs text-muted-foreground">Assigning task to:</p>
-              <p className="font-semibold text-primary">{employeeName}</p>
+          <div className="space-y-6 py-6">
+            {/* Target Selection */}
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Recipient Selection</Label>
+              {(!employeeId && !teamId) ? (
+                <div className="flex flex-col gap-4">
+                  <div className="flex gap-2 p-1 bg-muted rounded-lg w-fit">
+                    <Button 
+                      size="sm" 
+                      variant={assignmentType === "individual" ? "default" : "ghost"}
+                      onClick={() => { setAssignmentType("individual"); setSelectedTargetId(""); }}
+                      className="h-8 px-4"
+                    >
+                      <User className="h-3.5 w-3.5 mr-2" />
+                      Individual
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant={assignmentType === "team" ? "default" : "ghost"}
+                      onClick={() => { setAssignmentType("team"); setSelectedTargetId(""); }}
+                      className="h-8 px-4"
+                    >
+                      <Users className="h-3.5 w-3.5 mr-2" />
+                      Team
+                    </Button>
+                  </div>
+                  <Select value={selectedTargetId} onValueChange={setSelectedTargetId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={assignmentType === "individual" ? "Select Employee" : "Select Team"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {assignmentType === "individual" 
+                        ? employees.filter(e => e.status === "Active").map(e => <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>)
+                        : teams.filter(t => t.status === "Active").map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)
+                      }
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="p-4 bg-primary/5 rounded-xl border border-primary/10 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Assigning task to</p>
+                    <p className="text-lg font-bold text-primary flex items-center gap-2">
+                      {assignmentType === "individual" ? <User className="h-4 w-4" /> : <Users className="h-4 w-4" />}
+                      {employeeName || teamName}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="bg-white">{assignmentType.toUpperCase()}</Badge>
+                </div>
+              )}
             </div>
             
             {/* Site Selection */}
             <div className="space-y-2">
-              <Label>Select Site *</Label>
+              <Label className="text-sm font-semibold">Site / Location *</Label>
               <Select value={selectedSite} onValueChange={setSelectedSite}>
                 <SelectTrigger>
                   <SelectValue placeholder="Choose a site" />
@@ -253,24 +309,28 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
             
             {/* Base Date */}
             <div className="space-y-2">
-              <Label>Base Date (T) *</Label>
-              <Input
-                type="date"
-                value={baseDate}
-                onChange={(e) => setBaseDate(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">This is the base date (T). Other tasks can be offset from this date.</p>
+              <Label className="text-sm font-semibold">Base Date (T) *</Label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="date"
+                  value={baseDate}
+                  className="pl-10"
+                  onChange={(e) => setBaseDate(e.target.value)}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">All tasks will be scheduled based on this date (T+offset).</p>
             </div>
             
-            {/* Work Status Stages Selection */}
-            <div className="space-y-2">
+            {/* Work Items Selection */}
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Work Items *</Label>
+                <Label className="text-sm font-semibold">Work Scope *</Label>
                 {selectedWorkItems.length > 0 && (
-                  <Badge variant="secondary">{getSelectedCount()} items selected</Badge>
+                  <Badge variant="secondary" className="text-[10px]">{getSelectedCount()} items selected</Badge>
                 )}
               </div>
-              <div className="border rounded-lg divide-y max-h-[300px] overflow-y-auto">
+              <div className="border rounded-xl divide-y bg-white overflow-hidden shadow-sm">
                 {WORK_STATUS_STAGES.map(stage => {
                   const isExpanded = expandedStages.has(stage.value);
                   const isWholeStageSelected = isStageSelected(stage.value);
@@ -292,27 +352,26 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
                             ) : (
                               <ChevronRight className="w-4 h-4 text-muted-foreground" />
                             )}
-                            <span className="font-medium">{stage.label}</span>
+                            <span className="font-medium text-sm">{stage.label}</span>
                             {selectedSubItemCount > 0 && !isWholeStageSelected && (
-                              <Badge variant="outline" className="ml-auto text-xs">
+                              <Badge variant="outline" className="ml-auto text-[10px]">
                                 {selectedSubItemCount} selected
                               </Badge>
                             )}
                             {isWholeStageSelected && (
-                              <Badge className="ml-auto bg-primary/20 text-primary border-0 text-xs">
-                                Whole stage
+                              <Badge className="ml-auto bg-primary/20 text-primary border-0 text-[10px]">
+                                Full Stage
                               </Badge>
                             )}
                           </CollapsibleTrigger>
                           
-                          {/* Date offset for this stage */}
                           {hasSelection && (
-                            <div className="flex items-center gap-1 ml-2">
-                              <span className="text-xs text-muted-foreground">T+</span>
-                              <Input
+                            <div className="flex items-center gap-1 ml-2 bg-white rounded-md border px-2 py-0.5 shadow-sm">
+                              <span className="text-[10px] font-bold text-muted-foreground">T+</span>
+                              <input
                                 type="number"
                                 min={0}
-                                className="w-14 h-7 text-center text-xs"
+                                className="w-8 border-0 bg-transparent text-center text-xs focus:ring-0 p-0"
                                 value={selectedWorkItems.find(w => w.stageKey === stage.value)?.dateOffset || 0}
                                 onClick={(e) => e.stopPropagation()}
                                 onChange={(e) => updateDateOffset(stage.value, parseInt(e.target.value) || 0)}
@@ -322,17 +381,17 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
                         </div>
                         
                         <CollapsibleContent>
-                          <div className="pl-12 pr-3 pb-3 space-y-2">
+                          <div className="pl-12 pr-3 pb-3 space-y-2 grid grid-cols-1 sm:grid-cols-2">
                             {stage.subItems.map(subItem => (
-                              <div key={subItem.value} className="flex items-center gap-2">
+                              <div key={subItem.value} className="flex items-center gap-2 p-1.5 hover:bg-white rounded-md transition-colors cursor-pointer" onClick={() => !isWholeStageSelected && toggleSubItem(stage, subItem, !isSubItemSelected(stage.value, subItem.value))}>
                                 <Checkbox 
                                   checked={isSubItemSelected(stage.value, subItem.value) || isWholeStageSelected}
                                   disabled={isWholeStageSelected}
                                   onCheckedChange={(c) => toggleSubItem(stage, subItem, !!c)}
                                 />
-                                <span className="text-sm">{subItem.label}</span>
+                                <span className="text-xs">{subItem.label}</span>
                                 {subItem.photoRequired && (
-                                  <Badge variant="outline" className="text-[10px] px-1 py-0">📷</Badge>
+                                  <Badge variant="outline" className="text-[8px] px-1 py-0 border-amber-200 bg-amber-50 text-amber-700">PHOTO</Badge>
                                 )}
                               </div>
                             ))}
@@ -345,55 +404,30 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
               </div>
             </div>
             
-            {/* Selected Tasks Preview */}
-            {selectedWorkItems.length > 0 && (
-              <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
-                <Label className="text-xs text-muted-foreground">Tasks Preview:</Label>
-                <div className="space-y-1">
-                  {selectedWorkItems.map(item => (
-                    <div key={item.stageKey} className="flex items-center justify-between text-sm">
-                      <span>
-                        {item.subItems.length === 0 
-                          ? `${item.stageName} (All)` 
-                          : `${item.stageName}: ${item.subItemLabels.join(", ")}`
-                        }
-                      </span>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Calendar className="w-3 h-3" />
-                        <span>{format(new Date(getWorkDate(item.dateOffset)), "dd MMM")}</span>
-                        {item.dateOffset > 0 && (
-                          <Badge variant="outline" className="text-[10px] px-1 py-0">T+{item.dateOffset}</Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
             {/* Notes */}
             <div className="space-y-2">
-              <Label>Notes</Label>
+              <Label className="text-sm font-semibold">Special Instructions</Label>
               <Textarea
-                placeholder="Add any additional notes..."
+                placeholder="Add any specific instructions for this assignment..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={3}
+                className="bg-white"
               />
             </div>
           </div>
           
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={() => { resetForm(); onClose(); }}>
+          <div className="flex justify-end gap-3 pt-6 border-t mt-auto">
+            <Button variant="outline" className="flex-1" onClick={() => { resetForm(); onClose(); }}>
               Cancel
             </Button>
             <Button 
-              className="bg-primary text-primary-foreground"
+              className="flex-1 shadow-lg shadow-primary/20"
               onClick={handleSubmit}
-              disabled={selectedWorkItems.length === 0}
+              disabled={selectedWorkItems.length === 0 || !selectedTargetId}
             >
               <Plus className="w-4 h-4 mr-2" />
-              Assign {selectedWorkItems.length > 0 ? `(${selectedWorkItems.length})` : ""}
+              Generate {selectedWorkItems.length > 0 ? selectedWorkItems.length : ""} Tasks
             </Button>
           </div>
         </SheetContent>
@@ -401,57 +435,58 @@ export function TaskAssignmentModal({ isOpen, onClose, employeeId, employeeName 
       
       {/* Confirmation Sheet */}
       <Sheet open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
-        <SheetContent className="max-w-sm text-center overflow-y-auto custom-scrollbar">
-          <div className="py-6 space-y-4">
-            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-              <Check className="w-8 h-8 text-primary" />
+        <SheetContent side="bottom" className="h-auto max-h-[90vh] rounded-t-[2rem] overflow-hidden flex flex-col p-0">
+          <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar">
+            <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto shadow-inner">
+              <Check className="w-10 h-10 text-primary" />
             </div>
-            <div>
-              <h3 className="text-xl font-semibold text-foreground">Confirm Task Assignment</h3>
-              <div className="mt-3 p-3 bg-muted/30 rounded-lg text-left space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Employee:</span>
-                  <span className="font-medium">{employeeName}</span>
+            <div className="text-center">
+              <h3 className="text-2xl font-bold text-foreground">Confirm Assignment</h3>
+              <p className="text-muted-foreground mt-1 text-sm">Review the schedule before sending tasks.</p>
+              
+              <div className="mt-8 grid grid-cols-2 gap-3">
+                <div className="p-4 bg-muted/30 rounded-2xl text-left border border-border/40">
+                  <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Recipient</span>
+                  <span className="font-bold text-sm truncate block">
+                    {assignmentType === "individual" 
+                      ? employees.find(e => e.id.toString() === selectedTargetId)?.name 
+                      : teams.find(t => t.id === selectedTargetId)?.name}
+                  </span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Site:</span>
-                  <span className="font-medium">{allSites.find(s => s.id.toString() === selectedSite)?.name}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Tasks:</span>
-                  <span className="font-medium">{selectedWorkItems.length} task(s)</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Base Date:</span>
-                  <span className="font-medium">{format(new Date(baseDate), "dd MMM yyyy")}</span>
+                <div className="p-4 bg-muted/30 rounded-2xl text-left border border-border/40">
+                  <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Site</span>
+                  <span className="font-bold text-sm truncate block">{allSites.find(s => s.id.toString() === selectedSite)?.name}</span>
                 </div>
               </div>
               
-              {/* Task details */}
-              <div className="mt-3 p-3 bg-muted/20 rounded-lg text-left max-h-32 overflow-y-auto">
+              <div className="mt-6 p-1 bg-muted/20 rounded-2xl text-left max-h-[250px] overflow-y-auto border border-border/30">
                 {selectedWorkItems.map(item => (
-                  <div key={item.stageKey} className="flex items-center justify-between text-xs py-1 border-b last:border-0">
-                    <span>
-                      {item.subItems.length === 0 
-                        ? item.stageName 
-                        : `${item.stageName}: ${item.subItemLabels.join(", ")}`
-                      }
-                    </span>
-                    <Badge variant="outline" className="text-[10px]">
-                      {format(new Date(getWorkDate(item.dateOffset)), "dd MMM")}
-                    </Badge>
+                  <div key={item.stageKey} className="flex items-center justify-between p-4 border-b border-border/30 last:border-0 hover:bg-white/50 transition-colors">
+                    <div className="min-w-0 flex-1 pr-4">
+                      <p className="text-xs font-bold truncate">
+                        {item.subItems.length === 0 
+                          ? item.stageName 
+                          : `${item.stageName}: ${item.subItemLabels.join(", ")}`
+                        }
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Scheduled Task</p>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <Badge variant="outline" className="text-[10px] font-bold bg-white">
+                        {format(new Date(getWorkDate(item.dateOffset)), "dd MMM")}
+                      </Badge>
+                      {item.dateOffset > 0 && <span className="text-[10px] font-medium text-primary mt-1">T+{item.dateOffset}</span>}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setIsConfirmOpen(false)}>
-                <X className="w-4 h-4 mr-2" />
-                Cancel
+            <div className="flex gap-4 pt-4">
+              <Button variant="outline" className="flex-1 h-12 rounded-2xl" onClick={() => setIsConfirmOpen(false)}>
+                Go Back
               </Button>
-              <Button className="flex-1 bg-primary text-primary-foreground" onClick={confirmSubmit}>
-                <Check className="w-4 h-4 mr-2" />
-                Confirm
+              <Button className="flex-1 h-12 rounded-2xl shadow-xl shadow-primary/20" onClick={confirmSubmit}>
+                Send All Tasks
               </Button>
             </div>
           </div>

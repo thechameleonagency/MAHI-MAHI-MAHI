@@ -1,12 +1,19 @@
-import { useMemo, useState, type ReactNode } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Briefcase, Calendar, CheckCircle2, ClipboardList, Edit,
+  ArrowLeft, Briefcase, Calendar, Camera, CheckCircle2, ClipboardList, Edit,
   FileText, Handshake, IndianRupee, LinkIcon, MapPin,
-  Package, Plus, ReceiptText, Truck, Users,
+  MoreVertical, Package, Plus, ReceiptText, Truck, Users, CheckSquare, User, X, Zap,
 } from "lucide-react";
 import { format, isValid, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuSeparator, 
+  DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -22,9 +29,16 @@ import { PageShell } from "@/components/layout/PageShell";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useMasters } from "@/contexts/MastersContext";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { canPerformAction } from "@/domain/policies/permissionMatrix";
+import { canTransitionProjectStatus, type ProjectLifecycleStatus } from "@/domain/stateMachines/projectStateMachine";
 import { toast } from "@/hooks/use-toast";
+import { toast as sonnerToast } from "sonner";
 import { UnifiedExpenseModal } from "@/components/expenses/UnifiedExpenseModal";
+import { TaskAssignmentModal } from "@/components/employees/TaskAssignmentModal";
 import { ProgressReportTab } from "@/components/projects/ProgressReportTab";
+import { TeamRosterTab } from "@/components/projects/TeamRosterTab";
+import { filterWorkTabsBySnapshot, projectForbidsAction } from "@/lib/projectDetailTabs";
 import { ProjectDocumentsStudio } from "@/components/projects/ProjectDocumentsStudio";
 import MaterialsSentTab from "@/components/projects/MaterialsSentTab";
 import { ClientPaymentHistory } from "@/components/projects/ClientPaymentHistory";
@@ -36,25 +50,40 @@ import {
   isPartnerDebitTransaction,
   partnerProjectLabel,
 } from "@/domain/partners/derivePartnerEconomics";
-import type { Payment, Expense } from "@/types/finance";
-import type { Project } from "@/types/project";
+import type { Payment, Expense, Invoice } from "@/types/finance";
+import type { Project, ProjectPartner, ProjectPartnerType } from "@/types/project";
+import { formatINR } from "@/lib/formatCurrency";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
-const formatCurrency = (amount: number) => `Rs. ${Math.round(amount || 0).toLocaleString("en-IN")}`;
+const formatCurrency = (amount: number) => formatINR(Math.round(amount || 0));
 
-const projectKindLabel: Record<NonNullable<Project["projectKind"]>, string> = {
+const projectKindLabel: Record<string, string> = {
   SOLO_EPC: "Solo",
   PARTNER_EPC: "Partner",
   FIXED_EPC: "Fixed",
   VENDOR_NETWORK: "Vendor / network",
   INC: "INC",
+  INC_GIVEN: "INC Given",
+  OUTSOURCED_INC: "Outsourced INC",
+  VENDORSHIP_ONLY: "Vendorship Only",
 };
 
-const projectKindTone: Record<NonNullable<Project["projectKind"]>, string> = {
+const projectKindTone: Record<string, string> = {
   SOLO_EPC: "bg-emerald-500/10 text-emerald-700 border-emerald-500/25",
-  PARTNER_EPC: "bg-blue-500/10 text-blue-700 border-blue-500/25",
+  PARTNER_EPC: "bg-primary/10 text-primary border-primary/25",
   FIXED_EPC: "bg-amber-500/10 text-amber-800 border-amber-500/25",
   VENDOR_NETWORK: "bg-violet-500/10 text-violet-700 border-violet-500/25",
   INC: "bg-slate-500/10 text-slate-700 border-slate-500/25",
+  INC_GIVEN: "bg-orange-500/10 text-orange-700 border-orange-500/25",
+  OUTSOURCED_INC: "bg-sky-500/10 text-sky-700 border-sky-500/25",
+  VENDORSHIP_ONLY: "bg-purple-500/10 text-purple-700 border-purple-500/25",
 };
 
 function TabCard({
@@ -102,13 +131,35 @@ function expenseToOutsourcedWorkRow(e: Expense) {
   return { id: e.id, date: dateLabel, description: e.description ?? e.notes ?? "Outsourced work", employees: 0, days: 0, ratePerDay: 0, total: e.amount };
 }
 
+const INVOICE_BAL_EPS = 0.01;
+
+/** L05 / L11: require ≥1 project bill and no positive balance on any of them before lifecycle completion. */
+function projectCompletionInvoiceBlockReason(
+  projectBills: Pick<Invoice, "total" | "amountReceived" | "invoiceNumber">[],
+): string | null {
+  if (projectBills.length === 0) {
+    return "Add at least one invoice or sale bill linked to this project before completion.";
+  }
+  for (const inv of projectBills) {
+    const bal = (inv.total ?? 0) - (inv.amountReceived ?? 0);
+    if (bal > INVOICE_BAL_EPS) {
+      const label = inv.invoiceNumber?.trim() || "bill";
+      return `Outstanding ₹${Math.round(bal)} on ${label}. Record payments until every project bill is fully settled.`;
+    }
+  }
+  return null;
+}
+
 const ProjectDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { currentRole } = useAppSession();
   const {
     attendanceRecords,
+    customers,
     employees,
     expenses,
+    quotations,
     invoices,
     partners,
     partnerTransactions,
@@ -128,11 +179,12 @@ const ProjectDetail = () => {
     getClientPaymentRecordsByProject,
     getTasksByProjectId,
     getSitesByProjectId,
+    addSite,
     updateProject,
     recordProjectMaterialMovement,
     addExpense,
     addBlockage,
-    updateBlockage,
+    resolveBlockage,
     addOperationalTicket,
     updateProjectTimelineForProject,
     addClientPaymentRecord,
@@ -141,14 +193,34 @@ const ProjectDetail = () => {
     generateId,
   } = useAppData();
   const { getOutsourceWorkTags, getSiteChecklistPresets } = useMasters();
+  const COMPANY_STATE_CODE = (() => { try { return JSON.parse(localStorage.getItem("mss.settings.company") || "{}").companyState || "08"; } catch { return "08"; } })();
 
   const project = id ? getProjectById(id) : undefined;
   const quotation = project?.quotationId ? getQuotationById(project.quotationId) : undefined;
+
+  const photoGalleryRef = useRef(project?.photoGallery);
+  useEffect(() => {
+    photoGalleryRef.current = project?.photoGallery;
+  }, [project?.id, project?.photoGallery]);
+
+  const projectQuotations = useMemo(() => {
+    if (!project?.id) return [];
+    return quotations.filter(
+      (q) =>
+        q.id === project.quotationId ||
+        q.convertedToProjectId === project.id ||
+        (Boolean(q.customerId) && q.customerId === project.customerId && !q.isConverted),
+    );
+  }, [project, quotations]);
 
   // Existing data (current version)
   const projectInvoices = useMemo(
     () => [...invoices, ...(saleBills ?? [])].filter((invoice) => invoice.projectId === id),
     [id, invoices, saleBills],
+  );
+  const projectCompletionInvoiceReason = useMemo(
+    () => projectCompletionInvoiceBlockReason(projectInvoices),
+    [projectInvoices],
   );
   const projectPayments = useMemo(
     () => payments.filter((payment) => payment.projectId === id),
@@ -199,9 +271,10 @@ const ProjectDetail = () => {
 
   const employeesList = employees.map(emp => ({ id: emp.id, name: emp.name, role: emp.role, salary: emp.salary, initial: emp.name.charAt(0) }));
 
-  // Attendance rows for this project
+  // Attendance rows for this project â€” filter by site IDs that belong to this project
+  const projectSiteIds = sites.filter(s => s.projectId === project?.id).map(s => String(s.id));
   const attendanceRows = attendanceRecords
-    .filter((record) => record.sites.includes(project?.id ?? ""))
+    .filter((record) => projectSiteIds.some(sid => record.sites?.includes(sid)))
     .map((record) => ({
       ...record,
       employeeName: employees.find((employee) => employee.id === record.employeeId)?.name ?? `Employee ${record.employeeId}`,
@@ -209,12 +282,20 @@ const ProjectDetail = () => {
 
   // Modal states
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [taskAssignmentOpen, setTaskAssignmentOpen] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isAddOutsourceOpen, setIsAddOutsourceOpen] = useState(false);
-  const [isAddLinkOpen, setIsAddLinkOpen] = useState(false);
-  const [driveLink, setDriveLink] = useState("");
-  const [newLink, setNewLink] = useState("");
   const [activeTab, setActiveTab] = useState("progress-report");
+  const [isAddSiteOpen, setIsAddSiteOpen] = useState(false);
+  const [newSiteName, setNewSiteName] = useState("");
+  const [newSiteWorkStart, setNewSiteWorkStart] = useState(() => new Date().toISOString().split("T")[0]);
+  const [newSiteStatus, setNewSiteStatus] = useState<"active" | "completed" | "on-hold">("active");
+  const [executionNotesDraft, setExecutionNotesDraft] = useState("");
+
+  useEffect(() => {
+    if (!project) return;
+    setExecutionNotesDraft(project.executionNotes ?? "");
+  }, [project?.id, project?.executionNotes]);
 
   // Edit project form state
   const [editProjectName, setEditProjectName] = useState("");
@@ -222,6 +303,16 @@ const ProjectDetail = () => {
   const [editProjectLocation, setEditProjectLocation] = useState("");
   const [editProjectCapacity, setEditProjectCapacity] = useState("");
   const [editProjectContractValue, setEditProjectContractValue] = useState("");
+  const [editKind, setEditKind] = useState<Project["projectKind"]>(project?.projectKind || "SOLO_EPC");
+  const [editProjectType, setEditProjectType] = useState<Project["projectType"]>(project?.projectType || "Residential");
+  const [editStartDate, setEditStartDate] = useState(project?.startDate || "");
+  const [editCustomerId, setEditCustomerId] = useState(project?.customerId || "");
+  const [editPartnerId, setEditPartnerId] = useState(project?.partners?.[0]?.partnerId || "");
+  const [editPartnerType, setEditPartnerType] = useState<ProjectPartnerType>(project?.partners?.[0]?.partnerType || "profit");
+  const [editPartnerShare, setEditPartnerShare] = useState("");
+  const [editEndDate, setEditEndDate] = useState(project?.endDate || "");
+  const [editProjectStatus, setEditProjectStatus] = useState<Project["status"]>(project?.status || "Ongoing");
+  const [editProgressStage, setEditProgressStage] = useState(project?.progressStage || "");
 
   // Outsource work state
   const [outsourceTab, setOutsourceTab] = useState<"labour" | "other">("labour");
@@ -244,29 +335,95 @@ const ProjectDetail = () => {
   // Derived project status
   const projectStatus = project?.status || "Ongoing";
   const isProjectCompleted = projectStatus === "Completed";
+  const currentLifecycle = (project?.lifecycleStatus ?? "New") as ProjectLifecycleStatus;
+  const lifecycleTransitions: ProjectLifecycleStatus[] = (["New", "In Progress", "On Hold", "Completed", "Closed"] as ProjectLifecycleStatus[]).filter(
+    (to) => canTransitionProjectStatus(currentLifecycle, to, currentRole ?? "admin")
+  );
 
   const openEditProjectModal = () => {
     if (project) {
       setEditProjectName(project.name);
       setEditProjectClient(project.client);
       setEditProjectLocation(project.location);
-      setEditProjectCapacity(project.capacity.replace(" kW", ""));
+      setEditProjectCapacity((project.capacity || "").replace(" kW", ""));
       setEditProjectContractValue(project.contractAmount.toString());
+      setEditKind(project.projectKind);
+      setEditProjectType(project.projectType);
+      setEditStartDate(project.startDate);
+      setEditCustomerId(project.customerId);
+      setEditEndDate(project.endDate || "");
+      setEditProjectStatus(project.status);
+      setEditProgressStage(project.progressStage || "");
+      const p = project.partners?.[0];
+      setEditPartnerId(p?.partnerId || "");
+      setEditPartnerType(p?.partnerType || "profit");
+      setEditPartnerShare((p?.sharePercentage ?? p?.fixedAmount ?? p?.feeAmount ?? "").toString());
     }
     setIsEditProjectOpen(true);
   };
 
+  // Re-populate edit fields whenever edit sheet opens to avoid stale state
+  useEffect(() => {
+    if (isEditProjectOpen) openEditProjectModal();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditProjectOpen]);
+
   const handleSaveEditProject = () => {
     if (!project) return;
+    
+    const partnerData: ProjectPartner[] | undefined = editKind !== "SOLO_EPC" && editPartnerId ? [{
+      partnerId: editPartnerId,
+      partnerName: partners.find(p => p.id === editPartnerId)?.name || "Unknown",
+      partnerType: editPartnerType,
+      sharePercentage: editPartnerType === "profit" ? parseFloat(editPartnerShare) : undefined,
+      fixedAmount: editPartnerType === "fixed" ? parseFloat(editPartnerShare) : undefined,
+      feeAmount: editPartnerType === "vendorship" ? parseFloat(editPartnerShare) : undefined,
+      calculatedEarning: 0,
+      settlementDirection: "company_pays_partner"
+    }] : undefined;
+
     updateProject(project.id, {
       name: editProjectName || project.name,
-      client: editProjectClient || project.client,
-      capacity: `${editProjectCapacity || "0"} kW`,
+      client: customers.find(c => c.id === editCustomerId)?.name || editProjectClient || project.client,
+      customerId: editCustomerId,
       location: editProjectLocation || project.location,
+      capacity: editProjectCapacity.toLowerCase().includes("kw") ? editProjectCapacity : `${editProjectCapacity || "0"} kW`,
       contractAmount: parseFloat(editProjectContractValue) || 0,
+      projectKind: editKind,
+      projectType: editProjectType,
+      startDate: editStartDate,
+      endDate: editEndDate || undefined,
+      status: editProjectStatus,
+      progressStage: editProgressStage || undefined,
+      partners: partnerData
     });
     toast({ title: "Project Updated", description: `${editProjectName || project.name} has been updated successfully` });
     setIsEditProjectOpen(false);
+  };
+
+  const handleMarkProjectCompleted = () => {
+    if (!project || !id) return;
+    const block = projectCompletionInvoiceReason;
+    if (block) {
+      toast({ title: "Cannot complete project", description: block, variant: "destructive" });
+      return;
+    }
+    updateProject(project.id, { lifecycleStatus: "Completed", endDate: new Date().toISOString().slice(0, 10) });
+    const invoiceParams = new URLSearchParams({
+      from: "project", client: project.client,
+      address: project.clientAddress || "", contact: project.clientPhone || "",
+      state: COMPANY_STATE_CODE, project: project.name, amount: project.contractAmount.toString(), projectId: id,
+    });
+    if (project.quotationId) invoiceParams.set("quotationId", project.quotationId);
+    const invoiceUrl = `/invoices?${invoiceParams.toString()}`;
+    setTimeout(() => {
+      sonnerToast("Project marked complete", {
+        action: {
+          label: "Create Invoice",
+          onClick: () => navigate(invoiceUrl),
+        },
+      });
+    }, 200);
   };
 
   const handleConfirmOutsource = () => {
@@ -284,10 +441,88 @@ const ProjectDetail = () => {
       notes = `OUTSRC:0,0,0:${tagPrefix}${otherWorkNotes.trim() || "Other outsourced work"}`;
     }
     addExpense({ id: generateId("EX"), date: new Date().toISOString().split("T")[0], amount: total, mainCategory: "site", projectId: id, projectName: project.name, category: outsourceTab === "labour" ? "Labour" : "Other", subCategory: "Outsourced", notes, paidBy: { type: "company" } } as Expense);
-    toast({ title: "Outsource Work Added", description: `₹${total.toLocaleString()} recorded` });
+    toast({ title: "Outsource Work Added", description: `â‚¹${total.toLocaleString()} recorded` });
     setIsAddOutsourceOpen(false);
     setOutsourceEmployees(""); setOutsourceDays(""); setOutsourceRate(""); setOutsourceDescription("");
     setOtherWorkTag(""); setOtherWorkAmount(""); setOtherWorkNotes("");
+  };
+
+  const handleOpenNewInvoiceForProject = () => {
+    if (!project || !id) return;
+    const invoiceParams = new URLSearchParams({
+      from: "project",
+      client: project.client,
+      address: project.clientAddress || "",
+      contact: project.clientPhone || "",
+      state: COMPANY_STATE_CODE,
+      project: project.name,
+      amount: project.contractAmount.toString(),
+      projectId: id,
+    });
+    if (project.quotationId) invoiceParams.set("quotationId", project.quotationId);
+    navigate(`/invoices?${invoiceParams.toString()}`);
+  };
+
+  const handleSaveNewSite = () => {
+    if (!project || !id || !newSiteName.trim()) {
+      toast({ title: "Site name required", description: "Enter a site name.", variant: "destructive" });
+      return;
+    }
+    const nextId = sites.length ? Math.max(...sites.map((s) => s.id)) + 1 : 1;
+    addSite({
+      id: nextId,
+      name: newSiteName.trim(),
+      projectId: id,
+      projectName: project.name,
+      workStartDate: newSiteWorkStart,
+      status: newSiteStatus,
+      checklistItems: [],
+    });
+    toast({ title: "Site added", description: `${newSiteName.trim()} saved for this project.` });
+    setIsAddSiteOpen(false);
+    setNewSiteName("");
+  };
+
+  const handleSaveExecutionNotes = () => {
+    if (!project) return;
+    updateProject(project.id, { executionNotes: executionNotesDraft });
+    toast({ title: "Execution notes saved" });
+  };
+
+  const MAX_PROJECT_PHOTO_BYTES = 4 * 1024 * 1024;
+
+  const handleProjectPhotoAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!project) return;
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Choose an image file.", variant: "destructive" });
+      return;
+    }
+    if (file.size > MAX_PROJECT_PHOTO_BYTES) {
+      toast({ title: "File too large", description: "Maximum size is 4 MB per photo.", variant: "destructive" });
+      return;
+    }
+    const pid = project.id;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = typeof reader.result === "string" ? reader.result : "";
+      const nextGallery = [...(photoGalleryRef.current ?? []), { id: generateId("PHO"), url, uploadedAt: new Date().toISOString() }];
+      photoGalleryRef.current = nextGallery;
+      updateProject(pid, { photoGallery: nextGallery, photos: nextGallery.length });
+      toast({ title: "Photo added" });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveProjectPhoto = (photoId: string) => {
+    if (!project) return;
+    const nextGallery = (project.photoGallery ?? []).filter((p) => p.id !== photoId);
+    photoGalleryRef.current = nextGallery.length ? nextGallery : undefined;
+    updateProject(project.id, {
+      photoGallery: nextGallery.length ? nextGallery : undefined,
+      photos: nextGallery.length,
+    });
   };
 
   // Materials tab helpers
@@ -312,15 +547,21 @@ const ProjectDetail = () => {
         <StickyPageHeader breadcrumbs={[{ label: "Home", to: "/" }, { label: "Projects", to: "/projects" }, { label: "Not found" }]} />
         <Card><CardContent className="py-8">
           <p className="text-sm text-muted-foreground">Project not found.</p>
-          <Button className="mt-4" variant="outline" asChild><Link to="/projects">Back to projects</Link></Button>
+          <Button className="mt-4" variant="outline" type="button" onClick={() => navigate(-1)}>
+            Go back
+          </Button>
         </CardContent></Card>
       </PageShell>
     );
   }
 
-  const kind = project.projectKind ?? (project.dealType === "Solo" ? "SOLO_EPC" : project.dealType === "Partner" ? "PARTNER_EPC" : project.dealType === "Fixed" ? "FIXED_EPC" : project.dealType === "Vendorship" ? "VENDOR_NETWORK" : "INC");
+  const kind = project.projectKind;
   const partnerRow = project.partners?.[0];
-  const linkedPartner = partnerRow ? partners.find((partner) => partner.id === partnerRow.partnerId) : undefined;
+  const linkedPartner = partnerRow
+    ? partners.find((partner) => partner.id === partnerRow.partnerId)
+    : project.scope?.partnerId
+    ? partners.find((partner) => partner.id === project.scope!.partnerId)
+    : undefined;
   const projectProfit = calculateProjectProfit(project);
   const partnerEarning = partnerRow ? calculateProjectPartnerEarning(project, partnerRow) : 0;
   const vendorshipFee = partnerRow ? calculateProjectVendorshipFee(partnerRow) : 0;
@@ -335,107 +576,170 @@ const ProjectDetail = () => {
   const companyRetainedRevenue = project.contractAmount - partnerEarning;
   const companyNet = kind === "VENDOR_NETWORK" ? projectProfit + vendorshipFee : companyRetainedRevenue - actualCost;
 
-  // Merged tab definitions: operational tabs + kind-specific financial tabs
-  const kindTabs =
-    project.dealType === "Partner" ? [{ value: "partner", label: "Partner Financials" }]
-    : project.dealType === "Fixed" ? [{ value: "fixed", label: "Fixed Margin" }]
-    : project.dealType === "Vendorship" ? [{ value: "vendorship", label: "Vendorship Fee" }]
-    : [];
+  const scope = project.scope;
+  const docLabel = scope?.vendorshipOwner === "MSS" ? "Document Creator" : "Document Vault";
+  const tabDefs = filterWorkTabsBySnapshot(project, docLabel);
 
-  const baseTabs = [
-    { value: "progress-report", label: "Progress Report" },
-    { value: "document-creator", label: "Document Creator" },
-    { value: "materials-sent", label: "Materials Sent" },
-  ];
-
-  const financialTabs = [
-    { value: "billing", label: "Billing" },
-    { value: "costs", label: "Costs" },
-  ];
-
-  const executionTabs = [
-    { value: "execution", label: "Execution" },
-    { value: "sites", label: "Sites" },
-    { value: "attendance", label: "Attendance" },
-  ];
-
-  let tabDefs = [...baseTabs, ...kindTabs, ...financialTabs, ...executionTabs];
-
-  // Logic: Solo shows everything. INC hides Document Creator and potentially others.
-  if (project.dealType === "INC") {
-    tabDefs = tabDefs.filter(t => t.value !== "document-creator" && t.value !== "billing" && t.value !== "costs");
-  }
+  const forbidMaterialDispatch = projectForbidsAction(project, "material_dispatch");
+  const forbidWorkTracking = projectForbidsAction(project, "work_tracking");
+  const forbidPartnerSettlement = projectForbidsAction(project, "partner_settlement");
+  const forbidChannelFee = projectForbidsAction(project, "channel_fee");
 
   const contractDisplay = project?.contractAmount || 0;
-  const receivedDisplay = project?.amountReceived || 0;
-  const pendingDisplay = Math.max(0, contractDisplay - receivedDisplay);
+  const pendingDisplay = Math.max(0, contractDisplay - collected);
 
   return (
     <PageShell className="space-y-4 md:space-y-6">
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Projects", to: "/projects" }, { label: project.name }]}
+        title={
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xl md:text-2xl font-semibold">{project.name}</span>
+            <Badge variant="outline" className={projectKindTone[kind]}>{projectKindLabel[kind]}</Badge>
+            <Badge variant="secondary" className="h-5 text-2xs uppercase tracking-wider">{project.status}</Badge>
+            {project.progressStage && <Badge variant="outline" className="h-5 text-2xs uppercase">{project.progressStage}</Badge>}
+          </div>
+        }
         subRow={
-          <InlineKpiStrip
-            className="w-full min-w-0 flex-wrap justify-start"
-            items={[
-              { label: "Contract", value: formatCurrency(project.contractAmount) },
-              { label: "Actual cost", value: formatCurrency(actualCost) },
-              { label: "Profit", value: formatCurrency(projectProfit) },
-              { label: "Collected", value: formatCurrency(collected) },
-            ]}
-          />
+          <div className="flex flex-col gap-4 w-full">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5"><User className="w-3.5 h-3.5" />Client: <span className="text-foreground font-medium">{project.client}</span></span>
+              <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />{project.location}</span>
+              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" />{project.capacity}</span>
+              <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" />Started: <span className="text-foreground font-medium">{project.startDate}</span></span>
+              {project.executionPhase && <Badge variant="outline" className="h-5 text-2xs">Phase: {project.executionPhase}</Badge>}
+              {(partnerRow || linkedPartner) && <Badge variant="secondary" className="bg-primary/5 text-primary border-primary/10 text-2xs"><Handshake className="w-3 h-3 mr-1" />{partnerRow?.partnerName ?? linkedPartner?.name}</Badge>}
+            </div>
+            {project.directCreationReason && (
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                <span className="font-semibold">Direct creation reason:</span> {project.directCreationReason}
+              </div>
+            )}
+            <InlineKpiStrip
+              className="w-full min-w-0 flex-wrap justify-start"
+              items={[
+                { label: "Contract", value: formatCurrency(project.contractAmount) },
+                { label: "Actual cost", value: formatCurrency(actualCost) },
+                { label: "Profit", value: formatCurrency(projectProfit) },
+                { label: "Collected", value: formatCurrency(collected) },
+              ]}
+            />
+            {(project.bankDocumentationAmount || project.totalPartnerInvestment || project.mssBackendAmount || project.externalVendorshipEntity || project.loanReceiptHandling || project.cashHandling || project.incScope || project.vendorNetworkCommissionType || project.commercialBaseline?.capturedAt) && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground border-t pt-3">
+                {project.bankDocumentationAmount != null && (<div><span className="block text-2xs uppercase">Bank Doc Amount</span><span className="text-foreground font-medium">{formatCurrency(project.bankDocumentationAmount)}</span></div>)}
+                {project.totalPartnerInvestment != null && (<div><span className="block text-2xs uppercase">Partner Investment</span><span className="text-foreground font-medium">{formatCurrency(project.totalPartnerInvestment)}</span></div>)}
+                {project.mssBackendAmount != null && (<div><span className="block text-2xs uppercase">MSS Backend</span><span className="text-foreground font-medium">{formatCurrency(project.mssBackendAmount)}</span></div>)}
+                {project.externalVendorshipEntity && (<div><span className="block text-2xs uppercase">External Vendorship</span><span className="text-foreground font-medium">{project.externalVendorshipEntity}</span></div>)}
+                {project.loanReceiptHandling && (<div><span className="block text-2xs uppercase">Loan Receipt</span><span className="text-foreground font-medium">{project.loanReceiptHandling}</span></div>)}
+                {project.cashHandling && (<div><span className="block text-2xs uppercase">Cash Handling</span><span className="text-foreground font-medium">{project.cashHandling}</span></div>)}
+                {project.incScope && (<div><span className="block text-2xs uppercase">INC Scope</span><span className="text-foreground font-medium">{project.incScope}</span></div>)}
+                {project.vendorNetworkCommissionType && (<div><span className="block text-2xs uppercase">Network Commission</span><span className="text-foreground font-medium">{project.vendorNetworkCommissionType}{project.vendorNetworkFeePerKw ? ` (₹${project.vendorNetworkFeePerKw}/kW)` : project.vendorNetworkFlatFee ? ` (${formatCurrency(project.vendorNetworkFlatFee)})` : ""}</span></div>)}
+                {project.commercialBaseline?.capturedAt && (<div><span className="block text-2xs uppercase">Baseline Locked</span><span className="text-foreground font-medium">{new Date(project.commercialBaseline.capturedAt).toLocaleDateString()}</span></div>)}
+              </div>
+            )}
+          </div>
         }
       >
-        <Button variant="outline" size="sm" asChild>
-          <Link to="/projects">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            List
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" className="h-8 text-primary border-primary/30" onClick={() => { const params = new URLSearchParams({ from: "project", client: project.client, address: project.clientAddress || "", contact: project.clientPhone || "", state: COMPANY_STATE_CODE, project: project.name, amount: project.contractAmount.toString(), projectId: id || "" }); if (project.quotationId) params.set("quotationId", project.quotationId); navigate(`/invoices?${params.toString()}`); }}>
+            <FileText className="w-3.5 h-3.5 mr-1.5" />Invoice
+          </Button>
+          {canPerformAction(currentRole, "project:update_execution") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className={`h-8 ${isProjectCompleted || forbidWorkTracking ? "opacity-50" : ""}`}
+              disabled={isProjectCompleted || forbidWorkTracking}
+              onClick={() => {
+                if (isProjectCompleted || forbidWorkTracking) {
+                  toast({
+                    title: forbidWorkTracking ? "Not available" : "Project completed",
+                    description: forbidWorkTracking ? "Work tracking is not used for this project kind." : "Reactivate the project to assign tasks.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                setTaskAssignmentOpen(true);
+              }}
+            >
+              <ClipboardList className="w-3.5 h-3.5 mr-1.5" />
+              Assign task
+            </Button>
+          )}
+          {canPerformAction(currentRole, "finance:record_expense_income") && (
+            <Button variant="outline" size="sm" className={`h-8 text-destructive border-destructive/30 ${isProjectCompleted ? 'opacity-50' : ''}`} onClick={() => { if (isProjectCompleted) { toast({ title: "Project Completed", description: "Reactivate to make changes.", variant: "destructive" }); return; } setIsAddExpenseOpen(true); }}>
+              <Plus className="w-3.5 h-3.5 mr-1.5" />Expense
+            </Button>
+          )}
+          {!isProjectCompleted && canPerformAction(currentRole, "project:update_commercial") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className={`h-8 text-green-600 border-green-600/30 ${projectCompletionInvoiceReason ? "opacity-60" : ""}`}
+              disabled={Boolean(projectCompletionInvoiceReason)}
+              title={projectCompletionInvoiceReason ?? undefined}
+              onClick={handleMarkProjectCompleted}
+            >
+              <CheckSquare className="w-3.5 h-3.5 mr-1.5" />Complete
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={() => { if (isProjectCompleted || forbidWorkTracking) return; setIsAddOutsourceOpen(true); }}
+                disabled={isProjectCompleted || forbidWorkTracking}
+              >
+                <Users className="w-4 h-4 mr-2" /> Outsource Work
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { if (isProjectCompleted) return; openEditProjectModal(); }} disabled={isProjectCompleted}>
+                <Edit className="w-4 h-4 mr-2" /> Edit Details
+              </DropdownMenuItem>
+              {lifecycleTransitions.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  {lifecycleTransitions.map((to) => (
+                    <DropdownMenuItem
+                      key={to}
+                      disabled={to === "Completed" && Boolean(projectCompletionInvoiceReason)}
+                      title={to === "Completed" ? (projectCompletionInvoiceReason ?? undefined) : undefined}
+                      onClick={() => {
+                        if (!project) return;
+                        if (to === "Completed") {
+                          const reason = projectCompletionInvoiceReason;
+                          if (reason) {
+                            toast({ title: "Cannot move to Completed", description: reason, variant: "destructive" });
+                            return;
+                          }
+                        }
+                        updateProject(project.id, {
+                          lifecycleStatus: to,
+                          ...(to === "Completed" ? { endDate: new Date().toISOString().slice(0, 10) } : {}),
+                        });
+                      }}
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-2" /> Move to {to}
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="flex items-center"
+                onClick={() => navigate(-1)}
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" /> Back
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </StickyPageHeader>
 
-      <Card>
-        <CardContent className="p-4 md:p-6">
-          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-            <div className="flex-1 space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <Link to="/projects"><Button variant="outline" size="sm"><ArrowLeft className="w-4 h-4 mr-2" />Back</Button></Link>
-                <span className="text-xl md:text-2xl font-semibold">{project.name}</span>
-                <Badge variant="outline" className={projectKindTone[kind]}>{projectKindLabel[kind]}</Badge>
-                <Badge variant="secondary">{project.status}</Badge>
-                <Badge variant="outline">{project.progressStage}</Badge>
-              </div>
-              <div className="flex flex-wrap items-center gap-4 text-sm">
-                <span className="text-muted-foreground">Client: <span className="text-foreground font-medium">{project.client}</span></span>
-                <span className="flex items-center gap-1 text-muted-foreground"><MapPin className="w-3 h-3" />{project.location}</span>
-                <span className="text-muted-foreground">Capacity: <span className="text-foreground font-medium">{project.capacity}</span></span>
-                <span className="text-muted-foreground">Contract: <span className="text-primary font-semibold">{formatCurrency(project.contractAmount)}</span></span>
-              </div>
-              <div className="flex flex-wrap items-center gap-4 text-sm pt-2 border-t">
-                <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Start:</span><span className="font-medium">{project.startDate}</span></div>
-                {quotation && <Link to={`/quotations?highlight=${quotation.id}`}><Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 cursor-pointer hover:bg-amber-500/20 flex items-center gap-1"><LinkIcon className="w-3 h-3" />From: {quotation.quotationNumber}</Badge></Link>}
-                {partnerRow && <Badge className="bg-blue-500/10 text-blue-600 border-0 text-xs"><Handshake className="w-3 h-3 mr-1" />{partnerRow.partnerName}</Badge>}
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row lg:flex-col gap-2 min-w-[160px]">
-              <Button variant="outline" size="sm" className="text-blue-600 border-blue-600/30" onClick={() => { const params = new URLSearchParams({ from: "project", client: project.client, address: project.clientAddress || "", contact: project.clientPhone || "", state: "08", project: project.name, amount: project.contractAmount.toString(), projectId: id || "" }); if (project.quotationId) params.set("quotationId", project.quotationId); navigate(`/invoices?${params.toString()}`); }}>
-                <FileText className="w-4 h-4 mr-1" />Create Invoice
-              </Button>
-              <Button variant="outline" size="sm" className={`text-destructive border-destructive/30 ${isProjectCompleted ? 'opacity-50' : ''}`} onClick={() => { if (isProjectCompleted) { toast({ title: "Project Completed", description: "Reactivate to make changes.", variant: "destructive" }); return; } setIsAddExpenseOpen(true); }}>
-                <Plus className="w-4 h-4 mr-1" />Add Expense
-              </Button>
-              <Button variant="outline" size="sm" className={`text-amber-600 border-amber-600/30 ${isProjectCompleted ? 'opacity-50' : ''}`} onClick={() => { if (isProjectCompleted) { toast({ title: "Project Completed", description: "Reactivate to make changes.", variant: "destructive" }); return; } setIsAddOutsourceOpen(true); }}>
-                <Users className="w-4 h-4 mr-1" />Outsource Work
-              </Button>
-              <Button variant="outline" size="sm" className={isProjectCompleted ? 'opacity-50' : ''} onClick={() => { if (isProjectCompleted) { toast({ title: "Project Completed", description: "Reactivate to make changes.", variant: "destructive" }); return; } openEditProjectModal(); }}>
-                <Edit className="w-4 h-4 mr-1" />Edit
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Tabs defaultValue={tabDefs[0].value} className="space-y-4">
+      <Tabs defaultValue={tabDefs[0]?.value ?? "progress-report"} className="space-y-4">
         <TabsList className="flex h-auto flex-wrap justify-start">
           {tabDefs.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
@@ -444,7 +748,7 @@ const ProjectDetail = () => {
           ))}
         </TabsList>
 
-        {/* ═══ Progress Report ═══ */}
+        {/* â•â•â• Progress Report â•â•â• */}
         <TabsContent value="progress-report" className="space-y-4">
           <ProgressReportTab
             projectId={project.id}
@@ -455,17 +759,85 @@ const ProjectDetail = () => {
             timelineStatus={projectTimeline}
             employees={employees}
             materialsSent={getProjectMaterialsForTab().map(m => ({ itemId: m.id, itemName: m.name, quantity: m.totalQuantitySent, dateIssued: m.issues[0]?.date || "" }))}
-            projectPaymentType={project.paymentType as any}
+            projectPaymentType={project.paymentType}
             projectContractAmount={project.contractAmount}
             projectAmountReceived={project.amountReceived}
             onAddBlockage={(b) => addBlockage(b)}
-            onResolveBlockage={(bId) => updateBlockage(bId, { status: "resolved", resolvedAt: new Date().toISOString() })}
+            onResolveBlockage={(bId, res) =>
+              resolveBlockage({
+                id: bId,
+                resolvedAt: res.resolvedAt,
+                resolvedBy: res.resolvedBy,
+                resolvedByName: res.resolvedByName,
+                notesAppend: res.notes,
+              })
+            }
+            onRecordClientCash={(amount, notes) => {
+              if ((project.contractAmount || 0) > 0 && collected + amount > project.contractAmount) {
+                toast({ title: "Warning", description: `Payment of ${formatCurrency(amount)} would exceed contract amount of ${formatCurrency(project.contractAmount)}`, variant: "destructive" });
+              }
+              addClientPaymentRecord({
+                id: generateId("CPR"),
+                projectId: project.id,
+                date: new Date().toISOString().slice(0, 10),
+                amount,
+                paymentMode: "cash",
+                notes,
+                recordedAt: new Date().toISOString(),
+                paymentStage: "other",
+              });
+              updateProject(project.id, {
+                amountReceived: (project.amountReceived ?? 0) + amount,
+              });
+            }}
             onAddTicket={(t) => addOperationalTicket({ ...t, id: generateId("TKT"), createdAt: new Date().toISOString() })}
             onUpdateTimeline={(updates) => updateProjectTimelineForProject(project.id, updates)}
+            scope={project.scope}
           />
         </TabsContent>
 
-        {/* ═══ Document Creator ═══ */}
+        <TabsContent value="project-quotations" className="space-y-4">
+          <TabCard title="Quotations" icon={<FileText className="h-4 w-4 text-primary" />}>
+            {projectQuotations.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No quotations linked to this project yet.</p>
+            ) : (
+              <DataTableShell variant="inline">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Number</TableHead>
+                    <TableHead>Client</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Open</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projectQuotations.map((q) => (
+                    <TableRow key={q.id}>
+                      <TableCell className="font-mono text-xs">{q.quotationNumber}</TableCell>
+                      <TableCell>{q.clientName}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-2xs capitalize">{q.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">{formatCurrency(q.clientAgreedAmount ?? q.totalAmount)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="link" className="h-auto p-0 text-xs" asChild>
+                          <Link to="/quotations" state={{ focusQuotationId: q.id }}>View in Quotations</Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </DataTableShell>
+            )}
+          </TabCard>
+        </TabsContent>
+
+        <TabsContent value="team-roster" className="space-y-4">
+          <TeamRosterTab project={project} />
+        </TabsContent>
+
+        {/* â•â•â• Document Creator â•â•â• */}
         <TabsContent value="document-creator" className="space-y-4">
           <ProjectDocumentsStudio
             project={project}
@@ -475,33 +847,115 @@ const ProjectDetail = () => {
           />
         </TabsContent>
 
-        {/* ═══ Materials Sent ═══ */}
+        {/* â•â•â• Materials Sent â•â•â• */}
         <TabsContent value="materials-sent" className="space-y-4">
+          {forbidMaterialDispatch ? (
+            <Card><CardContent className="py-8 text-sm text-muted-foreground">Material dispatch is disabled for this project kind.</CardContent></Card>
+          ) : (
           <MaterialsSentTab
             projectName={project.name}
             projectId={project.id}
             materials={getProjectMaterialsForTab()}
             presetItems={getPresetItems().map(p => ({ id: p.id, name: p.itemName, quantity: p.quantity, unit: p.unit }))}
             inventoryItems={inventoryItems}
-            onIssueMaterials={async (items) => {
+            executionLineItems={project.executionLineItems ?? []}
+            onIssueMaterials={async (items, _exp, _task, meta) => {
+              const gid =
+                meta?.movementGroupId ??
+                (typeof crypto !== "undefined" && "randomUUID" in crypto
+                  ? crypto.randomUUID()
+                  : `mvg-${Date.now()}`);
               for (const item of items) {
-                recordProjectMaterialMovement({ projectId: project.id, itemId: item.id, movementType: "IssueToSite", quantity: item.quantity });
+                await recordProjectMaterialMovement({
+                  projectId: project.id,
+                  itemId: item.id,
+                  movementType: "IssueToSite",
+                  quantity: item.quantity,
+                  clientRequestId: `${gid}:issue:${item.id}:${item.quantity}`,
+                });
               }
             }}
-            onReturnMaterial={async (itemId, qty) => { recordProjectMaterialMovement({ projectId: project.id, itemId, movementType: "ReturnToWarehouse", quantity: qty }); return { ok: true }; }}
-            onScrapMaterial={async (itemId, qty) => { recordProjectMaterialMovement({ projectId: project.id, itemId, movementType: "ScrapSite", quantity: qty }); return { ok: true }; }}
-            onConsumeMaterial={async (itemId, qty) => { recordProjectMaterialMovement({ projectId: project.id, itemId, movementType: "ConsumptionAtSite", quantity: qty }); return { ok: true }; }}
+            onReturnMaterial={async (itemId, qty, movMeta) => {
+              await recordProjectMaterialMovement({
+                projectId: project.id,
+                itemId,
+                movementType: "ReturnToWarehouse",
+                quantity: qty,
+                clientRequestId: movMeta?.clientRequestId,
+              });
+              return { ok: true };
+            }}
+            onScrapMaterial={async (itemId, qty, movMeta) => {
+              await recordProjectMaterialMovement({
+                projectId: project.id,
+                itemId,
+                movementType: "ScrapSite",
+                quantity: qty,
+                clientRequestId: movMeta?.clientRequestId,
+              });
+              return { ok: true };
+            }}
+            onConsumeMaterial={async (itemId, qty, movMeta) => {
+              await recordProjectMaterialMovement({
+                projectId: project.id,
+                itemId,
+                movementType: "ConsumptionAtSite",
+                quantity: qty,
+                clientRequestId: movMeta?.clientRequestId,
+              });
+              return { ok: true };
+            }}
           />
+          )}
         </TabsContent>
 
-        <TabsContent value="partner" className="space-y-4">
-          <TabCard title="Profit Partner Logic" icon={<Handshake className="h-4 w-4 text-blue-600" />}>
-            <div className="grid gap-3 md:grid-cols-4">
-              <MiniMetric label="Partner type" value={partnerProjectLabel(partnerRow)} />
-              <MiniMetric label="Actual profit" value={formatCurrency(projectProfit)} />
-              <MiniMetric label="Partner earning" value={formatCurrency(partnerEarning)} />
-              <MiniMetric label="Pending to partner" value={formatCurrency(pendingToPartner)} />
+        <TabsContent value="vendorship" className="space-y-4">
+          <TabCard title="Partner Economics" icon={<Users className="h-4 w-4 text-violet-700" />}>
+            {(forbidPartnerSettlement || forbidChannelFee) && (
+              <div className="mb-4 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                {forbidPartnerSettlement && (
+                  <p>This project kind does not model partner settlement in MSS; record partner payouts only on projects where settlement applies.</p>
+                )}
+                {forbidChannelFee && (
+                  <p>Channel / billing-fee offsets are not tracked for this project kind.</p>
+                )}
+              </div>
+            )}
+            <div className="grid gap-4 md:grid-cols-4">
+              <MiniMetric label="Lead Origin" value={project.scope?.leadSource === "PARTNER" ? "Partner Network" : "Direct / Other"} />
+              <MiniMetric label="Vendorship Fee" value={formatCurrency(project.scope?.vendorshipFeeAmount || 0)} />
+              <MiniMetric
+                label="Billing Fee (%)"
+                value={forbidChannelFee ? "—" : `${project.scope?.partnerBillingFeePercentage || 0}%`}
+              />
+              <MiniMetric label="Partner Earning" value={formatCurrency(partnerEarning)} />
             </div>
+            
+            {project.scope?.leadSource === "PARTNER" && (
+              <div className="mt-6 p-4 rounded-lg bg-primary/5 border border-primary/10 space-y-3">
+                <div className="flex items-center gap-2 font-medium text-primary">
+                  <Handshake className="w-4 h-4" />
+                  <span>Commercial Agreements</span>
+                </div>
+                <ul className="text-sm space-y-2 text-muted-foreground">
+                  <li className="flex justify-between">
+                    <span>Vendorship Code Owner:</span>
+                    <span className="text-foreground font-medium uppercase">{project.scope.vendorshipOwner}</span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span>Billing Responsibility:</span>
+                    <span className="text-foreground font-medium uppercase">{project.scope.billingParty}</span>
+                  </li>
+                  {project.scope.partnerBillingFeePercentage ? (
+                    <li className="flex justify-between">
+                      <span>Billing Offset (GST Recovery):</span>
+                      <span className="text-amber-600 font-medium">-{project.scope.partnerBillingFeePercentage}% from profit</span>
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
+            )}
+
             {linkedPartner && (
               <Button className="mt-4" variant="outline" size="sm" asChild>
                 <Link to={`/partners/${linkedPartner.id}`}>Open partner profile</Link>
@@ -510,39 +964,21 @@ const ProjectDetail = () => {
           </TabCard>
         </TabsContent>
 
-        <TabsContent value="fixed" className="space-y-4">
-          <TabCard title="Fixed Share Logic" icon={<IndianRupee className="h-4 w-4 text-amber-700" />}>
-            <div className="grid gap-3 md:grid-cols-5">
-              <MiniMetric label="Sold at" value={formatCurrency(project.partnerCustomerSellAmount ?? project.contractAmount)} />
-              <MiniMetric label="Company backend" value={formatCurrency(project.mssBackendAmount ?? 0)} />
-              <MiniMetric label="Partner fixed share" value={formatCurrency(partnerEarning)} />
-              <MiniMetric label="Paid to partner" value={formatCurrency(partnerPaid)} />
-              <MiniMetric label="Pending to partner" value={formatCurrency(pendingToPartner)} />
-            </div>
-          </TabCard>
-        </TabsContent>
-
-        <TabsContent value="vendorship" className="space-y-4">
-          <TabCard title="Vendorship Fee Logic" icon={<Users className="h-4 w-4 text-violet-700" />}>
-            <div className="grid gap-3 md:grid-cols-5">
-              <MiniMetric label="Partner type" value={partnerProjectLabel(partnerRow)} />
-              <MiniMetric label="Revenue/profit share" value="None" />
-              <MiniMetric label="Fee owed by partner" value={formatCurrency(vendorshipFee)} />
-              <MiniMetric label="Received from partner" value={formatCurrency(partnerReceived)} />
-              <MiniMetric label="Pending from partner" value={formatCurrency(pendingFromPartner)} />
-            </div>
-            {partnerRow?.notes && <p className="mt-4 text-sm text-muted-foreground">{partnerRow.notes}</p>}
-          </TabCard>
-        </TabsContent>
-
         <TabsContent value="billing" className="space-y-4">
           <TabCard title="Company to Customer Billing" icon={<ReceiptText className="h-4 w-4 text-primary" />}>
-            <div className="mb-4 grid gap-3 md:grid-cols-3">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div className="grid flex-1 gap-3 md:grid-cols-3">
               <MiniMetric label="Contract value" value={formatCurrency(project.contractAmount)} />
               <MiniMetric label="Billed so far" value={formatCurrency(billed)} />
               <MiniMetric label="Collected so far" value={formatCurrency(collected)} />
+              </div>
+              <Button type="button" size="sm" className="shrink-0" onClick={handleOpenNewInvoiceForProject}>
+                <Plus className="mr-1 h-4 w-4" />
+                New invoice
+              </Button>
             </div>
-            <DataTableShell>
+            <DataTableShell
+            variant="inline" >
               <TableHeader>
                 <TableRow>
                   <TableHead>Invoice</TableHead>
@@ -567,7 +1003,8 @@ const ProjectDetail = () => {
               </TableBody>
             </DataTableShell>
             <h3 className="mb-2 mt-5 text-sm font-medium">Payment flow</h3>
-            <DataTableShell>
+            <DataTableShell
+            variant="inline" >
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
@@ -596,13 +1033,20 @@ const ProjectDetail = () => {
 
         <TabsContent value="costs" className="space-y-4">
           <TabCard title="Actual Cost" icon={<IndianRupee className="h-4 w-4 text-primary" />}>
-            <div className="mb-4 grid gap-3 md:grid-cols-4">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+              <div className="grid flex-1 gap-3 md:grid-cols-4">
               <MiniMetric label="Material" value={formatCurrency(projectExpenses.filter((e) => e.category === "Material").reduce((sum, e) => sum + e.amount, 0))} />
               <MiniMetric label="Labour" value={formatCurrency(projectExpenses.filter((e) => e.category === "Labour").reduce((sum, e) => sum + e.amount, 0))} />
               <MiniMetric label="Transport" value={formatCurrency(projectExpenses.filter((e) => e.category === "Transport").reduce((sum, e) => sum + e.amount, 0))} />
               <MiniMetric label="Total cost" value={formatCurrency(actualCost)} />
+              </div>
+              <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => setIsAddExpenseOpen(true)}>
+                <Plus className="mr-1 h-4 w-4" />
+                Add expense
+              </Button>
             </div>
-            <DataTableShell>
+            <DataTableShell
+            variant="inline" >
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
@@ -653,16 +1097,32 @@ const ProjectDetail = () => {
                 </div>
               )}
             </TabCard>
+            <TabCard title="Field notes & milestones" icon={<ClipboardList className="h-4 w-4 text-muted-foreground" />}>
+              <p className="mb-2 text-xs text-muted-foreground">Log site progress, milestone completions, and follow-ups. Saved on the project record.</p>
+              <Textarea
+                rows={5}
+                value={executionNotesDraft}
+                onChange={(e) => setExecutionNotesDraft(e.target.value)}
+                placeholder="e.g. 12 Apr â€” Structure complete, awaiting DISCOM inspectionâ€¦"
+                className="text-sm"
+              />
+              <div className="mt-3 flex justify-end">
+                <Button type="button" size="sm" onClick={handleSaveExecutionNotes}>
+                  Save notes
+                </Button>
+              </div>
+            </TabCard>
           </div>
         </TabsContent>
 
-        {/* ═══ Attendance ═══ */}
+        {/* â•â•â• Attendance â•â•â• */}
         <TabsContent value="attendance" className="space-y-4">
           <TabCard title="Attendance Records" icon={<Users className="h-4 w-4 text-primary" />}>
             {attendanceRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">No attendance tied to this project yet.</p>
             ) : (
-              <DataTableShell>
+              <DataTableShell
+            variant="inline" >
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
@@ -691,12 +1151,14 @@ const ProjectDetail = () => {
             payments={clientPayments}
             onRecordPayment={(payment) => addClientPaymentRecord({ ...payment, id: generateId("CPR"), recordedAt: new Date().toISOString() })}
             partnerName={partnerRow?.partnerName}
+            forbidPartnerSettlement={forbidPartnerSettlement}
           />
 
           {/* Outsourced Work Log */}
           {outsourcedWorkRows.length > 0 && (
             <TabCard title="Outsourced Work Log" icon={<Briefcase className="h-4 w-4 text-amber-600" />}>
-              <DataTableShell>
+              <DataTableShell
+            variant="inline" >
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
@@ -714,7 +1176,7 @@ const ProjectDetail = () => {
                       <TableCell>{row.description}</TableCell>
                       <TableCell className="text-right">{row.employees || "-"}</TableCell>
                       <TableCell className="text-right">{row.days || "-"}</TableCell>
-                      <TableCell className="text-right">{row.ratePerDay ? `₹${row.ratePerDay}` : "-"}</TableCell>
+                      <TableCell className="text-right">{row.ratePerDay ? `â‚¹${row.ratePerDay}` : "-"}</TableCell>
                       <TableCell className="text-right font-medium">{formatCurrency(row.total)}</TableCell>
                     </TableRow>
                   ))}
@@ -724,14 +1186,45 @@ const ProjectDetail = () => {
             </TabCard>
           )}
         </TabsContent>
-        {/* ═══ Sites ═══ */}
+        {/* â•â•â• Sites â•â•â• */}
         <TabsContent value="sites" className="space-y-4">
           <TabCard title="Project Installation Sites" icon={<MapPin className="h-4 w-4 text-primary" />}>
+            {projectSites.length > 0 && (
+              <div className="mb-4 flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setNewSiteName("");
+                    setNewSiteWorkStart(new Date().toISOString().split("T")[0]);
+                    setNewSiteStatus("active");
+                    setIsAddSiteOpen(true);
+                  }}
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add site
+                </Button>
+              </div>
+            )}
             {projectSites.length === 0 ? (
               <div className="py-8 text-center bg-muted/20 rounded-lg border border-dashed">
                 <MapPin className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
                 <p className="text-sm text-muted-foreground">No sites recorded for this project.</p>
-                <Button className="mt-4" variant="outline" size="sm">Add Site</Button>
+                <Button
+                  type="button"
+                  className="mt-4"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setNewSiteName("");
+                    setNewSiteWorkStart(new Date().toISOString().split("T")[0]);
+                    setNewSiteStatus("active");
+                    setIsAddSiteOpen(true);
+                  }}
+                >
+                  Add Site
+                </Button>
               </div>
             ) : (
               <div className="space-y-4">
@@ -742,7 +1235,7 @@ const ProjectDetail = () => {
                         <div className="flex items-center gap-2">
                           <MapPin className="w-4 h-4 text-primary" />
                           <span className="font-semibold">{site.name}</span>
-                          <Badge variant="outline" className="text-[10px] uppercase">{site.status || "Active"}</Badge>
+                          <Badge variant="outline" className="text-2xs uppercase">{site.status || "Active"}</Badge>
                         </div>
                         <div className="flex items-center gap-2">
                           <Select 
@@ -778,7 +1271,8 @@ const ProjectDetail = () => {
                       </div>
                     </CardHeader>
                     <CardContent className="p-0">
-                      <DataTableShell>
+          <DataTableShell
+            variant="inline">
                         <TableHeader>
                           <TableRow>
                             <TableHead>Material Item</TableHead>
@@ -790,11 +1284,11 @@ const ProjectDetail = () => {
                           {site.checklistItems?.length ? (
                             site.checklistItems.map((item) => (
                               <TableRow key={item.id}>
-                                <TableCell className="text-sm">{item.materialName}</TableCell>
+                                <TableCell >{item.materialName}</TableCell>
                                 <TableCell className="text-right font-medium">{item.requiredQuantity}</TableCell>
                                 <TableCell>
                                   {item.status === "dispatched" ? (
-                                    <Badge className="bg-primary/10 text-primary border-0 text-[10px]">
+                                    <Badge className="bg-primary/10 text-primary border-0 text-2xs">
                                       <CheckCircle2 className="w-3 h-3 mr-1" />
                                       Dispatched
                                     </Badge>
@@ -802,7 +1296,7 @@ const ProjectDetail = () => {
                                     <Button 
                                       size="sm" 
                                       variant="outline" 
-                                      className="h-7 text-[10px] px-2 border-primary text-primary hover:bg-primary hover:text-white"
+                                      className="h-7 text-2xs px-2 border-primary text-primary hover:bg-primary hover:text-white"
                                       onClick={async () => {
                                         const res = await dispatchSiteMaterial(project.id, site.id, item.id);
                                         if (res.ok) toast({ title: "Material Dispatched", description: `${item.materialName} deducted from warehouse.` });
@@ -832,25 +1326,464 @@ const ProjectDetail = () => {
             )}
           </TabCard>
         </TabsContent>
+
+        {/* â•â•â• Team Roster â•â•â• */}
+        <TabsContent value="team-roster" className="space-y-4">
+          <TeamRosterTab project={project} />
+        </TabsContent>
+
+        {/* â•â•â• Financials (merged Billing + Costs) â•â•â• */}
+        <TabsContent value="financials" className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-5">
+            <MiniMetric label="Contract" value={formatCurrency(project.contractAmount)} />
+            <MiniMetric label="Billed" value={formatCurrency(billed)} />
+            <MiniMetric label="Collected" value={formatCurrency(collected)} />
+            <MiniMetric label="Actual Cost" value={formatCurrency(actualCost)} />
+            <MiniMetric label="Profit" value={formatCurrency(projectProfit)} />
+          </div>
+
+          {/* Invoices â€” only for kinds that bill */}
+          {!["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(kind) && (
+            <TabCard title="Invoices" icon={<ReceiptText className="h-4 w-4 text-primary" />}>
+              <div className="mb-3 flex justify-end">
+                <Button type="button" size="sm" onClick={handleOpenNewInvoiceForProject}>
+                  <Plus className="mr-1 h-4 w-4" />New invoice
+                </Button>
+              </div>
+              <DataTableShell variant="inline">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice #</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Received</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projectInvoices.map((invoice) => (
+                    <TableRow key={invoice.id}>
+                      <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
+                      <TableCell>{invoice.invoiceDate}</TableCell>
+                      <TableCell><Badge variant="outline">{invoice.status}</Badge></TableCell>
+                      <TableCell className="text-right">{formatCurrency(invoice.total)}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(invoice.amountReceived ?? 0)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </DataTableShell>
+              {projectPayments.length > 0 && (
+                <>
+                  <h3 className="mb-2 mt-5 text-sm font-medium">Payment Flow</h3>
+                  <DataTableShell variant="inline">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Stage</TableHead>
+                        <TableHead>Recipient</TableHead>
+                        <TableHead>Mode</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {projectPayments.map((payment) => (
+                        <TableRow key={payment.id}>
+                          <TableCell>{payment.date}</TableCell>
+                          <TableCell>{payment.reference ?? "other"}</TableCell>
+                          <TableCell><PaymentRecipient payment={payment} /></TableCell>
+                          <TableCell>{payment.paymentMode}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(payment.amount)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </DataTableShell>
+                </>
+              )}
+            </TabCard>
+          )}
+
+          {/* Expenses */}
+          <TabCard title="Expenses" icon={<IndianRupee className="h-4 w-4 text-primary" />}>
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <div className="grid flex-1 gap-3 md:grid-cols-3">
+                <MiniMetric label="Material" value={formatCurrency(projectExpenses.filter((e) => e.category === "Material").reduce((s, e) => s + e.amount, 0))} />
+                <MiniMetric label="Labour" value={formatCurrency(projectExpenses.filter((e) => e.category === "Labour").reduce((s, e) => s + e.amount, 0))} />
+                <MiniMetric label="Total" value={formatCurrency(actualCost)} />
+              </div>
+              <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => setIsAddExpenseOpen(true)}>
+                <Plus className="mr-1 h-4 w-4" />Add expense
+              </Button>
+            </div>
+            <DataTableShell variant="inline">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Notes</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {projectExpenses.map((expense) => (
+                  <TableRow key={expense.id}>
+                    <TableCell>{expense.date}</TableCell>
+                    <TableCell>{expense.category}{expense.subCategory ? <span className="text-muted-foreground"> / {expense.subCategory}</span> : null}</TableCell>
+                    <TableCell className="max-w-md text-muted-foreground">{expense.notes ?? expense.description ?? ""}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(expense.amount)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </DataTableShell>
+          </TabCard>
+        </TabsContent>
+
+        {/* â•â•â• Field Operations (merged Execution + Sites + Team Roster + Attendance) â•â•â• */}
+        <TabsContent value="field-operations" className="space-y-4">
+          <Tabs defaultValue="team-schedule">
+            <TabsList>
+              <TabsTrigger value="team-schedule">Team &amp; Schedule</TabsTrigger>
+              <TabsTrigger value="sites-tab">Sites</TabsTrigger>
+              <TabsTrigger value="attendance-tab">Attendance</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="team-schedule" className="space-y-4 mt-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <TabCard title={kind === "INC" ? "INC Execution Scope" : "Execution"} icon={<ClipboardList className="h-4 w-4 text-primary" />}>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <MiniMetric label="Start date" value={project.startDate} />
+                    <MiniMetric label="End date" value={project.endDate ?? "Active"} />
+                    <MiniMetric label="Sites" value={projectSitesFiltered.length} />
+                    <MiniMetric label="Field tasks" value={projectFieldTasks.length} />
+                  </div>
+                </TabCard>
+                <TabCard title="Field notes & milestones" icon={<ClipboardList className="h-4 w-4 text-muted-foreground" />}>
+                  <p className="mb-2 text-xs text-muted-foreground">Log site progress, milestone completions, and follow-ups.</p>
+                  <Textarea rows={5} value={executionNotesDraft} onChange={(e) => setExecutionNotesDraft(e.target.value)} placeholder="e.g. 12 Apr â€” Structure complete, awaiting DISCOM inspectionâ€¦" className="text-sm" />
+                  <div className="mt-3 flex justify-end">
+                    <Button type="button" size="sm" onClick={handleSaveExecutionNotes}>Save notes</Button>
+                  </div>
+                </TabCard>
+              </div>
+              <TabCard title="Site photos" icon={<Camera className="h-4 w-4 text-primary" />}>
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <input
+                    id="project-photo-upload"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleProjectPhotoAdd}
+                  />
+                  <Button type="button" variant="outline" size="sm" asChild>
+                    <label htmlFor="project-photo-upload" className="cursor-pointer">
+                      Add photo
+                    </label>
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {(project.photoGallery?.length ?? project.photos ?? 0)} on file
+                  </span>
+                </div>
+                {(project.photoGallery ?? []).length > 0 ? (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                    {(project.photoGallery ?? []).map((ph) => (
+                      <div key={ph.id} className="group relative aspect-video overflow-hidden rounded-md border bg-muted">
+                        <img src={ph.url} alt="" className="h-full w-full object-cover" />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          className="absolute right-1 top-1 h-7 w-7 p-0 opacity-0 transition-opacity group-hover:opacity-100"
+                          onClick={() => handleRemoveProjectPhoto(ph.id)}
+                          aria-label="Remove photo"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No photos yet. Upload site or handover images (stored in-browser for this prototype).</p>
+                )}
+              </TabCard>
+            </TabsContent>
+
+            <TabsContent value="sites-tab" className="mt-4">
+              <TabCard title="Project Installation Sites" icon={<MapPin className="h-4 w-4 text-primary" />}>
+                {projectSites.length > 0 && (
+                  <div className="mb-4 flex justify-end">
+                    <Button type="button" size="sm" variant="outline" onClick={() => { setNewSiteName(""); setNewSiteWorkStart(new Date().toISOString().split("T")[0]); setNewSiteStatus("active"); setIsAddSiteOpen(true); }}>
+                      <Plus className="mr-1 h-4 w-4" />Add site
+                    </Button>
+                  </div>
+                )}
+                {projectSites.length === 0 ? (
+                  <div className="py-8 text-center bg-muted/20 rounded-lg border border-dashed">
+                    <MapPin className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
+                    <p className="text-sm text-muted-foreground">No sites recorded for this project.</p>
+                    <Button type="button" className="mt-4" variant="outline" size="sm" onClick={() => { setNewSiteName(""); setNewSiteWorkStart(new Date().toISOString().split("T")[0]); setNewSiteStatus("active"); setIsAddSiteOpen(true); }}>Add Site</Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {projectSites.map((site) => (
+                      <Card key={site.id} className="overflow-hidden">
+                        <CardHeader className="bg-muted/30 py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-4 h-4 text-primary" />
+                              <span className="font-semibold">{site.name}</span>
+                              <Badge variant="outline" className="text-2xs uppercase">{site.status || "Active"}</Badge>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Select value={siteTemplateChoice[site.id] || ""} onValueChange={(val) => setSiteTemplateChoice(prev => ({ ...prev, [site.id]: val }))}>
+                                <SelectTrigger className="h-8 w-[200px]"><SelectValue placeholder="Select Checklist Preset" /></SelectTrigger>
+                                <SelectContent>{getSiteChecklistPresets().map(p => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}</SelectContent>
+                              </Select>
+                              <Button size="sm" variant="secondary" className="h-8" disabled={!siteTemplateChoice[site.id]} onClick={() => { const preset = getSiteChecklistPresets().find(p => p.id === siteTemplateChoice[site.id]); if (preset) { const res = applySiteChecklistFromTemplate(project.id, site.id, preset); if (res.ok) toast({ title: "Checklist Applied", description: `Applied ${preset.name} to ${site.name}` }); else toast({ title: "Error", description: res.error, variant: "destructive" }); } }}>Apply Preset</Button>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                          <DataTableShell variant="inline">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Material Item</TableHead>
+                                <TableHead className="text-right">Required Qty</TableHead>
+                                <TableHead>Status</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {site.checklistItems?.length ? (
+                                site.checklistItems.map((item) => (
+                                  <TableRow key={item.id}>
+                                    <TableCell>{item.materialName}</TableCell>
+                                    <TableCell className="text-right font-medium">{item.requiredQuantity}</TableCell>
+                                    <TableCell>
+                                      {item.status === "dispatched" ? (
+                                        <Badge className="bg-primary/10 text-primary border-0 text-2xs"><CheckCircle2 className="w-3 h-3 mr-1" />Dispatched</Badge>
+                                      ) : (
+                                        <Button size="sm" variant="outline" className="h-7 text-2xs px-2 border-primary text-primary hover:bg-primary hover:text-white" onClick={async () => { const res = await dispatchSiteMaterial(project.id, site.id, item.id); if (res.ok) toast({ title: "Material Dispatched", description: `${item.materialName} deducted from warehouse.` }); else toast({ title: "Error", description: res.error, variant: "destructive" }); }}>
+                                          <Truck className="w-3 h-3 mr-1" />Dispatch
+                                        </Button>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                ))
+                              ) : (
+                                <TableRow><TableCell colSpan={3} className="h-24 text-center text-muted-foreground italic">No checklist items. Apply a preset above to initialize.</TableCell></TableRow>
+                              )}
+                            </TableBody>
+                          </DataTableShell>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabCard>
+            </TabsContent>
+
+            <TabsContent value="attendance-tab" className="space-y-4 mt-4">
+              <TabCard title="Attendance Records" icon={<Users className="h-4 w-4 text-primary" />}>
+                {attendanceRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No attendance tied to this project yet.</p>
+                ) : (
+                  <DataTableShell variant="inline">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Employee</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {attendanceRows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell>{row.date}</TableCell>
+                          <TableCell>{row.employeeName}</TableCell>
+                          <TableCell><Badge variant="outline">{row.status}</Badge></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </DataTableShell>
+                )}
+              </TabCard>
+              <ClientPaymentHistory
+                projectId={project.id}
+                clientName={project.client}
+                contractAmount={project.contractAmount}
+                payments={clientPayments}
+                onRecordPayment={(payment) => addClientPaymentRecord({ ...payment, id: generateId("CPR"), recordedAt: new Date().toISOString() })}
+                partnerName={partnerRow?.partnerName}
+                forbidPartnerSettlement={forbidPartnerSettlement}
+              />
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
       </Tabs>
 
-      {/* ═══ MODALS ═══ */}
+      {/* â•â•â• MODALS â•â•â• */}
 
       {/* Edit Project Modal */}
       <Sheet open={isEditProjectOpen} onOpenChange={setIsEditProjectOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Edit Project</SheetTitle>
             <SheetDescription>Update project details</SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2"><Label>Project Name</Label><Input value={editProjectName} onChange={(e) => setEditProjectName(e.target.value)} /></div>
-            <div className="space-y-2"><Label>Client</Label><Input value={editProjectClient} onChange={(e) => setEditProjectClient(e.target.value)} /></div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Location</Label><Input value={editProjectLocation} onChange={(e) => setEditProjectLocation(e.target.value)} /></div>
-              <div className="space-y-2"><Label>Capacity (kW)</Label><Input type="number" value={editProjectCapacity} onChange={(e) => setEditProjectCapacity(e.target.value)} /></div>
+              <div className="space-y-2 col-span-2">
+                <Label>Project Name</Label>
+                <Input value={editProjectName} onChange={(e) => setEditProjectName(e.target.value)} />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Customer</Label>
+                <Select value={editCustomerId} onValueChange={setEditCustomerId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select customer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customers.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Deal Type</Label>
+                <Select value={editKind} onValueChange={(v: any) => setEditKind(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SOLO_EPC">Solo</SelectItem>
+                    <SelectItem value="PARTNER_EPC">Partner</SelectItem>
+                    <SelectItem value="FIXED_EPC">Fixed</SelectItem>
+                    <SelectItem value="VENDOR_NETWORK">Vendorship</SelectItem>
+                    <SelectItem value="INC">INC</SelectItem>
+                    <SelectItem value="INC_GIVEN">INC Given</SelectItem>
+                    <SelectItem value="OUTSOURCED_INC">Outsourced INC</SelectItem>
+                    <SelectItem value="VENDORSHIP_ONLY">Vendorship Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Project Type</Label>
+                <Select value={editProjectType} onValueChange={(v: any) => setEditProjectType(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Residential">Residential</SelectItem>
+                    <SelectItem value="Commercial">Commercial</SelectItem>
+                    <SelectItem value="Industrial">Industrial</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Start Date</Label>
+                <Input type="date" value={editStartDate} onChange={(e) => setEditStartDate(e.target.value)} />
+              </div>
+
+              <div className="space-y-2">
+                <Label>End Date</Label>
+                <Input type="date" value={editEndDate} onChange={(e) => setEditEndDate(e.target.value)} />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={editProjectStatus} onValueChange={(v: any) => setEditProjectStatus(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Ongoing">Ongoing</SelectItem>
+                    <SelectItem value="On Hold">On Hold</SelectItem>
+                    <SelectItem value="Completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Progress Stage</Label>
+                <Input value={editProgressStage} onChange={(e) => setEditProgressStage(e.target.value)} placeholder="e.g. Structure, Wiring, DISCOM..." />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Location</Label>
+                <Input value={editProjectLocation} onChange={(e) => setEditProjectLocation(e.target.value)} />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Capacity (kW)</Label>
+                <div className="relative">
+                  <Input 
+                    value={editProjectCapacity} 
+                    onChange={(e) => setEditProjectCapacity(e.target.value)} 
+                    className="pr-12"
+                  />
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-muted-foreground text-xs font-semibold">
+                    kW
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2 col-span-2">
+                <Label>Contract Value (â‚¹)</Label>
+                <Input type="number" value={editProjectContractValue} onChange={(e) => setEditProjectContractValue(e.target.value)} />
+              </div>
             </div>
-            <div className="space-y-2"><Label>Contract Value (₹)</Label><Input type="number" value={editProjectContractValue} onChange={(e) => setEditProjectContractValue(e.target.value)} /></div>
+
+            {editKind !== "SOLO_EPC" && editKind !== "INC" && (
+              <div className="p-4 rounded-xl bg-muted/30 border border-dashed space-y-4">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-semibold uppercase tracking-wider">Partner Economics</span>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Select Partner</Label>
+                    <Select value={editPartnerId} onValueChange={setEditPartnerId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Which partner?" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {partners.map(p => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Earning Model</Label>
+                    <Select value={editPartnerType} onValueChange={(v: any) => setEditPartnerType(v)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="profit">Profit Sharing (%)</SelectItem>
+                        <SelectItem value="fixed">Fixed Share (â‚¹)</SelectItem>
+                        <SelectItem value="vendorship">Vendorship Fee (â‚¹)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2 col-span-2">
+                    <Label>
+                      {editPartnerType === "profit" ? "Profit Share Percentage (%)" : editPartnerType === "fixed" ? "Our Backend Rate (â‚¹ per kW or total)" : "Vendorship Fee Payable (â‚¹)"}
+                    </Label>
+                    <Input 
+                      type="number"
+                      placeholder="Enter value" 
+                      value={editPartnerShare}
+                      onChange={(e) => setEditPartnerShare(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setIsEditProjectOpen(false)}>Cancel</Button>
@@ -860,8 +1793,20 @@ const ProjectDetail = () => {
       </Sheet>
 
       {/* Outsource Work Modal */}
-      <Sheet open={isAddOutsourceOpen} onOpenChange={setIsAddOutsourceOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+      <Sheet open={isAddOutsourceOpen} onOpenChange={(open) => {
+        setIsAddOutsourceOpen(open);
+        if (!open) {
+          setOutsourceTab("labour");
+          setOutsourceEmployees("");
+          setOutsourceDays("");
+          setOutsourceRate("");
+          setOutsourceDescription("");
+          setOtherWorkTag("");
+          setOtherWorkAmount("");
+          setOtherWorkNotes("");
+        }
+      }}>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2"><Briefcase className="w-5 h-5" />Outsource Work</SheetTitle>
             <SheetDescription>Record outsourced labour or other work for {project.name}</SheetDescription>
@@ -872,11 +1817,11 @@ const ProjectDetail = () => {
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-2"><Label>Workers</Label><Input type="number" placeholder="0" value={outsourceEmployees} onChange={(e) => setOutsourceEmployees(e.target.value)} /></div>
                 <div className="space-y-2"><Label>Days</Label><Input type="number" placeholder="0" value={outsourceDays} onChange={(e) => setOutsourceDays(e.target.value)} /></div>
-                <div className="space-y-2"><Label>Rate/Day (₹)</Label><Input type="number" placeholder="0" value={outsourceRate} onChange={(e) => setOutsourceRate(e.target.value)} /></div>
+                <div className="space-y-2"><Label>Rate/Day (â‚¹)</Label><Input type="number" placeholder="0" value={outsourceRate} onChange={(e) => setOutsourceRate(e.target.value)} /></div>
               </div>
               {outsourceEmployees && outsourceDays && outsourceRate && (
                 <div className="p-3 bg-muted/30 rounded-lg text-sm">
-                  Total: <span className="font-semibold text-primary">₹{((parseInt(outsourceEmployees) || 0) * (parseInt(outsourceDays) || 0) * (parseFloat(outsourceRate) || 0)).toLocaleString()}</span>
+                  Total: <span className="font-semibold text-primary">â‚¹{((parseInt(outsourceEmployees) || 0) * (parseInt(outsourceDays) || 0) * (parseFloat(outsourceRate) || 0)).toLocaleString()}</span>
                 </div>
               )}
               <div className="space-y-2"><Label>Description</Label><Textarea placeholder="What work was done..." value={outsourceDescription} onChange={(e) => setOutsourceDescription(e.target.value)} rows={2} /></div>
@@ -892,7 +1837,7 @@ const ProjectDetail = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>Amount (₹)</Label><Input type="number" placeholder="0" value={otherWorkAmount} onChange={(e) => setOtherWorkAmount(e.target.value)} /></div>
+              <div className="space-y-2"><Label>Amount (â‚¹)</Label><Input type="number" placeholder="0" value={otherWorkAmount} onChange={(e) => setOtherWorkAmount(e.target.value)} /></div>
               <div className="space-y-2"><Label>Notes</Label><Textarea placeholder="Details..." value={otherWorkNotes} onChange={(e) => setOtherWorkNotes(e.target.value)} rows={2} /></div>
             </TabsContent>
           </Tabs>
@@ -912,6 +1857,53 @@ const ProjectDetail = () => {
           projectName={project.name}
         />
       )}
+
+      <TaskAssignmentModal
+        isOpen={taskAssignmentOpen}
+        onClose={() => setTaskAssignmentOpen(false)}
+        projectId={project.id}
+        projectName={project.name}
+      />
+
+      <Dialog open={isAddSiteOpen} onOpenChange={setIsAddSiteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add installation site</DialogTitle>
+            <DialogDescription>Create a new site under {project.name}.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-2">
+              <Label>Site name</Label>
+              <Input value={newSiteName} onChange={(e) => setNewSiteName(e.target.value)} placeholder="e.g. Rooftop â€” Block A" />
+            </div>
+            <div className="space-y-2">
+              <Label>Work start date</Label>
+              <Input type="date" value={newSiteWorkStart} onChange={(e) => setNewSiteWorkStart(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={newSiteStatus} onValueChange={(v) => setNewSiteStatus(v as "active" | "completed" | "on-hold")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="on-hold">On hold</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsAddSiteOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleSaveNewSite}>
+              Save site
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 };

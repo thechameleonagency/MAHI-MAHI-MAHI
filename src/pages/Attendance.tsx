@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
+import { Sheet, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -32,6 +33,7 @@ const Attendance = () => {
     employees, sites, holidays, addHoliday, removeHoliday,
     addEmployeePaidHoliday, hasEmployeePaidHolidayInMonth, getEmployeePaidHolidaysByMonth,
     getTasksByEmployee, getExpensesByEmployee, attendanceRecords,
+    teams, projects,
     generateId
   } = useAppData();
   
@@ -39,6 +41,35 @@ const Attendance = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
   
+  // Teams assigned to sites on this date
+  const suggestedAttendance = useMemo(() => {
+    const suggestions: Record<number, { projectId: string; teamName: string }> = {};
+    
+    projects.forEach(project => {
+      const assignments = project.teamAssignments || [];
+      assignments.forEach(assignment => {
+        const start = assignment.startDate;
+        const end = assignment.endDate;
+        const current = selectedDateStr;
+        
+        // Check if current date falls within assignment period
+        if (current >= start && (!end || current <= end)) {
+          const team = teams.find(t => t.id === assignment.teamId);
+          if (team) {
+            team.memberIds.forEach(memberId => {
+              // Suggest this member should be at this project site
+              if (!suggestions[memberId]) {
+                suggestions[memberId] = { projectId: project.id, teamName: team.name };
+              }
+            });
+          }
+        }
+      });
+    });
+    
+    return suggestions;
+  }, [projects, teams, selectedDateStr]);
+
   // Transform employees for attendance view with local state
   const employeesWithAttendance = employees.map(emp => ({
     ...emp,
@@ -46,6 +77,7 @@ const Attendance = () => {
     wallet: emp.pendingAmount || 0,
     attendanceStatus: null as string | null,
     workedSites: [] as string[],
+    suggestion: suggestedAttendance[emp.id],
   }));
   
   const [attendanceState, setAttendanceState] = useState<Record<number, { status: string | null; sites: string[] }>>({});
@@ -231,6 +263,34 @@ const Attendance = () => {
     };
   };
 
+  const handleAutoFillSuggestions = () => {
+    const newState = { ...attendanceState };
+    let count = 0;
+    
+    employeesWithAttendance.forEach(emp => {
+      if (emp.suggestion && !attendanceState[emp.id]?.status) {
+        newState[emp.id] = { 
+          status: "present", 
+          sites: [emp.suggestion.projectId] 
+        };
+        count++;
+      }
+    });
+    
+    if (count > 0) {
+      setAttendanceState(newState);
+      toast({
+        title: "Suggestions Applied",
+        description: `Marked ${count} assigned team members as Present.`,
+      });
+    } else {
+      toast({
+        title: "No new suggestions",
+        description: "All assigned team members are already marked.",
+      });
+    }
+  };
+
   const handleMarkPresent = (employee: typeof employeesWithAttendance[0]) => {
     // Check if already marked as paid leave on this date
     const currentMonth = format(selectedDate, 'yyyy-MM');
@@ -247,7 +307,7 @@ const Attendance = () => {
     }
     
     setSelectedEmployeeForSite(employee);
-    setSelectedSites([]);
+    setSelectedSites(employee.suggestion ? [employee.suggestion.projectId] : []);
     setIsEditMode(false);
     setAttendanceType("present");
     setIsSiteSelectionOpen(true);
@@ -475,7 +535,7 @@ const Attendance = () => {
   return (
     <PageShell className="space-y-4 px-2 md:space-y-6 md:px-0">
       <StickyPageHeader
-        breadcrumbs={[{ label: "Home", to: "/" }, { label: "HR" }, { label: "Attendance" }]}
+        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Attendance" }]}
         subRow={
           <InlineKpiStrip
             className="w-full flex-wrap justify-start"
@@ -499,15 +559,26 @@ const Attendance = () => {
             />
             <span className="hidden text-xs text-muted-foreground sm:inline">Past dates editable</span>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="shrink-0 border-primary text-primary"
-            onClick={() => setIsMarkHolidayOpen(true)}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Holiday
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-primary text-primary hover:bg-primary/5"
+              onClick={handleAutoFillSuggestions}
+            >
+              <Check className="mr-2 h-4 w-4" />
+              Auto-fill
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-primary text-primary"
+              onClick={() => setIsMarkHolidayOpen(true)}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Holiday
+            </Button>
+          </div>
         </div>
       </StickyPageHeader>
 
@@ -543,7 +614,14 @@ const Attendance = () => {
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <EntityLink entityType="employee" entityId={emp.id} name={emp.name} />
+                    <div className="flex items-center gap-2">
+                      <EntityLink entityType="employee" entityId={emp.id} name={emp.name} />
+                      {emp.suggestion && (
+                        <Badge variant="outline" className="h-4 px-1 text-[10px] bg-primary/5 text-primary border-primary/20 animate-pulse">
+                          Suggested: {emp.suggestion.teamName}
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-xs md:text-sm text-muted-foreground">{emp.phone}</p>
                   </div>
                 </div>
@@ -695,7 +773,7 @@ const Attendance = () => {
 
       {/* Site Selection Sheet - Enhanced with Paid Leave Option */}
       <Sheet open={isSiteSelectionOpen} onOpenChange={setIsSiteSelectionOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <AppSheetContent size="xl" layout="form">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">
               {isEditMode ? "Edit Work Sites" : "Mark Attendance"}
@@ -792,12 +870,12 @@ const Attendance = () => {
               {isEditMode ? "Update Sites" : attendanceType === "paid_leave" ? "Confirm Paid Leave" : "Confirm Present"}
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Extra Paid Leave Confirmation Sheet */}
       <Sheet open={isExtraPaidLeaveConfirmOpen} onOpenChange={setIsExtraPaidLeaveConfirmOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="sm" layout="form">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2 text-amber-600">
               <AlertTriangle className="w-5 h-5" />
@@ -826,12 +904,12 @@ const Attendance = () => {
               Add Extra Paid Leave
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Attendance Confirmation Sheet */}
       <Sheet open={isConfirmationOpen} onOpenChange={setIsConfirmationOpen}>
-        <SheetContent className="max-w-sm text-center overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="sm" layout="form">
           <div className="py-6 space-y-4">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${
               confirmationData?.status === "present" 
@@ -893,12 +971,12 @@ const Attendance = () => {
               Done
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Edit Absent Confirmation Sheet */}
       <Sheet open={isEditAbsentOpen} onOpenChange={setIsEditAbsentOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="form">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Edit Attendance</SheetTitle>
             <SheetDescription>
@@ -952,12 +1030,12 @@ const Attendance = () => {
               </Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Mark Holiday Sheet - With Tabs */}
       <Sheet open={isMarkHolidayOpen} onOpenChange={setIsMarkHolidayOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <AppSheetContent size="xl" layout="form">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Company Holidays</SheetTitle>
           </SheetHeader>
@@ -1123,7 +1201,7 @@ const Attendance = () => {
               </div>
             </TabsContent>
           </Tabs>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

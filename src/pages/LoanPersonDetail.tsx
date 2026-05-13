@@ -173,8 +173,9 @@ const LoanPersonDetail = () => {
             <CardTitle className="text-base font-medium">Loans from {displayName}</CardTitle>
           </div>
         </CardHeader>
-        <CardContent className="p-0 pt-4">
+        <CardContent className="p-0">
           <DataTableShell
+            variant="inline"
             maxHeight={listTableViewportMaxHeight(loansPageSize)}
             scrollResetKey={`${safeLoansPage}-${loansPageSize}-${personLoans.length}`}
             footer={
@@ -192,15 +193,15 @@ const LoanPersonDetail = () => {
           >
             <TableHeader>
               <TableRow className={dataTableClasses.headRow}>
-                <TableHead className="text-muted-foreground">Loan ID</TableHead>
-                <TableHead className="text-muted-foreground">Principal</TableHead>
-                <TableHead className="text-muted-foreground">Interest Rate</TableHead>
-                <TableHead className="text-muted-foreground">EMI</TableHead>
-                <TableHead className="text-muted-foreground">Tenure</TableHead>
-                <TableHead className="text-muted-foreground">Outstanding</TableHead>
-                <TableHead className="text-muted-foreground">Start Date</TableHead>
-                <TableHead className="text-muted-foreground">Status</TableHead>
-                <TableHead className="text-muted-foreground">Actions</TableHead>
+                <TableHead >Loan ID</TableHead>
+                <TableHead >Principal</TableHead>
+                <TableHead >Interest Rate</TableHead>
+                <TableHead >EMI</TableHead>
+                <TableHead >Tenure</TableHead>
+                <TableHead >Outstanding</TableHead>
+                <TableHead >Start Date</TableHead>
+                <TableHead >Status</TableHead>
+                <TableHead >Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -247,7 +248,7 @@ const LoanPersonDetail = () => {
         <CardContent className="p-0 pt-4">
           {personRepayments.length > 0 ? (
             <DataTableShell
-              maxHeight={listTableViewportMaxHeight(repayPageSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(repayPageSize)}
               scrollResetKey={`${safeRepayPage}-${repayPageSize}-${personRepayments.length}`}
               footer={
                 <TablePaginationBar
@@ -264,12 +265,12 @@ const LoanPersonDetail = () => {
             >
               <TableHeader>
                 <TableRow className={dataTableClasses.headRow}>
-                  <TableHead className="text-muted-foreground">Date</TableHead>
-                  <TableHead className="text-muted-foreground">Loan ID</TableHead>
-                  <TableHead className="text-muted-foreground">EMI #</TableHead>
-                  <TableHead className="text-muted-foreground">Principal</TableHead>
-                  <TableHead className="text-muted-foreground">Interest</TableHead>
-                  <TableHead className="text-muted-foreground">Total</TableHead>
+                  <TableHead >Date</TableHead>
+                  <TableHead >Loan ID</TableHead>
+                  <TableHead >EMI #</TableHead>
+                  <TableHead >Principal</TableHead>
+                  <TableHead >Interest</TableHead>
+                  <TableHead >Total</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

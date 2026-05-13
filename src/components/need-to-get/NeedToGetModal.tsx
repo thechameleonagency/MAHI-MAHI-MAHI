@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
@@ -104,13 +106,14 @@ function buildNeedToGetPdf(rows: NeedToGetViewRow[]): Blob {
       y = 14;
     }
     const loc = r.displayWhere;
-    const lineEst = r.qtyShort * r.lastPurchaseRate;
+    const lineEst = r.rowKind === "nonMaterial" ? 0 : r.qtyShort * r.lastPurchaseRate;
+    const qtyCell = r.rowKind === "nonMaterial" ? "—" : String(r.qtyShort);
     pdf.text(r.materialName.substring(0, 28), margin, y);
     pdf.text(loc.substring(0, 26), margin + 58, y);
-    pdf.text(String(r.qtyShort), margin + 112, y);
+    pdf.text(qtyCell, margin + 112, y);
     pdf.text(r.needByDate, margin + 124, y);
-    pdf.text(`Rs ${r.lastPurchaseRate.toLocaleString("en-IN")}`, margin + 156, y);
-    pdf.text(`Rs ${lineEst.toLocaleString("en-IN")}`, margin + 176, y);
+    pdf.text(r.rowKind === "nonMaterial" ? "—" : `Rs ${r.lastPurchaseRate.toLocaleString("en-IN")}`, margin + 156, y);
+    pdf.text(r.rowKind === "nonMaterial" ? "—" : `Rs ${lineEst.toLocaleString("en-IN")}`, margin + 176, y);
     y += lineH;
   }
 
@@ -126,8 +129,11 @@ function openPrintWindow(title: string, rows: NeedToGetViewRow[]) {
   const rowsHtml = rows
     .map((r) => {
       const loc = escapeHtml(r.displayWhere);
-      const est = r.qtyShort * r.lastPurchaseRate;
-      return `<tr><td class="mat">${escapeHtml(r.materialName)}</td><td class="muted">${loc}</td><td class="num">${r.qtyShort}</td><td>${escapeHtml(r.needByDate)}</td><td class="num">₹${r.lastPurchaseRate.toLocaleString("en-IN")}</td><td class="num">₹${est.toLocaleString("en-IN")}</td></tr>`;
+      const est = r.rowKind === "nonMaterial" ? 0 : r.qtyShort * r.lastPurchaseRate;
+      const qty = r.rowKind === "nonMaterial" ? "—" : String(r.qtyShort);
+      const rate = r.rowKind === "nonMaterial" ? "—" : `₹${r.lastPurchaseRate.toLocaleString("en-IN")}`;
+      const estStr = r.rowKind === "nonMaterial" ? "—" : `₹${est.toLocaleString("en-IN")}`;
+      return `<tr><td class="mat">${escapeHtml(r.materialName)}</td><td class="muted">${loc}</td><td class="num">${qty}</td><td>${escapeHtml(r.needByDate)}</td><td class="num">${rate}</td><td class="num">${estStr}</td></tr>`;
     })
     .join("");
   w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title>
@@ -165,8 +171,13 @@ function escapeHtml(s: string) {
     .replace(/"/g, "&quot;");
 }
 
+function needToGetOrderedRowKey(r: NeedToGetViewRow) {
+  return `${r.projectId}|${r.siteId}|${r.materialId}|${r.needByDate}`;
+}
+
 export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
-  const { sites, projects, inventoryItems, vendorBills, employees } = useAppData();
+  const { sites, projects, inventoryItems, vendorBills, employees, vendors } = useAppData();
+  const navigate = useNavigate();
   const service = useMemo(() => new NeedToGetService(), []);
 
   const allRows = useMemo(
@@ -193,6 +204,10 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
   const [shareEmployeeId, setShareEmployeeId] = useState<string>("");
   const [sharePhone, setSharePhone] = useState("");
   const [shareNote, setShareNote] = useState("");
+  /** Ordered rows persisted to localStorage so marks survive modal close/reload. */
+  const [orderedKeys, setOrderedKeys] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("mss.needToGet.ordered") || "[]")); } catch { return new Set(); }
+  });
 
   const projectOptions = useMemo(() => {
     const s = new Set<string>();
@@ -256,24 +271,56 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
     });
   }, [pageRows, groupMode]);
 
-  const totalShortQty = useMemo(() => displayRows.reduce((s, r) => s + r.qtyShort, 0), [displayRows]);
+  const totalShortQty = useMemo(
+    () => displayRows.reduce((s, r) => s + (r.rowKind === "nonMaterial" ? 0 : r.qtyShort), 0),
+    [displayRows],
+  );
+  const nonMaterialCount = useMemo(
+    () => displayRows.filter((r) => r.rowKind === "nonMaterial").length,
+    [displayRows],
+  );
   const totalValue = useMemo(
-    () => displayRows.reduce((s, r) => s + r.qtyShort * r.lastPurchaseRate, 0),
+    () => displayRows.reduce((s, r) => s + (r.rowKind === "nonMaterial" ? 0 : r.qtyShort * r.lastPurchaseRate), 0),
     [displayRows],
   );
 
+  const vendorsSorted = useMemo(
+    () => [...vendors].sort((a, b) => a.name.localeCompare(b.name)),
+    [vendors],
+  );
+
   const canUseActions = displayRows.length >= 1;
+
+  const toggleOrderedRow = (r: NeedToGetViewRow) => {
+    const k = needToGetOrderedRowKey(r);
+    setOrderedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      localStorage.setItem("mss.needToGet.ordered", JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  const clearOrderedRows = () => {
+    setOrderedKeys(new Set());
+    localStorage.removeItem("mss.needToGet.ordered");
+  };
 
   const exportCsv = () => {
     if (!canUseActions) return;
     const header = ["Material", "Where", "Qty short", "Need by", "Last purch. rate", "Line est (₹)"];
     const lines = [
       header.join(","),
-      ...displayRows.map((r) =>
-        [r.materialName, r.displayWhere, r.qtyShort, r.needByDate, r.lastPurchaseRate, r.qtyShort * r.lastPurchaseRate]
+      ...displayRows.map((r) => {
+        const isNm = r.rowKind === "nonMaterial";
+        const qty = isNm ? "status" : r.qtyShort;
+        const rate = isNm ? "" : r.lastPurchaseRate;
+        const est = isNm ? "" : r.qtyShort * r.lastPurchaseRate;
+        return [r.materialName, r.displayWhere, qty, r.needByDate, rate, est]
           .map((c) => `"${String(c).replace(/"/g, '""')}"`)
-          .join(","),
-      ),
+          .join(",");
+      }),
     ];
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -362,7 +409,13 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
 
   return (
     <>
-      <Sheet open={open} onOpenChange={onOpenChange}>
+      <Sheet
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) clearOrderedRows();
+          onOpenChange(v);
+        }}
+      >
         <AppSheetContent layout="document" size="wide" className="print:max-w-none">
           <AppSheetHeaderWithActions
             title="Need to Get — procurement shortfalls"
@@ -407,13 +460,16 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
 
           <p className="text-xs text-muted-foreground print:hidden">
             Multi-site projects show the site in &ldquo;Where&rdquo;; single-site projects show the project name. Filters: pick projects first, then
-            sites.
+            sites. Status-only checklist lines (no SKU) appear with qty &ldquo;—&rdquo;; use vendor bill for material shortfalls only.
           </p>
           <p className="text-xs text-muted-foreground print:hidden">
             <span className="font-medium text-foreground/90">Row merge ({GROUP_LABELS[groupMode]}):</span> {GROUP_MERGE_HINT[groupMode]}
           </p>
 
           <div className="flex flex-wrap items-center gap-2 print:hidden">
+            <Button type="button" variant="outline" size="sm" className="h-9" onClick={clearOrderedRows} disabled={orderedKeys.size === 0}>
+              Clear ordered
+            </Button>
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" className={cn("min-w-[9.5rem]", filterTriggerClass)} type="button">
@@ -600,7 +656,7 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
           </div>
 
           <DataTableShell
-            className="print:border-0"
+            variant="inline" className="print:border-0"
             maxHeight={listTableViewportMaxHeight(pageSize)}
             scrollResetKey={`${page}-${pageSize}-${displayRows.length}`}
             footer={
@@ -620,25 +676,30 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
           >
             <TableHeader>
                 <TableRow className={dataTableClasses.headRow}>
+                  <TableHead className="w-[4.5rem] text-center">Ordered</TableHead>
                   <TableHead className="min-w-[8.5rem]">Material</TableHead>
                   <TableHead className="min-w-[9rem]">Where</TableHead>
                   <TableHead className="text-right">Short qty</TableHead>
                   <TableHead>Need by</TableHead>
                   <TableHead className="text-right">₹ / unit</TableHead>
                   <TableHead className="text-right">Est. ₹</TableHead>
+                  <TableHead className="w-[7rem] print:hidden">Bill</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {pageRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                       No shortfalls for current filters.
                     </TableCell>
                   </TableRow>
                 ) : (
                   pageRows.map((r, idx) => {
                     const band = rowBandForPage[idx];
-                    const lineVal = r.qtyShort * r.lastPurchaseRate;
+                    const isNonMaterial = r.rowKind === "nonMaterial";
+                    const lineVal = isNonMaterial ? 0 : r.qtyShort * r.lastPurchaseRate;
+                    const oKey = needToGetOrderedRowKey(r);
+                    const isOrdered = orderedKeys.has(oKey);
                     return (
                       <TableRow
                         key={`${r.materialId}-${r.displayWhere}-${r.needByDate}-${idx}`}
@@ -651,10 +712,29 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
                         )}
                       >
                         <TableCell className="align-top">
+                          <div className="flex flex-col items-center gap-1 pt-0.5">
+                            <Checkbox
+                              checked={isOrdered}
+                              onCheckedChange={() => toggleOrderedRow(r)}
+                              aria-label="Mark line as ordered"
+                            />
+                            {isOrdered ? (
+                              <Badge className="border-0 bg-emerald-600/15 px-1.5 py-0 text-[9px] font-semibold uppercase text-emerald-700">
+                                Ordered
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="align-top">
                           <div className="flex flex-col gap-0.5">
                             <span className="font-medium leading-snug">{r.materialName}</span>
+                            {isNonMaterial ? (
+                              <Badge variant="outline" className="w-fit text-2xs font-normal">
+                                Checklist (no SKU)
+                              </Badge>
+                            ) : null}
                             {r.mergedCount != null && r.mergedCount > 1 ? (
-                              <span className="text-[10px] text-muted-foreground/90">
+                              <span className="text-2xs text-muted-foreground/90">
                                 {r.mergedCount} demand lines merged
                               </span>
                             ) : null}
@@ -663,13 +743,51 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
                         <TableCell className="align-top text-muted-foreground">
                           <span className="text-sm leading-snug">{r.displayWhere}</span>
                         </TableCell>
-                        <TableCell className="text-right align-top tabular-nums font-medium">{r.qtyShort}</TableCell>
-                        <TableCell className="align-top text-sm">{r.needByDate}</TableCell>
-                        <TableCell className="text-right align-top tabular-nums text-sm">
-                          ₹{r.lastPurchaseRate.toLocaleString("en-IN")}
+                        <TableCell className="text-right align-top tabular-nums font-medium">
+                          {isNonMaterial ? "—" : r.qtyShort}
+                        </TableCell>
+                        <TableCell className="align-top">{r.needByDate}</TableCell>
+                        <TableCell className="text-right align-top tabular-nums">
+                          {isNonMaterial ? "—" : `₹${r.lastPurchaseRate.toLocaleString("en-IN")}`}
                         </TableCell>
                         <TableCell className="text-right align-top tabular-nums font-medium">
-                          ₹{lineVal.toLocaleString("en-IN")}
+                          {isNonMaterial ? "—" : `₹${lineVal.toLocaleString("en-IN")}`}
+                        </TableCell>
+                        <TableCell className="align-top print:hidden">
+                          {!isNonMaterial && r.materialId > 0 && vendorsSorted.length > 0 ? (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button type="button" variant="outline" size="sm" className="h-8 text-xs">
+                                  Vendor bill
+                                  <ChevronDown className="ml-1 h-3 w-3 opacity-60" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="max-h-56 overflow-y-auto">
+                                {vendorsSorted.map((v) => (
+                                  <DropdownMenuItem
+                                    key={v.id}
+                                    onClick={() => {
+                                      const q = encodeURIComponent(String(r.qtyShort));
+                                      const pid = encodeURIComponent(r.projectId || "");
+                                      navigate(
+                                        `/vendors/${v.id}?action=add-purchase&inventoryItemId=${r.materialId}&qty=${q}&projectId=${pid}`,
+                                      );
+                                      toast({
+                                        title: "Opening vendor",
+                                        description: `Prefilling purchase for ${r.materialName} (${r.qtyShort} units).`,
+                                      });
+                                    }}
+                                  >
+                                    {v.name}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          ) : isNonMaterial ? (
+                            <span className="text-2xs text-muted-foreground">—</span>
+                          ) : (
+                            <span className="text-2xs text-muted-foreground">Add a vendor</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -678,13 +796,24 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
               </TableBody>
               <TableFooter>
                 <TableRow className={dataTableClasses.footRow}>
-                  <TableCell colSpan={2}>Totals (filtered)</TableCell>
+                  <TableCell />
+                  <TableCell colSpan={2}>
+                    <div className="flex flex-col gap-0.5">
+                      <span>Totals (filtered)</span>
+                      {nonMaterialCount > 0 ? (
+                        <span className="text-2xs font-normal text-muted-foreground">
+                          {nonMaterialCount} checklist line{nonMaterialCount === 1 ? "" : "s"} (no SKU) excluded from qty/₹ totals
+                        </span>
+                      ) : null}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{totalShortQty}</TableCell>
                   <TableCell />
                   <TableCell />
                   <TableCell className="text-right tabular-nums">
                     ₹{totalValue.toLocaleString("en-IN")}
                   </TableCell>
+                  <TableCell className="print:hidden" />
                 </TableRow>
               </TableFooter>
           </DataTableShell>

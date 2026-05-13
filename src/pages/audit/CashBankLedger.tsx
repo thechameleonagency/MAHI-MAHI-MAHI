@@ -166,8 +166,9 @@ const CashBankLedger = () => {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Transaction Ledger ({entriesWithBalance.length} entries)</CardTitle>
         </CardHeader>
-        <CardContent className="p-0 pt-4">
+        <CardContent className="p-0">
           <DataTableShell
+            variant="inline"
             maxHeight={listTableViewportMaxHeight(pageSize)}
             scrollResetKey={`${safePage}-${pageSize}-${entriesWithBalance.length}`}
             footer={
@@ -203,20 +204,20 @@ const CashBankLedger = () => {
               )}
               {pagedLedger.map((e, i) => (
                 <TableRow key={`${e.reference}-${e.date}-${i}`}>
-                  <TableCell className="text-sm">{e.date}</TableCell>
-                  <TableCell className="max-w-[300px] truncate text-sm">{e.description}</TableCell>
+                  <TableCell >{e.date}</TableCell>
+                  <TableCell className="max-w-[300px] truncate">{e.description}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-xs">
                       {e.account}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right text-sm">
+                  <TableCell className="text-right">
                     {e.debit > 0 ? <span className="font-medium text-primary">{fmt(e.debit)}</span> : "-"}
                   </TableCell>
-                  <TableCell className="text-right text-sm">
+                  <TableCell className="text-right">
                     {e.credit > 0 ? <span className="font-medium text-destructive">{fmt(e.credit)}</span> : "-"}
                   </TableCell>
-                  <TableCell className="text-right text-sm font-medium">{fmt(e.balance)}</TableCell>
+                  <TableCell className="text-right font-medium">{fmt(e.balance)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

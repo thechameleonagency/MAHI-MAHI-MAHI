@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
+import { fileExceedsLimit, MAX_UPLOAD_BYTES } from "@/lib/fileLimits";
 
 interface BillItem {
   description: string;
@@ -33,7 +34,7 @@ interface BillPreviewModalProps {
     gst: number;
     total: number;
     amountPaid: number;
-    status: "pending" | "partial" | "paid";
+    status: "pending" | "partial" | "paid" | "overpaid";
     projectName?: string;
     notes?: string;
     documentUrl?: string;
@@ -56,7 +57,7 @@ export function BillPreviewModal({
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "paid":
-        return <Badge className="bg-blue-500/20 text-blue-400 border-0">Paid</Badge>;
+        return <Badge className="bg-primary/20 text-primary border-0">Paid</Badge>;
       case "partial":
         return <Badge className="bg-yellow-500/20 text-yellow-400 border-0">Partial</Badge>;
       default:
@@ -65,15 +66,33 @@ export function BillPreviewModal({
   };
 
   const handleUpload = () => {
-    // Simulate file upload - in real implementation, this would open file picker
-    setIsUploading(true);
-    setTimeout(() => {
-      setIsUploading(false);
-      if (onUploadDocument) {
-        onUploadDocument(`/uploads/bill-${bill.id}.pdf`);
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".pdf,.jpg,.jpeg,.png";
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      if (fileExceedsLimit(file)) {
+        toast({
+          title: "File too large",
+          description: `Keep uploads under ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB in the prototype.`,
+          variant: "destructive",
+        });
+        return;
       }
-      toast({ title: "Document Uploaded", description: "Bill document has been attached" });
-    }, 1500);
+      setIsUploading(true);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setIsUploading(false);
+        const dataUrl = reader.result as string;
+        if (onUploadDocument) {
+          onUploadDocument(dataUrl);
+        }
+        toast({ title: "Document Uploaded", description: `${file.name} has been attached to the bill.` });
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
   };
 
   const typeLabels = {
@@ -169,7 +188,7 @@ export function BillPreviewModal({
                 <span>₹{bill.subtotal.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">GST (18%)</span>
+                <span className="text-muted-foreground">GST {bill.subtotal > 0 ? `(${((bill.gst / bill.subtotal) * 100).toFixed(0)}%)` : ""}</span>
                 <span>₹{bill.gst.toLocaleString()}</span>
               </div>
               <Separator />
@@ -177,7 +196,7 @@ export function BillPreviewModal({
                 <span>Total</span>
                 <span>₹{bill.total.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between text-sm text-blue-500">
+              <div className="flex justify-between text-sm text-primary">
                 <span>Amount Paid</span>
                 <span>₹{bill.amountPaid.toLocaleString()}</span>
               </div>

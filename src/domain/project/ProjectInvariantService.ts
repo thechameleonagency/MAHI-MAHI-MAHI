@@ -1,6 +1,10 @@
 import type { Blockage } from "@/types/blockage";
-import type { AccountingReviewQueueItem, Expense, Income, Invoice } from "@/types/finance";
+import type { AccountingReviewQueueItem, Expense, Income, Invoice, PartnerTransaction } from "@/types/finance";
 import type { AttendanceRecord, Project } from "@/types/project";
+import {
+  calculateProjectPartnerEarning,
+  isPartnerCreditTransaction,
+} from "@/domain/partners/derivePartnerEconomics";
 
 export type ProjectInvariantWorld = {
   projects: Project[];
@@ -11,6 +15,7 @@ export type ProjectInvariantWorld = {
   blockages: Blockage[];
   accountingReviewQueue: AccountingReviewQueueItem[];
   attendanceRecords: AttendanceRecord[];
+  partnerTransactions?: PartnerTransaction[];
 };
 
 const kindsRequiringProjectInvoice = new Set<string>(["SOLO_EPC", "PARTNER_EPC", "FIXED_EPC", "INC"]);
@@ -50,6 +55,31 @@ export class ProjectInvariantService {
       );
       if (docs.length === 0) {
         reasons.push("At least one invoice or sale bill linked to this project is required before completion.");
+      } else {
+        const unpaid = docs.some((d) => {
+          const rec = d.amountReceived ?? 0;
+          const tot = d.total ?? 0;
+          return d.status !== "paid" && tot - rec > 0.5;
+        });
+        if (unpaid) {
+          reasons.push("All project invoices / sale bills must be fully paid before completion.");
+        }
+      }
+    }
+
+    const partnerRow = project.partners?.[0];
+    const forbidPartnerSettlement =
+      project.projectKindConfigSnapshot?.forbiddenActions?.includes("partner_settlement");
+    if (partnerRow && !forbidPartnerSettlement) {
+      const txns = (world.partnerTransactions ?? []).filter(
+        (t) => t.partnerId === partnerRow.partnerId && t.projectId === projectId,
+      );
+      const paid = txns.filter(isPartnerCreditTransaction).reduce((s, t) => s + t.amount, 0);
+      const earned = calculateProjectPartnerEarning(project, partnerRow);
+      if (earned - paid > 1) {
+        reasons.push(
+          `Partner settlement pending: settle approx. ₹${Math.round(earned - paid)} due to partner before completion.`,
+        );
       }
     }
 
@@ -66,6 +96,23 @@ export class ProjectInvariantService {
           );
           break;
         }
+      }
+    }
+
+    const requiredDocs = project.projectKindConfigSnapshot?.requiredDocuments ?? [];
+    if (requiredDocs.length > 0) {
+      const gen = project.generatedDocuments ?? [];
+      const genKeys = new Set(gen.map((d) => d.docKey));
+      const legacy = project.documents ?? [];
+      const missing = requiredDocs.filter((key) => {
+        if (genKeys.has(key)) return false;
+        const needle = key.replace(/_/g, " ").toLowerCase();
+        return !legacy.some((path) => path.toLowerCase().includes(needle) || path.toLowerCase().includes(key.toLowerCase()));
+      });
+      if (missing.length > 0) {
+        reasons.push(
+          `Missing required document evidence for: ${missing.slice(0, 6).join(", ")}${missing.length > 6 ? "…" : ""}. Generate or upload items in Document studio.`,
+        );
       }
     }
 

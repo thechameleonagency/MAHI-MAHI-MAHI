@@ -31,7 +31,10 @@ export function nextDocumentNumber(
   let max = 0;
   for (const doc of existing) {
     const m = doc.invoiceNumber.match(re);
-    if (m) max = Math.max(max, parseInt(m[1], 10));
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n)) max = Math.max(max, n);
+    }
   }
   return `${prefix}-${year}-${String(max + 1).padStart(4, "0")}`;
 }

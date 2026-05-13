@@ -37,14 +37,6 @@ import {
 import type { Expense } from "@/types/finance";
 import { UnifiedFinanceValidationService } from "@/application/services/UnifiedFinanceValidationService";
 
-const INVENTORY_ITEMS_FOR_EXPENSE = [
-  { id: 1, name: "Waaree 540W Mono Perc", category: "Panel", unit: "pcs", buyPrice: 11000 },
-  { id: 2, name: "Growatt 5kW Inverter", category: "Inverter", unit: "pcs", buyPrice: 35000 },
-  { id: 3, name: "DC Cable 4sqmm", category: "Cable", unit: "m", buyPrice: 35 },
-  { id: 4, name: "Structure GI Rail", category: "Structure", unit: "kg", buyPrice: 85 },
-  { id: 6, name: "Luminous 150Ah Battery", category: "Battery", unit: "pcs", buyPrice: 12000 },
-  { id: 7, name: "MC4 Connectors", category: "Misc", unit: "pair", buyPrice: 25 },
-];
 
 const MAIN_CAT_ICONS: Record<string, React.ReactNode> = {
   company: <Building2 className="w-5 h-5" />,
@@ -96,7 +88,8 @@ export function UnifiedExpenseModal({
   projectPartnerIds = [],
   isProjectCompleted = false,
 }: UnifiedExpenseModalProps) {
-  const { employees, partners, projects, addExpense, generateId } = useAppData();
+  const { employees, partners, projects, addExpense, generateId, inventoryItems } = useAppData();
+  const ownerName = (() => { try { return JSON.parse(localStorage.getItem("mss.settings.company") || "{}").ownerName || "Owner"; } catch { return "Owner"; } })();
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
   
   const [step, setStep] = useState<Step>("main-category");
@@ -126,6 +119,15 @@ export function UnifiedExpenseModal({
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
+
+  // Refresh defaults when modal re-opens (avoid stale date across midnight)
+  useEffect(() => {
+    if (isOpen) {
+      setDate(new Date().toISOString().split("T")[0]);
+      setBillingMonth(new Date().toISOString().slice(0, 7));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   
@@ -181,6 +183,19 @@ export function UnifiedExpenseModal({
   
   const categoryInfo = getCategoryByValue(category);
   const subCategories = getSubCategoriesByCategory(category);
+
+  useEffect(() => {
+    if (!category) {
+      if (subCategory) setSubCategory("");
+      return;
+    }
+    if (!subCategory) return;
+    const allowed = getSubCategoriesByCategory(category);
+    if (!allowed.some((s) => s.value === subCategory)) {
+      setSubCategory("");
+      setCustomSubCategory("");
+    }
+  }, [category, subCategory]);
   
   // Dynamic field requirements
   const needsProject = schemaRequiresProject(category) || mainCategory === "site";
@@ -221,7 +236,7 @@ export function UnifiedExpenseModal({
     [category, subCategory, payerType]
   );
 
-  const selectedInventoryItem = useMemo(() => INVENTORY_ITEMS_FOR_EXPENSE.find(i => i.id === selectedInventoryItemId), [selectedInventoryItemId]);
+  const selectedInventoryItem = useMemo(() => inventoryItems.find(i => i.id === selectedInventoryItemId), [selectedInventoryItemId]);
 
   useEffect(() => {
     if (selectedInventoryItem && inventoryQuantity) {
@@ -317,7 +332,7 @@ export function UnifiedExpenseModal({
         if (payerType === "split") {
           const total = calculateSplitTotal();
           const target = parseFloat(amount) || 0;
-          if (total <= 0 || Math.abs(total - target) > 1) return false;
+          if (total <= 0 || Math.abs(total - target) > 0.01) return false;
         }
         return true;
       case "confirm": return true;
@@ -332,7 +347,20 @@ export function UnifiedExpenseModal({
     }
     return ["main-category", "category", "details", "payer", "confirm"];
   }, [category]);
-  const goNext = () => { const idx = steps.indexOf(step); if (idx < steps.length - 1) setStep(steps[idx + 1]); };
+  const goNext = () => {
+    if (!isStepValid()) {
+      const msgs: Record<string, string> = {
+        "main-category": "Select an expense category to continue.",
+        category: "Fill all required fields for this category.",
+        details: "Enter a valid expense amount greater than zero.",
+        payer: "Select who paid, or balance the split to match the expense amount.",
+      };
+      toast({ title: "Required Fields", description: msgs[step] ?? "Complete this step before proceeding.", variant: "destructive" });
+      return;
+    }
+    const idx = steps.indexOf(step);
+    if (idx < steps.length - 1) setStep(steps[idx + 1]);
+  };
   const goBack = () => { const idx = steps.indexOf(step); if (idx > 0) setStep(steps[idx - 1]); };
 
   const buildExpense = (): Expense => {
@@ -340,7 +368,7 @@ export function UnifiedExpenseModal({
     if (payerType === "company") {
       paidBy = { type: "company" };
     } else if (payerType === "owner") {
-      paidBy = { type: "owner", entityName: "MK" };
+      paidBy = { type: "owner", entityName: ownerName };
     } else if (payerType === "employee") {
       const emp = employees.find(e => e.id === payerEmployeeId);
       paidBy = { type: "employee", entityId: payerEmployeeId?.toString(), entityName: emp?.name };
@@ -350,7 +378,7 @@ export function UnifiedExpenseModal({
     } else {
       const splits: Expense["paidBy"]["splits"] = [];
       if (parseFloat(splitCompanyAmount) > 0) splits.push({ entityId: "company", entityType: "company", entityName: "Company", amount: parseFloat(splitCompanyAmount) });
-      if (parseFloat(splitOwnerAmount) > 0) splits.push({ entityId: "owner", entityType: "owner", entityName: "MK (Owner)", amount: parseFloat(splitOwnerAmount) });
+      if (parseFloat(splitOwnerAmount) > 0) splits.push({ entityId: "owner", entityType: "owner", entityName: `${ownerName} (Owner)`, amount: parseFloat(splitOwnerAmount) });
       splitEmployeeIds.forEach(id => {
         const amt = parseFloat(splitEmployeeAmounts[id] || "0");
         if (amt > 0) splits.push({ entityId: id.toString(), entityType: "employee", entityName: employees.find(e => e.id === id)?.name || "", amount: amt });
@@ -420,11 +448,24 @@ export function UnifiedExpenseModal({
       return;
     }
 
-    const expense = buildExpense();
-    addExpense(expense);
-    toast({ title: "Expense Added", description: `₹${parseFloat(amount).toLocaleString()} recorded for ${categoryInfo?.label || category}` });
-    resetForm();
-    onClose();
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      toast({ title: "Invalid Amount", description: "Please enter a valid expense amount", variant: "destructive" });
+      return;
+    }
+    try {
+      const expense = buildExpense();
+      const ok = addExpense(expense);
+      if (!ok) {
+        return;
+      }
+      toast({ title: "Expense Added", description: `₹${parsedAmount.toLocaleString()} recorded for ${categoryInfo?.label || category}` });
+      resetForm();
+      onClose();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not save expense";
+      toast({ title: "Save Failed", description: message, variant: "destructive" });
+    }
   };
 
   if (isProjectCompleted) {
@@ -717,7 +758,7 @@ export function UnifiedExpenseModal({
                       <Select value={selectedInventoryItemId?.toString() || ""} onValueChange={(v) => setSelectedInventoryItemId(parseInt(v))}>
                         <SelectTrigger><SelectValue placeholder="Choose item" /></SelectTrigger>
                         <SelectContent>
-                          {INVENTORY_ITEMS_FOR_EXPENSE.map(item => (
+                          {inventoryItems.map(item => (
                             <SelectItem key={item.id} value={item.id.toString()}>{item.name} (₹{item.buyPrice}/{item.unit})</SelectItem>
                           ))}
                         </SelectContent>
@@ -783,11 +824,18 @@ export function UnifiedExpenseModal({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Date</Label>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <Input type="date" min={selectedProject?.startDate || undefined} max={new Date().toISOString().split("T")[0]} value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Amount (₹) *</Label>
-                <Input type="number" placeholder="Enter amount" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Enter amount"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
               </div>
             </div>
 
@@ -948,7 +996,7 @@ export function UnifiedExpenseModal({
                 <div className="flex justify-between items-center">
                   <Label className="text-sm font-medium">Split Payment Breakdown</Label>
                   <span className={`text-xs font-medium ${
-                    Math.abs(calculateSplitTotal() - (parseFloat(amount) || 0)) <= 1 ? "text-blue-500" : "text-destructive"
+                    Math.abs(calculateSplitTotal() - (parseFloat(amount) || 0)) <= 1 ? "text-primary" : "text-destructive"
                   }`}>
                     ₹{calculateSplitTotal().toLocaleString()} / ₹{parseFloat(amount || "0").toLocaleString()}
                   </span>
@@ -1050,7 +1098,7 @@ export function UnifiedExpenseModal({
                 {willReimburse && (
                   <div className="flex items-center gap-3 ml-6">
                     <Label className="text-sm text-muted-foreground">Reimbursement Amount:</Label>
-                    <Input type="number" placeholder={amount || "Full amount"} value={reimbursementAmount} onChange={(e) => setReimbursementAmount(e.target.value)} className="w-32 h-8" />
+                    <Input type="number" placeholder={amount || "Full amount"} min="0" max={amount || undefined} value={reimbursementAmount} onChange={(e) => { const v = parseFloat(e.target.value); const max = parseFloat(amount) || 0; setReimbursementAmount(max > 0 && v > max ? amount : e.target.value); }} className="w-32 h-8" />
                   </div>
                 )}
               </div>
@@ -1179,7 +1227,7 @@ export function UnifiedExpenseModal({
           {step === "confirm" ? (
             <Button onClick={handleSubmit}><Check className="w-4 h-4 mr-2" />Confirm & Save</Button>
           ) : (
-            <Button onClick={goNext} disabled={!isStepValid()}>Next<ArrowRight className="w-4 h-4 ml-2" /></Button>
+            <Button onClick={goNext}>Next<ArrowRight className="w-4 h-4 ml-2" /></Button>
           )}
         </div>
       </AppSheetContent>

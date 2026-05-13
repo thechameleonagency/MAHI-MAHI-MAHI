@@ -618,7 +618,7 @@ const ActiveSites = () => {
   return (
     <PageShell className="space-y-6">
       <StickyPageHeader
-        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Projects" }, { label: "Active sites" }]}
+        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Active sites" }]}
         subRow={
           <>
             <div className="flex w-full flex-wrap items-center gap-1 rounded-lg bg-muted/50 p-1 sm:w-auto">

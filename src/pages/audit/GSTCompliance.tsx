@@ -134,8 +134,9 @@ const GSTCompliance = () => {
 
         <TabsContent value="sales" className="mt-4">
           <Card>
-            <CardContent className="p-0 pt-4">
-              <DataTableShell
+            <CardContent className="p-0">
+          <DataTableShell
+            variant="inline"
                 maxHeight={listTableViewportMaxHeight(salesSize)}
                 scrollResetKey={`${safeSales}-${salesSize}-${salesRegister.length}`}
                 footer={
@@ -175,40 +176,40 @@ const GSTCompliance = () => {
                   )}
                   {pagedSales.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell className="cursor-pointer text-sm font-medium text-primary hover:underline">
+                      <TableCell className="cursor-pointer font-medium text-primary hover:underline">
                         {r.invoiceNumber}
                       </TableCell>
-                      <TableCell className="text-sm">{r.date}</TableCell>
-                      <TableCell className="text-sm">{r.customer}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{r.gstin || "-"}</TableCell>
-                      <TableCell className="text-sm">{r.placeOfSupply || "-"}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(r.taxableValue)}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(r.cgst)}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(r.sgst)}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(r.igst)}</TableCell>
-                      <TableCell className="text-right text-sm font-medium">{fmt(r.total)}</TableCell>
+                      <TableCell >{r.date}</TableCell>
+                      <TableCell >{r.customer}</TableCell>
+                      <TableCell className="text-muted-foreground">{r.gstin || "-"}</TableCell>
+                      <TableCell >{r.placeOfSupply || "-"}</TableCell>
+                      <TableCell className="text-right">{fmt(r.taxableValue)}</TableCell>
+                      <TableCell className="text-right">{fmt(r.cgst)}</TableCell>
+                      <TableCell className="text-right">{fmt(r.sgst)}</TableCell>
+                      <TableCell className="text-right">{fmt(r.igst)}</TableCell>
+                      <TableCell className="text-right font-medium">{fmt(r.total)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
                 {salesRegister.length > 0 && (
                   <TableFooter>
                     <TableRow className={dataTableClasses.footRow}>
-                      <TableCell colSpan={5} className="text-sm font-medium">
+                      <TableCell colSpan={5} className="font-medium">
                         Total (all rows)
                       </TableCell>
-                      <TableCell className="text-right text-sm font-medium">
+                      <TableCell className="text-right font-medium">
                         {fmt(salesRegister.reduce((s, r) => s + r.taxableValue, 0))}
                       </TableCell>
-                      <TableCell className="text-right text-sm font-medium">
+                      <TableCell className="text-right font-medium">
                         {fmt(salesRegister.reduce((s, r) => s + r.cgst, 0))}
                       </TableCell>
-                      <TableCell className="text-right text-sm font-medium">
+                      <TableCell className="text-right font-medium">
                         {fmt(salesRegister.reduce((s, r) => s + r.sgst, 0))}
                       </TableCell>
-                      <TableCell className="text-right text-sm font-medium">
+                      <TableCell className="text-right font-medium">
                         {fmt(salesRegister.reduce((s, r) => s + r.igst, 0))}
                       </TableCell>
-                      <TableCell className="text-right text-sm font-medium">
+                      <TableCell className="text-right font-medium">
                         {fmt(salesRegister.reduce((s, r) => s + r.total, 0))}
                       </TableCell>
                     </TableRow>
@@ -221,8 +222,9 @@ const GSTCompliance = () => {
 
         <TabsContent value="purchase" className="mt-4">
           <Card>
-            <CardContent className="p-0 pt-4">
-              <DataTableShell
+            <CardContent className="p-0">
+          <DataTableShell
+            variant="inline"
                 maxHeight={listTableViewportMaxHeight(purSize)}
                 scrollResetKey={`${safePur}-${purSize}-${purchaseRegister.length}`}
                 footer={
@@ -259,29 +261,29 @@ const GSTCompliance = () => {
                   )}
                   {pagedPurchase.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell className="text-sm font-medium">{r.billNumber}</TableCell>
-                      <TableCell className="text-sm">{r.date}</TableCell>
-                      <TableCell className="cursor-pointer text-sm text-primary hover:underline">{r.vendor}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{r.gstin || "-"}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(r.taxableValue)}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(r.gstInput)}</TableCell>
-                      <TableCell className="text-right text-sm font-medium">{fmt(r.total)}</TableCell>
+                      <TableCell className="font-medium">{r.billNumber}</TableCell>
+                      <TableCell >{r.date}</TableCell>
+                      <TableCell className="cursor-pointer text-primary hover:underline">{r.vendor}</TableCell>
+                      <TableCell className="text-muted-foreground">{r.gstin || "-"}</TableCell>
+                      <TableCell className="text-right">{fmt(r.taxableValue)}</TableCell>
+                      <TableCell className="text-right">{fmt(r.gstInput)}</TableCell>
+                      <TableCell className="text-right font-medium">{fmt(r.total)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
                 {purchaseRegister.length > 0 && (
                   <TableFooter>
                     <TableRow className={dataTableClasses.footRow}>
-                      <TableCell colSpan={4} className="text-sm font-medium">
+                      <TableCell colSpan={4} className="font-medium">
                         Total (all rows)
                       </TableCell>
-                      <TableCell className="text-right text-sm font-medium">
+                      <TableCell className="text-right font-medium">
                         {fmt(purchaseRegister.reduce((s, r) => s + r.taxableValue, 0))}
                       </TableCell>
-                      <TableCell className="text-right text-sm font-medium">
+                      <TableCell className="text-right font-medium">
                         {fmt(purchaseRegister.reduce((s, r) => s + r.gstInput, 0))}
                       </TableCell>
-                      <TableCell className="text-right text-sm font-medium">
+                      <TableCell className="text-right font-medium">
                         {fmt(purchaseRegister.reduce((s, r) => s + r.total, 0))}
                       </TableCell>
                     </TableRow>

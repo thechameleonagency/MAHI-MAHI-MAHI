@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { ArrowLeft, Printer, Send, Download, Plus, Trash2, Check, Building2, Phone, Mail, Globe, Edit, FileText, Eye, MoreHorizontal, UserPlus, X, Save, CheckCircle, Briefcase, IndianRupee, MessageCircle, Calendar, Clock, MapPin, Share2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Printer, Send, Download, Plus, Trash2, Check, Building2, Phone, Mail, Globe, Edit, FileText, Eye, MoreHorizontal, UserPlus, UserCheck, X, Save, CheckCircle, Briefcase, IndianRupee, MessageCircle, Calendar, Clock, MapPin, Share2, AlertTriangle, ChevronDown, Zap, CreditCard, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useNavigate, useLocation } from "react-router-dom";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useMasters } from "@/contexts/MastersContext";
 import { ProjectKindService, type ProjectIntakePayload } from "@/application/services/ProjectKindService";
@@ -128,16 +129,12 @@ const Quotations = () => {
   const [clientPage, setClientPage] = useState(1);
   const [clientPageSize, setClientPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   
-  // Save amounts confirmation modal
-  const [isSaveAmountsOpen, setIsSaveAmountsOpen] = useState(false);
-  const [saveAmountsQuotationId, setSaveAmountsQuotationId] = useState<string | null>(null);
-  const [saveAmountTemp, setSaveAmountTemp] = useState<number>(0);
-  const [saveAmountFinal, setSaveAmountFinal] = useState<number>(0);
-  
-  // Create Project Modal
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
   const [selectedQuotationForProject, setSelectedQuotationForProject] = useState<typeof savedQuotations[0] | null>(null);
   const [projectAmountType, setProjectAmountType] = useState<"temporary" | "final">("final");
+  const [projectContractAmount, setProjectContractAmount] = useState(0);
+  const [projectPaymentType, setProjectPaymentType] = useState<"cash" | "loan" | "cash-and-loan">("cash");
+  const [projectBankDocAmount, setProjectBankDocAmount] = useState(0);
   const [quotationProjectKind, setQuotationProjectKind] = useState<ProjectKind>("SOLO_EPC");
   const [qPartnerIdForProject, setQPartnerIdForProject] = useState<string>("");
   const [qProfitSharePercent, setQProfitSharePercent] = useState("30");
@@ -160,6 +157,10 @@ const Quotations = () => {
   const [status, setStatus] = useState<"draft" | "sent" | "approved" | "confirmed" | "rejected">("draft");
   const [referenceClientName, setReferenceClientName] = useState("");
   
+  // Modal states
+  const [isViewQuotationOpen, setIsViewQuotationOpen] = useState(false);
+  const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
+  
   // Share to Client Modal state
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareMethod, setShareMethod] = useState<"whatsapp" | "email" | "sms" | "visit">("whatsapp");
@@ -175,6 +176,7 @@ const Quotations = () => {
   const [clientCity, setClientCity] = useState("");
   const [clientState, setClientState] = useState("");
   const [customerId, setCustomerId] = useState<string | null>(null);
+  const [enquiryId, setEnquiryId] = useState<string | null>(null);
   const [agentId, setAgentId] = useState("");
   
   // System configuration
@@ -314,6 +316,7 @@ const Quotations = () => {
     // Reset payment type
     setPaymentType("");
     setBankDocumentationAmount(null);
+    setEnquiryId(null);
   };
 
   useEffect(() => {
@@ -341,6 +344,8 @@ const Quotations = () => {
       if (aid) setAgentId(aid);
       const cid = params.get("customerId");
       if (cid) setCustomerId(cid);
+      const eid = params.get("enquiryId");
+      if (eid) setEnquiryId(eid);
     }
 
     navigate("/quotations", { replace: true });
@@ -509,33 +514,6 @@ const Quotations = () => {
       return;
     }
 
-    // Phase 2 CRM Pipeline: Ensure a Customer exists before creating Quotation
-    let currentCustomerId = customerId || "";
-    
-    if (!currentCustomerId) {
-      const existingCustomer = customers.find(c => 
-        c.name.toLowerCase() === clientName.toLowerCase() && 
-        (c.phone === clientPhone || !clientPhone)
-      );
-      
-      if (existingCustomer) {
-        currentCustomerId = existingCustomer.id;
-      } else {
-        currentCustomerId = generateId("C");
-        addCustomer({
-          id: currentCustomerId,
-          name: clientName,
-          phone: clientPhone || "",
-          email: clientEmail,
-          address: [clientCity, clientState].filter(Boolean).join(", "),
-          createdAt: new Date().toISOString().split('T')[0],
-          type: "individual",
-          itemsBought: [],
-          totalPurchases: 0,
-        });
-      }
-    }
-
     const quotationData: Omit<Quotation, 'id'> = {
       quotationNumber,
       status: "draft",
@@ -554,7 +532,8 @@ const Quotations = () => {
       finalAmount: effectivePrice,
       totalAmount: effectivePrice,
       isConverted: false,
-      customerId: currentCustomerId,
+      customerId: customerId || undefined,
+      enquiryId: enquiryId || undefined,
       agentId: agentId || undefined,
       createdAt: new Date().toISOString().split('T')[0],
     };
@@ -824,7 +803,9 @@ const Quotations = () => {
   // Create Project from Quotation
   const handleCreateProject = (quotation: Quotation) => {
     setSelectedQuotationForProject(quotation);
-    setProjectAmountType(quotation.finalAmount ? "final" : "temporary");
+    setProjectContractAmount(quotation.totalAmount);
+    setProjectPaymentType("cash");
+    setProjectBankDocAmount(quotation.totalAmount);
     setIsCreateProjectOpen(true);
   };
 
@@ -867,11 +848,8 @@ const Quotations = () => {
     }
 
     // Use clientAgreedAmount if available, otherwise fall back to legacy amount handling
-    const amount = selectedQuotationForProject.clientAgreedAmount
-      ? selectedQuotationForProject.clientAgreedAmount
-      : projectAmountType === "final"
-        ? (selectedQuotationForProject.finalAmount || selectedQuotationForProject.totalAmount)
-        : (selectedQuotationForProject.temporaryAmount || selectedQuotationForProject.totalAmount);
+    const amount = projectContractAmount || selectedQuotationForProject.totalAmount;
+    const pPaymentType = projectPaymentType;
 
     const pRow = qPartnerIdForProject ? partners.find((p) => p.id === qPartnerIdForProject) : undefined;
 
@@ -886,7 +864,7 @@ const Quotations = () => {
       },
       commercial: {
         contractAmount: amount,
-        paymentType: selectedQuotationForProject.paymentType || "cash",
+        paymentType: pPaymentType,
         internalCostEstimate: projectKind === "SOLO_EPC" || projectKind === "PARTNER_EPC" ? 0 : 0,
         backendPrice: projectKind === "FIXED_EPC" ? parseFloat(qFixedBackend) : undefined,
         partnerSellPrice: projectKind === "FIXED_EPC" ? parseFloat(qFixedSell) : undefined,
@@ -939,9 +917,9 @@ const Quotations = () => {
       contractAmount: amount,
       totalCost: 0,
       amountReceived: 0,
-      paymentType: selectedQuotationForProject.paymentType || "",
+      paymentType: pPaymentType,
       bankDocumentationAmount:
-        selectedQuotationForProject.paymentType === "loan" ? selectedQuotationForProject.bankDocumentationAmount : undefined,
+        pPaymentType === "loan" ? projectBankDocAmount : undefined,
       quotationId: selectedQuotationForProject.id,
       quotationType: projectAmountType,
       photos: 0,
@@ -1037,35 +1015,12 @@ const Quotations = () => {
   };
 
   const handleEditQuotation = async (quotation: Quotation) => {
-    const sourceQuotationNumber = quotation.quotationNumber;
-    if (quotation.status === "sent" || quotation.status === "rejected") {
-      const reviseResult = await reviseQuotation(quotation.id);
-      if (!reviseResult.ok || !reviseResult.revisedQuotationId) {
-        toast({
-          title: "Revision Not Allowed",
-          description: reviseResult.error || "Unable to create revision draft",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      quotation = {
-        ...quotation,
-        id: reviseResult.revisedQuotationId,
-        quotationNumber: `${sourceQuotationNumber}-R1`,
-        status: "draft",
-        isConverted: false,
-      };
-      toast({
-        title: "Draft Revision Created",
-        description: `Created ${quotation.quotationNumber} from ${sourceQuotationNumber}`,
-      });
-    }
-
+    // Direct update logic as per user requirement
+    // We skip the revision logic to avoid creating duplicates
     if (quotation.status === "approved" || quotation.status === "confirmed") {
       toast({
         title: "Quotation Locked",
-        description: "Approved/confirmed quotations are locked. Create a revision via Super Admin override flow.",
+        description: "Approved/confirmed quotations are locked for data integrity. Use Super Admin override to edit.",
         variant: "destructive",
       });
       return;
@@ -1110,7 +1065,7 @@ const Quotations = () => {
         <StickyPageHeader
           breadcrumbs={[
             { label: "Home", to: "/" },
-            { label: "Sales" },
+            { label: "Pipeline" },
             { label: "Quotations" },
           ]}
           subRow={
@@ -1223,210 +1178,364 @@ const Quotations = () => {
         </StickyPageHeader>
 
         <DataTableShell
-              maxHeight={listTableViewportMaxHeight(listPageSize)}
-              scrollResetKey={`${safeListPage}-${listPageSize}-${displayedQuotations.length}`}
-              footer={
-                <TablePaginationBar
-                  page={safeListPage}
-                  pageSize={listPageSize}
-                  total={displayedQuotations.length}
-                  onPageChange={setListPage}
-                  onPageSizeChange={(n) => {
-                    setListPageSize(n);
-                    setListPage(1);
-                  }}
-                />
-              }
-            >
-              <TableHeader>
-                <TableRow className={dataTableClasses.headRow}>
-                  <TableHead>Quotation #</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>System</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pagedQuotations.map((quotation) => (
-                  <TableRow
-                    key={quotation.id}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => handleEditQuotation(quotation)}
-                  >
-                    <TableCell className="font-medium text-primary">{quotation.quotationNumber}</TableCell>
-                    <TableCell>
-                      <EntityLink entityType="customer" entityId={quotation.id} name={quotation.clientName} />
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{quotation.clientPhone}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="capitalize">
-                        {quotation.systemCategory} {quotation.systemCapacity}kW
+          maxHeight={listTableViewportMaxHeight(listPageSize)}
+          scrollResetKey={`${safeListPage}-${listPageSize}-${displayedQuotations.length}`}
+          footer={
+            <TablePaginationBar
+              page={safeListPage}
+              pageSize={listPageSize}
+              total={displayedQuotations.length}
+              onPageChange={setListPage}
+              onPageSizeChange={(n) => {
+                setListPageSize(n);
+                setListPage(1);
+              }}
+            />
+          }
+        >
+          <TableHeader>
+            <TableRow className={dataTableClasses.headRow}>
+              <TableHead>Quotation #</TableHead>
+              <TableHead>Client</TableHead>
+              <TableHead>Phone</TableHead>
+              <TableHead>System</TableHead>
+              <TableHead>Amount</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right w-[50px]"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pagedQuotations.map((quotation) => (
+              <TableRow
+                key={quotation.id}
+                className="cursor-pointer hover:bg-muted/50 group"
+                onClick={() => {
+                  setSelectedQuotation(quotation);
+                  setIsViewQuotationOpen(true);
+                }}
+              >
+                <TableCell className="font-medium text-primary">
+                  {quotation.quotationNumber}
+                </TableCell>
+                <TableCell>
+                  <EntityLink 
+                    entityType="customer" 
+                    entityId={quotation.customerId || ""} 
+                    name={quotation.clientName} 
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </TableCell>
+                <TableCell className="text-muted-foreground">{quotation.clientPhone}</TableCell>
+                <TableCell>
+                  <Badge variant="outline" className="capitalize">
+                    {quotation.systemCategory} {quotation.systemCapacity}kW
+                  </Badge>
+                </TableCell>
+                <TableCell className="font-medium text-primary">
+                  ₹{quotation.totalAmount.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-muted-foreground">{quotation.createdAt}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Badge className={`${getStatusColor(quotation.status)} border-0 capitalize`}>
+                      {quotation.status}
+                    </Badge>
+                    {quotation.convertedToProjectId && (
+                      <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+                        Project
                       </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium text-primary">₹{quotation.totalAmount.toLocaleString()}</TableCell>
-                    <TableCell className="text-muted-foreground">{quotation.createdAt}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge className={`${getStatusColor(quotation.status)} border-0 capitalize`}>
-                          {quotation.status}
-                        </Badge>
-                        {quotation.convertedToProjectId && (
-                          <Badge 
-                            variant="outline" 
-                            className="bg-blue-500/10 text-blue-600 border-blue-500/20 cursor-pointer hover:bg-blue-500/20"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/projects/${quotation.convertedToProjectId}`);
-                            }}
-                          >
-                            <Briefcase className="h-3 w-3 mr-1" />
-                            Project
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="bg-popover border">
-                          <DropdownMenuItem onClick={() => handleEditQuotation(quotation)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View / Edit
-                          </DropdownMenuItem>
-                          {/* Mark as Approved - for non-approved, non-rejected quotations */}
-                          {quotation.status !== "approved" && quotation.status !== "rejected" && (
-                            <DropdownMenuItem onClick={() => { void handleMarkAsApproved(quotation.id); }}>
-                              <CheckCircle className="h-4 w-4 mr-2" />
-                              Mark as Approved
-                            </DropdownMenuItem>
-                          )}
-                          {/* Mark as Rejected - only for non-rejected, non-approved quotations */}
-                          {quotation.status !== "rejected" && quotation.status !== "approved" && (
-                            <DropdownMenuItem onClick={() => handleMarkAsRejected(quotation.id)}>
-                              <X className="h-4 w-4 mr-2" />
-                              Mark as Rejected
-                            </DropdownMenuItem>
-                          )}
-                          {/* Create Project - for approved quotations NOT yet converted */}
-                          {quotation.status === "approved" && !quotation.convertedToProjectId && (
-                            <DropdownMenuItem onClick={() => handleCreateProject(quotation)}>
-                              <Briefcase className="h-4 w-4 mr-2" />
-                              Create Project
-                            </DropdownMenuItem>
-                          )}
-                          {quotation.status === "approved" && (
-                            <DropdownMenuItem onClick={() => handleCreateInvoice(quotation)}>
-                              <FileText className="h-4 w-4 mr-2" />
-                              Create Invoice
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem 
-                            onClick={() => handleDeleteQuotation(quotation)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </DataTableShell>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right">
+                  <ChevronDown className="h-4 w-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </DataTableShell>
 
-        {/* Clients Section */}
-        <Card className="bg-card">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <UserPlus className="h-5 w-5 text-primary" />
-              Converted Clients ({convertedClients.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {pagedClients.length === 0 ? (
-              <p className="text-center py-8 text-muted-foreground">No clients yet. Convert leads from quotations above.</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Client Name</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pagedClients.map((client) => (
-                    <TableRow key={client.id}>
-                      <TableCell className="font-medium">{client.clientName}</TableCell>
-                      <TableCell>{client.clientPhone}</TableCell>
-                      <TableCell className="text-muted-foreground">{client.clientEmail}</TableCell>
-                      <TableCell>{client.clientCity}, {client.clientState}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="capitalize">
-                          {client.systemCategory} {client.systemCapacity}kW
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => handleEditQuotation(client)}>
-                          <Eye className="h-4 w-4 mr-1" />
-                          View
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Save Amounts Confirmation Modal */}
-        <Sheet open={isSaveAmountsOpen} onOpenChange={setIsSaveAmountsOpen}>
-          <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <Sheet open={isViewQuotationOpen} onOpenChange={setIsViewQuotationOpen}>
+          <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
             <SheetHeader>
-              <SheetTitle>Save Quotation Amounts</SheetTitle>
-              <SheetDescription>
-                Update the temporary and final amounts for this quotation.
-              </SheetDescription>
+              <SheetTitle className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {selectedQuotation?.quotationNumber}
+                  {selectedQuotation && (
+                    <Badge className={`${getStatusColor(selectedQuotation.status)} border-0 capitalize`}>
+                      {selectedQuotation.status}
+                    </Badge>
+                  )}
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="hover:bg-primary/5"
+                  onClick={() => {
+                    if (selectedQuotation) {
+                      setIsViewQuotationOpen(false);
+                      handleEditQuotation(selectedQuotation);
+                    }
+                  }}
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+              </SheetTitle>
             </SheetHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Temporary Amount (₹)</Label>
-                <Input 
-                  type="number" 
-                  value={saveAmountTemp} 
-                  onChange={(e) => setSaveAmountTemp(parseFloat(e.target.value) || 0)} 
-                />
+
+            {selectedQuotation && (
+              <div className="flex flex-col h-full">
+                <div className="flex-1 space-y-6 pt-6">
+                  {/* Header Info Card */}
+                  <div className="flex items-center justify-between p-4 bg-muted/30 rounded-xl border border-border/50">
+                    <div className="flex items-center gap-4">
+                      <Avatar className="h-12 w-12 border-2 border-primary/10">
+                        <AvatarFallback className="bg-primary/5 text-primary text-lg font-semibold">
+                          {selectedQuotation.clientName.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <h3 className="text-lg font-semibold leading-tight">{selectedQuotation.clientName}</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-[10px] uppercase tracking-wider h-5">
+                            {selectedQuotation.systemCategory}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Created {selectedQuotation.createdAt}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-tighter">Effective Amount</p>
+                      <p className="text-lg font-bold text-primary">₹{selectedQuotation.totalAmount.toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Client Information */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 group">
+                        <div className="p-2 rounded-lg bg-primary/5 text-primary">
+                          <Phone className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Phone</p>
+                          <p className="text-sm font-medium">{selectedQuotation.clientPhone}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 group">
+                        <div className="p-2 rounded-lg bg-primary/5 text-primary">
+                          <Mail className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Email</p>
+                          <p className="text-sm font-medium">{selectedQuotation.clientEmail || "—"}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-2 group">
+                        <div className="p-2 rounded-lg bg-primary/5 text-primary shrink-0">
+                          <MapPin className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Address</p>
+                          <p className="text-sm font-medium leading-snug">
+                            {selectedQuotation.clientAddress || `${selectedQuotation.clientCity}, ${selectedQuotation.clientState}`}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Operational Details */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-lg bg-amber-500/5 text-amber-500">
+                          <Zap className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">System Capacity</p>
+                          <p className="text-sm font-semibold">{selectedQuotation.systemCapacity} kW</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-lg bg-blue-500/5 text-blue-500">
+                          <CreditCard className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Payment Type</p>
+                          <p className="text-sm font-semibold capitalize">{selectedQuotation.paymentType || "TBD"}</p>
+                        </div>
+                      </div>
+
+                      {selectedQuotation.agentId && (
+                        <div className="flex items-center gap-2">
+                          <div className="p-2 rounded-lg bg-purple-500/5 text-purple-500">
+                            <UserCheck className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Referred By</p>
+                            <p className="text-sm font-medium">
+                              {agents.find(a => a.id === selectedQuotation.agentId)?.name || "Agent"}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Material Overview */}
+                  <div className="p-4 bg-muted/30 rounded-xl border border-border/50">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                      <Package className="h-3 w-3" />
+                      Material Overview
+                    </h4>
+                    <div className="rounded-lg border bg-background overflow-hidden">
+                      <Table>
+                        <TableHeader className="bg-muted/50">
+                          <TableRow>
+                            <TableHead className="text-[10px] uppercase font-bold py-2">Line Item</TableHead>
+                            <TableHead className="text-right text-[10px] uppercase font-bold py-2">Total</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          <TableRow className="hover:bg-transparent">
+                            <TableCell className="text-xs py-3 font-medium">Solar Panels & Inverter System</TableCell>
+                            <TableCell className="text-right text-xs py-3">Included</TableCell>
+                          </TableRow>
+                          <TableRow className="hover:bg-transparent border-t">
+                            <TableCell colSpan={2} className="text-center text-[10px] text-muted-foreground py-2 italic bg-muted/10">
+                              Open edit mode for full itemized list and commercial breakdown.
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+
+                  {/* Audit Timeline */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <Clock className="h-3 w-3" />
+                      Status History
+                    </h4>
+                    <div className="space-y-4 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-border/60">
+                      <div className="relative pl-8 group">
+                        <div className="absolute left-0 top-[6px] h-3 w-3 rounded-full border-2 border-primary/20 bg-background z-10" />
+                        <div className="p-3 bg-muted/20 rounded-lg border border-border/40">
+                          <div className="flex items-start justify-between mb-1">
+                            <p className="text-xs font-medium text-primary/80">Quotation Created</p>
+                            <time className="text-[10px] text-muted-foreground">{selectedQuotation.createdAt}</time>
+                          </div>
+                          <p className="text-sm">Quotation draft generated in system.</p>
+                        </div>
+                      </div>
+                      {selectedQuotation.status !== "draft" && (
+                        <div className="relative pl-8 group">
+                          <div className="absolute left-0 top-[6px] h-3 w-3 rounded-full border-2 border-blue-500/20 bg-background z-10" />
+                          <div className="p-3 bg-muted/20 rounded-lg border border-border/40">
+                            <div className="flex items-start justify-between mb-1">
+                              <p className="text-xs font-medium text-blue-600 capitalize">{selectedQuotation.status}</p>
+                              <time className="text-[10px] text-muted-foreground">Recent</time>
+                            </div>
+                            <p className="text-sm">Status transitioned to {selectedQuotation.status}.</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sticky Action Footer */}
+                <div className="pt-6 mt-6 border-t bg-background/80 backdrop-blur-sm sticky bottom-0 z-20">
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-6">
+                    <div className="flex items-center gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          setIsViewQuotationOpen(false);
+                          setSelectedQuotation(selectedQuotation);
+                          setEditingQuotationId(selectedQuotation.id);
+                          setQuotationNumber(selectedQuotation.quotationNumber);
+                          setClientName(selectedQuotation.clientName);
+                          setClientPhone(selectedQuotation.clientPhone);
+                          setClientEmail(selectedQuotation.clientEmail || "");
+                          setClientCity(selectedQuotation.clientCity);
+                          setClientState(selectedQuotation.clientState);
+                          setSystemCategory(selectedQuotation.systemCategory);
+                          setSystemCapacity(selectedQuotation.systemCapacity);
+                          setStatus(selectedQuotation.status);
+                          setCurrentView("edit");
+                          setActiveTab("preview");
+                        }}
+                      >
+                        <Printer className="h-4 w-4 mr-2" />
+                        Preview / Print
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => { setIsViewQuotationOpen(false); handleOpenShareModal(); }}
+                        disabled={selectedQuotation.status === "rejected"}
+                      >
+                        <Share2 className="h-4 w-4 mr-2" />
+                        Share
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {selectedQuotation.status !== "approved" && selectedQuotation.status !== "rejected" && selectedQuotation.status !== "confirmed" && (
+                        <Button 
+                          variant="destructive" 
+                          size="sm"
+                          onClick={() => { handleMarkAsRejected(selectedQuotation.id); setIsViewQuotationOpen(false); }}
+                          className="bg-destructive/5 text-destructive hover:bg-destructive hover:text-white border-destructive/20"
+                        >
+                          <X className="h-4 w-4 mr-2" />
+                          Reject
+                        </Button>
+                      )}
+                      
+                      {selectedQuotation.status === "draft" && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
+                          onClick={() => { void handleMarkAsApproved(selectedQuotation.id); setIsViewQuotationOpen(false); }}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approve Quotation
+                        </Button>
+                      )}
+
+                      {selectedQuotation.status === "approved" && (
+                        <Button 
+                          size="sm"
+                          className="bg-primary text-white"
+                          onClick={() => { handleCreateProject(selectedQuotation); setIsViewQuotationOpen(false); }}
+                        >
+                          <Briefcase className="h-4 w-4 mr-2" />
+                          Convert to Project
+                        </Button>
+                      )}
+
+                      {selectedQuotation.status === "confirmed" && (
+                        <div className="flex items-center gap-2 px-3 py-1 bg-primary/10 text-primary rounded-lg border border-primary/20">
+                          <Check className="h-4 w-4" />
+                          <span className="text-xs font-bold uppercase tracking-wider">Converted</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Final Amount (₹)</Label>
-                <Input 
-                  type="number" 
-                  value={saveAmountFinal} 
-                  onChange={(e) => setSaveAmountFinal(parseFloat(e.target.value) || 0)} 
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setIsSaveAmountsOpen(false)}>Cancel</Button>
-              <Button onClick={handleConfirmSaveAmounts}>
-                <Save className="h-4 w-4 mr-2" />
-                Save Amounts
-              </Button>
-            </div>
+            )}
           </SheetContent>
         </Sheet>
       </div>
@@ -1520,21 +1629,22 @@ const Quotations = () => {
               </Card>
 
               {/* System Configuration */}
+              {/* System Configuration */}
               <Card className="bg-card">
                 <CardHeader>
                   <CardTitle className="text-lg">System Configuration</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Preset Selector */}
+                  {/* Template Selector */}
                   <div className="space-y-2 pb-4 border-b">
-                    <Label>Select Preset (Optional)</Label>
+                    <Label>Select Template (Optional)</Label>
                     <Select 
                       value="" 
-                      onValueChange={(presetId) => {
-                        const preset = inventoryPresets.find(p => p.id === presetId);
-                        if (preset && preset.presetType === "quotation") {
-                          // Auto-populate materials from preset
-                          const presetMaterials = preset.items.map((item, idx) => ({
+                      onValueChange={(templateId) => {
+                        const template = inventoryPresets.find(p => p.id === templateId);
+                        if (template && template.presetType === "quotation") {
+                          // Auto-populate materials from template
+                          const templateMaterials = template.items.map((item, idx) => ({
                             id: idx + 1,
                             category: "Material",
                             itemName: item.name,
@@ -1543,29 +1653,29 @@ const Quotations = () => {
                             rate: 0, // Rate will be set manually or from inventory lookup
                             unit: item.unit,
                           }));
-                          setMaterials(presetMaterials);
+                          setMaterials(templateMaterials);
                           toast({
-                            title: "Preset Applied",
-                            description: `"${preset.name}" materials have been loaded`,
+                            title: "Template Applied",
+                            description: `"${template.name}" materials have been loaded`,
                           });
                         }
                       }}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Load materials from preset..." />
+                        <SelectValue placeholder="Load materials from template..." />
                       </SelectTrigger>
                       <SelectContent>
                         {inventoryPresets
                           .filter(p => p.presetType === "quotation")
-                          .map(preset => (
-                            <SelectItem key={preset.id} value={preset.id}>
-                              {preset.name} ({preset.category})
+                          .map(template => (
+                            <SelectItem key={template.id} value={template.id}>
+                              {template.name} ({template.category})
                             </SelectItem>
                           ))}
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Select a preset to auto-populate materials list
+                      Select a template to auto-populate materials list
                     </p>
                   </div>
 
@@ -1644,180 +1754,16 @@ const Quotations = () => {
                       <Input value={structureType} onChange={(e) => setStructureType(e.target.value)} />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Floor Height</Label>
-                    <Input value={floorHeight} onChange={(e) => setFloorHeight(e.target.value)} />
-                  </div>
-                  
-                  {/* System Configuration Notes */}
-                  <div className="space-y-2 pt-4 border-t">
-                    <Label>System Notes / Description</Label>
-                    <Textarea 
-                      value={systemConfigNotes} 
-                      onChange={(e) => setSystemConfigNotes(e.target.value)} 
-                      placeholder="Additional notes about the system configuration..."
-                      rows={3}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Payment Type & Quotation Amounts - Unified */}
-              <Card className="bg-card border-2 border-primary/20">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <IndianRupee className="h-5 w-5 text-primary" />
-                    Payment Type & Quotation Amounts
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Payment Type Toggle */}
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Payment Type *</Label>
-                    <p className="text-xs text-muted-foreground -mt-1">
-                      Select how the client will pay. This determines the project timeline flow.
-                    </p>
-                    
-                    <div className="grid grid-cols-3 gap-4">
-                      <div 
-                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                          paymentType === "cash" 
-                            ? "border-primary bg-primary/5" 
-                            : "border-border hover:border-primary/50"
-                        }`}
-                        onClick={() => {
-                          setPaymentType("cash");
-                          setBankDocumentationAmount(null);
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                            paymentType === "cash" ? "border-primary" : "border-muted-foreground"
-                          }`}>
-                            {paymentType === "cash" && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
-                          </div>
-                          <div>
-                            <p className="font-medium">💵 Cash</p>
-                            <p className="text-xs text-muted-foreground">Full amount directly</p>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div 
-                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                          paymentType === "loan" 
-                            ? "border-primary bg-primary/5" 
-                            : "border-border hover:border-primary/50"
-                        }`}
-                        onClick={() => setPaymentType("loan")}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                            paymentType === "loan" ? "border-primary" : "border-muted-foreground"
-                          }`}>
-                            {paymentType === "loan" && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
-                          </div>
-                          <div>
-                            <p className="font-medium">🏦 Loan</p>
-                            <p className="text-xs text-muted-foreground">Bank finance</p>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div 
-                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                          paymentType === "cash-and-loan" 
-                            ? "border-primary bg-primary/5" 
-                            : "border-border hover:border-primary/50"
-                        }`}
-                        onClick={() => setPaymentType("cash-and-loan")}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                            paymentType === "cash-and-loan" ? "border-primary" : "border-muted-foreground"
-                          }`}>
-                            {paymentType === "cash-and-loan" && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
-                          </div>
-                          <div>
-                            <p className="font-medium">💵🏦 Combined</p>
-                            <p className="text-xs text-muted-foreground">Cash + Bank</p>
-                          </div>
-                        </div>
-                      </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Floor Height</Label>
+                      <Input value={floorHeight} onChange={(e) => setFloorHeight(e.target.value)} />
                     </div>
-                    
-                    {!paymentType && (
-                      <p className="text-xs text-amber-600 flex items-center gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        Please select a payment type before saving
-                      </p>
-                    )}
-                  </div>
-                  
-                  {/* Conditional Amount Fields */}
-                  {paymentType && (
-                    <div className="space-y-4 pt-4 border-t animate-in fade-in slide-in-from-top-2 duration-200">
-                      {/* FOR LOAN: Bank Documentation Amount */}
-                      {paymentType === "loan" && (
-                        <div className="space-y-2 p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg">
-                          <Label className="text-sm font-medium flex items-center gap-2">
-                            <IndianRupee className="h-4 w-4 text-amber-600" />
-                            Bank Documentation Amount *
-                          </Label>
-                          <Input 
-                            type="number" 
-                            placeholder={effectivePrice.toString()}
-                            value={bankDocumentationAmount ?? ''}
-                            onChange={(e) => setBankDocumentationAmount(e.target.value ? parseFloat(e.target.value) : null)}
-                            className="text-right"
-                          />
-                          <p className="text-xs text-muted-foreground">Used for invoice & GST calculation (typically higher for loan approval)</p>
-                          {bankDocumentationAmount && (
-                            <div className="flex justify-between text-xs text-amber-600">
-                              <span>GST on Bank Doc ({gstPercent}%):</span>
-                              <span>₹{((bankDocumentationAmount * gstPercent) / 100).toLocaleString()}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Client Agreed Amount - Required for both */}
-                      <div className="space-y-2">
-                        <Label className="text-sm font-medium">Client Agreed Amount *</Label>
-                        <Input 
-                          type="number" 
-                          placeholder={effectivePrice.toString()}
-                          value={temporaryAmount ?? ''}
-                          onChange={(e) => setTemporaryAmount(e.target.value ? parseFloat(e.target.value) : null)}
-                          className="text-right"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          {paymentType === "cash" 
-                            ? "This is what the client pays - used for invoice"
-                            : "What client will actually pay (finalized amount)"
-                          }
-                        </p>
-                      </div>
-
-                      {/* GST Difference Calculation (for Loan only) */}
-                      {paymentType === "loan" && bankDocumentationAmount && temporaryAmount && (
-                        <div className="p-3 bg-muted/30 rounded-lg space-y-2">
-                          <p className="text-sm font-medium">GST Difference (Our Cost)</p>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            <span className="text-muted-foreground">Bank Doc GST ({gstPercent}%):</span>
-                            <span className="text-right">₹{((bankDocumentationAmount * gstPercent) / 100).toLocaleString()}</span>
-                            <span className="text-muted-foreground">Client Agreed GST ({gstPercent}%):</span>
-                            <span className="text-right">₹{((temporaryAmount * gstPercent) / 100).toLocaleString()}</span>
-                            <span className="text-muted-foreground font-medium border-t pt-1">GST Difference:</span>
-                            <span className={`text-right font-medium border-t pt-1 ${(bankDocumentationAmount - temporaryAmount) >= 0 ? 'text-amber-600' : 'text-primary'}`}>
-                              ₹{Math.abs(((bankDocumentationAmount - temporaryAmount) * gstPercent) / 100).toLocaleString()}
-                              {bankDocumentationAmount > temporaryAmount ? " (Cost)" : " (Gain)"}
-                            </span>
-                          </div>
-                        </div>
-                      )}
+                    <div className="space-y-2">
+                      <Label>Notes / Description</Label>
+                      <Input value={systemConfigNotes} onChange={(e) => setSystemConfigNotes(e.target.value)} placeholder="e.g. Roof top installation" />
                     </div>
-                  )}
+                  </div>
                 </CardContent>
               </Card>
 
@@ -1888,7 +1834,7 @@ const Quotations = () => {
                           </TableRow>
                           {/* Description row for each material */}
                           <TableRow className="bg-muted/30">
-                            <TableCell colSpan={8} className="py-2">
+                            <TableCell colSpan={8} >
                               <Input 
                                 placeholder="Add description for this item (optional)"
                                 value={item.description || ""}
@@ -1904,6 +1850,7 @@ const Quotations = () => {
                 </CardContent>
               </Card>
 
+              {/* What You Get Section */}
               {/* What You Get Section */}
               <Card className="bg-card">
                 <CardHeader>
@@ -1994,6 +1941,7 @@ const Quotations = () => {
               </Card>
 
               {/* Payment Terms */}
+              {/* Payment Terms */}
               <Card className="bg-card">
                 <CardHeader>
                   <CardTitle className="text-lg">Payment Terms</CardTitle>
@@ -2047,20 +1995,10 @@ const Quotations = () => {
                 </CardContent>
               </Card>
 
-              {/* Section Visibility Toggles */}
+              {/* Preview/Export Options */}
               <Card className="bg-card">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">Preview/Export Options</CardTitle>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => setIsSaveVisibilityPresetOpen(true)}
-                    >
-                      <Save className="w-3 h-3 mr-1" />
-                      Save Preset
-                    </Button>
-                  </div>
+                <CardHeader>
+                  <CardTitle className="text-lg">Preview/Export Options</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {/* Load Preset Dropdown */}
@@ -2234,7 +2172,6 @@ const Quotations = () => {
         </TabsContent>
 
         <TabsContent value="preview" className="mt-6">
-          {/* Action buttons for Preview only */}
           <div className="flex items-center justify-end gap-3 mb-6">
             <Button variant="outline" onClick={handleExportPDF} disabled={isExportingPdf}>
               <Download className="w-4 h-4 mr-2" />
@@ -2250,9 +2187,7 @@ const Quotations = () => {
             </Button>
           </div>
 
-          {/* Printable Quotation Preview */}
           <div ref={quotationRef} className="bg-background p-8 rounded-lg border max-w-4xl mx-auto pb-16">
-            {/* Company Header - MAHI SOLAR ENERGY */}
             <div className="flex justify-between items-start mb-8 pb-6 border-b">
               <div>
                 <h1 className="text-2xl font-bold text-primary">{companyInfo.name}</h1>
@@ -2274,7 +2209,6 @@ const Quotations = () => {
               </div>
             </div>
 
-            {/* Client & System Info */}
             <div className="grid grid-cols-2 gap-8 mb-8">
               <div>
                 <h3 className="font-semibold text-sm text-muted-foreground mb-2">QUOTATION FOR</h3>
@@ -2312,7 +2246,6 @@ const Quotations = () => {
               )}
             </div>
 
-            {/* What You Get in Preview */}
             {sectionVisibility.whatYouGet && (
               <div className="mb-8 p-4 bg-primary/5 rounded-lg border border-primary/20">
                 <h3 className="font-semibold text-sm text-primary mb-3">WHAT YOU GET</h3>
@@ -2327,7 +2260,6 @@ const Quotations = () => {
               </div>
             )}
 
-            {/* Materials Table */}
             {sectionVisibility.materials && (
               <div className="mb-8">
                 <h3 className="font-semibold text-sm text-muted-foreground mb-3">QUOTATION ITEMS</h3>
@@ -2347,7 +2279,7 @@ const Quotations = () => {
                     {materials.map((item, idx) => (
                       <TableRow key={item.id}>
                         <TableCell>{idx + 1}</TableCell>
-                        <TableCell className="text-muted-foreground text-sm">{item.category}</TableCell>
+                        <TableCell className="text-muted-foreground">{item.category}</TableCell>
                         <TableCell>
                           <p className="font-medium">{item.itemName}</p>
                           {item.size !== "-" && <p className="text-xs text-muted-foreground">{item.size}</p>}
@@ -2363,7 +2295,6 @@ const Quotations = () => {
               </div>
             )}
 
-            {/* Price Summary */}
             <div className="grid grid-cols-2 gap-8 mb-8">
               <div>
                 {sectionVisibility.paymentTerms && (
@@ -2453,7 +2384,6 @@ const Quotations = () => {
               </div>
             </div>
 
-            {/* Notes / T&C */}
             {sectionVisibility.termsConditions && notes && (
               <div className="mb-8">
                 <h3 className="font-semibold text-sm text-muted-foreground mb-2">TERMS & CONDITIONS</h3>
@@ -2462,7 +2392,6 @@ const Quotations = () => {
                 </div>
               </div>
             )}
-
             {/* Footer */}
             <div className="text-center text-sm text-muted-foreground pt-6 border-t">
               <p>This quotation is valid for 15 days from the date of issue.</p>
@@ -2839,31 +2768,67 @@ const Quotations = () => {
                 <p className="text-sm"><strong>Location:</strong> {selectedQuotationForProject.clientCity}, {selectedQuotationForProject.clientState}</p>
               </div>
 
-              <div className="space-y-2">
-                <Label>Project kind</Label>
-                <Select
-                  value={quotationProjectKind}
-                  onValueChange={(v) => setQuotationProjectKind(v as ProjectKind)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(projectKindConfigs) as ProjectKind[]).map((k) => (
-                      <SelectItem key={k} value={k}>
-                        {projectKindConfigs[k].label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Solo EPC matches the classic quote→project path. Other kinds require the extra fields below when applicable.
-                </p>
+              <div className="grid grid-cols-2 gap-4 border-t pt-4">
+                <div className="space-y-2">
+                  <Label>Project Kind</Label>
+                  <Select
+                    value={quotationProjectKind}
+                    onValueChange={(v) => setQuotationProjectKind(v as ProjectKind)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(projectKindConfigs) as ProjectKind[]).map((k) => (
+                        <SelectItem key={k} value={k}>
+                          {projectKindConfigs[k].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Payment Type *</Label>
+                  <Select
+                    value={projectPaymentType}
+                    onValueChange={(v) => setProjectPaymentType(v as any)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="loan">Loan</SelectItem>
+                      <SelectItem value="cash-and-loan">Combined (Cash + Loan)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Final Contract Amount (₹)</Label>
+                  <Input 
+                    type="number" 
+                    value={projectContractAmount} 
+                    onChange={(e) => setProjectContractAmount(parseFloat(e.target.value) || 0)} 
+                  />
+                </div>
+                {projectPaymentType === "loan" && (
+                  <div className="space-y-2">
+                    <Label>Bank Documentation Amount (₹)</Label>
+                    <Input 
+                      type="number" 
+                      value={projectBankDocAmount} 
+                      onChange={(e) => setProjectBankDocAmount(parseFloat(e.target.value) || 0)} 
+                    />
+                  </div>
+                )}
               </div>
 
               {(quotationProjectKind === "PARTNER_EPC" || quotationProjectKind === "FIXED_EPC" || quotationProjectKind === "VENDOR_NETWORK") && (
-                <div className="space-y-2">
-                  <Label>Partner</Label>
+                <div className="space-y-2 pt-2">
+                  <Label>Linked Partner</Label>
                   <Select value={qPartnerIdForProject} onValueChange={setQPartnerIdForProject}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select partner" />
@@ -2881,7 +2846,7 @@ const Quotations = () => {
 
               {quotationProjectKind === "PARTNER_EPC" && (
                 <div className="space-y-2">
-                  <Label>Profit share (%)</Label>
+                  <Label>Profit Share (%)</Label>
                   <Input type="number" value={qProfitSharePercent} onChange={(e) => setQProfitSharePercent(e.target.value)} />
                 </div>
               )}
@@ -2889,11 +2854,11 @@ const Quotations = () => {
               {quotationProjectKind === "FIXED_EPC" && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label>MSS backend (₹)</Label>
+                    <Label>MSS Backend (₹)</Label>
                     <Input type="number" value={qFixedBackend} onChange={(e) => setQFixedBackend(e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Partner sell (₹)</Label>
+                    <Label>Partner Sell (₹)</Label>
                     <Input type="number" value={qFixedSell} onChange={(e) => setQFixedSell(e.target.value)} />
                   </div>
                 </div>
@@ -2902,49 +2867,16 @@ const Quotations = () => {
               {quotationProjectKind === "VENDOR_NETWORK" && (
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label>Vendorship fee</Label>
-                    <Input type="number" value={qVendorshipFee} onChange={(e) => setQVendorshipFee(e.target.value)} placeholder="Fee payable by partner" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>External network notes</Label>
-                    <Input value={qExternal} onChange={(e) => setQExternal(e.target.value)} placeholder="Optional execution/network note" />
+                    <Label>Vendorship Fee (₹)</Label>
+                    <Input 
+                      type="number" 
+                      value={qVendorshipFee} 
+                      onChange={(e) => setQVendorshipFee(e.target.value)} 
+                      placeholder="Fee payable by partner" 
+                    />
                   </div>
                 </div>
               )}
-
-              <div className="space-y-2">
-                <Label>Select Amount Type</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className={`flex flex-col p-4 border-2 rounded-lg cursor-pointer transition-colors ${projectAmountType === "temporary" ? "border-primary bg-primary/5" : "hover:border-primary/50"}`}>
-                    <input
-                      type="radio"
-                      name="amountType"
-                      value="temporary"
-                      className="sr-only"
-                      checked={projectAmountType === "temporary"}
-                      onChange={() => setProjectAmountType("temporary")}
-                    />
-                    <span className="font-medium">Temporary Amount</span>
-                    <span className="text-lg text-primary font-semibold mt-1">
-                      ₹{(selectedQuotationForProject.temporaryAmount || selectedQuotationForProject.totalAmount).toLocaleString()}
-                    </span>
-                  </label>
-                  <label className={`flex flex-col p-4 border-2 rounded-lg cursor-pointer transition-colors ${projectAmountType === "final" ? "border-primary bg-primary/5" : "hover:border-primary/50"}`}>
-                    <input
-                      type="radio"
-                      name="amountType"
-                      value="final"
-                      className="sr-only"
-                      checked={projectAmountType === "final"}
-                      onChange={() => setProjectAmountType("final")}
-                    />
-                    <span className="font-medium">Final Amount</span>
-                    <span className="text-lg text-primary font-semibold mt-1">
-                      ₹{(selectedQuotationForProject.finalAmount || selectedQuotationForProject.totalAmount).toLocaleString()}
-                    </span>
-                  </label>
-                </div>
-              </div>
             </div>
           )}
 

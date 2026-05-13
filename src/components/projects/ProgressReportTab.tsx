@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
-import { AlertTriangle, Check, Clock, Plus, Flag, Users, Calendar, MapPin, ChevronDown, ChevronRight, FileText, Phone, Briefcase, CheckCircle2, XCircle, Circle, IndianRupee, RotateCcw, User, Wrench, Zap, Camera, Video, Image, Tag } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { AlertTriangle, Check, Clock, Plus, Flag, Users, Calendar, MapPin, ChevronDown, ChevronRight, FileText, Phone, Briefcase, CheckCircle2, XCircle, Circle, IndianRupee, RotateCcw, User, Wrench, Zap, Camera, Video, Image, Tag, ClipboardList } from "lucide-react";
 import { ImageViewerModal } from "@/components/shared/ImageViewerModal";
+import { TaskAssignmentModal } from "@/components/employees/TaskAssignmentModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,9 +17,15 @@ import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "@/hooks/use-toast";
 import { format, formatDistanceToNow } from "date-fns";
-import type { Blockage, Ticket, ProjectTimelineStatus, WorkStatusApprovalInfo } from "@/types/blockage";
+import type {
+  Blockage,
+  Ticket,
+  ProjectTimelineStatus,
+  WorkStatusApprovalInfo,
+  WorkStatusApprovalStatus,
+} from "@/types/blockage";
 import { WORK_STATUS_STAGES, BLOCKAGE_TIMELINE_STAGES, DEFAULT_CUSTOM_STAGE_TAGS, type CustomBlockageStageTag } from "@/types/blockage";
-import type { Employee } from "@/types/project";
+import type { Employee, ProjectScopeConfig } from "@/types/project";
 
 // Timeline steps for site status card (now 7 steps)
 const TIMELINE_STEPS = [
@@ -52,9 +60,15 @@ interface ProgressReportTabProps {
   projectBankDocAmount?: number;
   projectAmountReceived?: number;
   onAddBlockage: (blockage: Omit<Blockage, "id" | "createdAt">) => void;
-  onResolveBlockage: (blockageId: string) => void;
+  onResolveBlockage: (
+    blockageId: string,
+    resolution: { resolvedBy: string; resolvedByName: string; resolvedAt: string; notes?: string },
+  ) => void;
+  /** When set, cash received is persisted (client payment record + project totals); otherwise local demo totals only. */
+  onRecordClientCash?: (amount: number, notes?: string) => void;
   onAddTicket: (ticket: Omit<Ticket, "id" | "createdAt">) => void;
   onUpdateTimeline: (updates: Partial<ProjectTimelineStatus>) => void;
+  scope?: ProjectScopeConfig;
 }
 
 // File Login steps (sequential)
@@ -139,9 +153,26 @@ export function ProgressReportTab({
   projectAmountReceived,
   onAddBlockage,
   onResolveBlockage,
+  onRecordClientCash,
   onAddTicket,
   onUpdateTimeline,
+  scope,
 }: ProgressReportTabProps) {
+  
+  // Dynamic steps based on scope
+  const visibleSteps = useMemo(() => {
+    // If no scope (legacy), return all
+    if (!scope) return TIMELINE_STEPS;
+    
+    return TIMELINE_STEPS.filter(step => {
+      if (step.key === "work") return scope.hasInstallation;
+      if (["fileLogin", "discomStatus", "dcrStatus", "subsidyType"].includes(step.key)) {
+        return scope.vendorshipOwner === "MSS";
+      }
+      return true; // Keep Pay, Bank, etc.
+    });
+  }, [scope]);
+
   // Modal states
   const [isAddBlockageOpen, setIsAddBlockageOpen] = useState(false);
   const [isAddTicketOpen, setIsAddTicketOpen] = useState(false);
@@ -150,9 +181,11 @@ export function ProgressReportTab({
   const [isConfirmInstallmentModalOpen, setIsConfirmInstallmentModalOpen] = useState(false);
   const [isResolveBlockageModalOpen, setIsResolveBlockageModalOpen] = useState(false);
   const [selectedBlockageToResolve, setSelectedBlockageToResolve] = useState<Blockage | null>(null);
+  const [isAssignTaskOpen, setIsAssignTaskOpen] = useState(false);
+  const [taskModalMilestoneId, setTaskModalMilestoneId] = useState<string | undefined>();
   
-  // Role simulation for demo (in real app, this would come from auth context)
-  const [isAdmin, setIsAdmin] = useState(true); // Toggle for demo
+  const { currentRole } = useAppSession();
+  const isAdmin = currentRole === "admin" || currentRole === "super_admin" || currentRole === "ceo";
   
   // Blockage view toggle: "active" or "history"
   const [blockageViewMode, setBlockageViewMode] = useState<"active" | "history">("active");
@@ -169,104 +202,13 @@ export function ProgressReportTab({
   // Site status card state
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   
-  // Work status approvals state (pre-filled with Structure demo data)
-  const [workStatusApprovals, setWorkStatusApprovals] = useState<Record<string, {
-    status: "pending" | "requested" | "approved" | "rejected" | "closed";
-    requestedAt?: string;
-    requestedBy?: string;
-    requestedByName?: string;
-    approvedBy?: string;
-    approvedByName?: string;
-    approvedAt?: string;
-    photoCount?: number;
-    photoUrls?: string[];
-    videoCount?: number;
-    rejectionReason?: string;
-    subItemApprovals?: Record<string, {
-      status?: "pending" | "approved" | "rejected" | "closed";
-      updatedBy?: string;
-      updatedByName?: string;
-      updatedAt?: string;
-      notes?: string;
-      photoCount?: number;
-      photoUrls?: string[];
-      videoCount?: number;
-      isOnHold?: boolean;
-      linkedBlockageId?: string;
-      approvedByName?: string;
-      approvedAt?: string;
-      requestedByName?: string;
-      requestedAt?: string;
-      rejectionReason?: string;
-    }>;
-  }>>({
-    // Pre-filled Structure stage for demo
-    "structure": {
-      status: "closed",
-      approvedBy: "admin",
-      approvedByName: "Admin",
-      approvedAt: "2024-12-20T14:30:00",
-      photoCount: 4,
-      photoUrls: [
-        "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=200",
-        "https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?w=200",
-        "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=200",
-        "https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?w=200"
-      ],
-      subItemApprovals: {
-        "structure-procurement": {
-          status: "approved",
-          updatedBy: "1",
-          updatedByName: "Dinesh",
-          updatedAt: "2024-12-18T10:30:00",
-          notes: "All materials procured from vendor",
-          photoCount: 0,
-          approvedByName: "Dinesh",
-          approvedAt: "2024-12-18T10:30:00",
-        },
-        "structure-cutting": {
-          status: "approved",
-          updatedBy: "2",
-          updatedByName: "Mukesh",
-          updatedAt: "2024-12-19T11:45:00",
-          notes: "Cutting and preparation completed",
-          photoCount: 0,
-          approvedByName: "Mukesh",
-          approvedAt: "2024-12-19T11:45:00",
-        },
-        "structure-transport": {
-          status: "approved",
-          updatedBy: "admin",
-          updatedByName: "Admin",
-          updatedAt: "2024-12-19T16:00:00",
-          notes: "Transported to site",
-          photoCount: 2,
-          photoUrls: [
-            "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=200",
-            "https://images.unsplash.com/photo-1517490232338-06b912a786b5?w=200"
-          ],
-          approvedByName: "Admin",
-          approvedAt: "2024-12-19T16:00:00",
-        },
-        "structure-installation": {
-          status: "approved",
-          updatedBy: "3",
-          updatedByName: "Sonu",
-          updatedAt: "2024-12-20T13:00:00",
-          notes: "Installation completed successfully",
-          photoCount: 4,
-          photoUrls: [
-            "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=200",
-            "https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?w=200",
-            "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=200",
-            "https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?w=200"
-          ],
-          approvedByName: "Admin",
-          approvedAt: "2024-12-20T14:30:00",
-        },
-      }
-    }
-  });
+  type WorkApprovalsState = NonNullable<ProjectTimelineStatus["workStatusApprovals"]>;
+
+  const [workStatusApprovals, setWorkStatusApprovals] = useState<WorkApprovalsState>({});
+
+  useEffect(() => {
+    setWorkStatusApprovals(timelineStatus?.workStatusApprovals ?? {});
+  }, [projectId, timelineStatus?.updatedAt]);
   
   // Image viewer state
   const [viewerImage, setViewerImage] = useState<{ url: string; fileName: string } | null>(null);
@@ -288,6 +230,16 @@ export function ProgressReportTab({
     open: boolean;
   } | null>(null);
   const [uploadNotes, setUploadNotes] = useState("");
+  const [pendingPhotoDataUrls, setPendingPhotoDataUrls] = useState<string[]>([]);
+  const [pendingVideoDataUrls, setPendingVideoDataUrls] = useState<string[]>([]);
+  const workPhotoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!photoUploadModal?.open) return;
+    setPendingPhotoDataUrls([]);
+    setPendingVideoDataUrls([]);
+    setUploadNotes("");
+  }, [photoUploadModal?.open]);
   const [rejectReasonModal, setRejectReasonModal] = useState<{
     stageKey: string;
     subItemKey: string;
@@ -334,6 +286,20 @@ export function ProgressReportTab({
   const [secondInstalmentAmount, setSecondInstalmentAmount] = useState(0);
   const [isEditingInstalments, setIsEditingInstalments] = useState(false);
 
+  // Timeline status helpers (declared before effects that depend on them — TDZ-safe)
+  const fileLogin = timelineStatus?.fileLogin || "pending";
+  const subsidyType = timelineStatus?.subsidyType || "";
+  const bankFileType = timelineStatus?.bankFileType || "";
+  const loanStage = timelineStatus?.loanStage || "";
+  const loanStatus = timelineStatus?.loanStatus || "";
+  const workStatusChecks = timelineStatus?.workStatusChecks || [];
+  const discomChecks = timelineStatus?.discomChecks || [];
+  const discomSubsidyStatus = timelineStatus?.discomSubsidyStatus || "";
+  const paymentType = timelineStatus?.paymentType || "";
+  const cashToMahiConfirmed = timelineStatus?.cashToMahiConfirmed || false;
+  const firstInstallmentPaid = timelineStatus?.firstInstallmentPaid || false;
+  const secondInstallmentPaid = timelineStatus?.secondInstallmentPaid || false;
+
   // Initialize from project/quotation financial data
   useEffect(() => {
     if (projectContractAmount) {
@@ -355,7 +321,7 @@ export function ProgressReportTab({
         } else if (projectPaymentType === "loan") {
           onUpdateTimeline({ bankFileType: "loan", loanStage: "file-prepare", loanStatus: "pending", updatedAt: new Date().toISOString() });
         } else if (projectPaymentType === "cash-and-loan") {
-          onUpdateTimeline({ bankFileType: "cash-and-loan" as any, loanStage: "file-prepare", loanStatus: "pending", updatedAt: new Date().toISOString() });
+          onUpdateTimeline({ bankFileType: "cash-and-loan", loanStage: "file-prepare", loanStatus: "pending", updatedAt: new Date().toISOString() });
         }
       }
       // Auto-populate Payment Type (step 6)
@@ -369,7 +335,7 @@ export function ProgressReportTab({
         }
       }
     }
-  }, [projectPaymentType]);
+  }, [projectPaymentType, bankFileType, paymentType]);
 
   // Helper to record a cash payment
   const handleRecordCashPayment = () => {
@@ -378,7 +344,25 @@ export function ProgressReportTab({
       toast({ title: "Error", description: "Enter a valid amount", variant: "destructive" });
       return;
     }
-    setTotalCashReceived(prev => prev + amount);
+    const contract = projectContractAmount ?? 0;
+    if (contract > 0) {
+      const already = projectAmountReceived ?? 0;
+      const remaining = Math.max(0, contract - already);
+      if (amount > remaining + 0.01) {
+        toast({
+          title: "Exceeds contract balance",
+          description: `Outstanding contract balance is about ₹${remaining.toLocaleString("en-IN")}. Reduce the amount or update the contract.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    const notes = cashPaymentNotes.trim() || undefined;
+    if (onRecordClientCash) {
+      onRecordClientCash(amount, notes);
+    } else {
+      setTotalCashReceived((prev) => prev + amount);
+    }
     setCashPaymentAmount("");
     setCashPaymentNotes("");
     toast({ title: "Payment Recorded", description: `₹${amount.toLocaleString("en-IN")} cash payment recorded` });
@@ -393,20 +377,6 @@ export function ProgressReportTab({
   const completedTickets = tickets.filter(t => t.status === "completed");
   const activeTickets = tickets.filter(t => t.status !== "completed" && t.status !== "cancelled");
   const resolvedTickets = tickets.filter(t => t.status === "completed" || t.status === "cancelled");
-
-  // Timeline status helpers
-  const fileLogin = timelineStatus?.fileLogin || "pending";
-  const subsidyType = timelineStatus?.subsidyType || "";
-  const bankFileType = timelineStatus?.bankFileType || "";
-  const loanStage = timelineStatus?.loanStage || "";
-  const loanStatus = timelineStatus?.loanStatus || "";
-  const workStatusChecks = timelineStatus?.workStatusChecks || [];
-  const discomChecks = timelineStatus?.discomChecks || [];
-  const discomSubsidyStatus = timelineStatus?.discomSubsidyStatus || "";
-  const paymentType = timelineStatus?.paymentType || "";
-  const cashToMahiConfirmed = timelineStatus?.cashToMahiConfirmed || false;
-  const firstInstallmentPaid = timelineStatus?.firstInstallmentPaid || false;
-  const secondInstallmentPaid = timelineStatus?.secondInstallmentPaid || false;
 
   const handleAddBlockage = () => {
     if (!blockageTitle || !blockageReason) {
@@ -518,20 +488,20 @@ export function ProgressReportTab({
     
     // Can only move to next step or current step
     if (targetIndex <= currentIndex + 1) {
-      onUpdateTimeline({ fileLogin: step as any, updatedAt: new Date().toISOString() });
+      onUpdateTimeline({ fileLogin: step as ProjectTimelineStatus["fileLogin"], updatedAt: new Date().toISOString() });
     }
   };
 
   const handleMarkFileLoginComplete = () => {
     if (fileLogin === "submitted") {
-      onUpdateTimeline({ fileLogin: "complete" as any, fileLoginComplete: true, updatedAt: new Date().toISOString() });
+      onUpdateTimeline({ fileLogin: "complete", fileLoginComplete: true, updatedAt: new Date().toISOString() });
       toast({ title: "File Login Complete", description: "File login process has been marked as complete" });
     }
   };
 
   // Subsidy: Click to select
   const handleSubsidySelect = (value: string) => {
-    onUpdateTimeline({ subsidyType: value as any, updatedAt: new Date().toISOString() });
+    onUpdateTimeline({ subsidyType: value as ProjectTimelineStatus["subsidyType"], updatedAt: new Date().toISOString() });
   };
 
   // Bank File: Two trees
@@ -555,7 +525,7 @@ export function ProgressReportTab({
   };
 
   const handleLoanStageChange = (stage: string) => {
-    onUpdateTimeline({ loanStage: stage as any, updatedAt: new Date().toISOString() });
+    onUpdateTimeline({ loanStage: stage as ProjectTimelineStatus["loanStage"], updatedAt: new Date().toISOString() });
   };
 
   const handleLoanStatusChange = (status: "approved" | "rejected") => {
@@ -582,35 +552,29 @@ export function ProgressReportTab({
       toast({ title: "Request Required", description: "Please use 'Request Done' to submit for approval", variant: "destructive" });
       return;
     }
-    
+
     let newChecks = [...workStatusChecks];
+    let newApprovals: WorkApprovalsState = { ...workStatusApprovals };
     if (checked) {
       if (!newChecks.includes(item)) {
         newChecks.push(item);
       }
-      // Admin direct approval
-      setWorkStatusApprovals(prev => ({
-        ...prev,
-        [item]: { status: "approved", photoCount: 0, videoCount: 0 }
-      }));
+      newApprovals = { ...newApprovals, [item]: { status: "approved", photoCount: 0, videoCount: 0 } };
     } else {
-      newChecks = newChecks.filter(c => c !== item);
-      // Remove approval when unchecked
-      setWorkStatusApprovals(prev => {
-        const updated = { ...prev };
-        delete updated[item];
-        return updated;
-      });
+      newChecks = newChecks.filter((c) => c !== item);
+      const { [item]: _removed, ...rest } = newApprovals;
+      newApprovals = rest;
     }
-    
-    // Check if all stages are complete (civil is the last stage)
+
     const isComplete = newChecks.length === WORK_STATUS_STAGES.length;
+    setWorkStatusApprovals(newApprovals);
     onUpdateTimeline({
-      workStatusChecks: newChecks, 
+      workStatusChecks: newChecks,
       workStatusComplete: isComplete,
-      updatedAt: new Date().toISOString() 
+      workStatusApprovals: newApprovals,
+      updatedAt: new Date().toISOString(),
     });
-    
+
     if (isComplete) {
       toast({ title: "Work Completed", description: "All work stages have been completed" });
     }
@@ -632,8 +596,22 @@ export function ProgressReportTab({
   };
 
   // Mark sub-item as complete
-  const handleSubItemMarkComplete = (stageKey: string, subItemKey: string, photoCount?: number, notes?: string) => {
-    setWorkStatusApprovals(prev => ({
+  const handleSubItemMarkComplete = (
+    stageKey: string,
+    subItemKey: string,
+    photoCount?: number,
+    notes?: string,
+    photoUrls?: string[],
+    videoUrls?: string[],
+  ) => {
+    const prev = workStatusApprovals;
+    const photoN = photoUrls?.length ?? photoCount ?? 0;
+    const videoN = videoUrls?.length ?? 0;
+    const count = photoN + videoN;
+    const hasMedia = photoN > 0 || videoN > 0;
+    const subStatus: WorkStatusApprovalStatus =
+      isAdmin ? "approved" : hasMedia ? "requested" : "pending";
+    const next: WorkApprovalsState = {
       ...prev,
       [stageKey]: {
         ...prev[stageKey],
@@ -641,30 +619,37 @@ export function ProgressReportTab({
         subItemApprovals: {
           ...prev[stageKey]?.subItemApprovals,
           [subItemKey]: {
-            status: isAdmin ? "approved" : "pending",
+            ...prev[stageKey]?.subItemApprovals?.[subItemKey],
+            status: subStatus,
             updatedBy: isAdmin ? "admin" : "currentUserId",
             updatedByName: isAdmin ? "Admin" : "Current User",
             updatedAt: new Date().toISOString(),
-            photoCount: photoCount || 0,
+            photoCount: photoN,
+            videoCount: videoN,
+            photoUrls: photoUrls?.length ? photoUrls : prev[stageKey]?.subItemApprovals?.[subItemKey]?.photoUrls,
+            videoUrls: videoUrls?.length ? videoUrls : prev[stageKey]?.subItemApprovals?.[subItemKey]?.videoUrls,
             notes: notes || undefined,
             approvedByName: isAdmin ? "Admin" : undefined,
             approvedAt: isAdmin ? new Date().toISOString() : undefined,
-            requestedByName: !isAdmin ? "Current User" : undefined,
-            requestedAt: !isAdmin ? new Date().toISOString() : undefined,
-          }
-        }
-      }
-    }));
-    
-    toast({ 
-      title: isAdmin ? "Item Completed" : "Submitted for Approval", 
-      description: isAdmin ? "Sub-item marked as complete" : "Your update has been submitted for admin approval" 
+            requestedByName: !isAdmin && hasMedia ? "Current User" : undefined,
+            requestedAt: !isAdmin && hasMedia ? new Date().toISOString() : undefined,
+          },
+        },
+      },
+    };
+    setWorkStatusApprovals(next);
+    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+
+    toast({
+      title: isAdmin ? "Item Completed" : "Submitted for Approval",
+      description: isAdmin ? "Sub-item marked as complete" : "Your update has been submitted for admin approval",
     });
   };
 
   // Admin approve sub-item
   const handleApproveSubItem = (stageKey: string, subItemKey: string) => {
-    setWorkStatusApprovals(prev => ({
+    const prev = workStatusApprovals;
+    const next: WorkApprovalsState = {
       ...prev,
       [stageKey]: {
         ...prev[stageKey],
@@ -675,16 +660,19 @@ export function ProgressReportTab({
             status: "approved",
             approvedByName: "Admin",
             approvedAt: new Date().toISOString(),
-          }
-        }
-      }
-    }));
+          },
+        },
+      },
+    };
+    setWorkStatusApprovals(next);
+    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     toast({ title: "Approved", description: "Sub-item has been approved" });
   };
 
   // Admin reject sub-item with reason
   const handleRejectSubItem = (stageKey: string, subItemKey: string, reason: string) => {
-    setWorkStatusApprovals(prev => ({
+    const prev = workStatusApprovals;
+    const next: WorkApprovalsState = {
       ...prev,
       [stageKey]: {
         ...prev[stageKey],
@@ -694,10 +682,12 @@ export function ProgressReportTab({
             ...prev[stageKey]?.subItemApprovals?.[subItemKey],
             status: "rejected",
             rejectionReason: reason,
-          }
-        }
-      }
-    }));
+          },
+        },
+      },
+    };
+    setWorkStatusApprovals(next);
+    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     setRejectReasonModal(null);
     setRejectReason("");
     toast({ title: "Rejected", description: "Photo retake requested", variant: "destructive" });
@@ -715,64 +705,74 @@ export function ProgressReportTab({
 
   // User: Request done for a work item
   const handleRequestDone = (item: string) => {
-    setWorkStatusApprovals(prev => ({
+    const prev = workStatusApprovals;
+    const next: WorkApprovalsState = {
       ...prev,
-      [item]: { 
-        status: "requested", 
+      [item]: {
+        ...prev[item],
+        status: "requested",
         requestedAt: new Date().toISOString(),
         requestedBy: "Current User",
-        photoCount: Math.floor(Math.random() * 5) + 1, // Demo: random photo count
-        videoCount: item === "inverter" ? 1 : 0, // Demo: video for inverter
-      }
-    }));
+        photoCount: prev[item]?.photoCount ?? 0,
+        videoCount: item === "inverter" ? 1 : 0,
+      },
+    };
+    setWorkStatusApprovals(next);
+    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     toast({ title: "Request Submitted", description: `"${WORK_STATUS_STAGES.find(i => i.value === item)?.label}" marked for approval` });
   };
 
   // Admin: Approve work item
   const handleApproveWorkItem = (item: string) => {
-    setWorkStatusApprovals(prev => ({
+    const prev = workStatusApprovals;
+    const next: WorkApprovalsState = {
       ...prev,
-      [item]: { 
+      [item]: {
         ...prev[item],
-        status: "approved" 
-      }
-    }));
-    
-    // Add to checked items
-    if (!workStatusChecks.includes(item)) {
-      const newChecks = [...workStatusChecks, item];
-      const isComplete = newChecks.length === WORK_STATUS_STAGES.length;
-      onUpdateTimeline({
-        workStatusChecks: newChecks, 
-        workStatusComplete: isComplete,
-        updatedAt: new Date().toISOString() 
-      });
-    }
-    
+        status: "approved",
+      },
+    };
+    setWorkStatusApprovals(next);
+
+    const newChecks = workStatusChecks.includes(item) ? [...workStatusChecks] : [...workStatusChecks, item];
+    const isComplete = newChecks.length === WORK_STATUS_STAGES.length;
+    onUpdateTimeline({
+      workStatusChecks: newChecks,
+      workStatusComplete: isComplete,
+      workStatusApprovals: next,
+      updatedAt: new Date().toISOString(),
+    });
+
     toast({ title: "Approved", description: `Work item has been approved` });
   };
 
   // Admin: Reject work item
   const handleRejectWorkItem = (item: string) => {
-    setWorkStatusApprovals(prev => ({
+    const prev = workStatusApprovals;
+    const next: WorkApprovalsState = {
       ...prev,
-      [item]: { 
+      [item]: {
         ...prev[item],
-        status: "rejected" 
-      }
-    }));
+        status: "rejected",
+      },
+    };
+    setWorkStatusApprovals(next);
+    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     toast({ title: "Rejected", description: `Work item has been sent back for revision`, variant: "destructive" });
   };
 
   // Admin: Mark as closed
   const handleCloseWorkItem = (item: string) => {
-    setWorkStatusApprovals(prev => ({
+    const prev = workStatusApprovals;
+    const next: WorkApprovalsState = {
       ...prev,
-      [item]: { 
+      [item]: {
         ...prev[item],
-        status: "closed" 
-      }
-    }));
+        status: "closed",
+      },
+    };
+    setWorkStatusApprovals(next);
+    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     toast({ title: "Completed", description: `Work item marked as completed` });
   };
   
@@ -797,18 +797,21 @@ export function ProgressReportTab({
   // Handle photo assignment submit
   const handlePhotoAssignmentSubmit = () => {
     if (!photoAssignmentModal) return;
-    
+
     if (uploadPhotosDirectly) {
-      // For now, simulate photo upload and mark as complete
-      setWorkStatusApprovals(prev => ({
+      const prev = workStatusApprovals;
+      const key = photoAssignmentModal.stageKey;
+      const next: WorkApprovalsState = {
         ...prev,
-        [photoAssignmentModal.stageKey]: {
-          ...prev[photoAssignmentModal.stageKey],
+        [key]: {
+          ...prev[key],
           status: "closed",
-          photoCount: 3,
-        }
-      }));
-      toast({ title: "Completed", description: "Photos uploaded and stage marked as completed" });
+          photoCount: prev[key]?.photoCount && prev[key]!.photoCount! > 0 ? prev[key]!.photoCount : 1,
+        },
+      };
+      setWorkStatusApprovals(next);
+      onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+      toast({ title: "Completed", description: "Stage marked as completed (upload flow)" });
     } else {
       // Assign to someone
       if (!photoAssignTo) {
@@ -929,9 +932,23 @@ export function ProgressReportTab({
       toast({ title: "Error", description: "Please select who resolved the blockage", variant: "destructive" });
       return;
     }
-    onResolveBlockage(selectedBlockageToResolve.id);
+    const resolvedByName =
+      resolvedBy === "self"
+        ? "Self"
+        : resolvedBy === "super-admin"
+          ? "Super Admin"
+          : employees.find((e) => e.id.toString() === resolvedBy)?.name ?? resolvedBy;
+    const resolvedAt = new Date(`${resolveDate}T12:00:00`).toISOString();
+    const notes = resolveNotes.trim() || undefined;
+    onResolveBlockage(selectedBlockageToResolve.id, {
+      resolvedBy,
+      resolvedByName,
+      resolvedAt,
+      notes,
+    });
     setIsResolveBlockageModalOpen(false);
     setSelectedBlockageToResolve(null);
+    setResolveNotes("");
     toast({ title: "Blockage Resolved", description: "The blockage has been marked as resolved" });
   };
 
@@ -985,7 +1002,7 @@ export function ProgressReportTab({
   };
 
   const handleDcrStepChange = (step: string) => {
-    onUpdateTimeline({ dcrStatus: step as any, updatedAt: new Date().toISOString() });
+    onUpdateTimeline({ dcrStatus: step as ProjectTimelineStatus["dcrStatus"], updatedAt: new Date().toISOString() });
   };
 
   const handleDcrComplete = () => {
@@ -1144,6 +1161,20 @@ export function ProgressReportTab({
                 </div>
               );
             })}
+            <div className="pt-2 border-t mt-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-full text-2xs uppercase font-bold text-primary hover:bg-primary/5"
+                onClick={() => {
+                  setTaskModalMilestoneId("fileLogin");
+                  setIsAssignTaskOpen(true);
+                }}
+              >
+                <Users className="w-3 h-3 mr-1.5" />
+                Quick Assign Task
+              </Button>
+            </div>
           </div>
         );
         
@@ -1162,7 +1193,7 @@ export function ProgressReportTab({
                   }`}
                 >
                   <p className="font-medium">{opt.label}</p>
-                  <p className="text-[10px]">{opt.amount}</p>
+                  <p className="text-2xs">{opt.amount}</p>
                   {subsidyType === opt.value && <CheckCircle2 className="w-3 h-3 mx-auto mt-0.5 text-primary" />}
                 </div>
               ))}
@@ -1181,7 +1212,7 @@ export function ProgressReportTab({
                   <span className="text-success font-medium">Cash File - Complete</span>
                 </div>
                 {projectContractAmount && (
-                  <div className="text-[10px] text-muted-foreground space-y-0.5 pl-1">
+                  <div className="text-2xs text-muted-foreground space-y-0.5 pl-1">
                     <p>Contract: {formatCurrency(projectContractAmount)}</p>
                     <p>Received: {formatCurrency(totalCashReceived)}</p>
                   </div>
@@ -1190,7 +1221,7 @@ export function ProgressReportTab({
             ) : bankFileType === "loan" ? (
               <div className="space-y-1.5">
                 {projectBankDocAmount && (
-                  <p className="text-[10px] text-muted-foreground pl-1">Bank Doc: {formatCurrency(projectBankDocAmount)}</p>
+                  <p className="text-2xs text-muted-foreground pl-1">Bank Doc: {formatCurrency(projectBankDocAmount)}</p>
                 )}
                 {LOAN_STAGES.map((stage, idx) => {
                   const currentIndex = LOAN_STAGES.findIndex(s => s.value === loanStage);
@@ -1230,12 +1261,26 @@ export function ProgressReportTab({
                   <span className="text-success font-medium">Cash + Loan</span>
                 </div>
                 {projectContractAmount && (
-                  <p className="text-[10px] text-muted-foreground pl-1">Contract: {formatCurrency(projectContractAmount)}</p>
+                  <p className="text-2xs text-muted-foreground pl-1">Contract: {formatCurrency(projectContractAmount)}</p>
                 )}
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">Not selected</p>
             )}
+            <div className="pt-2 border-t mt-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-full text-2xs uppercase font-bold text-primary hover:bg-primary/5"
+                onClick={() => {
+                  setTaskModalMilestoneId("bankFileType");
+                  setIsAssignTaskOpen(true);
+                }}
+              >
+                <Users className="w-3 h-3 mr-1.5" />
+                Quick Assign Task
+              </Button>
+            </div>
           </div>
         );
         
@@ -1257,6 +1302,12 @@ export function ProgressReportTab({
                   </div>
                 );
               })}
+            </div>
+            <div className="pt-2 border-t mt-2">
+              <Button size="sm" variant="ghost" className="h-8 w-full text-2xs uppercase font-bold text-primary hover:bg-primary/5" onClick={() => { setTaskModalMilestoneId("workStatus"); setIsAssignTaskOpen(true); }}>
+                <Users className="w-3 h-3 mr-1.5" />
+                Quick Assign Task
+              </Button>
             </div>
           </div>
         );
@@ -1284,6 +1335,20 @@ export function ProgressReportTab({
                 <span className="text-success font-medium">Subsidy Approved</span>
               </div>
             )}
+            <div className="pt-2 border-t mt-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-full text-2xs uppercase font-bold text-primary hover:bg-primary/5"
+                onClick={() => {
+                  setTaskModalMilestoneId("discomStatus");
+                  setIsAssignTaskOpen(true);
+                }}
+              >
+                <Users className="w-3 h-3 mr-1.5" />
+                Quick Assign Task
+              </Button>
+            </div>
           </div>
         );
         
@@ -1298,7 +1363,7 @@ export function ProgressReportTab({
                   <span className="font-medium">Cash to Mahi</span>
                 </div>
                 {projectContractAmount && (
-                  <div className="text-[10px] text-muted-foreground space-y-0.5 pl-5">
+                  <div className="text-2xs text-muted-foreground space-y-0.5 pl-5">
                     <p>Total: {formatCurrency(projectContractAmount)}</p>
                     <p>Received: {formatCurrency(totalCashReceived)}</p>
                     <p>Remaining: {formatCurrency(Math.max(0, projectContractAmount - totalCashReceived))}</p>
@@ -1337,9 +1402,79 @@ export function ProgressReportTab({
             ) : (
               <p className="text-xs text-muted-foreground">Not selected</p>
             )}
+            <div className="pt-2 border-t mt-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-full text-2xs uppercase font-bold text-primary hover:bg-primary/5"
+                onClick={() => {
+                  setTaskModalMilestoneId("paymentStatus");
+                  setIsAssignTaskOpen(true);
+                }}
+              >
+                <Users className="w-3 h-3 mr-1.5" />
+                Quick Assign Task
+              </Button>
+            </div>
           </div>
         );
         
+      case "dcrStatus": {
+        const DCR_STEPS = [
+          { value: "preparation", label: "Preparation" },
+          { value: "documentation", label: "Documentation" },
+          { value: "submitted", label: "Submitted" },
+          { value: "complete", label: "Complete" },
+        ] as const;
+        const currentDcr = timelineStatus?.dcrStatus || "pending";
+        const currentDcrIndex = DCR_STEPS.findIndex(s => s.value === currentDcr);
+        return (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground mb-2">DCR Status</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {DCR_STEPS.map((step, idx) => {
+                const isStepDone = timelineStatus?.dcrComplete || currentDcr === "complete" || (currentDcrIndex >= 0 && idx < currentDcrIndex);
+                const isCurrent = step.value === currentDcr;
+                return (
+                  <button
+                    key={step.value}
+                    className={`p-2 rounded text-xs text-left flex items-center gap-1.5 transition-colors ${
+                      isStepDone
+                        ? "bg-primary/10 text-primary border border-primary/20"
+                        : isCurrent
+                        ? "bg-accent border border-border text-foreground font-medium"
+                        : "bg-muted/50 text-muted-foreground border border-transparent"
+                    }`}
+                    onClick={() => {
+                      const newStatus = step.value as ProjectTimelineStatus["dcrStatus"];
+                      const isComplete = step.value === "complete";
+                      onUpdateTimeline({ dcrStatus: newStatus, dcrComplete: isComplete, updatedAt: new Date().toISOString() });
+                    }}
+                  >
+                    {isStepDone ? <CheckCircle2 className="w-3 h-3 flex-shrink-0" /> : <Circle className="w-3 h-3 flex-shrink-0 opacity-40" />}
+                    {step.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="pt-2 border-t mt-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-full text-2xs uppercase font-bold text-primary hover:bg-primary/5"
+                onClick={() => {
+                  setTaskModalMilestoneId("dcrStatus");
+                  setIsAssignTaskOpen(true);
+                }}
+              >
+                <Users className="w-3 h-3 mr-1.5" />
+                Quick Assign Task
+              </Button>
+            </div>
+          </div>
+        );
+      }
+
       default:
         return null;
     }
@@ -1412,13 +1547,13 @@ export function ProgressReportTab({
               <div 
                 className="absolute top-4 left-6 h-0.5 bg-gradient-to-r from-primary/50 to-primary rounded-full transition-all duration-500"
                 style={{ 
-                  width: `${Math.max(0, (TIMELINE_STEPS.filter(s => isStepComplete(s.key)).length - 1) / (TIMELINE_STEPS.length - 1) * 100)}%`,
+                  width: `${Math.max(0, (visibleSteps.filter(s => isStepComplete(s.key)).length - 1) / (visibleSteps.length - 1) * 100)}%`,
                   maxWidth: 'calc(100% - 48px)'
                 }}
               />
               
-              <div className="relative flex justify-between">
-                {TIMELINE_STEPS.map((step) => {
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-1">
+                {visibleSteps.map((step) => {
                   const isComplete = isStepComplete(step.key);
                   const inProgress = isStepInProgress(step.key);
                   const isExpanded = expandedStep === step.key;
@@ -1448,7 +1583,7 @@ export function ProgressReportTab({
                         )}
                       </div>
                       <div className="flex items-center gap-0.5">
-                        <span className={`text-[10px] font-semibold tracking-tight ${
+                        <span className={`text-2xs font-semibold tracking-tight ${
                           isComplete ? 'text-success' : inProgress ? 'text-primary' : 'text-muted-foreground/70'
                         }`}>
                           {step.label}
@@ -1627,7 +1762,7 @@ export function ProgressReportTab({
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             <h4 className={`font-semibold ${priorityText}`}>{blockage.title}</h4>
-                            <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 h-4 ${
+                            <Badge variant="secondary" className={`text-2xs px-1.5 py-0 h-4 ${
                               isDelayed ? 'bg-red-500/20 text-red-400' : 
                               isOnHold ? 'bg-yellow-500/20 text-yellow-400' : 
                               'bg-orange-500/20 text-orange-400'
@@ -1675,7 +1810,7 @@ export function ProgressReportTab({
                         <div className="flex items-center gap-2 p-2 bg-background/50 rounded-lg">
                           <User className="w-3.5 h-3.5 text-muted-foreground" />
                           <div>
-                            <p className="text-[10px] text-muted-foreground">Assigned To</p>
+                            <p className="text-2xs text-muted-foreground">Assigned To</p>
                             <p className="font-medium">{blockage.assignedToName || 'Unassigned'}</p>
                           </div>
                         </div>
@@ -1683,7 +1818,7 @@ export function ProgressReportTab({
                         <div className="flex items-center gap-2 p-2 bg-background/50 rounded-lg">
                           <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
                           <div>
-                            <p className="text-[10px] text-muted-foreground">Resolve By</p>
+                            <p className="text-2xs text-muted-foreground">Resolve By</p>
                             <p className="font-medium">
                               {blockage.resolveByDate 
                                 ? format(new Date(blockage.resolveByDate), "dd MMM yyyy")
@@ -1696,7 +1831,7 @@ export function ProgressReportTab({
                         <div className="flex items-center gap-2 p-2 bg-background/50 rounded-lg">
                           <Clock className="w-3.5 h-3.5 text-muted-foreground" />
                           <div>
-                            <p className="text-[10px] text-muted-foreground">Created</p>
+                            <p className="text-2xs text-muted-foreground">Created</p>
                             <p className="font-medium">{daysSince}</p>
                           </div>
                         </div>
@@ -1705,7 +1840,7 @@ export function ProgressReportTab({
                           <div className="flex items-center gap-2 p-2 bg-background/50 rounded-lg">
                             <Flag className="w-3.5 h-3.5 text-muted-foreground" />
                             <div>
-                              <p className="text-[10px] text-muted-foreground">Timeline Stage</p>
+                              <p className="text-2xs text-muted-foreground">Timeline Stage</p>
                               <p className="font-medium capitalize">{blockage.timelineStage.replace('-', ' ')}</p>
                             </div>
                           </div>
@@ -1737,7 +1872,7 @@ export function ProgressReportTab({
                           <div className="flex items-center gap-2 mb-1">
                             <CheckCircle2 className="h-4 w-4 text-success" />
                             <h4 className="font-semibold text-foreground">{blockage.title}</h4>
-                            <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-[10px] px-1.5">
+                            <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-2xs px-1.5">
                               RESOLVED
                             </Badge>
                           </div>
@@ -1766,7 +1901,7 @@ export function ProgressReportTab({
                         <div className="flex items-center gap-2 p-2 bg-background/50 rounded-lg">
                           <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
                           <div>
-                            <p className="text-[10px] text-muted-foreground">Created</p>
+                            <p className="text-2xs text-muted-foreground">Created</p>
                             <p className="font-medium">{createdDate}</p>
                           </div>
                         </div>
@@ -1774,7 +1909,7 @@ export function ProgressReportTab({
                         <div className="flex items-center gap-2 p-2 bg-accent rounded-lg">
                           <Check className="w-3.5 h-3.5 text-success" />
                           <div>
-                            <p className="text-[10px] text-muted-foreground">Resolved</p>
+                            <p className="text-2xs text-muted-foreground">Resolved</p>
                             <p className="font-medium text-foreground">{resolvedDate}</p>
                           </div>
                         </div>
@@ -1783,7 +1918,7 @@ export function ProgressReportTab({
                           <div className="flex items-center gap-2 p-2 bg-background/50 rounded-lg">
                             <User className="w-3.5 h-3.5 text-muted-foreground" />
                             <div>
-                              <p className="text-[10px] text-muted-foreground">Resolved By</p>
+                              <p className="text-2xs text-muted-foreground">Resolved By</p>
                               <p className="font-medium">{blockage.resolvedByName}</p>
                             </div>
                           </div>
@@ -1793,7 +1928,7 @@ export function ProgressReportTab({
                           <div className="flex items-center gap-2 p-2 bg-background/50 rounded-lg">
                             <Flag className="w-3.5 h-3.5 text-muted-foreground" />
                             <div>
-                              <p className="text-[10px] text-muted-foreground">Stage</p>
+                              <p className="text-2xs text-muted-foreground">Stage</p>
                               <p className="font-medium capitalize">
                                 {blockage.timelineStage.replace('-', ' ')}
                                 {blockage.timelineSubStage && ` → ${blockage.timelineSubStage.replace('-', ' ')}`}
@@ -1909,7 +2044,7 @@ export function ProgressReportTab({
                             <div className="flex items-center gap-2 mb-1">
                               <CheckCircle2 className="h-4 w-4 text-success" />
                               <h4 className="font-semibold text-foreground">{ticket.description}</h4>
-                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-[10px] px-1.5">
+                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-2xs px-1.5">
                                 {ticket.status.toUpperCase()}
                               </Badge>
                             </div>
@@ -2108,7 +2243,7 @@ export function ProgressReportTab({
                         className="h-auto py-3 flex-col"
                         onClick={() => {
                           onUpdateTimeline({ 
-                            bankFileType: "cash-and-loan" as any, 
+                            bankFileType: "cash-and-loan",
                             loanStage: "file-prepare",
                             loanStatus: "pending",
                             updatedAt: new Date().toISOString() 
@@ -2399,12 +2534,12 @@ export function ProgressReportTab({
                             >
                               {stage.label}
                               {stage.subItems && stage.subItems.length > 0 && (
-                                <span className="text-[10px] text-muted-foreground ml-1">({stage.subItems.length} sub-items)</span>
+                                <span className="text-2xs text-muted-foreground ml-1">({stage.subItems.length} sub-items)</span>
                               )}
                             </label>
                             
                             {/* Media indicators */}
-                            <div className="flex items-center gap-1.5 text-[10px]">
+                            <div className="flex items-center gap-1.5 text-2xs">
                               {stage.photoRequired && approval?.photoUrls && approval.photoUrls.length > 0 && (
                                 <div className="flex items-center gap-0.5">
                                   {approval.photoUrls.slice(0, 3).map((url, idx) => (
@@ -2441,22 +2576,22 @@ export function ProgressReportTab({
                             
                             {/* Status Badge */}
                             {approvalStatus === "requested" && (
-                              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] px-1.5">
+                              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-2xs px-1.5">
                                 Pending Approval
                               </Badge>
                             )}
                             {approvalStatus === "approved" && (
-                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-[10px] px-1.5">
+                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-2xs px-1.5">
                                 Approved
                               </Badge>
                             )}
                             {approvalStatus === "rejected" && (
-                              <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/30 text-[10px] px-1.5">
+                              <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/30 text-2xs px-1.5">
                                 Rejected
                               </Badge>
                             )}
                             {approvalStatus === "closed" && (
-                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-[10px] px-1.5">
+                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-2xs px-1.5">
                                 Completed
                               </Badge>
                             )}
@@ -2562,7 +2697,7 @@ export function ProgressReportTab({
                                       
                                       {/* Employee info and timestamp for completed/pending items */}
                                       {subApproval?.updatedByName && (
-                                        <div className="mt-1.5 ml-5 text-[10px] text-muted-foreground">
+                                        <div className="mt-1.5 ml-5 text-2xs text-muted-foreground">
                                           <div className="flex items-center gap-1">
                                             <User className="w-2.5 h-2.5" />
                                             <span className="font-medium">
@@ -2585,7 +2720,7 @@ export function ProgressReportTab({
                                       
                                       {/* On hold / blockage indicator */}
                                       {isOnHold && (
-                                        <div className="mt-1.5 ml-5 flex items-center gap-1 text-[10px] text-amber-600">
+                                        <div className="mt-1.5 ml-5 flex items-center gap-1 text-2xs text-amber-600">
                                           <Flag className="w-2.5 h-2.5" />
                                           <span>{hasBlockage ? "On Hold - Blockage linked" : "Rejected - Photo retake required"}</span>
                                         </div>
@@ -2593,7 +2728,7 @@ export function ProgressReportTab({
                                       
                                       {/* Rejection reason */}
                                       {subApproval?.rejectionReason && (
-                                        <div className="mt-1.5 ml-5 p-1.5 bg-red-500/10 rounded text-[10px] text-red-600">
+                                        <div className="mt-1.5 ml-5 p-1.5 bg-red-500/10 rounded text-2xs text-red-600">
                                           Reason: {subApproval.rejectionReason}
                                         </div>
                                       )}
@@ -2603,7 +2738,7 @@ export function ProgressReportTab({
                                         <div className="mt-2 ml-5 flex gap-2">
                                           <Button 
                                             size="sm" 
-                                            className="h-6 text-[10px]" 
+                                            className="h-6 text-2xs" 
                                             onClick={(e) => { e.stopPropagation(); handleApproveSubItem(stage.value, subItem.value); }}
                                           >
                                             <Check className="w-3 h-3 mr-0.5" />
@@ -2612,7 +2747,7 @@ export function ProgressReportTab({
                                           <Button 
                                             size="sm" 
                                             variant="destructive" 
-                                            className="h-6 text-[10px]" 
+                                            className="h-6 text-2xs" 
                                             onClick={(e) => { 
                                               e.stopPropagation(); 
                                               setRejectReasonModal({ stageKey: stage.value, subItemKey: subItem.value, open: true }); 
@@ -2874,7 +3009,7 @@ export function ProgressReportTab({
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            className="h-6 text-[10px] text-muted-foreground"
+                            className="h-6 text-2xs text-muted-foreground"
                             onClick={() => setIsEditingInstalments(!isEditingInstalments)}
                           >
                             {isEditingInstalments ? "Done" : "Edit Amounts"}
@@ -2886,7 +3021,7 @@ export function ProgressReportTab({
                       {isEditingInstalments && (
                         <div className="p-3 bg-muted/30 rounded-lg border border-muted-foreground/10 space-y-2">
                           <div className="space-y-1.5">
-                            <Label className="text-[10px] text-muted-foreground">1st Instalment Amount</Label>
+                            <Label className="text-2xs text-muted-foreground">1st Instalment Amount</Label>
                             <Input
                               type="number"
                               value={firstInstalmentAmount || ""}
@@ -2901,7 +3036,7 @@ export function ProgressReportTab({
                             />
                           </div>
                           <div className="space-y-1.5">
-                            <Label className="text-[10px] text-muted-foreground">2nd Instalment Amount</Label>
+                            <Label className="text-2xs text-muted-foreground">2nd Instalment Amount</Label>
                             <Input
                               type="number"
                               value={secondInstalmentAmount || ""}
@@ -2916,7 +3051,7 @@ export function ProgressReportTab({
                             />
                           </div>
                           {projectContractAmount && (
-                            <p className="text-[10px] text-muted-foreground text-right">
+                            <p className="text-2xs text-muted-foreground text-right">
                               Total: {formatCurrency(firstInstalmentAmount + secondInstalmentAmount)} / {formatCurrency(projectContractAmount)}
                             </p>
                           )}
@@ -2945,7 +3080,7 @@ export function ProgressReportTab({
                           )}
                         </div>
                         {firstInstallmentPaid && (
-                          <p className="text-[10px] text-foreground ml-6 mt-1">✓ Received</p>
+                          <p className="text-2xs text-foreground ml-6 mt-1">✓ Received</p>
                         )}
                       </div>
                       
@@ -2979,10 +3114,10 @@ export function ProgressReportTab({
                           )}
                         </div>
                         {secondInstallmentPaid && (
-                          <p className="text-[10px] text-foreground ml-6 mt-1">✓ Received</p>
+                          <p className="text-2xs text-foreground ml-6 mt-1">✓ Received</p>
                         )}
                         {!firstInstallmentPaid && (
-                          <p className="text-[10px] text-muted-foreground/50 ml-6 mt-1">Complete 1st installment first</p>
+                          <p className="text-2xs text-muted-foreground/50 ml-6 mt-1">Complete 1st installment first</p>
                         )}
                       </div>
                       
@@ -3222,7 +3357,7 @@ export function ProgressReportTab({
 
       {/* Resolve Blockage Modal */}
       <Sheet open={isResolveBlockageModalOpen} onOpenChange={setIsResolveBlockageModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Resolve Blockage</SheetTitle>
             <SheetDescription>Mark this blockage as resolved</SheetDescription>
@@ -3281,7 +3416,7 @@ export function ProgressReportTab({
 
       {/* Add Blockage Modal */}
       <Sheet open={isAddBlockageOpen} onOpenChange={setIsAddBlockageOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add Blockage</SheetTitle>
             <SheetDescription>Record why work has stopped on this project</SheetDescription>
@@ -3458,7 +3593,7 @@ export function ProgressReportTab({
 
       {/* Create Ticket Modal */}
       <Sheet open={isAddTicketOpen} onOpenChange={setIsAddTicketOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Create Ticket / Task</SheetTitle>
             <SheetDescription>Assign a task to team members</SheetDescription>
@@ -3611,17 +3746,83 @@ export function ProgressReportTab({
       <Sheet open={!!photoUploadModal?.open} onOpenChange={(open) => !open && setPhotoUploadModal(null)}>
         <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
           <SheetHeader>
-            <SheetTitle>Upload Photo</SheetTitle>
+            <SheetTitle>Upload media</SheetTitle>
             <SheetDescription>
-              Photo required to mark this item as complete
+              Add site photos or short videos, then submit for approval
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
-            <div className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:bg-muted/30 transition-colors">
-              <Camera className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">Click to upload or take photo</p>
-              <p className="text-xs text-muted-foreground mt-1">(Demo - no actual upload)</p>
-            </div>
+            <input
+              ref={workPhotoInputRef}
+              type="file"
+              accept="image/*,video/mp4,video/webm,video/quicktime"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = e.target.files;
+                if (!files?.length) return;
+                const picked = Array.from(files).filter(
+                  (f) => f.type.startsWith("image/") || f.type.startsWith("video/"),
+                );
+                const readers = picked.map(
+                  (file) =>
+                    new Promise<{ url: string; kind: "image" | "video" }>((resolve, reject) => {
+                      const r = new FileReader();
+                      r.onload = () => {
+                        const url = typeof r.result === "string" ? r.result : "";
+                        resolve({
+                          url,
+                          kind: file.type.startsWith("video/") ? "video" : "image",
+                        });
+                      };
+                      r.onerror = () => reject(new Error("read"));
+                      r.readAsDataURL(file);
+                    }),
+                );
+                void Promise.all(readers).then((items) => {
+                  const imgs = items.filter((x) => x.kind === "image" && x.url).map((x) => x.url);
+                  const vids = items.filter((x) => x.kind === "video" && x.url).map((x) => x.url);
+                  setPendingPhotoDataUrls((prev) => [...prev, ...imgs]);
+                  setPendingVideoDataUrls((prev) => [...prev, ...vids]);
+                  toast({
+                    title: "Media added",
+                    description: `${imgs.length} image(s), ${vids.length} video(s) attached.`,
+                  });
+                });
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              className="w-full rounded-lg border-2 border-dashed border-border p-6 text-center transition-colors hover:bg-muted/30"
+              onClick={() => workPhotoInputRef.current?.click()}
+            >
+              <Camera className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Choose photos or videos (stored as data URLs in project data)
+              </p>
+            </button>
+            {pendingPhotoDataUrls.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {pendingPhotoDataUrls.map((url, i) => (
+                  <button
+                    key={`${i}-${url.slice(0, 32)}`}
+                    type="button"
+                    className="relative h-16 w-16 overflow-hidden rounded-md border"
+                    onClick={() => setViewerImage({ url, fileName: `photo-${i + 1}` })}
+                  >
+                    <img src={url} alt="" className="h-full w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+            {pendingVideoDataUrls.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {pendingVideoDataUrls.map((url, i) => (
+                  <video key={`v-${i}-${url.slice(0, 24)}`} src={url} className="max-h-40 rounded-md border" controls muted />
+                ))}
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
               <Input 
@@ -3635,13 +3836,30 @@ export function ProgressReportTab({
             <Button variant="outline" onClick={() => setPhotoUploadModal(null)}>Cancel</Button>
             <Button onClick={() => {
               if (photoUploadModal) {
-                handleSubItemMarkComplete(photoUploadModal.stageKey, photoUploadModal.subItemKey, 1, uploadNotes);
+                if (pendingPhotoDataUrls.length === 0 && pendingVideoDataUrls.length === 0) {
+                  toast({
+                    title: "Add media",
+                    description: "Choose at least one photo or video before submitting.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                handleSubItemMarkComplete(
+                  photoUploadModal.stageKey,
+                  photoUploadModal.subItemKey,
+                  pendingPhotoDataUrls.length + pendingVideoDataUrls.length,
+                  uploadNotes,
+                  pendingPhotoDataUrls,
+                  pendingVideoDataUrls,
+                );
               }
               setPhotoUploadModal(null);
               setUploadNotes("");
+              setPendingPhotoDataUrls([]);
+              setPendingVideoDataUrls([]);
             }}>
               <Check className="w-4 h-4 mr-1" />
-              Submit
+              Submit for approval
             </Button>
           </SheetFooter>
         </SheetContent>
@@ -3687,7 +3905,7 @@ export function ProgressReportTab({
       
       {/* Photo Assignment Modal */}
       <Sheet open={!!photoAssignmentModal?.open} onOpenChange={(open) => !open && setPhotoAssignmentModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Photos Required for {photoAssignmentModal?.stageName}</SheetTitle>
             <SheetDescription>
@@ -3781,6 +3999,19 @@ export function ProgressReportTab({
         imageUrl={viewerImage?.url || ""}
         defaultFileName={viewerImage?.fileName}
       />
+      {/* Task Assignment Modal */}
+      {isAssignTaskOpen && (
+        <TaskAssignmentModal
+          isOpen={isAssignTaskOpen}
+          onClose={() => {
+            setIsAssignTaskOpen(false);
+            setTaskModalMilestoneId(undefined);
+          }}
+          projectId={projectId}
+          projectName={projectName}
+          defaultMilestoneId={taskModalMilestoneId}
+        />
+      )}
     </div>
   );
 }

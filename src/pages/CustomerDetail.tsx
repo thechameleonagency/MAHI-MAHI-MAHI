@@ -303,8 +303,9 @@ const CustomerDetail = () => {
                   <Clock className="h-4 w-4 text-orange-400" /> Pending Invoices
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-0 pt-4">
-                <DataTableShell
+              <CardContent className="p-0">
+          <DataTableShell
+            variant="inline"
                   maxHeight={listTableViewportMaxHeight(ppiSize)}
                   scrollResetKey={`${safePpi}-${ppiSize}-${pendingInvoices.length}`}
                   footer={
@@ -356,8 +357,9 @@ const CustomerDetail = () => {
                   <Check className="h-4 w-4 text-blue-400" /> Paid Invoices
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-0 pt-4">
-                <DataTableShell
+              <CardContent className="p-0">
+          <DataTableShell
+            variant="inline"
                   maxHeight={listTableViewportMaxHeight(paiSize)}
                   scrollResetKey={`${safePai}-${paiSize}-${paidInvoices.length}`}
                   footer={
@@ -412,7 +414,7 @@ const CustomerDetail = () => {
             <CardContent className="space-y-0 p-0 pt-4">
               {customerSaleBills.length > 0 ? (
                 <DataTableShell
-                  maxHeight={listTableViewportMaxHeight(sbSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(sbSize)}
                   scrollResetKey={`${safeSb}-${sbSize}-${customerSaleBills.length}`}
                   footer={
                     <TablePaginationBar
@@ -503,7 +505,7 @@ const CustomerDetail = () => {
               {/* Payment Records Table */}
               {paymentHistoryRows.length > 0 ? (
                 <DataTableShell
-                  maxHeight={listTableViewportMaxHeight(phSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(phSize)}
                   scrollResetKey={`${safePh}-${phSize}-${paymentHistoryRows.length}`}
                   footer={
                     <TablePaginationBar
@@ -581,7 +583,7 @@ const CustomerDetail = () => {
             <CardContent className="space-y-0 p-0 pt-4">
               {customerProjects.length > 0 ? (
                 <DataTableShell
-                  maxHeight={listTableViewportMaxHeight(cpSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(cpSize)}
                   scrollResetKey={`${safeCp}-${cpSize}-${customerProjects.length}`}
                   footer={
                     <TablePaginationBar
@@ -643,7 +645,7 @@ const CustomerDetail = () => {
             <CardContent className="space-y-0 p-0 pt-4">
               {customerQuotations.length > 0 ? (
                 <DataTableShell
-                  maxHeight={listTableViewportMaxHeight(cqSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(cqSize)}
                   scrollResetKey={`${safeCq}-${cqSize}-${customerQuotations.length}`}
                   footer={
                     <TablePaginationBar

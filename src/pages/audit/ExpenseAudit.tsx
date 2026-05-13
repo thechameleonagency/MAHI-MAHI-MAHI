@@ -65,17 +65,17 @@ function CategoryExpenseLinesTable({
       <TableBody>
         {paged.map((e) => (
           <TableRow key={e.id}>
-            <TableCell className="text-sm">{e.date}</TableCell>
-            <TableCell className="text-right text-sm font-medium">{fmt(e.amount)}</TableCell>
+            <TableCell >{e.date}</TableCell>
+            <TableCell className="text-right font-medium">{fmt(e.amount)}</TableCell>
             <TableCell
-              className="cursor-pointer text-sm text-primary hover:underline"
+              className="cursor-pointer text-primary hover:underline"
               onClick={() => e.projectId && onProjectClick(e.projectId)}
             >
               {e.projectName || "-"}
             </TableCell>
-            <TableCell className="text-sm">{e.paidBy?.entityName || e.paidBy?.type || "-"}</TableCell>
-            <TableCell className="text-sm">{e.paymentMode || "-"}</TableCell>
-            <TableCell className="max-w-[150px] truncate text-sm text-muted-foreground">{e.notes || e.description || "-"}</TableCell>
+            <TableCell >{e.paidBy?.entityName || e.paidBy?.type || "-"}</TableCell>
+            <TableCell >{e.paymentMode || "-"}</TableCell>
+            <TableCell className="max-w-[150px] truncate text-muted-foreground">{e.notes || e.description || "-"}</TableCell>
           </TableRow>
         ))}
       </TableBody>

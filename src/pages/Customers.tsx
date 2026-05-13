@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Search, Edit, Eye, Users, Building2, Phone, Mail, MapPin, IndianRupee, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,12 +13,16 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "@/hooks/use-toast";
 import type { Customer } from "@/types/finance";
 import { useAppData } from "@/contexts/AppDataContext";
+import { formatINR } from "@/lib/formatCurrency";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { useMasters } from "@/contexts/MastersContext";
+import { formatUiDate } from "@/lib/dateDisplay";
 
 const Customers = () => {
   const navigate = useNavigate();
+  const { getStateCodes } = useMasters();
   const { 
     customers,
     invoices,
@@ -32,6 +36,8 @@ const Customers = () => {
   
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  type CustomerSortKey = "name" | "purchases_desc" | "received_desc" | "type";
+  const [sortKey, setSortKey] = useState<CustomerSortKey>("name");
   
   // Customer Modal State
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
@@ -58,10 +64,31 @@ const Customers = () => {
     setCustomerItems([]);
   };
 
+  const validateGstin = (gstin: string): string | null => {
+    if (!gstin) return null;
+    if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstin)) {
+      return "GSTIN must be a valid 15-character format.";
+    }
+    const stateCode = gstin.slice(0, 2);
+    const validCodes = new Set(getStateCodes().map((s) => s.value));
+    if (validCodes.size > 0 && !validCodes.has(stateCode)) {
+      return "GSTIN state code (first two digits) must match a known Indian state / UT code.";
+    }
+    return null;
+  };
+
   const handleAddCustomer = () => {
     if (!customerName || !customerPhone) {
       toast({ title: "Error", description: "Name and phone are required", variant: "destructive" });
       return;
+    }
+
+    if (customerType === "company") {
+      const gstError = validateGstin(customerGstin);
+      if (gstError) {
+        toast({ title: "Invalid GSTIN", description: gstError, variant: "destructive" });
+        return;
+      }
     }
 
     const newCustomer: Customer = {
@@ -72,7 +99,7 @@ const Customers = () => {
       address: customerAddress,
       type: customerType,
       gstin: customerType === "company" ? customerGstin : undefined,
-      state: "08",
+      state: customerGstin ? customerGstin.slice(0, 2) : "08",
       itemsBought: customerItems,
       totalPurchases: 0,
       createdAt: new Date().toISOString().split('T')[0],
@@ -90,6 +117,14 @@ const Customers = () => {
       return;
     }
 
+    if (customerType === "company") {
+      const gstError = validateGstin(customerGstin);
+      if (gstError) {
+        toast({ title: "Invalid GSTIN", description: gstError, variant: "destructive" });
+        return;
+      }
+    }
+
     updateCustomer(selectedCustomer.id, {
       name: customerName,
       phone: customerPhone,
@@ -97,6 +132,7 @@ const Customers = () => {
       address: customerAddress,
       type: customerType,
       gstin: customerType === "company" ? customerGstin : undefined,
+      state: customerGstin ? customerGstin.slice(0, 2) : selectedCustomer.state,
       itemsBought: customerItems,
     });
 
@@ -107,7 +143,19 @@ const Customers = () => {
 
   const handleDeleteCustomer = () => {
     if (!customerToDelete) return;
-    
+
+    const linkedProjects = projects.filter(p => p.customerId === customerToDelete.id);
+    const linkedInvoices = [...invoices, ...(saleBills ?? [])].filter(i => i.customerId === customerToDelete.id);
+    if (linkedProjects.length > 0 || linkedInvoices.length > 0) {
+      toast({
+        title: "Cannot Delete Customer",
+        description: `This customer has ${linkedProjects.length} project(s) and ${linkedInvoices.length} invoice(s). Reassign or delete those first.`,
+        variant: "destructive",
+      });
+      setCustomerToDelete(null);
+      return;
+    }
+
     deleteCustomer(customerToDelete.id);
     setCustomerToDelete(null);
     toast({ title: "Customer Deleted", description: "Customer has been removed" });
@@ -133,12 +181,35 @@ const Customers = () => {
     return matchesSearch && matchesType;
   });
 
-  const formatCurrency = (amount: number) => `₹${amount.toLocaleString()}`;
+  const sortedCustomers = useMemo(() => {
+    const received = (customerId: string, customerName: string) => {
+      const invs = invoices.filter(i => i.customerId === customerId || i.customerName === customerName);
+      const sbs = saleBills.filter(sb => sb.customerId === customerId || sb.customerName === customerName);
+      return [...invs, ...sbs].reduce((s, i) => s + (i.amountReceived ?? 0), 0);
+    };
+    const arr = [...filteredCustomers];
+    if (sortKey === "purchases_desc") {
+      arr.sort((a, b) => (b.totalPurchases ?? 0) - (a.totalPurchases ?? 0) || a.name.localeCompare(b.name));
+    } else if (sortKey === "received_desc") {
+      arr.sort(
+        (a, b) =>
+          received(b.id, b.name) - received(a.id, a.name) ||
+          a.name.localeCompare(b.name),
+      );
+    } else if (sortKey === "type") {
+      arr.sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
+    } else {
+      arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    }
+    return arr;
+  }, [filteredCustomers, sortKey, invoices, saleBills]);
+
+  const formatCurrency = (amount: number) => formatINR(Math.round(amount || 0));
 
   return (
     <PageShell className="space-y-4 md:space-y-5">
       <StickyPageHeader
-        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Finance" }, { label: "Customers" }]}
+        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Customers" }]}
         subRow={
           <>
             <div className="flex w-full min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-end">
@@ -161,6 +232,17 @@ const Customers = () => {
                   <SelectItem value="company">Company</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={sortKey} onValueChange={(v) => setSortKey(v as CustomerSortKey)}>
+                <SelectTrigger className="h-9 w-full bg-muted/50 sm:w-[200px]">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name">Name (A–Z)</SelectItem>
+                  <SelectItem value="purchases_desc">Total purchases (high → low)</SelectItem>
+                  <SelectItem value="received_desc">Amount received (high → low)</SelectItem>
+                  <SelectItem value="type">Type, then name</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <InlineKpiStrip
               className="w-full sm:w-auto sm:justify-end"
@@ -169,7 +251,7 @@ const Customers = () => {
                 { label: "Companies", value: customers.filter((c) => c.type === "company").length },
                 { label: "Individuals", value: customers.filter((c) => c.type === "individual").length },
                 { label: "Volume", value: formatCurrency(customers.reduce((s, c) => s + c.totalPurchases, 0)) },
-                { label: "Showing", value: filteredCustomers.length },
+                { label: "Showing", value: sortedCustomers.length },
               ]}
             />
           </>
@@ -183,7 +265,7 @@ const Customers = () => {
 
       {/* Customer Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredCustomers.map((customer) => {
+        {sortedCustomers.map((customer) => {
           const customerInvoices = invoices.filter(i => i.customerId === customer.id || i.customerName === customer.name);
           const customerSaleBills = saleBills.filter(sb => sb.customerId === customer.id || sb.customerName === customer.name);
           const allBills = [...customerInvoices, ...customerSaleBills];
@@ -201,7 +283,7 @@ const Customers = () => {
                   </span>
                   <div className="flex gap-2">
                     {activeProjectsCount > 0 && (
-                      <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-0 text-[10px] h-5 px-1.5 uppercase font-bold">
+                      <Badge variant="secondary" className="bg-primary/10 text-primary border-0 text-2xs h-5 px-1.5 uppercase font-bold">
                         {activeProjectsCount} Active Job{activeProjectsCount > 1 ? 's' : ''}
                       </Badge>
                     )}
@@ -244,6 +326,29 @@ const Customers = () => {
                       <span className="truncate">{customer.address}</span>
                     </div>
                   )}
+                  {customer.lastPurchase && (
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>Last purchase</span>
+                      <span className="font-medium text-foreground">{formatUiDate(customer.lastPurchase)}</span>
+                    </div>
+                  )}
+                  {customer.itemsBought && customer.itemsBought.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Items / services</p>
+                      <div className="flex flex-wrap gap-1">
+                        {customer.itemsBought.slice(0, 6).map((item, idx) => (
+                          <Badge key={idx} variant="secondary" className="text-2xs font-normal">
+                            {item}
+                          </Badge>
+                        ))}
+                        {customer.itemsBought.length > 6 && (
+                          <Badge variant="outline" className="text-2xs">
+                            +{customer.itemsBought.length - 6} more
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Financial Summary */}
@@ -267,6 +372,19 @@ const Customers = () => {
                   {customerToDelete?.id === customer.id ? (
                     <div className="bg-destructive/10 p-3 rounded-lg border border-destructive/20 flex flex-col gap-3 animate-in fade-in zoom-in-95 duration-200">
                       <p className="text-xs text-destructive-foreground font-medium text-center">Delete {customer.name}?</p>
+                      {(() => {
+                        const invN = invoices.filter((i) => i.customerId === customerToDelete.id).length;
+                        const sbN = saleBills.filter((s) => s.customerId === customerToDelete.id).length;
+                        return invN + sbN > 0 ? (
+                          <p className="text-xs2 text-muted-foreground text-center leading-snug">
+                            Also removes {invN} invoice(s), {sbN} sale bill(s), linked payments, projects, and quotations for this customer.
+                          </p>
+                        ) : (
+                          <p className="text-xs2 text-muted-foreground text-center leading-snug">
+                            Also removes projects and quotations linked to this customer.
+                          </p>
+                        );
+                      })()}
                       <div className="flex gap-2">
                         <Button variant="outline" size="sm" className="flex-1 h-8" onClick={() => setCustomerToDelete(null)}>Cancel</Button>
                         <Button variant="destructive" size="sm" className="flex-1 h-8" onClick={handleDeleteCustomer}>Delete</Button>
@@ -295,17 +413,33 @@ const Customers = () => {
       {filteredCustomers.length === 0 && (
         <div className="text-center py-12">
           <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">No customers found</p>
-          <Button className="mt-4" onClick={() => { resetCustomerForm(); setIsAddCustomerOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Your First Customer
-          </Button>
+          <p className="text-muted-foreground">
+            {customers.length === 0 ? "No customers yet." : "No customers match the current search or type filter."}
+          </p>
+          {customers.length === 0 ? (
+            <Button className="mt-4" onClick={() => { resetCustomerForm(); setIsAddCustomerOpen(true); }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add your first customer
+            </Button>
+          ) : (
+            <Button
+              className="mt-4"
+              variant="outline"
+              type="button"
+              onClick={() => {
+                setSearchQuery("");
+                setTypeFilter("all");
+              }}
+            >
+              Clear filters
+            </Button>
+          )}
         </div>
       )}
 
       {/* Add Customer Sheet */}
       <Sheet open={isAddCustomerOpen} onOpenChange={setIsAddCustomerOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add New Customer</SheetTitle>
           </SheetHeader>
@@ -354,7 +488,7 @@ const Customers = () => {
 
       {/* Edit Customer Sheet */}
       <Sheet open={isEditCustomerOpen} onOpenChange={setIsEditCustomerOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Edit Customer</SheetTitle>
           </SheetHeader>

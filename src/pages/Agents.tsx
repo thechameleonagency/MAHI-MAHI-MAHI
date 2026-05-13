@@ -22,7 +22,7 @@ import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 
 const Agents = () => {
   const navigate = useNavigate();
-  const { agents, projects, addAgent, updateAgent, deleteAgent, generateId } = useAppData();
+  const { agents, projects, enquiries, addAgent, updateAgent, deleteAgent, generateId } = useAppData();
   
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -60,11 +60,23 @@ const Agents = () => {
   // Compute agent stats from projects
   const getAgentStats = (agentId: string) => {
     const agentProjects = projects.filter(p => p.agentId === agentId);
+    const agentEnquiries = enquiries.filter(e => e.agentId === agentId);
     const ongoing = agentProjects.filter(p => p.status === "Ongoing").length;
     const completed = agentProjects.filter(p => p.status === "Completed").length;
     const totalCommission = agentProjects.reduce((s, p) => s + (p.commissionAmount || 0), 0);
     const paidCommission = agentProjects.reduce((s, p) => s + (p.commissionPaid || 0), 0);
-    return { total: agentProjects.length, ongoing, completed, totalCommission, paidCommission, pending: totalCommission - paidCommission };
+    const convertedEnquiries = agentEnquiries.filter(e => e.status === "converted").length;
+    
+    return { 
+      total: agentProjects.length, 
+      ongoing, 
+      completed, 
+      totalCommission, 
+      paidCommission, 
+      pending: totalCommission - paidCommission,
+      totalEnquiries: agentEnquiries.length,
+      convertedEnquiries
+    };
   };
 
   const handleAdd = () => {
@@ -131,11 +143,13 @@ const Agents = () => {
     const allStats = agents.map(a => getAgentStats(a.id));
     return {
       totalAgents: agents.length,
+      totalEnquiries: allStats.reduce((s, st) => s + st.totalEnquiries, 0),
+      totalConversions: allStats.reduce((s, st) => s + st.convertedEnquiries, 0),
       totalProjects: allStats.reduce((s, st) => s + st.total, 0),
       totalCommission: allStats.reduce((s, st) => s + st.totalCommission, 0),
       pendingCommission: allStats.reduce((s, st) => s + st.pending, 0),
     };
-  }, [agents, projects]);
+  }, [agents, projects, enquiries]);
 
   const formatCurrency = (amount: number) => `₹${amount.toLocaleString()}`;
 
@@ -206,7 +220,7 @@ const Agents = () => {
   return (
     <PageShell className="space-y-4 md:space-y-5">
       <StickyPageHeader
-        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Sales" }, { label: "Agents" }]}
+        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Agents" }]}
         subRow={
           <>
             <div className="flex w-full min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-end">
@@ -243,10 +257,11 @@ const Agents = () => {
               className="w-full sm:w-auto sm:justify-end"
               items={[
                 { label: "Agents", value: summaryStats.totalAgents },
+                { label: "Total Enquiries", value: summaryStats.totalEnquiries },
+                { label: "Conversions", value: summaryStats.totalConversions },
                 { label: "Projects", value: summaryStats.totalProjects },
                 { label: "Commission", value: formatCurrency(summaryStats.totalCommission) },
                 { label: "Pending", value: formatCurrency(summaryStats.pendingCommission) },
-                { label: "Rows", value: filtered.length },
               ]}
             />
           </>
@@ -278,8 +293,8 @@ const Agents = () => {
               <TableRow className={dataTableClasses.headRow}>
                 <TableHead>Agent</TableHead>
                 <TableHead>Phone</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Rate</TableHead>
+                <TableHead className="text-right">Enquiries</TableHead>
+                <TableHead className="text-right">Converted</TableHead>
                 <TableHead className="text-right">Projects</TableHead>
                 <TableHead className="text-right">Commission</TableHead>
                 <TableHead className="text-right">Pending</TableHead>
@@ -311,16 +326,12 @@ const Agents = () => {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{agent.phone}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm truncate max-w-[140px]">{agent.email || "—"}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs font-normal">
-                        {agent.rateType === "per-kw" ? `₹${agent.ratePerKw.toLocaleString()}/kW` : `₹${(agent.flatRate || 0).toLocaleString()}/proj`}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right text-sm">{stats.total}</TableCell>
-                    <TableCell className="text-right text-sm">{formatCurrency(stats.totalCommission)}</TableCell>
-                    <TableCell className={`text-right text-sm ${stats.pending > 0 ? "text-amber-600" : ""}`}>
+                    <TableCell className="text-muted-foreground">{agent.phone}</TableCell>
+                    <TableCell className="text-right">{stats.totalEnquiries}</TableCell>
+                    <TableCell className="text-right text-primary font-medium">{stats.convertedEnquiries}</TableCell>
+                    <TableCell className="text-right">{stats.total}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(stats.totalCommission)}</TableCell>
+                    <TableCell className={`text-right ${stats.pending > 0 ? "text-amber-600 font-medium" : ""}`}>
                       {formatCurrency(stats.pending)}
                     </TableCell>
                     <TableCell>

@@ -80,17 +80,17 @@ function StockCategoryTable({
         <TableBody>
           {pagedStock.map((item) => (
             <TableRow key={item.id}>
-              <TableCell className="text-sm font-medium">
+              <TableCell className="font-medium">
                 {item.name}
                 {item.size ? ` (${item.size})` : ""}
               </TableCell>
-              <TableCell className="text-sm text-muted-foreground">{item.hsn}</TableCell>
-              <TableCell className="text-right text-sm">{item.stock}</TableCell>
-              <TableCell className="text-sm text-muted-foreground">{item.unit}</TableCell>
-              <TableCell className="text-right text-sm">{fmt(item.buyPrice)}</TableCell>
-              <TableCell className="text-right text-sm font-medium">{fmt(item.stock * item.buyPrice)}</TableCell>
-              <TableCell className="text-right text-sm">{fmt(item.stock * item.salePrice)}</TableCell>
-              <TableCell className="text-right text-sm">{item.minStock || "-"}</TableCell>
+              <TableCell className="text-muted-foreground">{item.hsn}</TableCell>
+              <TableCell className="text-right">{item.stock}</TableCell>
+              <TableCell className="text-muted-foreground">{item.unit}</TableCell>
+              <TableCell className="text-right">{fmt(item.buyPrice)}</TableCell>
+              <TableCell className="text-right font-medium">{fmt(item.stock * item.buyPrice)}</TableCell>
+              <TableCell className="text-right">{fmt(item.stock * item.salePrice)}</TableCell>
+              <TableCell className="text-right">{item.minStock || "-"}</TableCell>
               <TableCell>
                 {item.stock <= (item.minStock || 0) && (
                   <Badge variant="destructive" className="text-xs">
@@ -246,8 +246,9 @@ const InventoryAudit = () => {
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Stock Movement Log</CardTitle>
             </CardHeader>
-            <CardContent className="p-0 pt-4">
-              <DataTableShell
+            <CardContent className="p-0">
+          <DataTableShell
+            variant="inline"
                 maxHeight={listTableViewportMaxHeight(movSize)}
                 scrollResetKey={`${safeMovPage}-${movSize}-${movements.length}`}
                 footer={
@@ -284,17 +285,17 @@ const InventoryAudit = () => {
                   )}
                   {pagedMovements.map((m, i) => (
                     <TableRow key={`${m.refId}-${m.date}-${m.item}-${i}`}>
-                      <TableCell className="text-sm">{m.date}</TableCell>
-                      <TableCell className="text-sm font-medium">{m.item}</TableCell>
+                      <TableCell >{m.date}</TableCell>
+                      <TableCell className="font-medium">{m.item}</TableCell>
                       <TableCell>
                         <Badge variant={m.type === "Purchase" ? "default" : "secondary"} className="text-xs">
                           {m.type}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right text-sm">{m.qty}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(m.unitPrice)}</TableCell>
-                      <TableCell className="text-right text-sm font-medium">{fmt(m.total)}</TableCell>
-                      <TableCell className="cursor-pointer text-sm text-primary hover:underline">{m.ref}</TableCell>
+                      <TableCell className="text-right">{m.qty}</TableCell>
+                      <TableCell className="text-right">{fmt(m.unitPrice)}</TableCell>
+                      <TableCell className="text-right font-medium">{fmt(m.total)}</TableCell>
+                      <TableCell className="cursor-pointer text-primary hover:underline">{m.ref}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

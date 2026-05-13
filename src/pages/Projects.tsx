@@ -187,7 +187,7 @@ const Projects = () => {
           <TableBody>
             {pagedProjects.map(project => (
               <TableRow key={project.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => navigate(`/projects/${project.id}`)}>
-                <TableCell className="font-mono text-xs">{project.id}</TableCell>
+                <TableCell className="font-mono">{project.id}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     {getCategoryIcon(project.category)}

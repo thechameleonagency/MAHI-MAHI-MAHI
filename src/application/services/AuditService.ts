@@ -17,7 +17,7 @@ export class AuditService {
 
   write(actor: ActorContext, payload: AuditPayload): AuditLogEntry {
     const entry: AuditLogEntry = {
-      id: `AUD-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.toUpperCase(),
+      id: `AUD-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase(),
       timestamp: new Date().toISOString(),
       userId: actor.actorUserId,
       userName: actor.actorUserId,

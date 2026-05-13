@@ -34,7 +34,8 @@ export const CREATE_PROJECT_FROM_QUOTATION_COMMAND = "project.create_from_quotat
 export const CREATE_DIRECT_PROJECT_EXCEPTION_COMMAND = "project.create_direct_exception";
 export const CREATE_PROJECT_INTAKE_COMMAND = "project.create_intake";
 
-const makeProjectId = () => `P-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+const makeProjectId = () =>
+  `P-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
 
 export const registerProjectCommands = (
   commandBus: CommandBus,
@@ -51,11 +52,14 @@ export const registerProjectCommands = (
     if (!quotation) {
       return { ok: false, errorCode: "QUOTATION_NOT_FOUND", message: "Quotation not found" };
     }
-    if (quotation.status !== "confirmed") {
-      return { ok: false, errorCode: "QUOTATION_NOT_CONFIRMED", message: "Project can only be created from confirmed quotation" };
+    if (quotation.status !== "confirmed" && quotation.status !== "approved") {
+      return { ok: false, errorCode: "QUOTATION_NOT_CONFIRMED", message: "Project can only be created from an approved or confirmed quotation" };
     }
     if (quotation.isConverted) {
       return { ok: false, errorCode: "QUOTATION_ALREADY_CONVERTED", message: "This quotation is already converted to a project" };
+    }
+    if (quotation.status === "approved") {
+      repositories.quotationRepository.update(quotation.id, { status: "confirmed" });
     }
 
     const intakeValidation = projectKindService.validateIntake(command.payload.intake);
@@ -103,7 +107,6 @@ export const registerProjectCommands = (
       ownerType: "solo",
       lifecycleStatus: "Active",
       executionPhase: "Intake",
-      status: "Ongoing",
       progressStage: "new",
       projectKind: "SOLO_EPC",
       projectKindConfigSnapshot: projectKindConfigSnapshot("SOLO_EPC"),
@@ -196,11 +199,14 @@ export const registerProjectCommands = (
     if (!quotation) {
       return { ok: false, errorCode: "QUOTATION_NOT_FOUND", message: "Quotation not found" };
     }
-    if (quotation.status !== "confirmed") {
-      return { ok: false, errorCode: "QUOTATION_NOT_CONFIRMED", message: "Project can only be created from confirmed quotation" };
+    if (quotation.status !== "confirmed" && quotation.status !== "approved") {
+      return { ok: false, errorCode: "QUOTATION_NOT_CONFIRMED", message: "Project can only be created from an approved or confirmed quotation" };
     }
     if (quotation.isConverted) {
       return { ok: false, errorCode: "QUOTATION_ALREADY_CONVERTED", message: "This quotation is already converted to a project" };
+    }
+    if (quotation.status === "approved") {
+      repositories.quotationRepository.update(quotation.id, { status: "confirmed" });
     }
     const intakeValidation = projectKindService.validateIntake(intake);
     if (!intakeValidation.ok) {
@@ -243,34 +249,39 @@ export const registerProjectCommands = (
     }
 
     const projectId = makeProjectId();
-    const cid = command.payload.customerId || "";
-    const { baseline, executionLineItems } =
-      cid ?
-        commercialBaselineFromIntake({
+    const intake = command.payload.intake;
+    const kind = intake.kind;
+    const cid = command.payload.customerId?.trim() || "";
+    const contractAmt = Number(intake.commercial.contractAmount || 0);
+    const { baseline, executionLineItems } = cid
+      ? commercialBaselineFromIntake({
           projectId,
-          contractAmount: Number(command.payload.intake.commercial.contractAmount || 0),
+          contractAmount: contractAmt,
           summaryLine: `Direct exception — ${command.payload.projectName}`,
           customerId: cid,
         })
       : { baseline: undefined, executionLineItems: undefined };
+    const snapshot = projectKindConfigSnapshot(kind);
+    const clientName = intake.parties.customer || intake.parties.channelPartner || intake.parties.externalNetwork || "Unknown";
     repositories.projectRepository.add({
       id: projectId,
       name: command.payload.projectName,
-      type: "EPC",
+      projectKind: kind,
+      projectKindConfigSnapshot: snapshot,
+      type: kind === "INC_GIVEN" || kind === "INC" ? "INC" : "EPC",
       projectType: "Commercial",
       projectCategory: "solar",
       ownerType: "solo",
       lifecycleStatus: "Active",
       executionPhase: "Intake",
-      status: "On Hold",
       progressStage: "exception_review",
-      client: command.payload.intake.parties.customer || "Unknown",
-      customerId: cid || "C001",
+      client: clientName,
+      customerId: cid || undefined,
       capacity: "N/A",
       location: "Pending",
       assignees: [],
       onSite: 0,
-      contractAmount: Number(command.payload.intake.commercial.contractAmount || 0),
+      contractAmount: contractAmt,
       totalCost: 0,
       amountReceived: 0,
       photos: 0,
@@ -280,6 +291,7 @@ export const registerProjectCommands = (
       directCreationReason: command.payload.reason,
       commercialBaseline: baseline,
       executionLineItems,
+      paymentType: (intake.commercial.paymentType as Project["paymentType"]) || "",
     });
 
     auditService.write(command, {

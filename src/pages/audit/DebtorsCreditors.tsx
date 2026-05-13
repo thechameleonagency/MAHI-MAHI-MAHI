@@ -136,8 +136,9 @@ const DebtorsCreditors = () => {
 
         <TabsContent value="debtors" className="mt-4">
           <Card>
-            <CardContent className="p-0 pt-4">
-              <DataTableShell
+            <CardContent className="p-0">
+          <DataTableShell
+            variant="inline"
                 maxHeight={listTableViewportMaxHeight(debSize)}
                 scrollResetKey={`${safeDeb}-${debSize}-${debtors.length}`}
                 footer={
@@ -176,17 +177,17 @@ const DebtorsCreditors = () => {
                   {pagedDebtors.map((d) => (
                     <TableRow key={d.id}>
                       <TableCell
-                        className="cursor-pointer text-sm font-medium text-primary hover:underline"
+                        className="cursor-pointer font-medium text-primary hover:underline"
                         onClick={() => d.customerId && navigate(`/customers/${d.customerId}`)}
                       >
                         {d.customerName}
                       </TableCell>
-                      <TableCell className="cursor-pointer text-sm text-primary hover:underline">{d.invoiceNumber}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(d.total)}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(d.amountReceived)}</TableCell>
-                      <TableCell className="text-right text-sm font-medium">{fmt(d.outstanding)}</TableCell>
-                      <TableCell className="text-sm">{d.dueDate || "-"}</TableCell>
-                      <TableCell className="text-right text-sm">
+                      <TableCell className="cursor-pointer text-primary hover:underline">{d.invoiceNumber}</TableCell>
+                      <TableCell className="text-right">{fmt(d.total)}</TableCell>
+                      <TableCell className="text-right">{fmt(d.amountReceived)}</TableCell>
+                      <TableCell className="text-right font-medium">{fmt(d.outstanding)}</TableCell>
+                      <TableCell >{d.dueDate || "-"}</TableCell>
+                      <TableCell className="text-right">
                         {d.daysOverdue > 0 ? (
                           <span className="font-medium text-destructive">{d.daysOverdue}</span>
                         ) : (
@@ -217,8 +218,9 @@ const DebtorsCreditors = () => {
 
         <TabsContent value="creditors" className="mt-4">
           <Card>
-            <CardContent className="p-0 pt-4">
-              <DataTableShell
+            <CardContent className="p-0">
+          <DataTableShell
+            variant="inline"
                 maxHeight={listTableViewportMaxHeight(credSize)}
                 scrollResetKey={`${safeCred}-${credSize}-${creditors.length}`}
                 footer={
@@ -257,17 +259,17 @@ const DebtorsCreditors = () => {
                   {pagedCreditors.map((c) => (
                     <TableRow key={c.id}>
                       <TableCell
-                        className="cursor-pointer text-sm font-medium text-primary hover:underline"
+                        className="cursor-pointer font-medium text-primary hover:underline"
                         onClick={() => navigate(`/vendors/${c.vendorId}`)}
                       >
                         {c.vendorName || `Vendor ${c.vendorId}`}
                       </TableCell>
-                      <TableCell className="text-sm">{c.billNumber}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(c.total)}</TableCell>
-                      <TableCell className="text-right text-sm">{fmt(c.amountPaid)}</TableCell>
-                      <TableCell className="text-right text-sm font-medium">{fmt(c.outstanding)}</TableCell>
-                      <TableCell className="text-sm">{c.dueDate || "-"}</TableCell>
-                      <TableCell className="text-right text-sm">
+                      <TableCell >{c.billNumber}</TableCell>
+                      <TableCell className="text-right">{fmt(c.total)}</TableCell>
+                      <TableCell className="text-right">{fmt(c.amountPaid)}</TableCell>
+                      <TableCell className="text-right font-medium">{fmt(c.outstanding)}</TableCell>
+                      <TableCell >{c.dueDate || "-"}</TableCell>
+                      <TableCell className="text-right">
                         {c.daysOverdue > 0 ? (
                           <span className="font-medium text-destructive">{c.daysOverdue}</span>
                         ) : (

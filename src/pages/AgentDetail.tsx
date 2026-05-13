@@ -27,7 +27,7 @@ import { expectedAgentFeeForProject, parseCapacityKw } from "@/domain/agents/age
 const AgentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { agents, projects, updateProject } = useAppData();
+  const { agents, projects, enquiries, updateProject } = useAppData();
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentProjectId, setPaymentProjectId] = useState("");
@@ -41,6 +41,16 @@ const AgentDetail = () => {
   const agentProjects = useMemo(() =>
     projects.filter(p => p.agentId === id),
     [projects, id]
+  );
+
+  const agentEnquiries = useMemo(() =>
+    enquiries.filter(e => e.agentId === id),
+    [enquiries, id]
+  );
+
+  const convertedEnquiriesCount = useMemo(() =>
+    agentEnquiries.filter(e => e.status === "converted").length,
+    [agentEnquiries]
   );
 
   const totalCommission = useMemo(() =>
@@ -84,6 +94,8 @@ const AgentDetail = () => {
 
   const [projectsTabPage, setProjectsTabPage] = useState(1);
   const [projectsTabPageSize, setProjectsTabPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [enquiriesTabPage, setEnquiriesTabPage] = useState(1);
+  const [enquiriesTabPageSize, setEnquiriesTabPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [commissionTabPage, setCommissionTabPage] = useState(1);
   const [commissionTabPageSize, setCommissionTabPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
@@ -91,6 +103,11 @@ const AgentDetail = () => {
     agentProjects,
     projectsTabPage,
     projectsTabPageSize,
+  );
+  const { pagedItems: pagedAgentEnquiries, safePage: safeEnquiriesTabPage } = usePagedSlice(
+    agentEnquiries,
+    enquiriesTabPage,
+    enquiriesTabPageSize,
   );
   const { pagedItems: pagedCommissionProjects, safePage: safeCommissionTabPage } = usePagedSlice(
     commissionRows,
@@ -174,9 +191,10 @@ const AgentDetail = () => {
             <InlineKpiStrip
               className="w-full sm:w-auto sm:justify-end"
               items={[
+                { label: "Enquiries", value: agentEnquiries.length },
+                { label: "Converted", value: convertedEnquiriesCount },
                 { label: "Projects", value: agentProjects.length },
                 { label: "Commission", value: `₹${totalCommission.toLocaleString()}` },
-                { label: "Expected (rates)", value: `₹${Math.round(expectedFromTerms).toLocaleString()}` },
                 { label: "Paid", value: `₹${paidCommission.toLocaleString()}` },
                 { label: "Pending", value: `₹${pendingCommission.toLocaleString()}` },
               ]}
@@ -219,16 +237,75 @@ const AgentDetail = () => {
       {/* Tabs */}
       <Tabs defaultValue="projects">
         <TabsList>
-          <TabsTrigger value="projects">Referred Projects ({agentProjects.length})</TabsTrigger>
+          <TabsTrigger value="enquiries">Enquiries ({agentEnquiries.length})</TabsTrigger>
+          <TabsTrigger value="projects">Converted Projects ({agentProjects.length})</TabsTrigger>
           <TabsTrigger value="commissions">Commission History</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="enquiries" className="space-y-4">
+          <Card>
+            <CardContent className="space-y-0 p-0 pt-4">
+              {agentEnquiries.length > 0 ? (
+                <DataTableShell
+                  variant="inline" maxHeight={listTableViewportMaxHeight(enquiriesTabPageSize)}
+                  scrollResetKey={`${safeEnquiriesTabPage}-${enquiriesTabPageSize}-${agentEnquiries.length}`}
+                  footer={
+                    <TablePaginationBar
+                      page={safeEnquiriesTabPage}
+                      pageSize={enquiriesTabPageSize}
+                      total={agentEnquiries.length}
+                      onPageChange={setEnquiriesTabPage}
+                      onPageSizeChange={(n) => {
+                        setEnquiriesTabPageSize(n);
+                        setEnquiriesTabPage(1);
+                      }}
+                    />
+                  }
+                >
+                  <TableHeader>
+                    <TableRow className={dataTableClasses.headRow}>
+                      <TableHead>Enquiry ID</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Capacity</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Priority</TableHead>
+                      <TableHead>Created At</TableHead>
+                      <TableHead className="text-right">Budget</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pagedAgentEnquiries.map(e => (
+                      <TableRow key={e.id}>
+                        <TableCell className="font-medium">{e.id}</TableCell>
+                        <TableCell>{e.customerName}</TableCell>
+                        <TableCell>{e.systemCapacity || "—"}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="capitalize">{e.status}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">{e.priority}</Badge>
+                        </TableCell>
+                        <TableCell>{e.createdAt}</TableCell>
+                        <TableCell className="text-right">₹{e.estimatedBudget.toLocaleString()}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </DataTableShell>
+              ) : (
+                <div className="px-6 py-10 text-center text-muted-foreground">
+                  No enquiries referred by this agent yet
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="projects" className="space-y-4">
           <Card>
             <CardContent className="space-y-0 p-0 pt-4">
               {agentProjects.length > 0 ? (
                 <DataTableShell
-                  maxHeight={listTableViewportMaxHeight(projectsTabPageSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(projectsTabPageSize)}
                   scrollResetKey={`${safeProjectsTabPage}-${projectsTabPageSize}-${agentProjects.length}`}
                   footer={
                     <TablePaginationBar
@@ -311,7 +388,7 @@ const AgentDetail = () => {
             <CardContent className="space-y-0 p-0 pt-4">
               {commissionRows.length > 0 ? (
                 <DataTableShell
-                  maxHeight={listTableViewportMaxHeight(commissionTabPageSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(commissionTabPageSize)}
                   scrollResetKey={`${safeCommissionTabPage}-${commissionTabPageSize}-${commissionRows.length}`}
                   footer={
                     <TablePaginationBar

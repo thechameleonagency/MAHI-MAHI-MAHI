@@ -20,7 +20,8 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
@@ -49,6 +50,7 @@ type StatCardDef = {
   iconClass: string;
   hint: string;
   hintTone: "positive" | "negative" | "neutral";
+  details?: { id: string; text: string }[];
 };
 
 const Dashboard = () => {
@@ -181,6 +183,7 @@ const Dashboard = () => {
       iconClass: "bg-emerald-600 text-white shadow-sm shadow-emerald-600/20",
       hint: "Invoices + sale bills",
       hintTone: "positive",
+      details: [...invoices, ...saleBills].filter(i => i.amountReceived).slice(0, 3).map(i => ({ id: i.id, text: `₹${((i.amountReceived || 0)/100000).toFixed(1)}L - ${i.customerName}` })),
     },
     {
       id: "enquiries",
@@ -191,6 +194,7 @@ const Dashboard = () => {
       iconClass: "bg-violet-600 text-white shadow-sm shadow-violet-600/20",
       hint: "Pipeline excluding won/lost",
       hintTone: openPipelineEnquiries.length > 0 ? "neutral" : "positive",
+      details: openPipelineEnquiries.slice(0, 3).map(e => ({ id: e.id, text: `${e.customerName} - ${e.status}` })),
     },
     {
       id: "quotations",
@@ -201,6 +205,7 @@ const Dashboard = () => {
       iconClass: "bg-sky-600 text-white shadow-sm shadow-sky-600/20",
       hint: "Draft / sent awaiting action",
       hintTone: stats.pendingQuotations.length > 0 ? "negative" : "positive",
+      details: stats.pendingQuotations.slice(0, 3).map(q => ({ id: q.id, text: `₹${(q.total/100000).toFixed(1)}L - ${q.customerName}` })),
     },
     {
       id: "projects",
@@ -211,6 +216,7 @@ const Dashboard = () => {
       iconClass: "bg-primary text-primary-foreground shadow-sm",
       hint: `${stats.completedCount} completed (all-time)`,
       hintTone: "neutral",
+      details: projects.filter(p => p.status === "Ongoing").slice(0, 3).map(p => ({ id: p.id, text: p.name })),
     },
     {
       id: "activeSites",
@@ -221,6 +227,7 @@ const Dashboard = () => {
       iconClass: "bg-teal-600 text-white shadow-sm shadow-teal-600/20",
       hint: "On ongoing projects",
       hintTone: "neutral",
+      details: sitesOnOngoingProjects.slice(0, 3).map(s => ({ id: s.id, text: s.name })),
     },
     {
       id: "pending",
@@ -231,6 +238,7 @@ const Dashboard = () => {
       iconClass: "bg-amber-500 text-white shadow-sm shadow-amber-500/20",
       hint: `${stats.pendingInvoices.length} invoices open`,
       hintTone: stats.pendingAmount > 0 ? "negative" : "positive",
+      details: stats.pendingInvoices.slice(0, 3).map(i => ({ id: i.id, text: `₹${((i.total - (i.amountReceived || 0))/100000).toFixed(1)}L - ${i.customerName}` })),
     },
     {
       id: "employees",
@@ -241,6 +249,7 @@ const Dashboard = () => {
       iconClass: "bg-slate-700 text-white shadow-sm",
       hint: `${stats.onLeave} not active`,
       hintTone: stats.onLeave > 0 ? "negative" : "positive",
+      details: employees.filter(e => e.status === "Active").slice(0, 3).map(e => ({ id: e.id.toString(), text: `${e.name} - ${e.role}` })),
     },
     {
       id: "stock",
@@ -251,6 +260,7 @@ const Dashboard = () => {
       iconClass: "bg-destructive text-destructive-foreground shadow-sm",
       hint: "Below threshold",
       hintTone: lowStockItems.length > 0 ? "negative" : "positive",
+      details: lowStockItems.slice(0, 3).map(i => ({ id: i.id, text: `${i.name}: ${i.stock} / ${i.min}` })),
     },
     {
       id: "emis",
@@ -261,6 +271,7 @@ const Dashboard = () => {
       iconClass: "bg-orange-600 text-white shadow-sm",
       hint: `${stats.activeLoans.length} active loans`,
       hintTone: "neutral",
+      details: stats.activeLoans.slice(0, 3).map(l => ({ id: l.id.toString(), text: `₹${(l.emiAmount/1000).toFixed(0)}k - ${l.nextEmiDate ? new Date(l.nextEmiDate).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}) : 'TBD'} - ${l.borrowerName}` })),
     },
     {
       id: "blockages",
@@ -274,6 +285,7 @@ const Dashboard = () => {
       ),
       hint: stats.activeBlockages > 0 ? "Needs release plan" : "Execution clear",
       hintTone: stats.activeBlockages > 0 ? "negative" : "positive",
+      details: activeOpsBlockages.slice(0, 3).map(b => ({ id: b.id, text: b.reason })),
     },
   ];
 
@@ -391,24 +403,42 @@ const Dashboard = () => {
                   key={card.id}
                   type="button"
                   onClick={() => handleCardClick(card.id)}
-                  className="group relative flex flex-col rounded-xl border border-border/70 bg-card p-4 text-left shadow-sm transition-colors hover:border-primary/35 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="group relative flex flex-col rounded-xl border border-border/70 bg-card p-4 text-left shadow-sm transition-all hover:border-primary/35 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <div className="flex w-full items-start justify-between gap-3">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                      {card.title}
-                    </span>
-                    <span
-                      className={cn(
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition group-hover:scale-[1.02]",
-                        card.iconClass,
-                      )}
-                    >
-                      <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
-                    </span>
+                    <div className="flex flex-col gap-1 min-w-0 flex-1">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground truncate">
+                        {card.title}
+                      </span>
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{card.value}</p>
+                        <p className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-muted/50", hintClass[card.hintTone])}>{card.hint}</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <span
+                        className={cn(
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition group-hover:scale-[1.05]",
+                          card.iconClass,
+                        )}
+                      >
+                        <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </span>
+                    </div>
                   </div>
-                  <p className="mt-3 text-2xl font-semibold tabular-nums tracking-tight text-foreground">{card.value}</p>
-                  <p className={cn("mt-1 text-xs", hintClass[card.hintTone])}>{card.hint}</p>
-                  <ArrowUpRight className="absolute bottom-3 right-3 h-4 w-4 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+                  
+                  {card.details && card.details.length > 0 && (
+                    <div className="mt-3.5 flex flex-col gap-1.5 border-t border-border/40 pt-3 w-full">
+                      {card.details.map((detail) => (
+                        <div key={detail.id} className="flex items-center text-[10px] text-muted-foreground leading-tight">
+                          <span className="w-1 h-1 rounded-full bg-primary/40 mr-2 shrink-0" />
+                          <span className="truncate opacity-80 group-hover:opacity-100 transition-opacity">{detail.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <ArrowUpRight className="absolute top-4 right-14 h-4 w-4 text-muted-foreground/0 transition group-hover:text-muted-foreground/40" />
                 </button>
               );
             })}
@@ -475,7 +505,7 @@ const Dashboard = () => {
                     {needToGetRows.length} shortfalls
                   </Badge>
                 </div>
-                <CardContent className="space-y-3 p-4">
+                <CardContent className="space-y-4 p-5 pt-6">
                   {needToGetRows.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No site checklist shortfalls vs warehouse stock.</p>
                   ) : (
@@ -535,7 +565,7 @@ const Dashboard = () => {
                 <h3 className="text-sm font-semibold text-foreground">Pipeline snapshot</h3>
                 <p className="text-xs text-muted-foreground">Sales motion at a glance</p>
               </div>
-              <CardContent className="space-y-4 p-4">
+              <CardContent className="space-y-4 p-5 pt-6">
                 {visibleMetrics.has("openEnquiries") && (
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -580,7 +610,7 @@ const Dashboard = () => {
 
             {lowStockItems.length > 0 && visibleMetrics.has("lowStockMaterials") && (
               <Card className="rounded-2xl border-destructive/25 bg-destructive/[0.04] shadow-sm">
-                <CardContent className="flex items-start gap-3 p-4">
+                <CardContent className="flex items-start gap-3 p-5 pt-6">
                   <Package className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
                   <div>
                     <p className="text-sm font-medium text-foreground">Inventory attention</p>
@@ -602,7 +632,7 @@ const Dashboard = () => {
 
       {/* Revenue */}
       <Sheet open={activeModal === "revenue"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <IndianRupee className="h-5 w-5 text-primary" aria-hidden />
@@ -631,12 +661,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Finance
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Enquiries */}
       <Sheet open={activeModal === "enquiries"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-violet-600" aria-hidden />
@@ -663,12 +693,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             All enquiries
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Active projects */}
       <Sheet open={activeModal === "projects"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Building2 className="h-5 w-5 text-primary" aria-hidden />
@@ -698,12 +728,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             All projects
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Active sites */}
       <Sheet open={activeModal === "activeSites"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <MapPin className="h-5 w-5 text-teal-600" aria-hidden />
@@ -725,12 +755,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Active sites
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Pending payments */}
       <Sheet open={activeModal === "pending"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Receipt className="h-5 w-5 text-amber-600" aria-hidden />
@@ -762,12 +792,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Invoices
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Employees */}
       <Sheet open={activeModal === "employees"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Active roster</SheetTitle>
           </SheetHeader>
@@ -811,12 +841,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Employees
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Low stock */}
       <Sheet open={activeModal === "stock"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden />
@@ -847,12 +877,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Materials
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* EMIs */}
       <Sheet open={activeModal === "emis"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <CreditCard className="h-5 w-5 text-orange-600" aria-hidden />
@@ -878,12 +908,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Loans
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Quotations */}
       <Sheet open={activeModal === "quotations"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-muted-foreground" aria-hidden />
@@ -913,12 +943,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Quotations
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* On hold */}
       <Sheet open={activeModal === "blockages"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent size="xl" layout="document">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-destructive" aria-hidden />
@@ -955,7 +985,7 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Active sites
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

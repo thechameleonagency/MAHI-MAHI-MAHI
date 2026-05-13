@@ -11,6 +11,7 @@ import {
   IndianRupee,
   ExternalLink,
   Pencil,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,12 +20,23 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
 import type { Vendor } from "@/types/project";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { VENDOR_CATEGORY_OPTIONS } from "@/lib/formCategories";
 
 /** Same normalization as Finance (legacy); finance tab filter keywords are lowercase snippets. */
 type VendorVm = {
@@ -36,11 +48,12 @@ type VendorVm = {
   address: string;
   outstandingAmount: number;
   purchaseHistory: { date: string; item: string; amount: number }[];
+  linkedProjectId?: string;
 };
 
 const Vendors = () => {
   const navigate = useNavigate();
-  const { vendors: rawVendors, addVendor, updateVendor } = useAppData();
+  const { vendors: rawVendors, addVendor, updateVendor, deleteVendor, generateId, projects } = useAppData();
 
   const vendors: VendorVm[] = useMemo(
     () =>
@@ -53,6 +66,7 @@ const Vendors = () => {
         address: v.address || "",
         outstandingAmount: v.outstandingAmount || 0,
         purchaseHistory: v.purchaseHistory || [],
+        linkedProjectId: v.linkedProjectId,
       })),
     [rawVendors],
   );
@@ -63,6 +77,7 @@ const Vendors = () => {
   const [isAddVendorOpen, setIsAddVendorOpen] = useState(false);
   const [isEditVendorOpen, setIsEditVendorOpen] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
+  const [vendorPendingDelete, setVendorPendingDelete] = useState<VendorVm | null>(null);
 
   const [vendorName, setVendorName] = useState("");
   const [vendorCategory, setVendorCategory] = useState<string[]>([]);
@@ -70,7 +85,7 @@ const Vendors = () => {
   const [vendorEmail, setVendorEmail] = useState("");
   const [vendorAddress, setVendorAddress] = useState("");
 
-  const categories = ["Panels", "Inverters", "Batteries", "Structure", "Cables", "Tools", "Civil", "Transport", "Other"];
+  const categories = [...VENDOR_CATEGORY_OPTIONS];
 
   const resetForm = () => {
     setVendorName("");
@@ -87,7 +102,7 @@ const Vendors = () => {
     }
 
     const newVendor: Vendor = {
-      id: Date.now(),
+      id: generateId("VND"),
       name: vendorName,
       category: vendorCategory.length ? vendorCategory : ["Other"],
       contact: vendorContact,
@@ -231,7 +246,7 @@ const Vendors = () => {
                       {formatCurrency(vendor.outstandingAmount)} Due
                     </Badge>
                   ) : (
-                    <Badge className="border-0 bg-blue-500/10 text-xs text-blue-600">All Clear</Badge>
+                    <Badge className="border-0 bg-primary/10 text-xs text-primary">All Clear</Badge>
                   )}
                 </div>
 
@@ -242,6 +257,18 @@ const Vendors = () => {
                   <div className="min-w-0">
                     <p className="font-semibold text-foreground">{vendor.name}</p>
                     <p className="text-xs text-muted-foreground md:text-sm">{vendor.contact}</p>
+                    {vendor.linkedProjectId && (
+                      <p className="mt-1 text-2xs text-muted-foreground">
+                        Linked:{" "}
+                        <Link
+                          to={`/projects/${vendor.linkedProjectId}`}
+                          className="font-medium text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {projects.find((p) => p.id === vendor.linkedProjectId)?.name ?? "Project"}
+                        </Link>
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -250,7 +277,7 @@ const Vendors = () => {
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="flex justify-between gap-2">
                       <span className="text-muted-foreground">Outstanding</span>
-                      <span className={`font-medium ${vendor.outstandingAmount > 0 ? "text-amber-600" : "text-blue-600"}`}>
+                      <span className={`font-medium ${vendor.outstandingAmount > 0 ? "text-amber-600" : "text-primary"}`}>
                         {formatCurrency(vendor.outstandingAmount)}
                       </span>
                     </div>
@@ -259,11 +286,11 @@ const Vendors = () => {
                       <span className="font-medium text-primary">{formatCurrency(purchaseTotal)}</span>
                     </div>
                   </div>
-                  <div className="text-[10px] text-muted-foreground">({purchaseCount} purchase records)</div>
+                  <div className="text-2xs text-muted-foreground">({purchaseCount} purchase records)</div>
                   <div className="space-y-1 border-t pt-2">
                     <div className="flex justify-between text-xs">
                       <span className="text-muted-foreground">Total Paid</span>
-                      <span className="font-medium text-blue-600">{formatCurrency(purchaseTotal - vendor.outstandingAmount)}</span>
+                      <span className="font-medium text-primary">{formatCurrency(purchaseTotal - vendor.outstandingAmount)}</span>
                     </div>
                     {lastPurchase && (
                       <div className="flex justify-between text-xs">
@@ -275,7 +302,7 @@ const Vendors = () => {
                     )}
                     <div className="flex justify-between pt-1 text-sm font-semibold">
                       <span>Outstanding</span>
-                      <span className={vendor.outstandingAmount > 0 ? "text-amber-600" : "text-blue-600"}>
+                      <span className={vendor.outstandingAmount > 0 ? "text-amber-600" : "text-primary"}>
                         {formatCurrency(vendor.outstandingAmount)}
                       </span>
                     </div>
@@ -285,12 +312,12 @@ const Vendors = () => {
                       <span className="text-muted-foreground">Categories</span>
                       <div className="flex gap-1">
                         {vendor.category.slice(0, 2).map((cat, idx) => (
-                          <Badge key={idx} variant="outline" className="text-[10px]">
+                          <Badge key={idx} variant="outline" className="text-2xs">
                             {cat}
                           </Badge>
                         ))}
                         {vendor.category.length > 2 && (
-                          <Badge variant="outline" className="text-[10px]">
+                          <Badge variant="outline" className="text-2xs">
                             +{vendor.category.length - 2}
                           </Badge>
                         )}
@@ -341,6 +368,12 @@ const Vendors = () => {
                     )}
                   </div>
                   <div className="flex gap-2">
+                    <Button variant="destructive" size="sm" className="flex-1 text-xs" type="button" onClick={() => setVendorPendingDelete(vendor)}>
+                      <Trash2 className="mr-1 h-3 w-3" />
+                      Delete
+                    </Button>
+                  </div>
+                  <div className="flex gap-2">
                     <Button variant="secondary" size="sm" className="flex-1 text-xs" type="button" onClick={() => openEditVendor(vendor)}>
                       <Pencil className="mr-1 h-3 w-3" />
                       Edit
@@ -376,8 +409,8 @@ const Vendors = () => {
         </div>
       )}
 
-      <Sheet open={isAddVendorOpen} onOpenChange={setIsAddVendorOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+      <Sheet open={isAddVendorOpen} onOpenChange={(v) => { if (!v) resetForm(); setIsAddVendorOpen(v); }}>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add vendor</SheetTitle>
           </SheetHeader>
@@ -428,8 +461,8 @@ const Vendors = () => {
         </SheetContent>
       </Sheet>
 
-      <Sheet open={isEditVendorOpen} onOpenChange={setIsEditVendorOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+      <Sheet open={isEditVendorOpen} onOpenChange={(v) => { if (!v) resetForm(); setIsEditVendorOpen(v); }}>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Edit vendor</SheetTitle>
           </SheetHeader>
@@ -479,6 +512,34 @@ const Vendors = () => {
           </div>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={!!vendorPendingDelete} onOpenChange={(open) => !open && setVendorPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {vendorPendingDelete
+                ? `Remove ${vendorPendingDelete.name} from the directory. Outstanding: ${formatCurrency(vendorPendingDelete.outstandingAmount)}. Bills and payments in the prototype are not cascade-deleted.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (vendorPendingDelete) {
+                  deleteVendor(vendorPendingDelete.id);
+                  toast({ title: "Vendor removed", description: `${vendorPendingDelete.name} was deleted.` });
+                }
+                setVendorPendingDelete(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 };

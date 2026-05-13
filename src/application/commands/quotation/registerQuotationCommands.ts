@@ -43,6 +43,20 @@ export const registerQuotationCommands = (
       };
     }
     repositories.quotationRepository.add(quotation);
+    
+    // Link to enquiry if applicable
+    if (quotation.enquiryId) {
+      const enquiry = repositories.enquiryRepository.getById(quotation.enquiryId);
+      if (!enquiry) {
+        return { ok: false, errorCode: "ENQUIRY_NOT_FOUND", message: `Enquiry ${quotation.enquiryId} not found` };
+      }
+      repositories.enquiryRepository.update(quotation.enquiryId, {
+        quotationId: quotation.id,
+        status: "quotation-sent",
+        updatedAt: new Date().toISOString()
+      });
+    }
+
     auditService.write(command, {
       action: "create",
       entityType: "Quotation",
@@ -103,12 +117,42 @@ export const registerQuotationCommands = (
         }
       }
 
-      repositories.quotationRepository.update(quotation.id, {
-        status: nextStatus,
-        ...(nextStatus === "sent" ? { sentAt: new Date().toISOString().split("T")[0] } : {}),
-        ...(nextStatus === "approved" ? { approvedAt: new Date().toISOString().split("T")[0] } : {}),
-        ...(nextStatus === "confirmed" ? { confirmedAt: new Date().toISOString().split("T")[0] } : {}),
-      });
+      if (nextStatus === "approved") {
+        // Only create a new customer if the quotation isn't already linked to one
+        let customerId = (quotation as any).customerId as string | undefined;
+        if (!customerId) {
+          const year = new Date().getFullYear();
+          const randomSuffix =
+            `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+          customerId = `CUST-${year}-${randomSuffix}`;
+
+          const newCustomer: Customer = {
+            id: customerId,
+            name: quotation.clientName,
+            phone: quotation.clientPhone,
+            email: quotation.clientEmail || "",
+            address: quotation.clientAddress || "",
+            type: (quotation as any).clientType || "individual",
+            itemsBought: [],
+            totalPurchases: 0,
+            createdAt: new Date().toISOString(),
+          };
+          repositories.customerRepository.add(newCustomer);
+        }
+
+        // Link quotation to customer
+        repositories.quotationRepository.update(quotation.id, {
+          customerId: customerId,
+          status: nextStatus,
+          approvedAt: new Date().toISOString().split("T")[0],
+        });
+      } else {
+        repositories.quotationRepository.update(quotation.id, {
+          status: nextStatus,
+          ...(nextStatus === "sent" ? { sentAt: new Date().toISOString().split("T")[0] } : {}),
+          ...(nextStatus === "confirmed" ? { confirmedAt: new Date().toISOString().split("T")[0] } : {}),
+        });
+      }
 
       auditService.write(command, {
         action: "update",

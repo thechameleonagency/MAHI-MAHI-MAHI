@@ -55,6 +55,9 @@ interface InvoiceCreateSheetProps {
 
 const companyState = "08"; // Rajasthan
 
+/** GST slabs allowed for line items (matches validation in `handleCreateInvoice`). */
+const CANONICAL_GST_RATES = [0, 5, 12, 18, 28] as const;
+
 export function InvoiceCreateSheet({
   open,
   onOpenChange,
@@ -180,8 +183,8 @@ export function InvoiceCreateSheet({
       setBuyerContact(quotation.clientPhone);
       
       // Auto-link to project if quotation was converted to a project
-      if ((quotation as any).convertedToProjectId) {
-        const linkedProject = projects.find(p => p.id.toString() === (quotation as any).convertedToProjectId);
+      if (quotation.convertedToProjectId) {
+        const linkedProject = projects.find(p => p.id.toString() === quotation.convertedToProjectId);
         if (linkedProject) {
           setSelectedProjectId(linkedProject.id.toString());
         }
@@ -193,6 +196,8 @@ export function InvoiceCreateSheet({
       );
       if (matchingCustomer) {
         setSelectedCustomerId(matchingCustomer.id);
+        setBuyerGstin(matchingCustomer.gstin || "");
+        setBuyerState(matchingCustomer.state || quotation.clientState || "");
       }
     }
   };
@@ -209,8 +214,8 @@ export function InvoiceCreateSheet({
       setBuyerContact(customer.phone);
       
       // Auto-link to customer's project if exists
-      const customerProject = projects.find(p => 
-        p.client === customer.name || (p as any).clientPhone === customer.phone
+      const customerProject = projects.find(p =>
+        p.client === customer.name || p.clientPhone === customer.phone
       );
       if (customerProject) {
         setSelectedProjectId(customerProject.id.toString());
@@ -234,19 +239,22 @@ export function InvoiceCreateSheet({
       setBuyerName(project.client);
       setBuyerAddress(project.address);
       setBuyerState(project.state);
-      setBuyerContact((project as any).clientPhone || "");
-      
+      setBuyerContact(project.clientPhone || "");
+
       // Auto-link to quotation if project was created from one
-      if ((project as any).quotationId) {
-        setSelectedQuotationId((project as any).quotationId);
+      if (project.quotationId) {
+        setSelectedQuotationId(project.quotationId);
       }
-      
+
       // Auto-link to matching customer
-      const matchingCustomer = customers.find(c => 
-        c.name === project.client || (c as any).phone === (project as any).clientPhone
+      const matchingCustomer = customers.find(c =>
+        c.name === project.client || c.phone === project.clientPhone
       );
       if (matchingCustomer) {
         setSelectedCustomerId(matchingCustomer.id);
+        if (matchingCustomer.gstin) {
+          setBuyerGstin(matchingCustomer.gstin);
+        }
       }
     }
   };
@@ -306,11 +314,11 @@ export function InvoiceCreateSheet({
   const calculateTotals = () => {
     const isIGST = buyerState && buyerState !== companyState;
     
-    let servicesTotal = invoiceServices.reduce((sum, s) => sum + s.rate, 0);
-    let servicesTax = invoiceServices.reduce((sum, s) => sum + (s.rate * s.gstRate / 100), 0);
+    const servicesTotal = invoiceServices.reduce((sum, s) => sum + s.rate, 0);
+    const servicesTax = invoiceServices.reduce((sum, s) => sum + (s.rate * s.gstRate / 100), 0);
     
-    let itemsTotal = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate), 0);
-    let itemsTax = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate * i.gstRate / 100), 0);
+    const itemsTotal = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate), 0);
+    const itemsTax = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate * i.gstRate / 100), 0);
     
     const subtotal = servicesTotal + itemsTotal;
     const totalTax = servicesTax + itemsTax;
@@ -331,22 +339,84 @@ export function InvoiceCreateSheet({
       return;
     }
 
+    const hasNonZeroLine = invoiceItems.some(i => i.rate > 0) || invoiceServices.some(s => s.rate > 0);
+    if (!hasNonZeroLine) {
+      toast({ title: "Empty Invoice", description: "Add at least one line item with a non-zero rate.", variant: "destructive" });
+      return;
+    }
+
+    if (!buyerState) {
+      toast({ title: "State Required", description: "Select Place of Supply to determine IGST vs CGST/SGST split.", variant: "destructive" });
+      return;
+    }
+
+    if (buyerGstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(buyerGstin)) {
+      toast({ title: "Invalid GSTIN", description: "GSTIN must be a valid 15-character format.", variant: "destructive" });
+      return;
+    }
+
+    if (buyerContact && !/^[+0-9\s\-()]{7,20}$/.test(buyerContact)) {
+      toast({ title: "Invalid Phone", description: "Enter a valid phone number.", variant: "destructive" });
+      return;
+    }
+
+    const allowedGstRates = new Set([0, 5, 12, 18, 28]);
+    const hasBadGst = invoiceItems.some(i => !allowedGstRates.has(i.gstRate)) || invoiceServices.some(s => !allowedGstRates.has(s.gstRate));
+    if (hasBadGst) {
+      toast({ title: "Invalid GST Rate", description: "GST rate must be 0, 5, 12, 18, or 28.", variant: "destructive" });
+      return;
+    }
+
+    if (invoiceItems.some(i => i.quantity <= 0)) {
+      toast({ title: "Invalid Quantity", description: "All line item quantities must be greater than zero.", variant: "destructive" });
+      return;
+    }
+
+    if (selectedProjectId && !projects.find(p => p.id.toString() === selectedProjectId)) {
+      toast({ title: "Invalid Project", description: "The selected project no longer exists.", variant: "destructive" });
+      return;
+    }
+
+    if (selectedQuotationId) {
+      const q = quotations.find(qq => qq.id === selectedQuotationId);
+      if (q?.createdAt && invoiceDate < q.createdAt) {
+        toast({ title: "Invalid Date", description: "Invoice date cannot be earlier than the linked quotation date.", variant: "destructive" });
+        return;
+      }
+    }
+
     // Both invoice and sale-bill now use the same totals calculation
     const totals = calculateTotals();
-    
-    // If "Already Paid" is checked, set received to total amount
-    const received = isAlreadyPaid ? totals.total : (parseFloat(amountReceived) || 0);
+
+    const rawReceived = amountReceived.trim();
+    const parsedReceived = rawReceived === "" ? 0 : (Number.isFinite(parseFloat(rawReceived)) ? parseFloat(rawReceived) : 0);
+
+    let received: number;
+    let status: Invoice["status"];
+
+    const dueDateValid = Boolean(dueDate && !Number.isNaN(Date.parse(dueDate)));
+
+    if (isAlreadyPaid) {
+      received = totals.total;
+      status = "paid";
+    } else if (parsedReceived > totals.total + 0.005 && totals.total > 0) {
+      received = parsedReceived;
+      status = "overpaid";
+    } else {
+      received = Math.min(totals.total, Math.max(0, parsedReceived));
+      if (received >= totals.total - 0.005 && totals.total > 0) {
+        status = "paid";
+      } else if (received > 0.005) {
+        status = "partial";
+      } else if (dueDateValid && new Date(dueDate) < new Date()) {
+        status = "overdue";
+      } else {
+        status = "pending";
+      }
+    }
+
     const finalReceivedIn = isAlreadyPaid && !receivedIn ? "Cash" : receivedIn;
     const finalReceivedDate = isAlreadyPaid && !receivedDate ? invoiceDate : receivedDate;
-    
-    let status: "pending" | "partial" | "paid" | "overdue" = "pending";
-    if (isAlreadyPaid || received >= totals.total) {
-      status = "paid";
-    } else if (received > 0) {
-      status = "partial";
-    } else if (dueDate && new Date(dueDate) < new Date()) {
-      status = "overdue";
-    }
 
     const finalItems = invoiceItems;
 
@@ -359,7 +429,7 @@ export function InvoiceCreateSheet({
     const invoiceNumber = nextDocumentNumber(resolvedType, existingDocuments);
 
     const newInvoice: Invoice = {
-      id: Date.now().toString(),
+      id: typeof crypto !== "undefined" && "randomUUID" in crypto ? `INV-${crypto.randomUUID()}` : `INV-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.toUpperCase(),
       invoiceNumber,
       type: resolvedType,
       customerId: selectedCustomerId || undefined,
@@ -369,7 +439,9 @@ export function InvoiceCreateSheet({
       customerState: buyerState,
       customerContact: buyerContact,
       projectId: selectedProjectId || undefined,
-      projectName: projects.find(p => p.id.toString() === selectedProjectId)?.name,
+      projectName: selectedProjectId
+        ? projects.find((p) => p.id.toString() === selectedProjectId)?.name
+        : undefined,
       quotationId: selectedQuotationId || undefined,
       items: finalItems,
       services: invoiceServices,
@@ -607,15 +679,17 @@ export function InvoiceCreateSheet({
                             </div>
                             <div className="col-span-2">
                               <Label className="text-xs">Rate (₹)</Label>
-                              <Input type="number" value={service.rate} onChange={(e) => updateService(idx, 'rate', parseFloat(e.target.value) || 0)} />
+                              <Input type="number" min="0" step="0.01" value={service.rate} onChange={(e) => updateService(idx, 'rate', parseFloat(e.target.value) || 0)} />
                             </div>
                             <div className="col-span-2">
                               <Label className="text-xs">GST %</Label>
                               <Select value={service.gstRate.toString()} onValueChange={(v) => updateService(idx, 'gstRate', parseFloat(v))}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                  {getGstRates().map(r => (
-                                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                                  {CANONICAL_GST_RATES.map((pct) => (
+                                    <SelectItem key={pct} value={String(pct)}>
+                                      {pct}%
+                                    </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
@@ -708,19 +782,21 @@ export function InvoiceCreateSheet({
                             </div>
                             <div className="col-span-1">
                               <Label className="text-xs">Qty</Label>
-                              <Input type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', parseInt(e.target.value) || 1)} />
+                              <Input type="number" min="1" step="1" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', Math.max(1, parseInt(e.target.value) || 1))} />
                             </div>
                             <div className="col-span-2">
                               <Label className="text-xs">Rate (₹)</Label>
-                              <Input type="number" value={item.rate} onChange={(e) => updateItem(idx, 'rate', parseFloat(e.target.value) || 0)} />
+                              <Input type="number" min="0" step="0.01" value={item.rate} onChange={(e) => updateItem(idx, 'rate', parseFloat(e.target.value) || 0)} />
                             </div>
                             <div className="col-span-2">
                               <Label className="text-xs">GST %</Label>
                               <Select value={item.gstRate.toString()} onValueChange={(v) => updateItem(idx, 'gstRate', parseFloat(v))}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                  {getGstRates().map(r => (
-                                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                                  {CANONICAL_GST_RATES.map((pct) => (
+                                    <SelectItem key={pct} value={String(pct)}>
+                                      {pct}%
+                                    </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
@@ -813,11 +889,13 @@ export function InvoiceCreateSheet({
                     <div className="grid grid-cols-3 gap-4">
                       <div className="space-y-2">
                         <Label>Amount Received (₹)</Label>
-                        <Input 
-                          type="number" 
-                          value={amountReceived} 
-                          onChange={(e) => setAmountReceived(e.target.value)} 
-                          placeholder="0" 
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={amountReceived}
+                          onChange={(e) => setAmountReceived(e.target.value)}
+                          placeholder="0"
                         />
                       </div>
                       <div className="space-y-2">

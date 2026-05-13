@@ -88,6 +88,7 @@ export function createGeneratedDocumentRow(
   docKey: string,
   project: Project,
   quotation?: Pick<Quotation, "quotationNumber" | "clientName"> | null,
+  opts?: { supersedesId?: string; version?: number },
 ): ProjectGeneratedDocument {
   const { title, bodyHtml } = buildDummyProjectHtml(docKey, project, quotation);
   return {
@@ -96,5 +97,7 @@ export function createGeneratedDocumentRow(
     title,
     createdAt: new Date().toISOString(),
     bodyHtml,
+    supersedesId: opts?.supersedesId,
+    version: opts?.version ?? 1,
   };
 }

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Package, Check, AlertTriangle, ArrowUp, ArrowDown, Plus, Send, Truck, Calendar, CheckCircle2, Wrench, ChevronDown, ChevronRight, User, RotateCcw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useAppData } from "@/contexts/AppDataContext";
+import type { ExecutionLineItem } from "@/types/project";
 
 interface MaterialIssue {
   date: string;
@@ -60,22 +61,64 @@ interface ToolAssigned {
   status?: string;
 }
 
+export type MaterialMovementCallMeta = { clientRequestId?: string };
+
 interface MaterialsSentTabProps {
   projectName: string;
   projectId?: string;
   materials: MaterialItem[];
   presetItems: PresetItem[];
   inventoryItems: InventoryItem[];
+  /** When present, show quoted vs issued variance from commercial baseline / execution rows. */
+  executionLineItems?: ExecutionLineItem[];
   toolsAssigned?: ToolAssigned[];
-  onIssueMaterials?: (items: { id: number; quantity: number; notes?: string }[], expenses?: { type: string; amount: number; notes?: string }[], taskInfo?: { assigneeId: number; notes: string }) => void | Promise<void>;
-  onReturnMaterial?: (itemId: number, quantity: number) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
-  onScrapMaterial?: (itemId: number, quantity: number) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
-  onConsumeMaterial?: (itemId: number, quantity: number) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
+  onIssueMaterials?: (
+    items: { id: number; quantity: number; notes?: string }[],
+    expenses?: { type: string; amount: number; notes?: string }[],
+    taskInfo?: { assigneeId: number; notes: string },
+    meta?: { movementGroupId?: string },
+  ) => void | Promise<void>;
+  onReturnMaterial?: (
+    itemId: number,
+    quantity: number,
+    meta?: MaterialMovementCallMeta,
+  ) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
+  onScrapMaterial?: (
+    itemId: number,
+    quantity: number,
+    meta?: MaterialMovementCallMeta,
+  ) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
+  onConsumeMaterial?: (
+    itemId: number,
+    quantity: number,
+    meta?: MaterialMovementCallMeta,
+  ) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
 }
 
 type MatchStatus = "match" | "over" | "under" | "no-preset";
 
 const CATEGORY_ORDER = ["Structure", "Panel/Module", "Wiring", "Earthing", "Meter", "Civil"];
+
+function newMovementClientId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `mv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function findExecutionLineForMaterial(
+  materialId: number,
+  materialName: string,
+  lines: ExecutionLineItem[] | undefined,
+): ExecutionLineItem | undefined {
+  if (!lines?.length) return undefined;
+  const byId = lines.find((l) => l.inventoryItemId === materialId || l.quotationMaterialId === materialId);
+  if (byId) return byId;
+  const n = materialName.toLowerCase();
+  return lines.find((l) => {
+    const d = (l.description || "").toLowerCase();
+    return d && (n.includes(d.slice(0, 12)) || d.includes(n.slice(0, 12)));
+  });
+}
 
 export default function MaterialsSentTab({
   projectName,
@@ -83,6 +126,7 @@ export default function MaterialsSentTab({
   materials,
   presetItems,
   inventoryItems,
+  executionLineItems,
   toolsAssigned = [],
   onIssueMaterials,
   onReturnMaterial,
@@ -90,6 +134,12 @@ export default function MaterialsSentTab({
   onConsumeMaterial,
 }: MaterialsSentTabProps) {
   const { employees, addTask, generateId, sites, inventoryItems: globalInventoryItems } = useAppData();
+
+  const issueMovementGroupIdRef = useRef<string | null>(null);
+  const sendMoreMovementGroupIdRef = useRef<string | null>(null);
+  const returnMovementIdRef = useRef<string | null>(null);
+  const scrapMovementIdRef = useRef<string | null>(null);
+  const consumeMovementIdRef = useRef<string | null>(null);
 
   const [toolsPage, setToolsPage] = useState(1);
   const [toolsPageSize, setToolsPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -133,6 +183,41 @@ export default function MaterialsSentTab({
   
   // Category collapse state
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (isIssueModalOpen && !issueMovementGroupIdRef.current) {
+      issueMovementGroupIdRef.current = newMovementClientId();
+    }
+    if (!isIssueModalOpen) issueMovementGroupIdRef.current = null;
+  }, [isIssueModalOpen]);
+
+  useEffect(() => {
+    if (isSendMoreModalOpen && !sendMoreMovementGroupIdRef.current) {
+      sendMoreMovementGroupIdRef.current = newMovementClientId();
+    }
+    if (!isSendMoreModalOpen) sendMoreMovementGroupIdRef.current = null;
+  }, [isSendMoreModalOpen]);
+
+  useEffect(() => {
+    if (isReturnModalOpen && !returnMovementIdRef.current) {
+      returnMovementIdRef.current = newMovementClientId();
+    }
+    if (!isReturnModalOpen) returnMovementIdRef.current = null;
+  }, [isReturnModalOpen]);
+
+  useEffect(() => {
+    if (isScrapModalOpen && !scrapMovementIdRef.current) {
+      scrapMovementIdRef.current = newMovementClientId();
+    }
+    if (!isScrapModalOpen) scrapMovementIdRef.current = null;
+  }, [isScrapModalOpen]);
+
+  useEffect(() => {
+    if (isConsumeModalOpen && !consumeMovementIdRef.current) {
+      consumeMovementIdRef.current = newMovementClientId();
+    }
+    if (!isConsumeModalOpen) consumeMovementIdRef.current = null;
+  }, [isConsumeModalOpen]);
 
   // Match materials against preset
   const getMatchStatus = (material: MaterialItem): { status: MatchStatus; preset?: PresetItem; difference: number } => {
@@ -231,7 +316,9 @@ export default function MaterialsSentTab({
       ? { assigneeId: parseInt(taskAssignee), notes: taskNotes }
       : undefined;
 
-    await onIssueMaterials?.(itemsToIssue, expenses, taskInfo);
+    await onIssueMaterials?.(itemsToIssue, expenses, taskInfo, {
+      movementGroupId: issueMovementGroupIdRef.current ?? undefined,
+    });
     
     // Create transport task if assigned
     if (assignTaskWithIssue && taskAssignee) {
@@ -301,7 +388,12 @@ export default function MaterialsSentTab({
 
   const handleConfirmSendMore = async () => {
     if (!selectedMaterialForSendMore || !sendMoreQuantity) return;
-    await onIssueMaterials?.([{ id: selectedMaterialForSendMore.id, quantity: parseInt(sendMoreQuantity) }]);
+    await onIssueMaterials?.(
+      [{ id: selectedMaterialForSendMore.id, quantity: parseInt(sendMoreQuantity) }],
+      undefined,
+      undefined,
+      { movementGroupId: sendMoreMovementGroupIdRef.current ?? undefined },
+    );
     toast({ title: "Material Sent", description: `${sendMoreQuantity} units of ${selectedMaterialForSendMore.name} sent to site` });
     setSendMoreQuantity("");
     setSelectedMaterialForSendMore(null);
@@ -321,7 +413,9 @@ export default function MaterialsSentTab({
       toast({ title: "Invalid quantity", variant: "destructive" });
       return;
     }
-    const result = (await (onReturnMaterial?.(returnMaterial.id, qty) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
+    const result = (await (onReturnMaterial?.(returnMaterial.id, qty, {
+      clientRequestId: returnMovementIdRef.current ?? undefined,
+    }) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
     if (!result.ok) {
       toast({ title: "Return Failed", description: result.error || "Unable to return material", variant: "destructive" });
       return;
@@ -345,7 +439,9 @@ export default function MaterialsSentTab({
       toast({ title: "Invalid quantity", variant: "destructive" });
       return;
     }
-    const result = (await (onScrapMaterial?.(scrapMaterial.id, qty) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
+    const result = (await (onScrapMaterial?.(scrapMaterial.id, qty, {
+      clientRequestId: scrapMovementIdRef.current ?? undefined,
+    }) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
     if (!result.ok) {
       toast({ title: "Scrap Failed", description: result.error || "Unable to scrap material", variant: "destructive" });
       return;
@@ -369,7 +465,9 @@ export default function MaterialsSentTab({
       toast({ title: "Invalid quantity", variant: "destructive" });
       return;
     }
-    const result = (await (onConsumeMaterial?.(consumeMaterial.id, qty) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
+    const result = (await (onConsumeMaterial?.(consumeMaterial.id, qty, {
+      clientRequestId: consumeMovementIdRef.current ?? undefined,
+    }) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
     if (!result.ok) {
       toast({ title: "Consumption Failed", description: result.error || "Unable to record consumption", variant: "destructive" });
       return;
@@ -383,7 +481,7 @@ export default function MaterialsSentTab({
   const getStatusBadge = (status: MatchStatus, difference: number) => {
     switch (status) {
       case "match":
-        return <Badge className="bg-blue-500/10 text-blue-600 border-0 flex items-center gap-1"><Check className="w-3 h-3" /> Match</Badge>;
+        return <Badge className="bg-primary/10 text-primary border-0 flex items-center gap-1"><Check className="w-3 h-3" /> Match</Badge>;
       case "over":
         return <Badge className="bg-red-500/10 text-red-600 border-0 flex items-center gap-1"><ArrowUp className="w-3 h-3" /> +{difference} Over</Badge>;
       case "under":
@@ -481,6 +579,23 @@ export default function MaterialsSentTab({
                                         Preset requires: {preset.quantity} {preset.unit || material.unit}
                                       </p>
                                     )}
+                                    {(() => {
+                                      const ex = findExecutionLineForMaterial(material.id, material.name, executionLineItems);
+                                      if (!ex) return null;
+                                      const vsBoq = material.totalQuantitySent - ex.quantity;
+                                      return (
+                                        <p
+                                          className={`text-xs mb-2 ${
+                                            vsBoq === 0 ? "text-muted-foreground" : vsBoq > 0 ? "text-amber-800" : "text-sky-800"
+                                          }`}
+                                        >
+                                          BOQ {ex.quantity} {ex.unit} • Ledger issued {ex.issuedQty} • On-site sent {material.totalQuantitySent}
+                                          {vsBoq !== 0 && (
+                                            <span className="font-medium"> ({vsBoq > 0 ? "+" : ""}{vsBoq} vs BOQ qty)</span>
+                                          )}
+                                        </p>
+                                      );
+                                    })()}
                                     
                                     <div className="flex flex-wrap gap-2 mt-2">
                                       {material.issues.map((issue, idx) => (
@@ -606,7 +721,7 @@ export default function MaterialsSentTab({
                             variant="outline"
                             className={
                               tool.status === "Returned"
-                                ? "border-blue-500/30 bg-blue-500/10 text-blue-600"
+                                ? "border-primary/30 bg-primary/10 text-primary"
                                 : "border-amber-500/30 bg-amber-500/10 text-amber-600"
                             }
                           >
@@ -625,7 +740,7 @@ export default function MaterialsSentTab({
 
       {/* Issue Confirmation Modal - with expense & task assignment options */}
       <Sheet open={isIssueModalOpen} onOpenChange={setIsIssueModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Truck className="w-5 h-5 text-primary" /> Confirm Issue

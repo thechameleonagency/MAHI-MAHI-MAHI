@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { 
   Plus, Search, Phone, Mail, MapPin, Calendar, User, UserPlus, FileText, 
   Send, Eye, Edit, Trash2, Check, Clock, AlertCircle, MessageCircle,
-  Building2, IndianRupee, Filter, ChevronDown
+  Building2, IndianRupee, Filter, ChevronDown, Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,7 +34,7 @@ const Enquiries = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
-  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   
@@ -66,7 +66,6 @@ const Enquiries = () => {
   const [assignTo, setAssignTo] = useState("");
   const [noteText, setNoteText] = useState("");
   const [notePersonId, setNotePersonId] = useState("");
-  const [noteUpdatedById, setNoteUpdatedById] = useState("admin");
   const [meetingDate, setMeetingDate] = useState("");
   const [meetingNotes, setMeetingNotes] = useState("");
   const [shareMethod, setShareMethod] = useState<"whatsapp" | "email">("whatsapp");
@@ -118,7 +117,7 @@ const Enquiries = () => {
   const stats = {
     total: enquiries.length,
     new: enquiries.filter(e => e.status === "new").length,
-    inProgress: enquiries.filter(e => ["contacted", "meeting-scheduled", "quotation-sent", "negotiation"].includes(e.status)).length,
+    inProgress: enquiries.filter(e => ["contacted", "meeting-scheduled", "quotation-sent"].includes(e.status)).length,
     converted: enquiries.filter(e => e.status === "converted").length,
     highPriority: enquiries.filter(e => e.priority === "high" && e.status !== "converted" && e.status !== "lost").length,
   };
@@ -131,7 +130,6 @@ const Enquiries = () => {
       "contacted": "bg-amber-500/10 text-amber-500 border-0",
       "meeting-scheduled": "bg-purple-500/10 text-purple-500 border-0",
       "quotation-sent": "bg-cyan-500/10 text-cyan-500 border-0",
-      "negotiation": "bg-orange-500/10 text-orange-500 border-0",
       "converted": "bg-primary/10 text-primary border-0",
       "lost": "bg-destructive/10 text-destructive border-0",
     };
@@ -140,7 +138,6 @@ const Enquiries = () => {
       "contacted": "Contacted",
       "meeting-scheduled": "Meeting Scheduled",
       "quotation-sent": "Quotation Sent",
-      "negotiation": "Negotiation",
       "converted": "Converted",
       "lost": "Lost",
     };
@@ -168,9 +165,14 @@ const Enquiries = () => {
       return;
     }
 
+    const capacity = formData.systemCapacity;
+    const finalCapacity = (capacity && !isNaN(capacity as any)) ? `${capacity}kW` : capacity;
+
     const newEnquiry: Enquiry = {
       id: `ENQ-${new Date().getFullYear()}-${String(enquiries.length + 1).padStart(3, '0')}`,
       ...formData,
+      agentId: formData.agentId || undefined,
+      systemCapacity: finalCapacity,
       estimatedBudget: parseFloat(formData.estimatedBudget) || 0,
       followUpDate: formData.followUpDate || undefined,
       status: "new",
@@ -201,6 +203,9 @@ const Enquiries = () => {
       return;
     }
 
+    const capacity = formData.systemCapacity;
+    const finalCapacity = (capacity && !isNaN(capacity as any)) ? `${capacity}kW` : capacity;
+
     updateEnquiry(selectedEnquiry.id, {
       customerName: formData.customerName,
       customerPhone: formData.customerPhone,
@@ -208,8 +213,8 @@ const Enquiries = () => {
       customerAddress: formData.customerAddress,
       customerType: formData.customerType,
       source: formData.source,
-      agentId: formData.agentId,
-      systemCapacity: formData.systemCapacity,
+      agentId: formData.agentId || undefined,
+      systemCapacity: finalCapacity,
       estimatedBudget: parseFloat(formData.estimatedBudget) || 0,
       requirements: formData.requirements,
       priority: formData.priority,
@@ -265,9 +270,7 @@ const Enquiries = () => {
       ? (notePersonId === "admin" ? "Admin" : employees.find(e => e.id.toString() === notePersonId)?.name || "Unknown")
       : "";
     
-    const updatedByName = noteUpdatedById === "admin" 
-      ? "Admin" 
-      : employees.find(e => e.id.toString() === noteUpdatedById)?.name || "Admin";
+    const updatedByName = "Admin"; // System locked to logged user, using Admin as default for prototype
     
     const newNote = {
       date: new Date().toISOString().split('T')[0],
@@ -284,8 +287,16 @@ const Enquiries = () => {
     setIsAddNoteOpen(false);
     setNoteText("");
     setNotePersonId("");
-    setNoteUpdatedById("admin");
     toast({ title: "Note Added", description: "Follow-up note has been saved" });
+  };
+
+  const handleMarkAsLost = async () => {
+    if (!selectedEnquiry) return;
+    const result = await transitionEnquiryStatus(selectedEnquiry.id, "lost");
+    if (result.ok) {
+      toast({ title: "Lead Lost", description: "Enquiry marked as lost" });
+      setIsViewEnquiryOpen(false);
+    }
   };
 
   const handleScheduleMeeting = async () => {
@@ -320,10 +331,8 @@ const Enquiries = () => {
     toast({ title: "Shared", description: `Enquiry details shared via ${shareMethod}` });
   };
 
-  const handleCreateQuotation = async (enquiry: Enquiry) => {
-    // Update enquiry status to quotation-sent when navigating to create quotation
-    await transitionEnquiryStatus(enquiry.id, "quotation-sent");
-    navigate(`/quotations?create&from=enquiry&client=${encodeURIComponent(enquiry.customerName)}&phone=${encodeURIComponent(enquiry.customerPhone)}&address=${encodeURIComponent(enquiry.customerAddress)}&capacity=${encodeURIComponent(enquiry.systemCapacity)}&agentId=${encodeURIComponent(enquiry.agentId || "")}`);
+  const handleCreateQuotation = (enquiry: Enquiry) => {
+    navigate(`/quotations?create&from=enquiry&enquiryId=${enquiry.id}&client=${encodeURIComponent(enquiry.customerName)}&phone=${encodeURIComponent(enquiry.customerPhone)}&address=${encodeURIComponent(enquiry.customerAddress)}&capacity=${encodeURIComponent(enquiry.systemCapacity)}&agentId=${encodeURIComponent(enquiry.agentId || "")}&customerId=${encodeURIComponent(enquiry.customerId || "")}`);
   };
 
   const handleConvertEnquiry = async (enquiry: Enquiry) => {
@@ -339,7 +348,7 @@ const Enquiries = () => {
     
     toast({ 
       title: "Enquiry Converted", 
-      description: `Customer record created: ${result.customerId}` 
+      description: `Enquiry has been marked as converted. You can now create a quotation.` 
     });
     
     // After conversion, we can optionally navigate to create a quotation with the customerId
@@ -366,7 +375,7 @@ const Enquiries = () => {
   return (
     <PageShell className="space-y-4 md:space-y-5">
       <StickyPageHeader
-        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Sales" }, { label: "Enquiries" }]}
+        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Enquiries" }]}
         subRow={
           <>
             <div className="flex min-w-0 w-full flex-1 flex-wrap items-end gap-2">
@@ -398,37 +407,10 @@ const Enquiries = () => {
                   <SelectItem value="contacted">Contacted</SelectItem>
                   <SelectItem value="meeting-scheduled">Meeting Scheduled</SelectItem>
                   <SelectItem value="quotation-sent">Quotation Sent</SelectItem>
-                  <SelectItem value="negotiation">Negotiation</SelectItem>
                   <SelectItem value="converted">Converted</SelectItem>
                   <SelectItem value="lost">Lost</SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => setIsFiltersOpen(!isFiltersOpen)}>
-                <Filter className="h-4 w-4" />
-              </Button>
-            </div>
-            <InlineKpiStrip
-              className="w-full sm:w-auto sm:justify-end"
-              items={[
-                { label: "Total", value: stats.total },
-                { label: "New", value: stats.new },
-                { label: "In progress", value: stats.inProgress },
-                { label: "Converted", value: stats.converted },
-                { label: "High priority", value: stats.highPriority },
-              ]}
-            />
-          </>
-        }
-      >
-        <Button size="sm" onClick={() => { resetForm(); setIsAddEnquiryOpen(true); }}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add enquiry
-        </Button>
-      </StickyPageHeader>
-
-      <Collapsible open={isFiltersOpen} onOpenChange={setIsFiltersOpen}>
-          <CollapsibleContent>
-            <div className="flex flex-wrap gap-3 p-3 bg-muted/30 rounded-lg">
               <Select
                 value={priorityFilter}
                 onValueChange={(v) => {
@@ -436,7 +418,7 @@ const Enquiries = () => {
                   setTablePage(1);
                 }}
               >
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="h-9 w-[110px] bg-muted/50">
                   <SelectValue placeholder="Priority" />
                 </SelectTrigger>
                 <SelectContent>
@@ -453,7 +435,7 @@ const Enquiries = () => {
                   setTablePage(1);
                 }}
               >
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="h-9 w-[130px] bg-muted/50">
                   <SelectValue placeholder="Assignee" />
                 </SelectTrigger>
                 <SelectContent>
@@ -465,8 +447,49 @@ const Enquiries = () => {
                 </SelectContent>
               </Select>
             </div>
-          </CollapsibleContent>
-        </Collapsible>
+            <InlineKpiStrip
+              className="w-full sm:w-auto sm:justify-end"
+              items={[
+                { 
+                  label: "Total", 
+                  value: stats.total, 
+                  active: statusFilter === "all" && priorityFilter === "all",
+                  onClick: () => { setStatusFilter("all"); setPriorityFilter("all"); }
+                },
+                { 
+                  label: "New", 
+                  value: stats.new, 
+                  active: statusFilter === "new",
+                  onClick: () => { setStatusFilter("new"); setPriorityFilter("all"); }
+                },
+                { 
+                  label: "In progress", 
+                  value: stats.inProgress, 
+                  active: ["contacted", "meeting-scheduled", "quotation-sent"].includes(statusFilter),
+                  onClick: () => { setStatusFilter("contacted"); setPriorityFilter("all"); } // Default to contacted or keep as group
+                },
+                { 
+                  label: "Converted", 
+                  value: stats.converted, 
+                  active: statusFilter === "converted",
+                  onClick: () => { setStatusFilter("converted"); setPriorityFilter("all"); }
+                },
+                { 
+                  label: "High priority", 
+                  value: stats.highPriority, 
+                  active: priorityFilter === "high",
+                  onClick: () => { setPriorityFilter("high"); setStatusFilter("all"); }
+                },
+              ]}
+            />
+          </>
+        }
+      >
+        <Button size="sm" onClick={() => { resetForm(); setIsAddEnquiryOpen(true); }}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add enquiry
+        </Button>
+      </StickyPageHeader>
 
         <DataTableShell
             maxHeight={listTableViewportMaxHeight(tablePageSize)}
@@ -487,6 +510,7 @@ const Enquiries = () => {
             <TableHeader>
               <TableRow className={dataTableClasses.headRow}>
                 <TableHead>Customer</TableHead>
+                <TableHead>Agent</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Priority</TableHead>
@@ -494,12 +518,19 @@ const Enquiries = () => {
                 <TableHead>Budget</TableHead>
                 <TableHead>Assigned</TableHead>
                 <TableHead>Follow-up</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-right w-[50px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {pagedEnquiries.map((enquiry) => (
-                <TableRow key={enquiry.id} className="hover:bg-muted/40">
+                <TableRow 
+                  key={enquiry.id} 
+                  className="hover:bg-muted/40 cursor-pointer"
+                  onClick={() => {
+                    setSelectedEnquiry(enquiry);
+                    setIsViewEnquiryOpen(true);
+                  }}
+                >
                   <TableCell>
                     <div className="flex items-start gap-2 min-w-0 max-w-[220px]">
                       <Avatar className="h-8 w-8 border border-primary/20 shrink-0">
@@ -517,67 +548,32 @@ const Enquiries = () => {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{enquiry.customerPhone}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium">
+                        {enquiry.agentId ? (agents.find(a => a.id === enquiry.agentId)?.name || "Unknown Agent") : "N/A"}
+                      </span>
+                      {enquiry.agentId && (
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Agent</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground whitespace-nowrap">{enquiry.customerPhone}</TableCell>
                   <TableCell>{getStatusBadge(enquiry.status)}</TableCell>
                   <TableCell>{getPriorityBadge(enquiry.priority)}</TableCell>
                   <TableCell className="font-medium">{enquiry.systemCapacity || "—"}</TableCell>
                   <TableCell className="text-primary font-medium">{formatCurrency(enquiry.estimatedBudget)}</TableCell>
-                  <TableCell className="text-sm">
+                  <TableCell >
                     {enquiry.assignedTo || <span className="text-amber-600">Unassigned</span>}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                  <TableCell className="text-muted-foreground whitespace-nowrap">
                     {enquiry.followUpDate
                       ? new Date(enquiry.followUpDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
                       : "—"}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex flex-wrap justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedEnquiry(enquiry);
-                          setIsViewEnquiryOpen(true);
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(enquiry)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      {!enquiry.assignedTo && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedEnquiry(enquiry);
-                            setIsAssignOpen(true);
-                          }}
-                        >
-                          <User className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {enquiry.status !== "converted" && enquiry.status !== "lost" && (
-                        <div className="flex gap-1">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            className="shrink-0 h-8 text-[10px]" 
-                            onClick={() => handleConvertEnquiry(enquiry)}
-                          >
-                            <UserPlus className="h-3 w-3 mr-1" />
-                            Convert
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            className="shrink-0 h-8 text-[10px]" 
-                            onClick={() => handleCreateQuotation(enquiry)}
-                          >
-                            <FileText className="h-3 w-3 mr-1" />
-                            Quote
-                          </Button>
-                        </div>
-                      )}
+                    <div className="flex justify-end items-center">
+                      <ChevronDown className="h-4 w-4 text-muted-foreground/50" />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -660,7 +656,7 @@ const Enquiries = () => {
                 <Label>Source</Label>
                 <Select 
                   value={formData.source} 
-                  onValueChange={(v: Enquiry["source"]) => setFormData({ ...formData, source: v, agentId: v === "referral" ? formData.agentId : "" })}
+                  onValueChange={(v: Enquiry["source"]) => setFormData({ ...formData, source: v })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -692,24 +688,25 @@ const Enquiries = () => {
                 </Select>
               </div>
             </div>
-            {formData.source === "referral" && (
-              <div className="space-y-2">
-                <Label>Referred By (Agent) *</Label>
-                <Select
-                  value={formData.agentId}
-                  onValueChange={(v) => setFormData({ ...formData, agentId: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agents.filter(a => a.status === "active").map(agent => (
-                      <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div className="grid grid-cols-1 gap-2 max-w-lg">
+              <Label>Associated agent</Label>
+              <p className="text-xs text-muted-foreground -mt-1">Optional unless source is referral (then pick an agent).</p>
+              <Select
+                value={formData.agentId || "none"}
+                onValueChange={(v) =>
+                  setFormData({ ...formData, agentId: v === "none" ? "" : v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="No agent / direct" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No agent / direct</SelectItem>
+                  {agents.filter((a) => a.status === "active").map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>System Capacity</Label>
@@ -758,139 +755,260 @@ const Enquiries = () => {
       <Sheet open={isViewEnquiryOpen} onOpenChange={setIsViewEnquiryOpen}>
         <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
           <SheetHeader>
-            <SheetTitle className="flex items-center gap-2">
-              {selectedEnquiry?.id}
-              {selectedEnquiry && getStatusBadge(selectedEnquiry.status)}
+            <SheetTitle className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {selectedEnquiry?.id}
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => {
+                  if (selectedEnquiry) {
+                    setIsViewEnquiryOpen(false);
+                    handleOpenEdit(selectedEnquiry);
+                  }
+                }}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
             </SheetTitle>
           </SheetHeader>
           {selectedEnquiry && (
-            <div className="space-y-6">
-              {/* Customer Info */}
-              <div className="grid grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg">
-                <div>
-                  <p className="text-xs text-muted-foreground">Customer</p>
-                  <p className="font-medium">{selectedEnquiry.customerName}</p>
-                  <p className="text-sm text-muted-foreground">{selectedEnquiry.customerType}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Contact</p>
-                  <p className="font-medium">{selectedEnquiry.customerPhone}</p>
-                  <p className="text-sm text-muted-foreground">{selectedEnquiry.customerEmail}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground">Address</p>
-                  <p className="font-medium">{selectedEnquiry.customerAddress}</p>
-                </div>
-              </div>
-
-              {/* Project Details */}
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">System Capacity</p>
-                  <p className="font-semibold text-lg">{selectedEnquiry.systemCapacity}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Estimated Budget</p>
-                  <p className="font-semibold text-lg text-primary">{formatCurrency(selectedEnquiry.estimatedBudget)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Source</p>
-                  <p className="font-medium">{selectedEnquiry.source}</p>
-                  {selectedEnquiry.source === "referral" && selectedEnquiry.agentId && (
-                    <p className="text-sm text-muted-foreground">by {agents.find(a => a.id === selectedEnquiry.agentId)?.name || "Unknown Agent"}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Requirements */}
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Requirements</p>
-                <p className="text-sm bg-muted/30 p-3 rounded-lg">{selectedEnquiry.requirements || "No specific requirements noted"}</p>
-              </div>
-
-              {/* Assignment & Scheduling */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Assigned To</p>
-                  <p className="font-medium">{selectedEnquiry.assignedTo || <span className="text-amber-500">Unassigned</span>}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Meeting Date</p>
-                  <p className="font-medium">{selectedEnquiry.meetingDate ? new Date(selectedEnquiry.meetingDate).toLocaleDateString('en-IN') : "Not scheduled"}</p>
-                </div>
-              </div>
-
-              {/* Notes */}
-              {selectedEnquiry.notes.length > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2">Notes & Follow-ups</p>
-                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                    {selectedEnquiry.notes.map((note, idx) => (
-                      <div key={idx} className="p-3 bg-muted/30 rounded-lg">
-                        <p className="text-sm">{note.note}</p>
-                        <div className="flex flex-wrap items-center gap-2 mt-2">
-                          <span className="text-xs text-muted-foreground">{note.date}</span>
-                          {(note.updatedBy || note.by) && (
-                            <Badge variant="outline" className="text-xs">
-                              Updated by: {note.updatedBy || note.by}
-                            </Badge>
-                          )}
-                          {note.by && (
-                            <Badge variant="secondary" className="text-xs">
-                              Status shared by: {note.by}
-                            </Badge>
-                          )}
+            <div className="flex flex-col h-full">
+              <div className="flex-1 space-y-6 pt-6">
+                {/* Header Info Card */}
+                  <div className="flex items-center justify-between p-4 bg-muted/30 rounded-xl border border-border/50">
+                    <div className="flex items-center gap-4">
+                      <Avatar className="h-12 w-12 border-2 border-primary/10">
+                        <AvatarFallback className="bg-primary/5 text-primary text-lg font-semibold">
+                          {selectedEnquiry.customerType === "company" ? <Building2 className="h-6 w-6" /> : selectedEnquiry.customerName.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <h3 className="text-lg font-semibold leading-tight">{selectedEnquiry.customerName}</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-[10px] uppercase tracking-wider h-5">
+                            {selectedEnquiry.customerType}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Created {new Date(selectedEnquiry.createdAt).toLocaleDateString()}
+                          </span>
                         </div>
                       </div>
-                    ))}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground mb-1 uppercase tracking-tighter">Source</p>
+                      <Badge variant="secondary" className="capitalize">{selectedEnquiry.source}</Badge>
+                    </div>
+                  </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Contact Information */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 group">
+                      <div className="p-2 rounded-lg bg-primary/5 text-primary">
+                        <Phone className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Phone</p>
+                        <p className="text-sm font-medium">{selectedEnquiry.customerPhone}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 group">
+                      <div className="p-2 rounded-lg bg-primary/5 text-primary">
+                        <Mail className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Email</p>
+                        <p className="text-sm font-medium">{selectedEnquiry.customerEmail || "—"}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2 group">
+                      <div className="p-2 rounded-lg bg-primary/5 text-primary shrink-0">
+                        <MapPin className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Address</p>
+                        <p className="text-sm font-medium leading-snug">{selectedEnquiry.customerAddress || "—"}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Operational Details */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-lg bg-amber-500/5 text-amber-500">
+                        <IndianRupee className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Budget Estimate</p>
+                        <p className="text-sm font-semibold">{formatCurrency(selectedEnquiry.estimatedBudget)}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-lg bg-purple-500/5 text-purple-500">
+                        <Zap className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">System Capacity</p>
+                        <p className="text-sm font-semibold">{selectedEnquiry.systemCapacity || "—"}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-lg bg-blue-500/5 text-blue-500">
+                        <Filter className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Source</p>
+                        <p className="text-sm font-medium">
+                          {selectedEnquiry.source.charAt(0).toUpperCase() + selectedEnquiry.source.slice(1)}
+                          {selectedEnquiry.agentId && (
+                            <span className="text-muted-foreground font-normal ml-1">
+                              {selectedEnquiry.source === "referral" ? "via " : "— Agent: "}
+                              {agents.find((a) => a.id === selectedEnquiry.agentId)?.name ?? "Unknown"}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              )}
 
-              {/* Actions */}
-              <div className="flex flex-wrap gap-2 pt-4 border-t">
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => { setIsViewEnquiryOpen(false); setIsAssignOpen(true); }}
-                >
-                  <User className="h-3 w-3 mr-1" />
-                  {selectedEnquiry.assignedTo ? "Reassign" : "Assign"}
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => { setIsViewEnquiryOpen(false); setIsScheduleMeetingOpen(true); }}
-                >
-                  <Calendar className="h-3 w-3 mr-1" />
-                  Schedule Meeting
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => { setIsViewEnquiryOpen(false); setIsAddNoteOpen(true); }}
-                >
-                  <MessageCircle className="h-3 w-3 mr-1" />
-                  Add Note
-                </Button>
-                {selectedEnquiry.status !== "converted" && (
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
-                    onClick={() => { setIsViewEnquiryOpen(false); handleConvertEnquiry(selectedEnquiry); }}
-                  >
-                    <UserPlus className="h-3 w-3 mr-1" />
-                    Convert to Customer
-                  </Button>
-                )}
-                <Button 
-                  size="sm"
-                  onClick={() => { setIsViewEnquiryOpen(false); handleCreateQuotation(selectedEnquiry); }}
-                >
-                  <FileText className="h-3 w-3 mr-1" />
-                  Create Quotation
-                </Button>
+                {/* Requirements */}
+                <div className="p-4 bg-muted/30 rounded-xl border border-border/50">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                    <FileText className="h-3 w-3" />
+                    Customer Requirements
+                  </h4>
+                  <p className="text-sm text-foreground/80 leading-relaxed italic">
+                    "{selectedEnquiry.requirements || "No specific requirements provided."}"
+                  </p>
+                </div>
+
+                {/* Follow-up Notes Timeline */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <MessageCircle className="h-3 w-3" />
+                      Recent Activity & Notes
+                    </h4>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-7 text-[10px] text-primary"
+                      onClick={() => setIsAddNoteOpen(true)}
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add Note
+                    </Button>
+                  </div>
+                  
+                  <div className="space-y-3 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-border/60">
+                    {selectedEnquiry.notes.length === 0 ? (
+                      <div className="pl-8 py-4">
+                        <p className="text-xs text-muted-foreground italic">No follow-up notes recorded yet.</p>
+                      </div>
+                    ) : (
+                      selectedEnquiry.notes.map((note, idx) => (
+                        <div key={idx} className="relative pl-8 group">
+                          <div className="absolute left-0 top-[6px] h-3 w-3 rounded-full border-2 border-primary/20 bg-background z-10 group-hover:border-primary/50 transition-colors" />
+                          <div className="p-3 bg-muted/20 rounded-lg border border-border/40 group-hover:border-border/80 transition-all">
+                            <div className="flex items-start justify-between mb-1.6">
+                              <p className="text-xs font-medium text-primary/80">{note.updatedBy || "System"}</p>
+                              <time className="text-[10px] text-muted-foreground">{note.date}</time>
+                            </div>
+                            <p className="text-sm leading-relaxed">{note.note}</p>
+                            {note.by && (
+                              <div className="mt-2 pt-2 border-t border-border/40 flex items-center gap-1.5">
+                                <Avatar className="h-4 w-4">
+                                  <AvatarFallback className="text-[8px] bg-secondary text-secondary-foreground uppercase">
+                                    {note.by.charAt(0)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-[10px] text-muted-foreground font-medium">Status shared by {note.by}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Footer */}
+              <div className="pt-6 mt-6 border-t bg-background/80 backdrop-blur-sm sticky bottom-0 z-20">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-6">
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      disabled={selectedEnquiry.status === "converted" || selectedEnquiry.status === "lost"}
+                      onClick={() => setIsAssignOpen(true)}
+                    >
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      {selectedEnquiry.assignedTo ? "Reassign" : "Assign Lead"}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      disabled={selectedEnquiry.status === "converted" || selectedEnquiry.status === "lost"}
+                      onClick={() => setIsScheduleMeetingOpen(true)}
+                    >
+                      <Calendar className="h-4 w-4 mr-2" />
+                      Schedule Meeting
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {selectedEnquiry.status !== "converted" && selectedEnquiry.status !== "lost" && (
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={handleMarkAsLost}
+                        className="bg-destructive/5 text-destructive hover:bg-destructive hover:text-white border-destructive/20"
+                      >
+                        Mark as Lost
+                      </Button>
+                    )}
+                    
+                    {selectedEnquiry.status !== "converted" && (
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
+                        onClick={() => handleConvertEnquiry(selectedEnquiry)}
+                      >
+                        <Check className="h-4 w-4 mr-2" />
+                        Mark as Converted
+                      </Button>
+                    )}
+
+                    {selectedEnquiry.quotationId ? (
+                      <Button 
+                        size="sm"
+                        onClick={() => navigate(`/quotations?id=${selectedEnquiry.quotationId}`)}
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        View Quotation
+                      </Button>
+                    ) : (
+                      <Button 
+                        size="sm"
+                        onClick={() => handleCreateQuotation(selectedEnquiry)}
+                        disabled={selectedEnquiry.status === "lost"}
+                      >
+                        <FileText className="h-4 w-4 mr-2" />
+                        Create Quotation
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -932,20 +1050,6 @@ const Enquiries = () => {
             <SheetTitle>Add Follow-up Note</SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Updated by</Label>
-              <Select value={noteUpdatedById} onValueChange={setNoteUpdatedById}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Who is adding this note?" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  {employees.map(emp => (
-                    <SelectItem key={emp.id} value={emp.id.toString()}>{emp.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             <div className="space-y-2">
               <Label>Person who talked to client / Status shared by</Label>
               <Select value={notePersonId} onValueChange={setNotePersonId}>
@@ -1135,24 +1239,25 @@ const Enquiries = () => {
                 </Select>
               </div>
             </div>
-            {formData.source === "referral" && (
-              <div className="space-y-2">
-                <Label>Referred By (Agent) *</Label>
-                <Select
-                  value={formData.agentId}
-                  onValueChange={(v) => setFormData({ ...formData, agentId: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agents.filter(a => a.status === "active").map(agent => (
-                      <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div className="grid grid-cols-1 gap-2 max-w-lg">
+              <Label>Associated agent</Label>
+              <p className="text-xs text-muted-foreground -mt-1">Optional unless source is referral (then pick an agent).</p>
+              <Select
+                value={formData.agentId || "none"}
+                onValueChange={(v) =>
+                  setFormData({ ...formData, agentId: v === "none" ? "" : v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="No agent / direct" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No agent / direct</SelectItem>
+                  {agents.filter((a) => a.status === "active").map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>System Capacity</Label>

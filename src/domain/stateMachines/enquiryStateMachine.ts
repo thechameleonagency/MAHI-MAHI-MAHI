@@ -1,13 +1,12 @@
 import type { UserRole } from "@/domain/entities/identity";
 
-export type EnquiryStatus = "new" | "contacted" | "meeting-scheduled" | "quotation-sent" | "negotiation" | "converted" | "lost";
+export type EnquiryStatus = "new" | "contacted" | "meeting-scheduled" | "quotation-sent" | "converted" | "lost";
 
 const baseTransitions: Record<EnquiryStatus, EnquiryStatus[]> = {
   new: ["contacted", "lost"],
-  contacted: ["meeting-scheduled", "quotation-sent", "negotiation", "converted", "lost"],
-  "meeting-scheduled": ["quotation-sent", "negotiation", "converted", "lost"],
-  "quotation-sent": ["negotiation", "converted", "lost"],
-  negotiation: ["converted", "lost"],
+  contacted: ["meeting-scheduled", "quotation-sent", "converted", "lost"],
+  "meeting-scheduled": ["quotation-sent", "converted", "lost"],
+  "quotation-sent": ["converted", "lost"],
   converted: [],
   lost: [],
 };

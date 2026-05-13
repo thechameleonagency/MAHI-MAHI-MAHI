@@ -577,7 +577,8 @@ const Finance = () => {
               <CardTitle className="text-base font-medium">Recent Transactions</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <DataTableShell
+          <DataTableShell
+            variant="inline"
                 maxHeight={listTableViewportMaxHeight(txnTablePageSize)}
                 scrollResetKey={`${safeTxnPage}-${txnTablePageSize}-${transactions.length}`}
                 footer={
@@ -595,18 +596,18 @@ const Finance = () => {
               >
                 <TableHeader>
                   <TableRow className={dataTableClasses.headRow}>
-                    <TableHead className="text-muted-foreground">Date</TableHead>
-                    <TableHead className="text-muted-foreground">Description</TableHead>
-                    <TableHead className="text-muted-foreground text-right">Amount</TableHead>
-                    <TableHead className="text-muted-foreground">Status</TableHead>
+                    <TableHead >Date</TableHead>
+                    <TableHead >Description</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead >Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {pagedTransactions.map((txn) => (
                     <TableRow key={txn.id} className="border-border">
-                      <TableCell className="text-muted-foreground text-sm">{txn.date}</TableCell>
-                      <TableCell className="text-foreground text-sm">{txn.description}</TableCell>
-                      <TableCell className={`text-right font-medium text-sm ${txn.type === "Credit" ? "text-blue-500" : "text-red-500"}`}>
+                      <TableCell className="text-muted-foreground">{txn.date}</TableCell>
+                      <TableCell className="text-foreground">{txn.description}</TableCell>
+                      <TableCell className={`text-right font-medium ${txn.type === "Credit" ? "text-blue-500" : "text-red-500"}`}>
                         {txn.type === "Credit" ? "+" : "-"}{txn.amount}
                       </TableCell>
                       <TableCell>{getStatusBadge(txn.status)}</TableCell>

@@ -97,6 +97,7 @@ const navSections: NavSection[] = [
     title: "People",
     items: [
       { label: "Employees", icon: Users, path: "/employees" },
+      { label: "Teams", icon: Layers, path: "/teams" },
       { label: "Agents", icon: UserCheck, path: "/agents" },
     ],
   },

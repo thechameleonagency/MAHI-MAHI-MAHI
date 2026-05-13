@@ -10,16 +10,21 @@ import {
 
 const STORAGE_KEY = "mss.pageHeaderSticky";
 
+type Breadcrumb = { label: string; to?: string };
+
 type PageHeaderStickyValue = {
   /** When true (default), `StickyPageHeader` pins under the app bar; when false it scrolls with the page */
   stickyPageHeader: boolean;
   setStickyPageHeader: (value: boolean) => void;
+  breadcrumbs: Breadcrumb[];
+  setBreadcrumbs: (crumbs: Breadcrumb[]) => void;
 };
 
 const PageHeaderStickyContext = createContext<PageHeaderStickyValue | null>(null);
 
 export function PageHeaderStickyProvider({ children }: { children: ReactNode }) {
   const [stickyPageHeader, setStickyState] = useState(true);
+  const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
 
   useEffect(() => {
     try {
@@ -41,8 +46,8 @@ export function PageHeaderStickyProvider({ children }: { children: ReactNode }) 
   }, []);
 
   const value = useMemo(
-    () => ({ stickyPageHeader, setStickyPageHeader }),
-    [stickyPageHeader, setStickyPageHeader],
+    () => ({ stickyPageHeader, setStickyPageHeader, breadcrumbs, setBreadcrumbs }),
+    [stickyPageHeader, setStickyPageHeader, breadcrumbs, setBreadcrumbs],
   );
 
   return <PageHeaderStickyContext.Provider value={value}>{children}</PageHeaderStickyContext.Provider>;

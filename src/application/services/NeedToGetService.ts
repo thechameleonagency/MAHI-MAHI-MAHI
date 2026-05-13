@@ -2,6 +2,8 @@ import { format, subDays } from "date-fns";
 import type { VendorBill } from "@/data/inventoryData";
 import type { InventoryItem, Project, SiteRecord } from "@/types/project";
 
+export type NeedToGetRowKind = "material" | "nonMaterial";
+
 export type NeedToGetRow = {
   projectId: string;
   projectName: string;
@@ -12,7 +14,19 @@ export type NeedToGetRow = {
   qtyShort: number;
   needByDate: string;
   lastPurchaseRate: number;
+  /** Material shortfall vs checklist-only / status line (no warehouse SKU). */
+  rowKind?: NeedToGetRowKind;
 };
+
+function checklistNonMaterialRowId(siteId: number, lineId: string): number {
+  const s = `${siteId}:${lineId}`;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  }
+  if (h >= 0) h = (-h - 1) | 0;
+  return h === 0 ? -1 : h;
+}
 
 /** How the Need-to-Get table groups and merges lines (see `aggregateNeedToGetRows`). */
 export type NeedToGetGroupMode = "flat" | "project" | "site" | "material" | "needBy";
@@ -258,6 +272,27 @@ export class NeedToGetService {
           qtyShort: shortfall,
           needByDate: needBy,
           lastPurchaseRate: lastRate.get(id) ?? inv?.buyPrice ?? 0,
+          rowKind: "material",
+        });
+      }
+
+      for (const line of site.checklistItems) {
+        if (line.requiresMaterial) continue;
+        if (line.status === "dispatched") continue;
+        const label = line.materialName?.trim();
+        if (!label) continue;
+        const synId = checklistNonMaterialRowId(site.id, line.id);
+        rows.push({
+          projectId: site.projectId || "",
+          projectName: site.projectName || proj?.name || "—",
+          siteId: site.id,
+          siteName: site.name,
+          materialId: synId,
+          materialName: label,
+          qtyShort: 1,
+          needByDate: needBy,
+          lastPurchaseRate: 0,
+          rowKind: "nonMaterial",
         });
       }
     }
@@ -282,6 +317,7 @@ export class NeedToGetService {
           qtyShort: shortfall,
           needByDate: format(new Date(), "yyyy-MM-dd"),
           lastPurchaseRate: lastRate.get(id) ?? inv?.buyPrice ?? 0,
+          rowKind: "material",
         });
       }
     }

@@ -452,8 +452,9 @@ const VendorDetail = () => {
                   <Clock className="h-4 w-4 text-orange-400" /> Pending Bills ({pendingBills.length})
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-0 pt-4">
-                <DataTableShell
+              <CardContent className="p-0">
+          <DataTableShell
+            variant="inline"
                   maxHeight={listTableViewportMaxHeight(pbSize)}
                   scrollResetKey={`${safePb}-${pbSize}-${pendingBills.length}`}
                   footer={
@@ -532,8 +533,9 @@ const VendorDetail = () => {
                   <Check className="h-4 w-4 text-blue-400" /> Paid Bills ({paidBills.length})
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-0 pt-4">
-                <DataTableShell
+              <CardContent className="p-0">
+          <DataTableShell
+            variant="inline"
                   maxHeight={listTableViewportMaxHeight(pdSize)}
                   scrollResetKey={`${safePd}-${pdSize}-${paidBills.length}`}
                   footer={
@@ -592,7 +594,7 @@ const VendorDetail = () => {
             <CardContent className={paymentHistory.length > 0 ? "p-0 pt-4" : "pt-4"}>
               {paymentHistory.length > 0 ? (
                 <DataTableShell
-                  maxHeight={listTableViewportMaxHeight(vhSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(vhSize)}
                   scrollResetKey={`${safeVh}-${vhSize}-${sortedPaymentHistory.length}`}
                   footer={
                     <TablePaginationBar
@@ -998,7 +1000,7 @@ const VendorDetail = () => {
               <div>
                 <h4 className="text-sm font-medium mb-2">Items</h4>
                 <DataTableShell
-                  maxHeight={listTableViewportMaxHeight(billItemsSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(billItemsSize)}
                   scrollResetKey={`${safeBi}-${billItemsSize}-${billLineItems.length}`}
                   footer={
                     <TablePaginationBar

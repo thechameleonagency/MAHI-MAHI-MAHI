@@ -14,7 +14,8 @@
     "scan:inputs": "node scripts/scan-inputs.mjs",
     "scan:design": "node scripts/scan-design.mjs",
     "scan:all": "node scripts/scan-inputs.mjs && node scripts/scan-design.mjs",
-    "scan:watch": "node scripts/scan-watch.mjs"
+    "scan:watch": "node scripts/scan-watch.mjs",
+    "audit:lucide": "node scripts/audit-lucide-icons.mjs"
   },
   "dependencies": {
     "@fontsource/lexend": "^5.2.11",

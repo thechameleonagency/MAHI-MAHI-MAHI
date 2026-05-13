@@ -107,7 +107,7 @@ export const registerEnquiryCommands = (
     },
   );
 
-  commandBus.register<Command<ConvertEnquiryPayload>, { customerId: string }>(
+  commandBus.register<Command<ConvertEnquiryPayload>, { enquiryId: string }>(
     CONVERT_ENQUIRY_COMMAND,
     (command) => {
       permissionService.assertCanPerformAction(command.actorRole, "enquiry:create");
@@ -117,25 +117,7 @@ export const registerEnquiryCommands = (
         return { ok: false, errorCode: "ENQUIRY_NOT_FOUND", message: "Enquiry not found" };
       }
 
-      // 1. Create Customer
-      const year = new Date().getFullYear();
-      const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-      const customerId = `CUST-${year}-${randomSuffix}`;
-      
-      const newCustomer: Customer = {
-        id: customerId,
-        name: enquiry.customerName,
-        phone: enquiry.customerPhone,
-        email: enquiry.customerEmail || "",
-        address: enquiry.customerAddress || "",
-        type: enquiry.customerType || "individual",
-        itemsBought: [],
-        totalPurchases: 0,
-        createdAt: new Date().toISOString(),
-      };
-      repositories.customerRepository.add(newCustomer);
-
-      // 2. Update Enquiry Status
+      // Update Enquiry Status
       repositories.enquiryRepository.update(enquiryId, {
         status: "converted",
         updatedAt: new Date().toISOString(),
@@ -152,8 +134,8 @@ export const registerEnquiryCommands = (
 
       return {
         ok: true,
-        result: { customerId },
-        domainEvents: ["EnquiryConverted", "CustomerCreated"],
+        result: { enquiryId },
+        domainEvents: ["EnquiryConverted"],
       };
     }
   );

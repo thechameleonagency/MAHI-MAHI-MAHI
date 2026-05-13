@@ -22,7 +22,9 @@ export function calculateProjectPartnerEarning(
   if (partner.calculatedEarning != null) return partner.calculatedEarning;
 
   if (partner.partnerType === "profit") {
-    const percentage = partner.sharePercentage ?? partner.profitSharePercent ?? 0;
+    const rawPercentage = partner.sharePercentage ?? partner.profitSharePercent ?? 0;
+    // L02: Clamp percentage between 0 and 100 to prevent invalid financial math
+    const percentage = Math.min(100, Math.max(0, rawPercentage));
     return Math.max(0, calculateProjectProfit(project)) * (percentage / 100);
   }
 
@@ -34,7 +36,17 @@ export function calculateProjectPartnerEarning(
     }
   }
 
+  if (partner.partnerType === "vendorship") {
+    return 0;
+  }
   return 0;
+}
+
+/** Surface unknown / legacy `partnerType` values to the UI instead of only logging (L01). */
+export function partnerEconomicsWarningMessage(partner: ProjectPartner): string | undefined {
+  const t = partner.partnerType;
+  if (t === "profit" || t === "fixed" || t === "vendorship") return undefined;
+  return `Partner type "${String(t)}" is not recognized; earned amount defaults to ₹0 until corrected.`;
 }
 
 export function calculateProjectVendorshipFee(partner: ProjectPartner): number {

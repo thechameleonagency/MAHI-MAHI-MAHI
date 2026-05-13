@@ -293,7 +293,7 @@ const Tools = () => {
                 </TableCell>
                 <TableCell>{getStatusBadge(tool.status)}</TableCell>
                 <TableCell>{getConditionBadge(tool.condition)}</TableCell>
-                <TableCell className="text-muted-foreground text-sm">{tool.lastUpdated}</TableCell>
+                <TableCell className="text-muted-foreground">{tool.lastUpdated}</TableCell>
                 <TableCell className="text-right">{formatCurrency(tool.purchaseRate)}</TableCell>
                 <TableCell>
                   <div className="flex items-center justify-center gap-1">

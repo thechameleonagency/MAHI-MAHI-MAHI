@@ -4,8 +4,19 @@ import type { ProjectKindConfig } from "@/domain/projectTypes/types";
 
 export type ProjectIntakePayload = {
   kind: ProjectKind;
-  parties: Partial<Record<"customer" | "partner" | "channelPartner" | "vendorOrDiscom" | "externalNetwork", string>>;
-  commercial: Partial<Record<"contractAmount" | "paymentType" | "internalCostEstimate" | "backendPrice" | "partnerSellPrice" | "commissionRule", string | number>>;
+  parties: Partial<
+    Record<
+      | "customer"
+      | "partner"
+      | "channelPartner"
+      | "vendorOrDiscom"
+      | "externalNetwork"
+      | "incGiverCompany"
+      | "subcontractor",
+      string
+    >
+  >;
+  commercial: Partial<Record<"contractAmount" | "paymentType" | "internalCostEstimate" | "backendPrice" | "partnerSellPrice" | "commissionRule" | "vendorshipFeeReceivable", string | number>>;
 };
 
 export class ProjectKindService {

@@ -21,6 +21,7 @@ import Materials from "./pages/Materials";
 import Tools from "./pages/Tools";
 import TemplatesPage from "./pages/inventory/TemplatesPage";
 import Employees from "./pages/Employees";
+import Teams from "./pages/Teams";
 import EmployeeProfile from "./pages/EmployeeProfile";
 import Attendance from "./pages/Attendance";
 import Finance from "./pages/Finance";
@@ -28,10 +29,11 @@ import Vendors from "./pages/Vendors";
 import Loans from "./pages/Loans";
 import Partners from "./pages/Partners";
 import PartnerDetail from "./pages/PartnerDetail";
+import VendorshipCompanies from "./pages/VendorshipCompanies";
+import INCWorkSources from "./pages/INCWorkSources";
 import Timeline from "./pages/Timeline";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
-import DesignSystem from "./pages/DesignSystem";
 import NotFound from "./pages/NotFound";
 import CustomerDetail from "./pages/CustomerDetail";
 import VendorDetail from "./pages/VendorDetail";
@@ -41,6 +43,7 @@ import Notifications from "./pages/Notifications";
 import Enquiries from "./pages/Enquiries";
 import Agents from "./pages/Agents";
 import AgentDetail from "./pages/AgentDetail";
+import AgentCommissions from "./pages/AgentCommissions";
 import AuditDashboard from "./pages/audit/AuditDashboard";
 import ProfitLoss from "./pages/audit/ProfitLoss";
 import InventoryAudit from "./pages/audit/InventoryAudit";
@@ -83,6 +86,7 @@ const App = () => (
                 <Route path="/quotations" element={<Quotations />} />
                 <Route path="/enquiries" element={<Enquiries />} />
                 <Route path="/agents" element={<Agents />} />
+                <Route path="/agents/commissions/ledger" element={<AgentCommissions />} />
                 <Route path="/agents/:id" element={<AgentDetail />} />
                 <Route path="/customers" element={<Customers />} />
                 <Route path="/customers/:id" element={<CustomerDetail />} />
@@ -94,6 +98,7 @@ const App = () => (
                 <Route path="/templates" element={<TemplatesPage />} />
                 <Route path="/inventory/presets" element={<Navigate to="/templates" replace />} />
                 <Route path="/employees" element={<Employees />} />
+                <Route path="/teams" element={<Teams />} />
                 <Route path="/employees/:id" element={<EmployeeProfile />} />
                 <Route path="/attendance" element={<Attendance />} />
                 <Route path="/finance" element={<Finance />} />
@@ -103,10 +108,14 @@ const App = () => (
                 <Route path="/loans/person/:id" element={<LoanPersonDetail />} />
                 <Route path="/partners" element={<Partners />} />
                 <Route path="/partners/:id" element={<PartnerDetail />} />
+                <Route path="/vendorship-companies" element={<VendorshipCompanies />} />
+                <Route path="/inc-work-sources" element={<INCWorkSources />} />
                 <Route path="/timeline" element={<Timeline />} />
                 <Route path="/analytics" element={<Analytics />} />
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/settings/design-system" element={<Settings />} />
+                <Route path="/design-system" element={<Navigate to="/settings/design-system" replace />} />
                 <Route path="/audit" element={<AuditDashboard />} />
                 <Route path="/audit/chart-of-accounts" element={<ChartOfAccounts />} />
                 <Route path="/audit/profit-loss" element={<ProfitLoss />} />
@@ -119,7 +128,6 @@ const App = () => (
                 <Route path="/audit/logs" element={<AuditLogs />} />
                 <Route path="/audit/reports" element={<AuditReports />} />
                 <Route path="/audit/data-flow" element={<AuditDataFlow />} />
-                <Route path="/design-system" element={<DesignSystem />} />
                 <Route path="*" element={<NotFound />} />
                     </Routes>
                   </AppLayout>

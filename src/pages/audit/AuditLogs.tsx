@@ -105,8 +105,9 @@ const AuditLogs = () => {
             Change History ({filteredLogs.length} entries)
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0 pt-4">
+        <CardContent className="p-0">
           <DataTableShell
+            variant="inline"
             maxHeight={listTableViewportMaxHeight(pageSize)}
             scrollResetKey={`${safePage}-${pageSize}-${filteredLogs.length}`}
             footer={
@@ -148,8 +149,8 @@ const AuditLogs = () => {
               )}
               {pagedLogs.map((log) => (
                 <TableRow key={log.id}>
-                  <TableCell className="text-sm text-muted-foreground">{log.timestamp}</TableCell>
-                  <TableCell className="text-sm">{log.userName}</TableCell>
+                  <TableCell className="text-muted-foreground">{log.timestamp}</TableCell>
+                  <TableCell >{log.userName}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
                       {actionIcon(log.action)}
@@ -163,11 +164,11 @@ const AuditLogs = () => {
                       </Badge>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm">{log.entityType}</TableCell>
-                  <TableCell className="cursor-pointer text-sm text-primary hover:underline">{log.entityName}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{log.field || "-"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{log.oldValue || "-"}</TableCell>
-                  <TableCell className="text-sm">{log.newValue || "-"}</TableCell>
+                  <TableCell >{log.entityType}</TableCell>
+                  <TableCell className="cursor-pointer text-primary hover:underline">{log.entityName}</TableCell>
+                  <TableCell className="text-muted-foreground">{log.field || "-"}</TableCell>
+                  <TableCell className="text-muted-foreground">{log.oldValue || "-"}</TableCell>
+                  <TableCell >{log.newValue || "-"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

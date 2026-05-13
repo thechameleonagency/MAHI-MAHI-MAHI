@@ -31,7 +31,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
-const DesignSystem = () => {
+export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -266,9 +266,9 @@ const DesignSystem = () => {
     }
   };
 
-  return (
-    <PageShell>
-      <div ref={contentRef} className="mx-auto w-full max-w-6xl space-y-8">
+  const inner = (
+    <div ref={contentRef} className="mx-auto w-full max-w-6xl space-y-8">
+      {!embedded ? (
         <StickyPageHeader
           breadcrumbs={[{ label: "Home", to: "/" }, { label: "Design system" }]}
           subRow={
@@ -293,6 +293,17 @@ const DesignSystem = () => {
             )}
           </Button>
         </StickyPageHeader>
+      ) : (
+        <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Design system</h2>
+            <p className="text-xs text-muted-foreground">Tokens and UI reference (prototype).</p>
+          </div>
+          <Button size="sm" onClick={exportToPDF} disabled={isExporting} className="gap-2 shrink-0">
+            {isExporting ? <>…</> : (<><Download className="h-4 w-4" />Export PDF</>)}
+          </Button>
+        </div>
+      )}
 
         <Tabs defaultValue="colors" className="w-full">
           <TabsList className="bg-muted/50 p-1">
@@ -343,8 +354,8 @@ const DesignSystem = () => {
                         )}
                       </div>
                       <p className="text-xs font-medium">{color.name}</p>
-                      <p className="text-[10px] text-muted-foreground">{color.hex}</p>
-                      <p className="text-[10px] text-muted-foreground font-mono">{color.var}</p>
+                      <p className="text-2xs text-muted-foreground">{color.hex}</p>
+                      <p className="text-2xs text-muted-foreground font-mono">{color.var}</p>
                     </div>
                   ))}
                 </div>
@@ -378,7 +389,7 @@ const DesignSystem = () => {
                         )}
                       </div>
                       <p className="text-xs font-medium">{color.name}</p>
-                      <p className="text-[10px] text-muted-foreground">{color.hex}</p>
+                      <p className="text-2xs text-muted-foreground">{color.hex}</p>
                     </div>
                   ))}
                 </div>
@@ -451,7 +462,7 @@ const DesignSystem = () => {
                         className={`h-16 w-16 mx-auto bg-chart-info mb-2 ${radius.class}`}
                       />
                       <p className="text-xs font-medium">{radius.name}</p>
-                      <p className="text-[10px] text-muted-foreground">{radius.value}</p>
+                      <p className="text-2xs text-muted-foreground">{radius.value}</p>
                     </div>
                   ))}
                 </div>
@@ -596,8 +607,10 @@ const DesignSystem = () => {
           </TabsContent>
         </Tabs>
       </div>
-    </PageShell>
   );
-};
+
+  if (embedded) return inner;
+  return <PageShell>{inner}</PageShell>;
+}
 
 export default DesignSystem;

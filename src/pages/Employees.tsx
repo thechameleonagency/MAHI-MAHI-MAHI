@@ -25,41 +25,7 @@ import { UnifiedExpenseModal } from "@/components/expenses/UnifiedExpenseModal";
 import { TaskAssignmentModal } from "@/components/employees/TaskAssignmentModal";
 import { EntityLink } from "@/components/shared/EntityInfoModal";
 
-const siteIssuedMaterials = [
-  { id: 1, name: "Waaree 540W Panel", site: "Sharma Residency" },
-  { id: 2, name: "DC Cable 4sqmm", site: "Sharma Residency" },
-  { id: 3, name: "Structure GI Rail", site: "Apex Industries" },
-];
-
-const materialReasons = [
-  { value: "damaged", label: "Item Damaged" },
-  { value: "broke-transport", label: "Broke During Transport" },
-  { value: "defective", label: "Defective Item" },
-  { value: "wrong-item", label: "Wrong Item Sent" },
-  { value: "other", label: "Other" },
-];
-
-const employees = [
-  { id: 1, name: "Rajesh Kumar", role: "Site Supervisor", phone: "+91 98765 43210", status: "Active", site: "Sharma Residency", wallet: 15000, initial: "R", aadhar: "1234 5678 9012", dob: "15 - 03 - 1985", salary: 36000, joiningDate: "15 Jan, 2022", daysPresent: 22, daysAbsent: 3, holidays: 5, advancePaid: 5000, pendingAmount: 26000 },
-  { id: 2, name: "Amit Singh", role: "Installer", phone: "+91 98765 43211", status: "Active", site: "Sharma Residency", wallet: 8200, initial: "A", aadhar: "2345 6789 0123", dob: "22 - 07 - 1990", salary: 24000, joiningDate: "20 Mar, 2022", daysPresent: 20, daysAbsent: 5, holidays: 5, advancePaid: 8000, pendingAmount: 10000 },
-  { id: 3, name: "Suresh Patel", role: "Electrician", phone: "+91 98765 43212", status: "Active", site: "Office / Idle", wallet: 5000, initial: "S", aadhar: "3456 7890 1234", dob: "10 - 11 - 1988", salary: 30000, joiningDate: "05 Jun, 2021", daysPresent: 24, daysAbsent: 1, holidays: 5, advancePaid: 32000, pendingAmount: -4000 },
-  { id: 4, name: "Vikram Malhotra", role: "Helper", phone: "+91 99988 77766", status: "Active", site: "Apex Industries", wallet: 3500, initial: "V", aadhar: "4567 8901 2345", dob: "28 - 01 - 1995", salary: 15000, joiningDate: "12 Aug, 2023", daysPresent: 18, daysAbsent: 7, holidays: 5, advancePaid: 2000, pendingAmount: 10500 },
-  { id: 5, name: "Anita Desai", role: "Accountant", phone: "+91 99988 11122", status: "Active", site: "Office / Idle", wallet: 20000, initial: "A", aadhar: "5678 9012 3456", dob: "05 - 09 - 1992", salary: 27000, joiningDate: "01 Feb, 2020", daysPresent: 25, daysAbsent: 0, holidays: 5, advancePaid: 0, pendingAmount: 27000 },
-];
-
-const deploymentData = [
-  { id: 1, name: "Rajesh Kumar", role: "Site Supervisor", avatar: "R", phone: "+91 98765 43210", schedule: Array(31).fill(null).map((_, i) => i < 22 ? "Sharma Residency" : i < 25 ? "Holiday" : "-") },
-  { id: 2, name: "Amit Singh", role: "Installer", avatar: "A", phone: "+91 98765 43211", schedule: Array(31).fill(null).map((_, i) => i < 15 ? "Sharma Residency" : i < 20 ? "Apex Industries" : "-") },
-  { id: 3, name: "Suresh Patel", role: "Electrician", avatar: "S", phone: "+91 98765 43212", schedule: Array(31).fill(null).map((_, i) => i % 3 === 0 ? "Office" : "-") },
-  { id: 4, name: "Vikram Malhotra", role: "Helper", avatar: "V", phone: "+91 99988 77766", schedule: Array(31).fill(null).map((_, i) => i < 18 ? "Apex Industries" : "-") },
-  { id: 5, name: "Anita Desai", role: "Accountant", avatar: "A", phone: "+91 99988 11122", schedule: Array(31).fill("Office") },
-];
-
-const months = [
-  { value: "oct-2024", label: "October 2024", pending: 26000 },
-  { value: "nov-2024", label: "November 2024", pending: 0 },
-  { value: "dec-2024", label: "December 2024 (Current)", pending: 15000 },
-];
+// Data is pulled from AppDataContext and MastersContext
 
 interface UploadedDoc {
   name: string;
@@ -83,7 +49,7 @@ const Employees = () => {
     daysAbsent: 3,
     holidays: 5,
   }));
-  
+
   const [activeTab, setActiveTab] = useState("payroll");
   const [isAddEmployeeOpen, setIsAddEmployeeOpen] = useState(false);
   const [isEmployeeSavedOpen, setIsEmployeeSavedOpen] = useState(false);
@@ -268,7 +234,7 @@ const Employees = () => {
   return (
     <PageShell className="space-y-4 px-2 md:space-y-6 md:px-0">
       <StickyPageHeader
-        breadcrumbs={[{ label: "Home", to: "/" }, { label: "HR" }, { label: "Employees" }]}
+        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Employees" }]}
         subRow={
           <InlineKpiStrip
             className="w-full flex-wrap justify-start"
@@ -352,10 +318,10 @@ const Employees = () => {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right text-sm">₹{emp.salary.toLocaleString()}</TableCell>
-                    <TableCell className="text-center text-primary font-medium text-sm">{emp.daysPresent}</TableCell>
-                    <TableCell className="text-center text-destructive font-medium text-sm">{emp.daysAbsent}</TableCell>
-                    <TableCell className="text-center text-muted-foreground text-sm">{emp.holidays}</TableCell>
+                    <TableCell className="text-right">₹{emp.salary.toLocaleString()}</TableCell>
+                    <TableCell className="text-center text-primary font-medium">{emp.daysPresent}</TableCell>
+                    <TableCell className="text-center text-destructive font-medium">{emp.daysAbsent}</TableCell>
+                    <TableCell className="text-center text-muted-foreground">{emp.holidays}</TableCell>
                     <TableCell className="text-right">
                       {emp.pendingAmount < 0 ? (
                         <div className="flex items-center justify-end gap-2">
@@ -366,7 +332,7 @@ const Employees = () => {
                         <span className="font-semibold text-sm">₹{emp.pendingAmount.toLocaleString()}</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right text-muted-foreground text-sm">₹{emp.advancePaid.toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">₹{emp.advancePaid.toLocaleString()}</TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
                         <Button 
@@ -489,7 +455,7 @@ const Employees = () => {
               <TableRow className={dataTableClasses.headRow}>
                 <TableHead className="w-48 sticky left-0 bg-card z-10">Employee</TableHead>
                 {weekDays.map((d, idx) => (
-                  <TableHead key={idx} className="text-center min-w-[100px] px-2">
+                  <TableHead key={idx} className="text-center min-w-[100px]">
                     <div className={`${isSameDay(d.dateObj, new Date()) ? 'text-primary' : ''}`}>
                       <p className="text-xs font-medium">{d.day}</p>
                       <p className="text-xs text-muted-foreground">{d.date}</p>
@@ -518,7 +484,7 @@ const Employees = () => {
                         {weekDays.map((d, idx) => {
                           const schedule = getScheduleForDay(emp, d.dateObj);
                           return (
-                            <TableCell key={idx} className="text-center px-2">
+                            <TableCell key={idx} className="text-center">
                               {schedule === "Holiday" ? (
                                 <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-0">
                                   Holiday

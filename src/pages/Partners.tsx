@@ -201,9 +201,9 @@ const Partners = () => {
                   )}
                 </div>
               </TableCell>
-              <TableCell className="text-right text-sm">{formatCurrency(earned)}</TableCell>
-              <TableCell className="text-right text-sm">{formatCurrency(paid)}</TableCell>
-              <TableCell className="text-right text-sm font-semibold">{formatCurrency(pending)}</TableCell>
+              <TableCell className="text-right">{formatCurrency(earned)}</TableCell>
+              <TableCell className="text-right">{formatCurrency(paid)}</TableCell>
+              <TableCell className="text-right font-semibold">{formatCurrency(pending)}</TableCell>
               <TableCell className="text-right">
                 <Button size="sm" variant="ghost" className="text-primary" asChild>
                   <Link to={`/partners/${partner.id}`}>

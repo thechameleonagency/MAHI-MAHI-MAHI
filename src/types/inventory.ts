@@ -1,3 +1,5 @@
+export type VendorBillStatus = "draft" | "approved" | "disputed" | "pending" | "partial" | "paid";
+
 export interface VendorBill {
   id: string;
   vendorId: number;
@@ -5,17 +7,20 @@ export interface VendorBill {
   billNumber: string;
   billDate: string;
   dueDate?: string;
-  date?: string;
   projectId?: string;
   projectName?: string;
   items: { description: string; name?: string; quantity: number; rate: number; amount: number; inventoryItemId?: number }[];
   subtotal?: number;
   gst?: number;
   total: number;
-  totalAmount?: number;
   amountPaid: number;
-  status: "pending" | "partial" | "paid";
+  status: VendorBillStatus;
   notes?: string;
+  /** Purchase order / LPO reference (prototype; no separate PO entity). */
+  purchaseOrderRef?: string;
+  /** Local blob URL or data URL from uploaded bill document (prototype). */
+  documentUrl?: string;
+  documentFileName?: string;
 }
 
 export interface VendorPayment {
@@ -26,7 +31,6 @@ export interface VendorPayment {
   billNumber?: string;
   date: string;
   amount: number;
-  mode?: "cash" | "bank" | "upi";
   paymentMode?: string;
   reference?: string;
   notes?: string;

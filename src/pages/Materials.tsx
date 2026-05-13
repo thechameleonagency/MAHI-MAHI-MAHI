@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { Plus, Search, Package, AlertTriangle, History, Edit, ArrowRight, Trash2, Check, RotateCcw, AlertCircle, ChevronDown, ChevronRight, Layers, Eye, Truck, User, Send, CheckCircle2, Recycle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,22 +19,16 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { useMasters } from "@/hooks/useMasters";
 import { NeedToGetService } from "@/application/services/NeedToGetService";
+import { ProcurementShortfallService } from "@/application/services/ProcurementShortfallService";
 import { NeedToGetModal } from "@/components/need-to-get/NeedToGetModal";
 import { format } from "date-fns";
-
-const itemMovementHistory = [
-  { date: "18 Dec 2024", action: "Issued to Site", site: "Sharma Residency", quantity: 10, by: "Admin" },
-  { date: "15 Dec 2024", action: "Returned to Stock", site: "Apex Industries", quantity: 5, by: "Rajesh Kumar" },
-  { date: "10 Dec 2024", action: "Issued to Site", site: "Apex Industries", quantity: 15, by: "Admin" },
-  { date: "05 Dec 2024", action: "Added to Stock", site: "-", quantity: 50, by: "Admin" },
-];
 
 const CATEGORY_ORDER = ["Structure", "Panel/Module", "Wiring", "Earthing", "Meter"];
 const UNIT_OPTIONS = ["pcs", "foot", "meter", "kg"] as const;
 const UNIT_LABELS: Record<string, string> = { pcs: "Pcs/Nos", foot: "Foot", meter: "Meter", kg: "Kg" };
 
 const Materials = () => {
-  const { inventoryItems, projects, sites, employees, addTask, generateId, vendorBills, recordWarehouseInventoryMovement } = useAppData();
+  const { inventoryItems, projects, sites, employees, addTask, generateId, vendorBills, recordWarehouseInventoryMovement, addInventoryItem, returnItemFromSite, getProjectQuotation, getInventoryPresetById, vendors } = useAppData();
   const masters = useMasters();
   const needToGetService = useMemo(() => new NeedToGetService(), []);
   const [needToGetOpen, setNeedToGetOpen] = useState(false);
@@ -176,6 +171,19 @@ const Materials = () => {
     () => needToGetService.buildRows(sites, projects, inventoryItems, vendorBills),
     [needToGetService, sites, projects, inventoryItems, vendorBills],
   );
+  const procurementShortfallService = useMemo(() => new ProcurementShortfallService(), []);
+  const procurementShortfalls = useMemo(
+    () =>
+      procurementShortfallService.buildShortfalls({
+        projects,
+        inventoryItems,
+        getProjectQuotation,
+        getInventoryPresetById,
+      }),
+    [procurementShortfallService, projects, inventoryItems, getProjectQuotation, getInventoryPresetById],
+  );
+
+  const vendorsSorted = useMemo(() => [...vendors].sort((a, b) => a.name.localeCompare(b.name)), [vendors]);
 
   const toggleCategory = (cat: string) => {
     setCollapsedCategories(prev => {
@@ -219,6 +227,25 @@ const Materials = () => {
       toast({ title: "Error", description: "Name and category are required", variant: "destructive" });
       return;
     }
+    const maxId = inventoryItems.reduce((m, i) => Math.max(m, i.id), 0);
+    addInventoryItem({
+      id: maxId + 1,
+      name: newItemName.trim(),
+      category: newItemCategory,
+      stock: parseFloat(newItemStock) || 0,
+      unit: newItemIssueUnit,
+      stockUnit: newItemPurchaseUnit !== newItemIssueUnit ? newItemPurchaseUnit : undefined,
+      buyPrice: parseFloat(newItemBuyPrice) || 0,
+      salePrice: parseFloat(newItemSalePrice) || 0,
+      value: parseFloat(newItemBuyPrice) || 0,
+      hsn: newItemHsn || "",
+      minStock: parseFloat(newItemMinStock) || 0,
+      notes: newItemNotes || undefined,
+      size: newItemSize || undefined,
+      perPieceWeight: parseFloat(newItemPerPieceWeight) || undefined,
+      perPieceLength: parseFloat(newItemPerPieceLength) || undefined,
+      allowDecimalReturn: newItemAllowDecimal,
+    });
     toast({ title: "Item Added", description: `${newItemName} has been added to inventory` });
     setIsAddItemOpen(false);
     setIsAddItemConfirmOpen(true);
@@ -325,6 +352,14 @@ const Materials = () => {
 
   const handleReturnSave = () => {
     if (Object.keys(returnErrors).length > 0) return;
+    const siteRecord = sites.find(s => String(s.id) === selectedSiteForReturn);
+    const dateStr = format(new Date(), "yyyy-MM-dd");
+    Object.entries(returnQuantities).forEach(([itemIdStr, qtyStr]) => {
+      const qty = parseFloat(qtyStr) || 0;
+      if (qty > 0) {
+        returnItemFromSite(parseInt(itemIdStr), selectedSiteForReturn, siteRecord?.name ?? selectedSiteForReturn, qty, dateStr);
+      }
+    });
     setIsReturnFromSiteOpen(false);
     setIsReturnConfirmOpen(true);
   };
@@ -412,6 +447,11 @@ const Materials = () => {
       const qty = parseFloat(scrapQuantities[item.id] || "0");
       if (qty > 0 && qty <= item.stock) {
         setScrapStock(prev => ({ ...prev, [item.id]: (prev[item.id] || 0) + qty }));
+        recordWarehouseInventoryMovement({
+          movementType: "ScrapWarehouse",
+          itemId: item.id,
+          quantity: qty,
+        });
         added = true;
       }
     }
@@ -429,8 +469,14 @@ const Materials = () => {
     const available = scrapStock[itemId] || 0;
     if (qty > 0 && qty <= available) {
       setScrapStock(prev => ({ ...prev, [itemId]: prev[itemId] - qty }));
+      const item = inventoryItems.find(i => i.id === itemId);
+      recordWarehouseInventoryMovement({
+        movementType: "PurchaseIn",
+        itemId,
+        quantity: qty,
+      });
       setScrapConvertBack(prev => ({ ...prev, [itemId]: "" }));
-      toast({ title: "Converted Back", description: `${qty} foot moved back to inventory.` });
+      toast({ title: "Converted Back", description: `${qty} ${item?.unit || "units"} moved back to inventory.` });
     }
   };
 
@@ -488,7 +534,10 @@ const Materials = () => {
                 <span className="text-xs text-muted-foreground">{item.unit}</span>
               </div>
               {isLowStock && (
-                <Badge className="bg-destructive/10 text-destructive border-0 text-[10px]">Low</Badge>
+                <Badge className="bg-destructive/10 text-destructive border-0 text-2xs">Low</Badge>
+              )}
+              {item.alert && isLowStock && (
+                <Badge variant="outline" className="text-2xs border-amber-500/50 text-amber-800">Alert</Badge>
               )}
             </div>
           </div>
@@ -638,26 +687,110 @@ const Materials = () => {
           ) : (
             <div className="space-y-2">
               {needToGetRows.slice(0, 10).map((row) => (
-                <div key={`${row.projectId}-${row.siteId}-${row.materialId}`} className="border rounded-lg p-3">
+                <div
+                  key={`${row.projectId}-${row.siteId}-${row.materialId}-${row.needByDate}-${row.rowKind ?? "material"}`}
+                  className="border rounded-lg p-3"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium">{row.materialName}</p>
                       <p className="text-xs text-muted-foreground">
                         {row.projectName} · {row.siteName}
                       </p>
+                      {row.rowKind === "nonMaterial" ? (
+                        <Badge variant="outline" className="mt-1 text-2xs font-normal">
+                          Checklist (no SKU)
+                        </Badge>
+                      ) : null}
                     </div>
-                    <Badge className="bg-destructive/10 text-destructive border-0">Need {row.qtyShort}</Badge>
+                    <Badge className="bg-destructive/10 text-destructive border-0">
+                      {row.rowKind === "nonMaterial" ? "Status" : `Need ${row.qtyShort}`}
+                    </Badge>
                   </div>
                   <div className="mt-2 text-xs text-muted-foreground flex flex-wrap gap-3">
                     <span>Need-by: {row.needByDate}</span>
-                    <span>Last purch. rate: {formatCurrency(row.lastPurchaseRate)}</span>
+                    {row.rowKind === "nonMaterial" ? null : (
+                      <span>Last purch. rate: {formatCurrency(row.lastPurchaseRate)}</span>
+                    )}
                   </div>
+                  {row.rowKind !== "nonMaterial" && row.materialId > 0 && vendorsSorted.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {vendorsSorted.slice(0, 4).map((v) => (
+                        <Button key={v.id} variant="secondary" size="sm" className="h-7 text-2xs" asChild>
+                          <Link
+                            to={`/vendors/${v.id}?action=add-purchase&inventoryItemId=${row.materialId}&qty=${encodeURIComponent(String(row.qtyShort))}&projectId=${encodeURIComponent(row.projectId)}`}
+                          >
+                            Bill · {v.name.length > 14 ? `${v.name.slice(0, 14)}…` : v.name}
+                          </Link>
+                        </Button>
+                      ))}
+                      {vendorsSorted.length > 4 ? (
+                        <Button type="button" variant="ghost" size="sm" className="h-7 text-2xs" onClick={() => setNeedToGetOpen(true)}>
+                          +{vendorsSorted.length - 4} more in report
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
           )}
           <Button className="w-full" type="button" onClick={() => setNeedToGetOpen(true)}>
             Open full Need-to-Get report
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Quotation / preset shortfall (issued vs required) — ProcurementShortfallService */}
+      <Card className="bg-card border-border">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-primary" />
+              <p className="font-medium text-sm">Preset / quotation shortfall (issued vs required)</p>
+            </div>
+            <Badge variant="outline">{procurementShortfalls.length} lines</Badge>
+          </div>
+          {procurementShortfalls.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No gaps: ongoing projects either have no preset/quotation material list, or issued quantities cover requirements.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {procurementShortfalls.slice(0, 8).map((row) => (
+                <div key={`${row.projectId}-${row.itemId}`} className="border rounded-lg p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">{row.itemName}</p>
+                      <p className="text-xs text-muted-foreground">{row.projectName}</p>
+                    </div>
+                    <Badge className="bg-amber-500/10 text-amber-700 border-0 dark:text-amber-400">Short {row.shortfallQty}</Badge>
+                  </div>
+                  <div className="mt-2 text-xs text-muted-foreground flex flex-wrap gap-3">
+                    <span>
+                      Req {row.requiredQty} · Issued {row.issuedQty} · Stock {row.availableStock}
+                    </span>
+                    <span>Need-by: {row.needByDate}</span>
+                  </div>
+                  {vendorsSorted.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {vendorsSorted.slice(0, 3).map((v) => (
+                        <Button key={v.id} variant="secondary" size="sm" className="h-7 text-2xs" asChild>
+                          <Link
+                            to={`/vendors/${v.id}?action=add-purchase&inventoryItemId=${row.itemId}&qty=${encodeURIComponent(String(row.shortfallQty))}&projectId=${encodeURIComponent(row.projectId)}`}
+                          >
+                            Bill · {v.name.length > 14 ? `${v.name.slice(0, 14)}…` : v.name}
+                          </Link>
+                        </Button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+          <Button className="w-full" type="button" variant="outline" onClick={() => setNeedToGetOpen(true)}>
+            Open Need-to-Get (checklist + site view)
           </Button>
         </CardContent>
       </Card>
@@ -718,7 +851,7 @@ const Materials = () => {
 
       {/* Item Detail View Modal */}
       <Sheet open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>{selectedItemForDetail && getDisplayName(selectedItemForDetail)}</SheetTitle>
           </SheetHeader>
@@ -804,7 +937,7 @@ const Materials = () => {
 
       {/* Add Material Modal */}
       <Sheet open={isAddItemOpen} onOpenChange={setIsAddItemOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add New Material</SheetTitle>
           </SheetHeader>
@@ -873,7 +1006,7 @@ const Materials = () => {
                       <div className="space-y-1">
                         <Label className="text-xs">{conv.label}</Label>
                         <Input type="number" value={newItemPerPieceWeight} onChange={(e) => setNewItemPerPieceWeight(e.target.value)} placeholder="e.g., 850" />
-                        <p className="text-[10px] text-muted-foreground">{conv.hint}</p>
+                        <p className="text-2xs text-muted-foreground">{conv.hint}</p>
                       </div>
                     )}
                     
@@ -881,7 +1014,7 @@ const Materials = () => {
                       <div className="space-y-1">
                         <Label className="text-xs">{conv.label}</Label>
                         <Input type="number" value={newItemPerPieceLength} onChange={(e) => setNewItemPerPieceLength(e.target.value)} placeholder="e.g., 14" />
-                        <p className="text-[10px] text-muted-foreground">{conv.hint}</p>
+                        <p className="text-2xs text-muted-foreground">{conv.hint}</p>
                       </div>
                     )}
                   </div>
@@ -929,7 +1062,7 @@ const Materials = () => {
 
       {/* Add Item Confirmation */}
       <Sheet open={isAddItemConfirmOpen} onOpenChange={setIsAddItemConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" />
@@ -945,7 +1078,7 @@ const Materials = () => {
 
       {/* Edit Item Modal */}
       <Sheet open={isEditItemOpen} onOpenChange={setIsEditItemOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Edit: {selectedItemForEdit && getDisplayName(selectedItemForEdit)}</SheetTitle>
           </SheetHeader>
@@ -1044,7 +1177,7 @@ const Materials = () => {
                         <div className="space-y-1">
                           <Label className="text-xs">{conv.label}</Label>
                           <Input type="number" value={editPerPieceWeight} onChange={(e) => setEditPerPieceWeight(e.target.value)} placeholder="e.g., 850" />
-                          <p className="text-[10px] text-muted-foreground">{conv.hint}</p>
+                          <p className="text-2xs text-muted-foreground">{conv.hint}</p>
                         </div>
                       )}
                       
@@ -1052,7 +1185,7 @@ const Materials = () => {
                         <div className="space-y-1">
                           <Label className="text-xs">{conv.label}</Label>
                           <Input type="number" value={editPerPieceLength} onChange={(e) => setEditPerPieceLength(e.target.value)} placeholder="e.g., 14" />
-                          <p className="text-[10px] text-muted-foreground">{conv.hint}</p>
+                          <p className="text-2xs text-muted-foreground">{conv.hint}</p>
                         </div>
                       )}
                     </div>
@@ -1116,7 +1249,7 @@ const Materials = () => {
 
       {/* Edit Item Confirmation */}
       <Sheet open={isEditItemConfirmOpen} onOpenChange={setIsEditItemConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" /> Changes Saved
@@ -1129,7 +1262,7 @@ const Materials = () => {
 
       {/* Delete Item Confirmation */}
       <Sheet open={isDeleteItemConfirmOpen} onOpenChange={setIsDeleteItemConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" /> Delete Item
@@ -1154,32 +1287,50 @@ const Materials = () => {
 
       {/* Item History Modal */}
       <Sheet open={isItemHistoryOpen} onOpenChange={setIsItemHistoryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Movement History: {selectedItemForHistory && getDisplayName(selectedItemForHistory)}</SheetTitle>
           </SheetHeader>
           <div className="space-y-3 max-h-[400px] overflow-y-auto">
-            {itemMovementHistory.map((record, idx) => (
-              <div key={idx} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                <div>
-                  <p className="font-medium text-sm">{record.action}</p>
-                  <p className="text-xs text-muted-foreground">{record.site} • By {record.by}</p>
+            {(selectedItemForHistory?.movementHistory ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground py-6 text-center">No movements recorded for this item yet.</p>
+            )}
+            {(selectedItemForHistory?.movementHistory ?? []).map((record) => {
+              const action =
+                record.type === "issue"
+                  ? "Issued to site"
+                  : record.type === "return"
+                    ? "Returned to stock"
+                    : record.type === "purchase"
+                      ? "Purchase / inward"
+                      : "Adjustment";
+              const isIn = record.type === "return" || record.type === "purchase" || record.type === "adjustment";
+              return (
+                <div key={record.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                  <div>
+                    <p className="font-medium text-sm">{action}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {record.siteName ?? "—"}
+                      {record.employeeName ? ` • ${record.employeeName}` : ""}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`font-medium text-sm ${isIn ? "text-primary" : "text-amber-600"}`}>
+                      {isIn ? "+" : "-"}
+                      {record.qty}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{record.date}</p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className={`font-medium text-sm ${record.action.includes("Added") || record.action.includes("Returned") ? "text-primary" : "text-amber-600"}`}>
-                    {record.action.includes("Added") || record.action.includes("Returned") ? "+" : "-"}{record.quantity}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{record.date}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </SheetContent>
       </Sheet>
 
       {/* Issue to Site Modal - with expense & task options */}
       <Sheet open={isIssueToSiteOpen} onOpenChange={setIsIssueToSiteOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Truck className="w-5 h-5 text-primary" /> Issue Items to Site
@@ -1314,7 +1465,7 @@ const Materials = () => {
 
       {/* Issue Confirmation */}
       <Sheet open={isIssueConfirmOpen} onOpenChange={setIsIssueConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" /> Items Issued Successfully
@@ -1331,7 +1482,7 @@ const Materials = () => {
 
       {/* Return from Site Modal */}
       <Sheet open={isReturnFromSiteOpen} onOpenChange={setIsReturnFromSiteOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Return Items from Site</SheetTitle>
           </SheetHeader>
@@ -1378,7 +1529,7 @@ const Materials = () => {
 
       {/* Return Confirmation */}
       <Sheet open={isReturnConfirmOpen} onOpenChange={setIsReturnConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" /> Items Returned Successfully
@@ -1393,7 +1544,7 @@ const Materials = () => {
 
       {/* Add to Scrap Modal */}
       <Sheet open={isAddToScrapOpen} onOpenChange={setIsAddToScrapOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Recycle className="w-5 h-5 text-primary" /> Add to Scrap
@@ -1436,7 +1587,7 @@ const Materials = () => {
 
       {/* View Scrap Modal */}
       <Sheet open={isViewScrapOpen} onOpenChange={setIsViewScrapOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Eye className="w-5 h-5 text-primary" /> Scrap Inventory

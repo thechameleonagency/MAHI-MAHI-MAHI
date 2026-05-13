@@ -557,14 +557,14 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
                       r.flag === "possible-match" ? "bg-purple-500/5" :
                       ""
                     }>
-                      <TableCell className="text-xs font-mono">{r.bankTransaction.date}</TableCell>
-                      <TableCell className="text-xs max-w-[200px] truncate" title={r.bankTransaction.description}>
+                      <TableCell className="font-mono">{r.bankTransaction.date}</TableCell>
+                      <TableCell className="max-w-[200px] truncate" title={r.bankTransaction.description}>
                         {r.bankTransaction.description}
                       </TableCell>
-                      <TableCell className="text-right text-xs font-mono">{fmt(r.bankTransaction.debit)}</TableCell>
-                      <TableCell className="text-right text-xs font-mono">{fmt(r.bankTransaction.credit)}</TableCell>
+                      <TableCell className="text-right font-mono">{fmt(r.bankTransaction.debit)}</TableCell>
+                      <TableCell className="text-right font-mono">{fmt(r.bankTransaction.credit)}</TableCell>
                       <TableCell>{getFlagBadge(r.flag)}</TableCell>
-                      <TableCell className="text-xs">
+                      <TableCell >
                         {r.matchedLedgerEntry ? (
                           <div>
                             <span className="font-medium text-foreground">{r.matchedLedgerEntry.type}</span>
@@ -574,7 +574,7 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
                           <span className="text-muted-foreground italic">{r.notes || "-"}</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground truncate" title={r.statementName}>
+                      <TableCell className="text-muted-foreground truncate" title={r.statementName}>
                         {r.statementName}
                       </TableCell>
                     </TableRow>

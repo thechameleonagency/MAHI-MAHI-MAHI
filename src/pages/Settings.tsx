@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,26 +17,130 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { User, Building2, Shield, Palette, Users, Mail, Phone, MapPin, Globe, Camera, Database, Check, AlertCircle, Sun, Zap, Factory, Edit, Trash2, Plus, GitBranch, RotateCcw } from "lucide-react";
+import { User, Building2, Shield, Palette, Users, Mail, Phone, MapPin, Globe, Camera, Database, Check, AlertCircle, Sun, Zap, Factory, Edit, Trash2, Plus, GitBranch, RotateCcw, Layout } from "lucide-react";
 import { ToastAction } from "@/components/ui/toast";
 import { useAppData } from "@/contexts/AppDataContext";
+import type { SolarPackagePreset, SettingsTeamMember } from "@/types/project";
 import { toast } from "@/hooks/use-toast";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { DesignSystem } from "@/pages/DesignSystem";
 
-const initialTeamMembers = [
-  { id: 1, name: "John Doe", email: "john@company.com", role: "Admin", status: "Active" },
-  { id: 2, name: "Rajesh Kumar", email: "rajesh@company.com", role: "Manager", status: "Active" },
-  { id: 3, name: "Priya Sharma", email: "priya@company.com", role: "Accountant", status: "Active" },
-  { id: 4, name: "Amit Singh", email: "amit@company.com", role: "Supervisor", status: "Pending" },
+const LS_PROFILE = "mss.settings.profile";
+const LS_COMPANY = "mss.settings.company";
+const LS_THEME = "mss.settings.theme";
+const LS_ACCENT = "mss.settings.accent";
+const LS_2FA = "mss.settings.2fa";
+
+const ACCENT_COLORS = [
+  { label: "Blue", cls: "bg-blue-500", value: "blue" },
+  { label: "Green", cls: "bg-green-600", value: "green" },
+  { label: "Purple", cls: "bg-purple-500", value: "purple" },
+  { label: "Amber", cls: "bg-amber-500", value: "amber" },
+  { label: "Red", cls: "bg-red-500", value: "red" },
 ];
 
 const Settings = () => {
-  const { resetToDefaults } = useAppData();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const {
+    resetToDefaults,
+    solarPackagePresets,
+    replaceSolarPackagePresets,
+    settingsTeamMembers,
+    replaceSettingsTeamMembers,
+  } = useAppData();
   const [activeTab, setActiveTab] = useState("profile");
 
-  const [teamMembers, setTeamMembers] = useState(initialTeamMembers);
+  useEffect(() => {
+    const tabParam = new URLSearchParams(location.search).get("tab");
+    if (location.pathname.endsWith("/design-system") || tabParam === "design") {
+      setActiveTab("design");
+    }
+  }, [location.pathname, location.search]);
+
+  const handleTabChange = (v: string) => {
+    setActiveTab(v);
+    if (v === "design") {
+      navigate("/settings/design-system", { replace: true });
+    } else if (location.pathname.endsWith("/design-system")) {
+      navigate("/settings", { replace: true });
+    }
+  };
+
+  // Profile form state (I1)
+  const [profileFirstName, setProfileFirstName] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').firstName || "");
+  const [profileLastName, setProfileLastName] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').lastName || "");
+  const [profileEmail, setProfileEmail] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').email || "");
+  const [profilePhone, setProfilePhone] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').phone || "");
+  const [profileRole, setProfileRole] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').role || "");
+
+  // Company form state (I2)
+  const [companyName, setCompanyName] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').companyName || "");
+  const [companyGst, setCompanyGst] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').gstNumber || "");
+  const [companyPan, setCompanyPan] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').panNumber || "");
+  const [companyAddress, setCompanyAddress] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').address || "");
+  const [companyWebsite, setCompanyWebsite] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').website || "");
+  const [companyIndustry, setCompanyIndustry] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').industry || "construction");
+  const [companyState, setCompanyState] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').companyState || "08");
+
+  // Theme state (I3)
+  const [selectedTheme, setSelectedTheme] = useState(() => localStorage.getItem(LS_THEME) || "dark");
+
+  // Accent color state (I4)
+  const [selectedAccent, setSelectedAccent] = useState(() => localStorage.getItem(LS_ACCENT) || "blue");
+
+  // Password form (I5)
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  // 2FA state (I6)
+  const [twoFAEnabled, setTwoFAEnabled] = useState(() => localStorage.getItem(LS_2FA) === "true");
+
+  // Apply theme on mount and change
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove("light", "dark");
+    if (selectedTheme === "system") {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.classList.add(prefersDark ? "dark" : "light");
+    } else {
+      root.classList.add(selectedTheme);
+    }
+    localStorage.setItem(LS_THEME, selectedTheme);
+  }, [selectedTheme]);
+
+  const handleSaveProfile = () => {
+    localStorage.setItem(LS_PROFILE, JSON.stringify({ firstName: profileFirstName, lastName: profileLastName, email: profileEmail, phone: profilePhone, role: profileRole }));
+    toast({ title: "Profile saved", description: "Your profile has been updated." });
+  };
+
+  const handleSaveCompany = () => {
+    localStorage.setItem(LS_COMPANY, JSON.stringify({ companyName, gstNumber: companyGst, panNumber: companyPan, address: companyAddress, website: companyWebsite, industry: companyIndustry, companyState }));
+    toast({ title: "Company info saved", description: "Company details have been updated." });
+  };
+
+  const handleUpdatePassword = () => {
+    if (!newPassword || newPassword !== confirmPassword) {
+      toast({ title: "Password mismatch", description: "New password and confirm password do not match.", variant: "destructive" });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({ title: "Too short", description: "Password must be at least 6 characters.", variant: "destructive" });
+      return;
+    }
+    setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+    toast({ title: "Password updated", description: "Your password has been changed successfully." });
+  };
+
+  const handleToggle2FA = () => {
+    const next = !twoFAEnabled;
+    setTwoFAEnabled(next);
+    localStorage.setItem(LS_2FA, String(next));
+    toast({ title: next ? "2FA Enabled" : "2FA Disabled", description: next ? "Two-factor authentication is now active." : "Two-factor authentication has been disabled." });
+  };
   
   // Modal states
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -46,65 +151,8 @@ const Settings = () => {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("");
 
-  // Presets state
-  interface QuotationPreset {
-    id: string;
-    name: string;
-    category: 'residential' | 'commercial' | 'industrial';
-    capacityKW: number;
-    panelBrand: string;
-    panelWattage: number;
-    panelCount: number;
-    inverterBrand: string;
-    inverterCapacity: string;
-    structureType: string;
-    estimatedCost: number;
-  }
-
-  const [presets, setPresets] = useState<QuotationPreset[]>([
-    {
-      id: "res-3kw",
-      name: "Standard 3kW System",
-      category: "residential",
-      capacityKW: 3,
-      panelBrand: "Waaree",
-      panelWattage: 540,
-      panelCount: 6,
-      inverterBrand: "Growatt",
-      inverterCapacity: "3kW",
-      structureType: "Elevated GI",
-      estimatedCost: 185000,
-    },
-    {
-      id: "com-20kw",
-      name: "Commercial 20kW System",
-      category: "commercial",
-      capacityKW: 20,
-      panelBrand: "Tata",
-      panelWattage: 550,
-      panelCount: 36,
-      inverterBrand: "Sungrow",
-      inverterCapacity: "20kW",
-      structureType: "Flush Mount GI",
-      estimatedCost: 1100000,
-    },
-    {
-      id: "ind-100kw",
-      name: "Industrial 100kW System",
-      category: "industrial",
-      capacityKW: 100,
-      panelBrand: "Canadian Solar",
-      panelWattage: 550,
-      panelCount: 180,
-      inverterBrand: "Sungrow",
-      inverterCapacity: "100kW",
-      structureType: "Ground Mount Aluminum",
-      estimatedCost: 5500000,
-    },
-  ]);
-
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
-  const [editingPreset, setEditingPreset] = useState<QuotationPreset | null>(null);
+  const [editingPreset, setEditingPreset] = useState<SolarPackagePreset | null>(null);
   const [presetForm, setPresetForm] = useState({
     name: "",
     category: "residential" as 'residential' | 'commercial' | 'industrial',
@@ -135,7 +183,7 @@ const Settings = () => {
     setIsPresetModalOpen(true);
   };
 
-  const handleEditPreset = (preset: QuotationPreset) => {
+  const handleEditPreset = (preset: SolarPackagePreset) => {
     setEditingPreset(preset);
     setPresetForm({ ...preset });
     setIsPresetModalOpen(true);
@@ -143,28 +191,30 @@ const Settings = () => {
 
   const handleSavePreset = () => {
     if (editingPreset) {
-      setPresets(prev => prev.map(p => 
-        p.id === editingPreset.id ? { ...presetForm, id: editingPreset.id } : p
-      ));
+      replaceSolarPackagePresets(
+        solarPackagePresets.map((p) =>
+          p.id === editingPreset.id ? { ...(presetForm as SolarPackagePreset), id: editingPreset.id } : p,
+        ),
+      );
       toast({ title: "Preset Updated", description: `"${presetForm.name}" has been updated` });
     } else {
-      const newPreset = { ...presetForm, id: `preset-${Date.now()}` };
-      setPresets(prev => [...prev, newPreset]);
+      const newPreset = { ...(presetForm as SolarPackagePreset), id: `preset-${Date.now()}` };
+      replaceSolarPackagePresets([newPreset, ...solarPackagePresets]);
       toast({ title: "Preset Added", description: `"${presetForm.name}" has been created` });
     }
     setIsPresetModalOpen(false);
   };
 
   const handleDeletePreset = (presetId: string, presetName: string) => {
-    setPresets(prev => prev.filter(p => p.id !== presetId));
+    replaceSolarPackagePresets(solarPackagePresets.filter((p) => p.id !== presetId));
     toast({ title: "Preset Deleted", description: `"${presetName}" has been removed` });
   };
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case 'residential': return <Sun className="h-5 w-5 text-amber-500" />;
-      case 'commercial': return <Zap className="h-5 w-5 text-blue-500" />;
-      case 'industrial': return <Factory className="h-5 w-5 text-blue-500" />;
+      case 'commercial': return <Zap className="h-5 w-5 text-primary" />;
+      case 'industrial': return <Factory className="h-5 w-5 text-primary" />;
       default: return <Sun className="h-5 w-5" />;
     }
   };
@@ -174,7 +224,7 @@ const Settings = () => {
   };
 
   const handleRoleChange = (memberId: number, newRole: string) => {
-    const member = teamMembers.find(m => m.id === memberId);
+    const member = settingsTeamMembers.find((m) => m.id === memberId);
     if (member && member.role !== newRole) {
       setPendingRoleChange({
         memberId,
@@ -187,14 +237,14 @@ const Settings = () => {
 
   const confirmRoleChange = () => {
     if (pendingRoleChange) {
-      setTeamMembers(prev => prev.map(m => 
-        m.id === pendingRoleChange.memberId 
-          ? { ...m, role: pendingRoleChange.newRole }
-          : m
-      ));
+      replaceSettingsTeamMembers(
+        settingsTeamMembers.map((m) =>
+          m.id === pendingRoleChange.memberId ? { ...m, role: pendingRoleChange.newRole } : m,
+        ),
+      );
       toast({
         title: "Role Updated",
-        description: `Role has been changed to ${pendingRoleChange.newRole}`
+        description: `Role has been changed to ${pendingRoleChange.newRole}`,
       });
     }
     setIsRoleChangeConfirmOpen(false);
@@ -203,17 +253,17 @@ const Settings = () => {
 
   const handleInviteMember = () => {
     if (inviteEmail && inviteRole) {
-      const newMember = {
+      const newMember: SettingsTeamMember = {
         id: Date.now(),
-        name: inviteEmail.split('@')[0],
+        name: inviteEmail.split("@")[0],
         email: inviteEmail,
         role: inviteRole,
-        status: "Pending"
+        status: "Pending",
       };
-      setTeamMembers(prev => [...prev, newMember]);
+      replaceSettingsTeamMembers([...settingsTeamMembers, newMember]);
       toast({
         title: "Invitation Sent",
-        description: `Invitation sent to ${inviteEmail}`
+        description: `Invitation sent to ${inviteEmail}`,
       });
       setInviteEmail("");
       setInviteRole("");
@@ -222,22 +272,23 @@ const Settings = () => {
   };
 
   const handleRemoveMember = (memberId: number) => {
-    const member = teamMembers.find(m => m.id === memberId);
+    const member = settingsTeamMembers.find((m) => m.id === memberId);
     if (member?.role === "Admin") return;
-    setTeamMembers(prev => prev.filter(m => m.id !== memberId));
+    replaceSettingsTeamMembers(settingsTeamMembers.filter((m) => m.id !== memberId));
     toast({
       title: "Member Removed",
-      description: "Team member has been removed"
+      description: "Team member has been removed",
     });
   };
 
-  const teamActive = teamMembers.filter((m) => m.status === "Active").length;
+  const teamActive = settingsTeamMembers.filter((m) => m.status === "Active").length;
   const settingsTabTitle: Record<string, string> = {
     profile: "Profile",
     company: "Company",
     team: "Team",
     appearance: "Appearance",
     security: "Security",
+    design: "Design system",
     data: "Data",
   };
 
@@ -250,15 +301,15 @@ const Settings = () => {
             className="w-full flex-wrap justify-start"
             items={[
               { label: "View", value: settingsTabTitle[activeTab] ?? activeTab },
-              { label: "Team", value: teamMembers.length },
+              { label: "Team", value: settingsTeamMembers.length },
               { label: "Active", value: teamActive },
-              { label: "Presets", value: presets.length },
+              { label: "Presets", value: solarPackagePresets.length },
             ]}
           />
         }
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex gap-6">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex gap-6">
         <TabsList className="flex-col h-auto bg-transparent p-0 justify-start w-[200px] shrink-0">
           <TabsTrigger value="profile" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
             <User className="h-4 w-4" />
@@ -279,6 +330,14 @@ const Settings = () => {
           <TabsTrigger value="security" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
             <Shield className="h-4 w-4" />
             Security
+          </TabsTrigger>
+          <TabsTrigger value="design" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+            <Layout className="h-4 w-4" />
+            Design system
+          </TabsTrigger>
+          <TabsTrigger value="data" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+            <Database className="h-4 w-4" />
+            Data
           </TabsTrigger>
         </TabsList>
 
@@ -310,34 +369,34 @@ const Settings = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="firstName">First Name</Label>
-                    <Input id="firstName" defaultValue="John" className="bg-muted/50 border-border" />
+                    <Input id="firstName" value={profileFirstName} onChange={e => setProfileFirstName(e.target.value)} placeholder="First name" className="bg-muted/50 border-border" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="lastName">Last Name</Label>
-                    <Input id="lastName" defaultValue="Doe" className="bg-muted/50 border-border" />
+                    <Input id="lastName" value={profileLastName} onChange={e => setProfileLastName(e.target.value)} placeholder="Last name" className="bg-muted/50 border-border" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input id="email" defaultValue="john@company.com" className="pl-9 bg-muted/50 border-border" />
+                      <Input id="email" value={profileEmail} onChange={e => setProfileEmail(e.target.value)} placeholder="Email address" className="pl-9 bg-muted/50 border-border" />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Phone</Label>
                     <div className="relative">
                       <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input id="phone" defaultValue="+91 98765 43210" className="pl-9 bg-muted/50 border-border" />
+                      <Input id="phone" value={profilePhone} onChange={e => setProfilePhone(e.target.value)} placeholder="+91 XXXXX XXXXX" className="pl-9 bg-muted/50 border-border" />
                     </div>
                   </div>
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="role">Role</Label>
-                    <Input id="role" defaultValue="Project Manager" className="bg-muted/50 border-border" />
+                    <Input id="role" value={profileRole} onChange={e => setProfileRole(e.target.value)} placeholder="Your role / designation" className="bg-muted/50 border-border" />
                   </div>
                 </div>
 
                 <div className="flex justify-end">
-                  <Button className="bg-primary">Save Changes</Button>
+                  <Button className="bg-primary" onClick={handleSaveProfile}>Save Changes</Button>
                 </div>
               </CardContent>
             </Card>
@@ -353,33 +412,33 @@ const Settings = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="companyName">Company Name</Label>
-                    <Input id="companyName" defaultValue="BuildPro Construction Pvt Ltd" className="bg-muted/50 border-border" />
+                    <Input id="companyName" value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Company name" className="bg-muted/50 border-border" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="gst">GST Number</Label>
-                    <Input id="gst" defaultValue="27AABCU9603R1ZM" className="bg-muted/50 border-border" />
+                    <Input id="gst" value={companyGst} onChange={e => setCompanyGst(e.target.value)} placeholder="GST number" className="bg-muted/50 border-border" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="pan">PAN Number</Label>
-                    <Input id="pan" defaultValue="AABCU9603R" className="bg-muted/50 border-border" />
+                    <Input id="pan" value={companyPan} onChange={e => setCompanyPan(e.target.value)} placeholder="PAN number" className="bg-muted/50 border-border" />
                   </div>
                   <div className="space-y-2 col-span-2">
-                    <Label htmlFor="address">Address</Label>
+                    <Label htmlFor="companyAddress">Address</Label>
                     <div className="relative">
                       <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input id="address" defaultValue="123 Business Park, Andheri East, Mumbai - 400069" className="pl-9 bg-muted/50 border-border" />
+                      <Input id="companyAddress" value={companyAddress} onChange={e => setCompanyAddress(e.target.value)} placeholder="Company address" className="pl-9 bg-muted/50 border-border" />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="website">Website</Label>
                     <div className="relative">
                       <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input id="website" defaultValue="www.buildpro.com" className="pl-9 bg-muted/50 border-border" />
+                      <Input id="website" value={companyWebsite} onChange={e => setCompanyWebsite(e.target.value)} placeholder="www.yourcompany.com" className="pl-9 bg-muted/50 border-border" />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="industry">Industry</Label>
-                    <Select defaultValue="construction">
+                    <Select value={companyIndustry} onValueChange={setCompanyIndustry}>
                       <SelectTrigger className="bg-muted/50 border-border">
                         <SelectValue />
                       </SelectTrigger>
@@ -387,13 +446,18 @@ const Settings = () => {
                         <SelectItem value="construction">Construction</SelectItem>
                         <SelectItem value="infrastructure">Infrastructure</SelectItem>
                         <SelectItem value="realestate">Real Estate</SelectItem>
+                        <SelectItem value="solar">Solar / Renewable Energy</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="companyState">GST State Code</Label>
+                    <Input id="companyState" value={companyState} onChange={e => setCompanyState(e.target.value)} placeholder="e.g. 08" className="bg-muted/50 border-border" />
                   </div>
                 </div>
 
                 <div className="flex justify-end">
-                  <Button className="bg-primary">Save Changes</Button>
+                  <Button className="bg-primary" onClick={handleSaveCompany}>Save Changes</Button>
                 </div>
               </CardContent>
             </Card>
@@ -415,7 +479,7 @@ const Settings = () => {
               <CardContent>
                 <div className="space-y-4">
                   <TooltipProvider>
-                    {teamMembers.map((member) => (
+                    {settingsTeamMembers.map((member) => (
                       <div key={member.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30">
                         <div className="flex items-center gap-3">
                           <Avatar className="h-10 w-10">
@@ -495,18 +559,21 @@ const Settings = () => {
                 <div className="space-y-3">
                   <Label>Theme</Label>
                   <div className="flex gap-3">
-                    <Button variant="outline" className="flex-1 h-20 flex-col gap-2 border-primary">
-                      <div className="w-8 h-8 rounded-full bg-slate-900 border-2 border-slate-700" />
-                      <span className="text-xs">Dark</span>
-                    </Button>
-                    <Button variant="outline" className="flex-1 h-20 flex-col gap-2">
-                      <div className="w-8 h-8 rounded-full bg-white border-2 border-slate-200" />
-                      <span className="text-xs">Light</span>
-                    </Button>
-                    <Button variant="outline" className="flex-1 h-20 flex-col gap-2">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-white to-slate-900 border-2 border-slate-400" />
-                      <span className="text-xs">System</span>
-                    </Button>
+                    {[
+                      { value: "dark", label: "Dark", cls: "bg-slate-900 border-slate-700" },
+                      { value: "light", label: "Light", cls: "bg-white border-slate-200" },
+                      { value: "system", label: "System", cls: "bg-gradient-to-br from-white to-slate-900 border-slate-400" },
+                    ].map(t => (
+                      <Button
+                        key={t.value}
+                        variant="outline"
+                        className={`flex-1 h-20 flex-col gap-2 ${selectedTheme === t.value ? "border-primary ring-1 ring-primary" : ""}`}
+                        onClick={() => setSelectedTheme(t.value)}
+                      >
+                        <div className={`w-8 h-8 rounded-full border-2 ${t.cls}`} />
+                        <span className="text-xs">{t.label}</span>
+                      </Button>
+                    ))}
                   </div>
                 </div>
 
@@ -515,8 +582,13 @@ const Settings = () => {
                 <div className="space-y-3">
                   <Label>Accent Color</Label>
                   <div className="flex gap-3">
-                    {["bg-blue-500", "bg-blue-500", "bg-purple-500", "bg-amber-500", "bg-red-500"].map((color, idx) => (
-                      <button key={idx} className={`w-8 h-8 rounded-full ${color} ${idx === 0 ? "ring-2 ring-offset-2 ring-offset-background ring-blue-500" : ""}`} />
+                    {ACCENT_COLORS.map(ac => (
+                      <button
+                        key={ac.value}
+                        title={ac.label}
+                        onClick={() => { setSelectedAccent(ac.value); localStorage.setItem(LS_ACCENT, ac.value); }}
+                        className={`w-8 h-8 rounded-full ${ac.cls} ${selectedAccent === ac.value ? "ring-2 ring-offset-2 ring-offset-background ring-foreground" : ""}`}
+                      />
                     ))}
                   </div>
                 </div>
@@ -533,33 +605,36 @@ const Settings = () => {
               <CardContent className="space-y-6">
                 <div className="space-y-2">
                   <Label>Current Password</Label>
-                  <Input type="password" placeholder="Enter current password" className="bg-muted/50 border-border" />
+                  <Input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="Enter current password" className="bg-muted/50 border-border" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>New Password</Label>
-                    <Input type="password" placeholder="Enter new password" className="bg-muted/50 border-border" />
+                    <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Enter new password" className="bg-muted/50 border-border" />
                   </div>
                   <div className="space-y-2">
                     <Label>Confirm Password</Label>
-                    <Input type="password" placeholder="Confirm new password" className="bg-muted/50 border-border" />
+                    <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Confirm new password" className="bg-muted/50 border-border" />
                   </div>
                 </div>
-                <Button className="bg-primary">Update Password</Button>
+                <Button className="bg-primary" onClick={handleUpdatePassword}>Update Password</Button>
 
                 <Separator />
 
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-foreground">Two-Factor Authentication</p>
-                    <p className="text-xs text-muted-foreground">Add an extra layer of security</p>
+                    <p className="text-xs text-muted-foreground">{twoFAEnabled ? "Currently enabled — your account has extra protection." : "Add an extra layer of security"}</p>
                   </div>
-                  <Button variant="outline" size="sm">Enable</Button>
+                  <Button variant="outline" size="sm" onClick={handleToggle2FA}>{twoFAEnabled ? "Disable" : "Enable"}</Button>
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
 
+          <TabsContent value="design" className="mt-0 max-h-[calc(100vh-10rem)] min-h-0 overflow-y-auto pr-1">
+            <DesignSystem embedded />
+          </TabsContent>
 
           <TabsContent value="data" className="mt-0 space-y-6">
             <Card className="bg-card border-border">
@@ -606,7 +681,7 @@ const Settings = () => {
 
       {/* Invite Member Modal */}
       <Sheet open={isInviteModalOpen} onOpenChange={setIsInviteModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Invite Team Member</SheetTitle>
           </SheetHeader>
@@ -674,7 +749,7 @@ const Settings = () => {
 
       {/* Add/Edit Preset Modal */}
       <Sheet open={isPresetModalOpen} onOpenChange={setIsPresetModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>{editingPreset ? 'Edit Preset' : 'Add New Preset'}</SheetTitle>
           </SheetHeader>

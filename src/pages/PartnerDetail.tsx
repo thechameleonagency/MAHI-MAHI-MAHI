@@ -254,7 +254,8 @@ const PartnerDetail = () => {
               <Badge variant="outline" className="font-normal">{sortedTxns.length} entries</Badge>
             </CardHeader>
             <CardContent className="p-0">
-              <DataTableShell
+          <DataTableShell
+            variant="inline"
                 maxHeight={listTableViewportMaxHeight(txnPageSize)}
                 scrollResetKey={`${safePage}-${txnPageSize}-${sortedTxns.length}`}
                 footer={
@@ -281,7 +282,7 @@ const PartnerDetail = () => {
                 <TableBody>
                   {pagedTxns.map((txn) => (
                     <TableRow key={txn.id}>
-                      <TableCell className="text-sm">{txn.date}</TableCell>
+                      <TableCell >{txn.date}</TableCell>
                       <TableCell>
                         <div className="space-y-1">
                           <p className="text-xs font-medium">{txn.type}</p>
@@ -293,17 +294,17 @@ const PartnerDetail = () => {
                           </Badge>
                         </div>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
+                      <TableCell className="text-muted-foreground">
                         {txn.projectId ? projects.find(p => p.id === txn.projectId)?.name || txn.projectId : "-"}
                       </TableCell>
-                      <TableCell className={`text-right font-mono text-sm ${txn.direction === "given" ? "text-destructive" : "text-emerald-600"}`}>
+                      <TableCell className={`text-right font-mono ${txn.direction === "given" ? "text-destructive" : "text-emerald-600"}`}>
                         {txn.direction === "given" ? "-" : "+"}{formatCurrency(txn.amount)}
                       </TableCell>
                     </TableRow>
                   ))}
                   {sortedTxns.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="py-12 text-center text-sm text-muted-foreground italic">
+                      <TableCell colSpan={4} className="py-12 text-center text-muted-foreground italic">
                         No transactions recorded for this partner.
                       </TableCell>
                     </TableRow>

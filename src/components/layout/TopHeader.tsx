@@ -41,25 +41,48 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
   const can = (a: Parameters<typeof permissionService.canPerformAction>[1]) =>
     permissionService.canPerformAction(currentRole, a);
 
-  const { stickyPageHeader, setStickyPageHeader } = usePageHeaderSticky();
+  const { stickyPageHeader, setStickyPageHeader, breadcrumbs } = usePageHeaderSticky();
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-border/80 bg-card/90 px-3 shadow-sm supports-[backdrop-filter]:backdrop-blur-md md:gap-4 md:px-5">
-      <div className="flex min-w-0 items-center gap-2">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-stretch justify-between border-b border-border/80 bg-card/90 shadow-sm supports-[backdrop-filter]:backdrop-blur-md w-full">
+      
+      {/* Left side: Breadcrumb zone matching page background */}
+      <div className="flex min-w-0 items-center gap-2 bg-canvas px-3 md:px-5 border-r border-border/50 shadow-[2px_0_4px_rgb(0_0_0/0.02)]">
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="shrink-0 lg:hidden"
+          className="shrink-0 lg:hidden -ml-2"
           onClick={onOpenSidebar}
           aria-label="Open menu"
         >
           <Menu className="h-5 w-5" />
         </Button>
+        
+        {breadcrumbs && breadcrumbs.length > 0 && (
+          <nav
+            className="text-sm text-muted-foreground flex min-w-0 flex-1 flex-wrap items-center gap-1 mr-4"
+            aria-label="Breadcrumb"
+          >
+            {breadcrumbs.map((b, i) => (
+              <span key={`${b.label}-${i}`} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                {i > 0 && <span className="text-muted-foreground/40">/</span>}
+                {b.to ? (
+                  <Link to={b.to} className="hover:text-foreground transition-colors">
+                    {b.label}
+                  </Link>
+                ) : (
+                  <span className="text-foreground font-medium">{b.label}</span>
+                )}
+              </span>
+            ))}
+          </nav>
+        )}
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <div className="min-w-0 flex-1">
+      {/* Right side: Search and actions */}
+      <div className="flex shrink-0 flex-1 items-center justify-end gap-2 px-3 md:gap-4 md:px-5">
+        <div className="min-w-0 w-full max-w-[280px]">
           <GlobalSearch />
         </div>
         <Tooltip>
@@ -86,9 +109,9 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
         </Tooltip>
       </div>
 
-      <div className="hidden h-7 w-px shrink-0 bg-border md:block" aria-hidden />
+      <div className="hidden h-7 w-px shrink-0 bg-border/50 md:block" aria-hidden />
 
-      <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-1.5 pr-1">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

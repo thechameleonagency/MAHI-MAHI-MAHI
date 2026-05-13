@@ -785,7 +785,7 @@ const EmployeeProfile = () => {
 
                   {/* Expenses Table */}
                   <DataTableShell
-                    maxHeight={listTableViewportMaxHeight(expenseTablePageSize)}
+            variant="inline" maxHeight={listTableViewportMaxHeight(expenseTablePageSize)}
                     scrollResetKey={`${safeExpenseTablePage}-${expenseTablePageSize}-${filteredExpenses.length}`}
                     footer={
                       <TablePaginationBar

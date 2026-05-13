@@ -1,7 +1,8 @@
 import { type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { useStickyPageHeaderActive } from "@/contexts/PageHeaderStickyContext";
+import { usePageHeaderSticky } from "@/contexts/PageHeaderStickyContext";
+import { useEffect } from "react";
 
 export type BreadcrumbItem = { label: string; to?: string };
 
@@ -18,9 +19,14 @@ type StickyPageHeaderProps = {
  * Place as the first child inside the scrollable `main` region so `sticky top-0` pins under the app shell.
  */
 export function StickyPageHeader({ breadcrumbs, children, subRow, className }: StickyPageHeaderProps) {
-  const pinned = useStickyPageHeaderActive();
+  const { stickyPageHeader: pinned, setBreadcrumbs } = usePageHeaderSticky();
 
-  if (breadcrumbs.length === 0 && !children && !subRow) return null;
+  useEffect(() => {
+    setBreadcrumbs(breadcrumbs);
+    return () => setBreadcrumbs([]);
+  }, [breadcrumbs, setBreadcrumbs]);
+
+  if (!children && !subRow) return null;
 
   return (
     <div
@@ -30,33 +36,17 @@ export function StickyPageHeader({ breadcrumbs, children, subRow, className }: S
         className
       )}
     >
-      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2">
-        {breadcrumbs.length > 0 && (
-          <nav
-            className="text-sm text-muted-foreground flex min-w-0 flex-1 flex-wrap items-center gap-1"
-            aria-label="Breadcrumb"
-          >
-            {breadcrumbs.map((b, i) => (
-              <span key={`${b.label}-${i}`} className="inline-flex items-center gap-1.5">
-                {i > 0 && <span className="text-muted-foreground/40">/</span>}
-                {b.to ? (
-                  <Link to={b.to} className="hover:text-foreground transition-colors">
-                    {b.label}
-                  </Link>
-                ) : (
-                  <span className="text-foreground font-medium">{b.label}</span>
-                )}
-              </span>
-            ))}
-          </nav>
+      <div className="flex w-full min-h-10 flex-wrap items-center justify-between gap-4">
+        {/* Left/Middle filters/subRow elements */}
+        {subRow && (
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+            {subRow}
+          </div>
         )}
-        {children && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{children}</div>}
+        
+        {/* Right actions */}
+        {children && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 ml-auto">{children}</div>}
       </div>
-      {subRow && (
-        <div className="mt-2.5 flex w-full min-w-0 flex-col gap-2 border-t border-border/50 pt-2.5 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
-          {subRow}
-        </div>
-      )}
     </div>
   );
 }

@@ -221,7 +221,7 @@ export function ClientPaymentHistory({
                   <TableCell className="text-right font-medium text-blue-600">
                     ₹{payment.amount.toLocaleString()}
                   </TableCell>
-                  <TableCell className="text-sm">
+                  <TableCell >
                     {payment.settlementRecipient === "split" && payment.splitLines?.length
                       ? payment.splitLines
                           .map((l) =>
@@ -245,7 +245,7 @@ export function ClientPaymentHistory({
                   <TableCell className="text-muted-foreground">
                     {payment.reference || "-"}
                   </TableCell>
-                  <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
+                  <TableCell className="max-w-[200px] truncate text-muted-foreground">
                     {payment.notes || "-"}
                   </TableCell>
                 </TableRow>

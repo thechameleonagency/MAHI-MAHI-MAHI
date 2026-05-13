@@ -9,6 +9,7 @@ import type {
   ServicePreset as ProjectServicePreset,
   SiteRecord,
   Task,
+  Team,
 } from "@/types/project";
 import type {
   Agent,
@@ -45,12 +46,14 @@ import {
   seedTasks,
   seedEnquiries,
   seedIncomes,
+  seedAgents,
   seedAuditLogs,
   seedQuotationTemplates,
+  seedTeams,
 } from "./seedData";
 
 export const dummyCustomers: Customer[] = seedCustomers;
-export const dummyAgents: Agent[] = []; // Using seed data if needed later
+export const dummyAgents: Agent[] = seedAgents;
 export const dummyPartners: Partner[] = seedPartners;
 export const dummyEnquiries: Enquiry[] = seedEnquiries;
 export const dummyQuotations: Quotation[] = seedQuotations;
@@ -58,6 +61,7 @@ export const dummyProjects: Project[] = seedProjects;
 export const dummyEmployees: Employee[] = seedEmployees;
 export const dummyAttendanceRecords: AttendanceRecord[] = seedAttendanceRecords;
 export const dummyTasks: Task[] = seedTasks;
+export const dummyTeams: Team[] = seedTeams;
 export const dummyInvoices: Invoice[] = seedInvoices;
 export const dummySaleBills: Invoice[] = []; 
 export const dummyPayments: Payment[] = seedPayments;

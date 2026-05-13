@@ -24,6 +24,8 @@ export type MaterialMovementAtProjectPayload = {
   allowNegativeSiteBalanceOverride?: boolean;
   /** When set, ties issue to `ExecutionLineItem.id` and increments `issuedQty`. */
   baselineLineId?: string;
+  /** Idempotency: duplicate key within project is ignored (no-op success). */
+  clientRequestId?: string;
 };
 
 export const MATERIAL_MOVEMENT_AT_PROJECT_COMMAND = "inventory.material_movement_at_project";
@@ -97,6 +99,19 @@ export const registerInventoryCommands = (
       if (!project) {
         return { ok: false, errorCode: "PROJECT_NOT_FOUND", message: "Project not found" };
       }
+
+      const dedupeKey = command.payload.clientRequestId?.trim();
+      if (dedupeKey) {
+        const seen = project.materialMovementDedupeIds ?? [];
+        if (seen.includes(dedupeKey)) {
+          return {
+            ok: true,
+            result: { projectId, itemId },
+            domainEvents: [],
+          };
+        }
+      }
+
       const inventoryItem = repositories.inventoryItemRepository.getById(itemId);
       if (!inventoryItem) {
         return { ok: false, errorCode: "INVENTORY_NOT_FOUND", message: "Inventory item not found" };
@@ -213,6 +228,9 @@ export const registerInventoryCommands = (
         materialsSent: materialsSent.filter((entry) => entry.quantity > 0),
         siteMaterialLedger: nextLedgers,
         executionLineItems: execLines.length ? execLines : project.executionLineItems,
+        materialMovementDedupeIds: dedupeKey
+          ? [...(project.materialMovementDedupeIds ?? []), dedupeKey].slice(-200)
+          : project.materialMovementDedupeIds,
       };
 
       repositories.projectRepository.update(projectId, updatedProject);

@@ -23,7 +23,8 @@ export type PostingResult =
   | { ok: true; voucher: Voucher }
   | { ok: false; reviewQueueItem: { reason: string; event: AccountingEventInput } };
 
-const makeVoucherId = () => `VCH-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+const makeVoucherId = () =>
+  `VCH-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
 
 export class VoucherPostingService {
   post(input: AccountingEventInput): PostingResult {
@@ -109,6 +110,38 @@ export class VoucherPostingService {
           ...base,
           lines: [
             { accountCode: "3100_LOAN_LIABILITY", debit: input.amount, credit: 0 },
+            { accountCode: "1000_BANK", debit: 0, credit: input.amount },
+          ],
+        };
+      case "PurchaseBillBooked":
+        return {
+          ...base,
+          lines: [
+            { accountCode: "5300_PURCHASES", debit: input.amount, credit: 0 },
+            { accountCode: "2100_ACCOUNTS_PAYABLE", debit: 0, credit: input.amount },
+          ],
+        };
+      case "VendorPaymentRecorded":
+        return {
+          ...base,
+          lines: [
+            { accountCode: "2100_ACCOUNTS_PAYABLE", debit: input.amount, credit: 0 },
+            { accountCode: "1000_BANK", debit: 0, credit: input.amount },
+          ],
+        };
+      case "PayrollPaid":
+        return {
+          ...base,
+          lines: [
+            { accountCode: "2300_PAYROLL_PAYABLE", debit: input.amount, credit: 0 },
+            { accountCode: "1000_BANK", debit: 0, credit: input.amount },
+          ],
+        };
+      case "PartnerPayoutRecorded":
+        return {
+          ...base,
+          lines: [
+            { accountCode: "2400_PARTNER_PAYABLE", debit: input.amount, credit: 0 },
             { accountCode: "1000_BANK", debit: 0, credit: input.amount },
           ],
         };

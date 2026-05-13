@@ -1,117 +1,442 @@
 import { useState, useMemo } from "react";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Briefcase, User, MapPin, IndianRupee, Zap, Plus, Info, Users } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Briefcase, User, Users, Wrench, IndianRupee, Zap, ChevronRight, Check,
+  ShieldCheck, AlertTriangle, Building2, HardHat,
+  UsersRound,
+} from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
-import { Badge } from "@/components/ui/badge";
-import type { Project, ProjectPartnerType } from "@/types/project";
+import type { Project, ProjectScopeConfig } from "@/types/project";
 import type { ProjectIntakePayload } from "@/application/services/ProjectKindService";
+import type { ProjectKind } from "@/domain/projectTypes/types";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import { useNavigate } from "react-router-dom";
+import { Badge } from "@/components/ui/badge";
 
 interface CreateProjectModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+type LeadPath = "MSS_DIRECT" | "PARTNER" | "INC_GIVEN" | "OUTSOURCED_INC";
+type VendorshipChoice = "OUR_CODE" | "THIRD_PARTY";
+type RateBasis = "per_kw" | "per_sqft" | "fixed";
+
+const parsePositiveAmount = (value: string): number => {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
 export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalProps) => {
   const navigate = useNavigate();
-  const { 
-    partners, 
-    customers, 
-    getProjectEligibleQuotations, 
-    createProjectIntake, 
-    generateId 
+  const {
+    partners,
+    customers,
+    vendorshipCompanies,
+    incGiverCompanies,
+    getProjectEligibleQuotations,
+    createProjectIntake,
+    addCustomer,
+    addExpense,
+    generateId,
+    convertEnquiryToCustomer,
+    loans,
+    agents,
   } = useAppData();
 
-  const [step, setStep] = useState(1);
-  const [dealType, setDealType] = useState<Project["dealType"]>("Solo");
-  
-  // Basic Info
-  const [projectName, setProjectName] = useState("");
-  const [selectedCustomerId, setSelectedCustomerId] = useState("");
-  const [projectType, setProjectType] = useState<Project["projectType"]>("Residential");
-  const [location, setLocation] = useState("");
-  const [capacity, setCapacity] = useState("");
-  const [contractAmount, setContractAmount] = useState("");
-  
-  // Quotation Link
+  // ── Section 1: How did this project come to us? ──
+  const [leadPath, setLeadPath] = useState<LeadPath | null>(null);
+
+  // ── Section 2 (Direct Client) ──
   const [selectedQuotationId, setSelectedQuotationId] = useState<string | undefined>();
-  
-  // Partner Info
+  const [customerMode, setCustomerMode] = useState<"select" | "add">("select");
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [newCustomerEmail, setNewCustomerEmail] = useState("");
+  const [newCustomerAddress, setNewCustomerAddress] = useState("");
+  const [kNumber, setKNumber] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [capacity, setCapacity] = useState("");
+  const [projectType, setProjectType] = useState<Project["projectType"]>("Residential");
+  const [contractAmount, setContractAmount] = useState("");
+  const [internalCostEstimate, setInternalCostEstimate] = useState("");
+  const [paymentTypeMss, setPaymentTypeMss] = useState<"" | "cash" | "loan" | "cash-and-loan">("");
+  const [fundingLoanId, setFundingLoanId] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [commissionRatePct, setCommissionRatePct] = useState("");
+  const [incScopeChoice, setIncScopeChoice] = useState<"" | "labour" | "labour_and_materials">("");
+  const [selectedSubcontractorId, setSelectedSubcontractorId] = useState("");
+
+  const [vendorshipChoice, setVendorshipChoice] = useState<VendorshipChoice>("OUR_CODE");
+  const [vendorshipCompanyId, setVendorshipCompanyId] = useState("");
+  const [vendorshipFeeAmount, setVendorshipFeeAmount] = useState("");
+
+  // ── Section 2 (Partner Network) ──
   const [selectedPartnerId, setSelectedPartnerId] = useState("");
-  const [partnerType, setPartnerType] = useState<ProjectPartnerType>("profit");
-  const [partnerShare, setPartnerShare] = useState(""); // percentage, fixed amount, or fee
+  const [partnerCustomerName, setPartnerCustomerName] = useState("");
+  const [partnerProjectName, setPartnerProjectName] = useState("");
+  const [partnerCapacity, setPartnerCapacity] = useState("");
+  const [partnerContractAmount, setPartnerContractAmount] = useState("");
+  const [partnerEconomicsType, setPartnerEconomicsType] = useState<"profit_share" | "fixed_rate">("profit_share");
+  const [profitSharePercent, setProfitSharePercent] = useState("");
+  const [fixedRatePerKw, setFixedRatePerKw] = useState("");
+  const [billingParty, setBillingParty] = useState<"MSS" | "PARTNER">("MSS");
+  const [partnerGstInvoice, setPartnerGstInvoice] = useState<"yes" | "no">("yes");
+  const [partnerVendorshipChoice, setPartnerVendorshipChoice] = useState<VendorshipChoice>("OUR_CODE");
+  const [partnerVendorshipFeeAmount, setPartnerVendorshipFeeAmount] = useState("");
+  const [partnerThirdPartyCompanyId, setPartnerThirdPartyCompanyId] = useState("");
+  const [partnerProjectType, setPartnerProjectType] = useState<Project["projectType"]>("Residential");
+
+  // ── Section 2 (INC Given) ──
+  const [incGiverCompanyId, setIncGiverCompanyId] = useState("");
+  const [rateBasis, setRateBasis] = useState<RateBasis>("per_kw");
+  const [rateValue, setRateValue] = useState("");
+  const [incCapacity, setIncCapacity] = useState("");
+  const [incArea, setIncArea] = useState("");
+  const [incFixedAmount, setIncFixedAmount] = useState("");
+  const [incProjectName, setIncProjectName] = useState("");
+  const [incAddress, setIncAddress] = useState("");
 
   const eligibleQuotations = useMemo(() => getProjectEligibleQuotations(), [getProjectEligibleQuotations]);
 
+  const dealBringerPartners = useMemo(
+    () => partners.filter(p => p.type === "Profit-Share" || p.type === "Fixed-Rate"),
+    [partners]
+  );
+
   const resetForm = () => {
-    setStep(1);
-    setDealType("Solo");
-    setProjectName("");
-    setSelectedCustomerId("");
-    setProjectType("Residential");
-    setLocation("");
-    setCapacity("");
-    setContractAmount("");
+    setLeadPath(null);
     setSelectedQuotationId(undefined);
+    setCustomerMode("select");
+    setSelectedCustomerId("");
+    setNewCustomerName("");
+    setNewCustomerPhone("");
+    setNewCustomerEmail("");
+    setNewCustomerAddress("");
+    setKNumber("");
+    setProjectName("");
+    setCapacity("");
+    setProjectType("Residential");
+    setContractAmount("");
+    setInternalCostEstimate("");
+    setPaymentTypeMss("");
+    setFundingLoanId("");
+    setSelectedAgentId("");
+    setCommissionRatePct("");
+    setIncScopeChoice("");
+    setSelectedSubcontractorId("");
+    setVendorshipChoice("OUR_CODE");
+    setVendorshipCompanyId("");
+    setVendorshipFeeAmount("");
     setSelectedPartnerId("");
-    setPartnerType("profit");
-    setPartnerShare("");
+    setPartnerCustomerName("");
+    setPartnerProjectName("");
+    setPartnerCapacity("");
+    setPartnerContractAmount("");
+    setPartnerEconomicsType("profit_share");
+    setProfitSharePercent("");
+    setFixedRatePerKw("");
+    setBillingParty("MSS");
+    setPartnerGstInvoice("yes");
+    setPartnerVendorshipChoice("OUR_CODE");
+    setPartnerVendorshipFeeAmount("");
+    setPartnerThirdPartyCompanyId("");
+    setPartnerProjectType("Residential");
+    setIncGiverCompanyId("");
+    setRateBasis("per_kw");
+    setRateValue("");
+    setIncCapacity("");
+    setIncArea("");
+    setIncFixedAmount("");
+    setIncProjectName("");
+    setIncAddress("");
   };
 
   const handleQuotationSelect = (qId: string) => {
     const q = eligibleQuotations.find(x => x.id === qId);
-    if (q) {
-      setSelectedQuotationId(q.id);
-      setProjectName(`${q.clientName} - ${q.systemCapacity}kW`);
+    if (!q) return;
+    setSelectedQuotationId(q.id);
+    setProjectName(`${q.clientName} – ${q.systemCapacity}kW`);
+    setCapacity(q.systemCapacity || "");
+    setContractAmount(String(q.clientAgreedAmount || q.totalAmount || ""));
+    if (q.paymentType) setPaymentTypeMss(q.paymentType);
+    if (q.customerId) {
+      setCustomerMode("select");
       setSelectedCustomerId(q.customerId);
-      setCapacity(q.systemCapacity || "");
-      setContractAmount(String(q.clientAgreedAmount || q.totalAmount || ""));
-      setStep(2);
+    } else {
+      setCustomerMode("add");
+      setNewCustomerName(q.clientName || "");
+      setNewCustomerPhone(q.clientPhone || "");
+      setNewCustomerEmail(q.clientEmail || "");
+      setNewCustomerAddress(q.clientAddress || "");
     }
   };
 
+  // Compute INC total amount based on rate basis
+  const incTotalAmount = useMemo(() => {
+    if (rateBasis === "fixed") return parsePositiveAmount(incFixedAmount);
+    if (rateBasis === "per_kw") return parsePositiveAmount(rateValue) * parsePositiveAmount(incCapacity) * 1000;
+    if (rateBasis === "per_sqft") return parsePositiveAmount(rateValue) * parsePositiveAmount(incArea);
+    return 0;
+  }, [rateBasis, rateValue, incCapacity, incArea, incFixedAmount]);
+
   const handleCreate = async () => {
-    if (!projectName || !selectedCustomerId || !capacity) {
-      toast({ title: "Missing fields", description: "Please fill in project name, customer and capacity.", variant: "destructive" });
+    if (!leadPath) {
+      toast({ title: "Select a path", description: "Choose how this project came to you.", variant: "destructive" });
       return;
     }
 
+    let enquiryLinkedCustomerId: string | undefined;
+    if (selectedQuotationId) {
+      const qFromList = eligibleQuotations.find((x) => x.id === selectedQuotationId);
+      if (qFromList?.enquiryId) {
+        const conv = await convertEnquiryToCustomer(qFromList.enquiryId);
+        if (!conv.ok) {
+          toast({
+            title: "Could not convert enquiry to customer",
+            description: conv.error || "Check enquiry status and try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (conv.customerId) enquiryLinkedCustomerId = conv.customerId;
+      }
+    }
+
     const projectId = generateId("P");
-    const customer = customers.find(c => c.id === selectedCustomerId);
-    
-    const kindMap: Record<Project["dealType"], Project["projectKind"]> = {
-      Solo: "SOLO_EPC",
-      Partner: "PARTNER_EPC",
-      Fixed: "FIXED_EPC",
-      Vendorship: "VENDOR_NETWORK",
-      INC: "INC"
-    };
-    const mappedKind = kindMap[dealType];
+    let finalProjectName = "";
+    let finalCapacity = "";
+    let finalContractAmount = 0;
+    let finalCustomerId = "";
+    let finalClientName = "";
+    let finalProjectType: Project["projectType"] = "Residential";
+    let projectKind: ProjectKind = "SOLO_EPC";
+    let scopeConfig: ProjectScopeConfig;
+
+    // ── Path A: Direct Client (or Outsourced INC lead) ──
+    if (leadPath === "MSS_DIRECT" || leadPath === "OUTSOURCED_INC") {
+      if (!projectName || !capacity) {
+        toast({ title: "Missing fields", description: "Project name and capacity are required.", variant: "destructive" });
+        return;
+      }
+
+      let activeCustomerId = selectedCustomerId;
+      if (customerMode === "add") {
+        if (!newCustomerName) {
+          toast({ title: "Customer name required", variant: "destructive" });
+          return;
+        }
+        const newCustId = generateId("C");
+        addCustomer({
+          id: newCustId,
+          name: newCustomerName,
+          phone: newCustomerPhone,
+          email: newCustomerEmail,
+          address: newCustomerAddress || "",
+          type: "individual",
+          itemsBought: [],
+          totalPurchases: 0,
+          createdAt: new Date().toISOString(),
+        });
+        activeCustomerId = newCustId;
+      }
+
+      if (!activeCustomerId) {
+        toast({ title: "Customer required", description: "Select an existing customer or add a new one.", variant: "destructive" });
+        return;
+      }
+
+      if (enquiryLinkedCustomerId) {
+        activeCustomerId = enquiryLinkedCustomerId;
+      }
+
+      const cust = customers.find(c => c.id === activeCustomerId);
+      finalClientName = cust?.name || newCustomerName;
+      finalCustomerId = activeCustomerId;
+      finalProjectName = projectName;
+      finalCapacity = capacity;
+      finalContractAmount = parsePositiveAmount(contractAmount);
+      finalProjectType = projectType;
+      if (leadPath === "OUTSOURCED_INC") {
+        if (!selectedSubcontractorId) {
+          toast({ title: "Subcontractor required", description: "Select the installation subcontractor.", variant: "destructive" });
+          return;
+        }
+        projectKind = "OUTSOURCED_INC";
+        scopeConfig = {
+          hasMaterial: false,
+          hasInstallation: true,
+          vendorshipOwner: "CLIENT",
+          leadSource: "MSS_DIRECT",
+          billingParty: "MSS",
+          partnerId: selectedSubcontractorId,
+          installationBy: "Subcontractor",
+          kNumber: kNumber || undefined,
+        };
+      } else {
+        projectKind = "SOLO_EPC";
+        scopeConfig = {
+          hasMaterial: true,
+          hasInstallation: true,
+          vendorshipOwner: vendorshipChoice === "OUR_CODE" ? "MSS" : "PARTNER",
+          vendorshipFeeAmount: vendorshipChoice === "THIRD_PARTY" ? parsePositiveAmount(vendorshipFeeAmount) || undefined : undefined,
+          leadSource: "MSS_DIRECT",
+          billingParty: "MSS",
+          kNumber: kNumber || undefined,
+          vendorshipCompanyId: vendorshipChoice === "THIRD_PARTY" ? vendorshipCompanyId : undefined,
+          agentId: selectedAgentId || undefined,
+        };
+      }
+
+      if (leadPath === "MSS_DIRECT" && vendorshipChoice === "THIRD_PARTY" && vendorshipCompanyId && vendorshipFeeAmount) {
+        const vc = vendorshipCompanies.find(c => c.id === vendorshipCompanyId);
+        addExpense({
+          id: generateId("EXP"),
+          date: new Date().toISOString().split("T")[0],
+          amount: parsePositiveAmount(vendorshipFeeAmount),
+          category: "Vendorship Code Fee",
+          subCategory: vc?.name || "Third-party code",
+          projectId,
+          description: `Vendorship code fee — ${vc?.name || vendorshipCompanyId}`,
+          mainCategory: "site",
+          paidBy: { type: "company" },
+          createdAt: new Date().toISOString(),
+          vendorshipCompanyId,
+        });
+      }
+    }
+
+    // ── Path B: Partner Network ──
+    else if (leadPath === "PARTNER") {
+      if (!selectedPartnerId) {
+        toast({ title: "Partner required", description: "Select the partner who brought this deal.", variant: "destructive" });
+        return;
+      }
+      if (!partnerCapacity || !partnerContractAmount) {
+        toast({ title: "Missing fields", description: "Capacity and contract amount are required.", variant: "destructive" });
+        return;
+      }
+
+      const partner = partners.find(p => p.id === selectedPartnerId);
+      finalProjectName = partnerProjectName || `${partner?.name || "Partner"} – ${partnerCapacity}kW`;
+      finalCapacity = partnerCapacity;
+      finalContractAmount = parsePositiveAmount(partnerContractAmount);
+      finalClientName = partnerCustomerName || "TBD";
+      finalCustomerId = `tbd-${generateId("CUST")}`;
+      finalProjectType = partnerProjectType;
+
+      projectKind = partner?.type === "Fixed-Rate" ? "FIXED_EPC" : "PARTNER_EPC";
+
+      scopeConfig = {
+        hasMaterial: true,
+        hasInstallation: true,
+        vendorshipOwner: partnerVendorshipChoice === "OUR_CODE" ? "MSS" : "PARTNER",
+        vendorshipFeeAmount: partnerVendorshipChoice === "OUR_CODE" && partnerVendorshipFeeAmount
+          ? parsePositiveAmount(partnerVendorshipFeeAmount)
+          : partnerVendorshipChoice === "THIRD_PARTY" && partnerVendorshipFeeAmount
+          ? parsePositiveAmount(partnerVendorshipFeeAmount)
+          : undefined,
+        leadSource: "PARTNER",
+        partnerId: selectedPartnerId,
+        billingParty,
+        partnerBillingFeePercentage: partnerGstInvoice === "no" ? 9 : undefined,
+        vendorshipCompanyId: partnerVendorshipChoice === "THIRD_PARTY" ? partnerThirdPartyCompanyId : undefined,
+        profitSharePercent: partnerEconomicsType === "profit_share" ? parsePositiveAmount(profitSharePercent) || undefined : undefined,
+        fixedRatePerKw: partnerEconomicsType === "fixed_rate" ? parsePositiveAmount(fixedRatePerKw) || undefined : undefined,
+      };
+
+      // Auto-create vendorship fee expense if third-party code for partner project (partner bears it)
+      if (partnerVendorshipChoice === "THIRD_PARTY" && partnerThirdPartyCompanyId && partnerVendorshipFeeAmount) {
+        const vc = vendorshipCompanies.find(c => c.id === partnerThirdPartyCompanyId);
+        addExpense({
+          id: generateId("EXP"),
+          date: new Date().toISOString().split("T")[0],
+          amount: parsePositiveAmount(partnerVendorshipFeeAmount),
+          category: "Vendorship Code Fee",
+          subCategory: vc?.name || "Third-party code",
+          projectId,
+          description: `Vendorship code fee — ${vc?.name || partnerThirdPartyCompanyId} (borne by partner)`,
+          mainCategory: "site",
+          paidBy: { type: "partner", entityId: selectedPartnerId, entityName: partner?.name },
+          createdAt: new Date().toISOString(),
+          vendorshipCompanyId: partnerThirdPartyCompanyId,
+        });
+      }
+    }
+
+    // ── Path C: INC Work Given to Us ──
+    else if (leadPath === "INC_GIVEN") {
+      if (!incGiverCompanyId) {
+        toast({ title: "INC source required", description: "Select the company giving you this INC work.", variant: "destructive" });
+        return;
+      }
+      const incCo = incGiverCompanies.find(c => c.id === incGiverCompanyId);
+      const totalAmt = rateBasis === "fixed"
+        ? parsePositiveAmount(incFixedAmount)
+        : rateBasis === "per_kw"
+        ? parsePositiveAmount(rateValue) * parsePositiveAmount(incCapacity) * 1000
+        : parsePositiveAmount(rateValue) * parsePositiveAmount(incArea);
+
+      finalProjectName = incProjectName || `INC – ${incCo?.name || "Unknown"} – ${incCapacity || "?"}kW`;
+      finalCapacity = incCapacity || "0";
+      finalContractAmount = totalAmt;
+      finalClientName = incCo?.name || "INC Work Source";
+      finalCustomerId = `inc-${incGiverCompanyId}`;
+      finalProjectType = "Commercial";
+      projectKind = "INC_GIVEN";
+
+      scopeConfig = {
+        hasMaterial: false,
+        hasInstallation: true,
+        vendorshipOwner: "CLIENT",
+        leadSource: "MSS_DIRECT",
+        billingParty: "MSS",
+        incGiverCompanyId,
+        rateBasis,
+        rateValue: parsePositiveAmount(rateValue),
+      };
+    } else {
+      return;
+    }
+
+    if (
+      (leadPath === "MSS_DIRECT" || leadPath === "OUTSOURCED_INC") &&
+      (paymentTypeMss === "loan" || paymentTypeMss === "cash-and-loan") &&
+      !fundingLoanId
+    ) {
+      toast({ title: "Funding loan required", description: "Select which loan funds this project.", variant: "destructive" });
+      return;
+    }
+
+    const internalEst = parsePositiveAmount(internalCostEstimate);
+    const selectedAgent = selectedAgentId ? agents.find((a) => a.id === selectedAgentId) : undefined;
+    const subPartner =
+      leadPath === "OUTSOURCED_INC" && selectedSubcontractorId
+        ? partners.find((p) => p.id === selectedSubcontractorId)
+        : undefined;
 
     const projectData: Project = {
       id: projectId,
-      name: projectName,
-      dealType,
-      projectKind: mappedKind,
-      projectKindConfigSnapshot: projectKindConfigSnapshot(mappedKind),
-      type: dealType === "INC" ? "INC" : "EPC",
-      projectType,
+      name: finalProjectName,
+      projectKind,
+      projectKindConfigSnapshot: projectKindConfigSnapshot(projectKind),
+      type: projectKind === "INC_GIVEN" ? "INC" : "EPC",
+      projectType: finalProjectType,
       projectCategory: "solar",
-      ownerType: dealType === "Solo" ? "solo" : "partnership",
       lifecycleStatus: "Active",
-      status: "Ongoing",
-      client: customer?.name || "Unknown Customer",
-      customerId: selectedCustomerId,
-      capacity,
-      location,
-      contractAmount: parseFloat(contractAmount) || 0,
-      totalCost: 0,
+      client: finalClientName,
+      customerId: finalCustomerId,
+      capacity: finalCapacity.toLowerCase().includes("kw") ? finalCapacity : `${finalCapacity} kW`,
+      location: newCustomerAddress || "",
+      contractAmount: finalContractAmount,
+      totalCost: internalEst,
       amountReceived: 0,
       startDate: new Date().toISOString().split("T")[0],
       endDate: null,
@@ -120,45 +445,48 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
       onSite: 0,
       photos: 0,
       quotationId: selectedQuotationId,
+      scope: scopeConfig!,
+      paymentType: paymentTypeMss || undefined,
+      fundingLoanId:
+        (paymentTypeMss === "loan" || paymentTypeMss === "cash-and-loan") && fundingLoanId ? fundingLoanId : undefined,
+      agentId: selectedAgentId || undefined,
+      agentName: selectedAgent?.name,
+      commissionRate: commissionRatePct ? Number.parseFloat(commissionRatePct) : undefined,
+      incScope:
+        (projectKind === "OUTSOURCED_INC" || projectKind === "INC") && incScopeChoice ? incScopeChoice : undefined,
     };
-
-    if (dealType !== "Solo" && selectedPartnerId) {
-      const partner = partners.find(p => p.id === selectedPartnerId);
-      if (partner) {
-        projectData.partners = [{
-          partnerId: partner.id,
-          partnerName: partner.name,
-          partnerType: partnerType,
-          sharePercentage: partnerType === "profit" ? parseFloat(partnerShare) : undefined,
-          fixedAmount: partnerType === "fixed" ? parseFloat(partnerShare) : undefined,
-          feeAmount: partnerType === "vendorship" ? parseFloat(partnerShare) : undefined,
-          calculatedEarning: 0,
-          settlementDirection: "company_pays_partner"
-        }];
-      }
-    }
 
     const intakePayload: ProjectIntakePayload = {
-      kind: mappedKind,
+      kind: projectKind,
       parties: {
-        customer: customer?.name || "Unknown Customer",
-        vendorOrDiscom: "TBD"
+        customer: finalClientName,
+        partner: leadPath === "PARTNER" ? partners.find((p) => p.id === selectedPartnerId)?.name : undefined,
+        subcontractor: subPartner?.name,
+        vendorOrDiscom:
+          leadPath === "MSS_DIRECT"
+            ? vendorshipChoice === "THIRD_PARTY"
+              ? vendorshipCompanies.find((c) => c.id === vendorshipCompanyId)?.name
+              : kNumber
+                ? `MSS own DISCOM code for ${kNumber}`
+                : "MSS own DISCOM code"
+            : undefined,
+        incGiverCompany:
+          leadPath === "INC_GIVEN" ? incGiverCompanies.find((c) => c.id === incGiverCompanyId)?.name : undefined,
       },
       commercial: {
-        contractAmount: parseFloat(contractAmount) || 0,
-        paymentType: "cash",
-        internalCostEstimate: 0
-      }
+        contractAmount: finalContractAmount,
+        paymentType: paymentTypeMss || "cash",
+        internalCostEstimate: internalEst || 0,
+        backendPrice:
+          projectKind === "FIXED_EPC" ? parsePositiveAmount(fixedRatePerKw) * parsePositiveAmount(partnerCapacity) : undefined,
+        partnerSellPrice: projectKind === "FIXED_EPC" ? finalContractAmount : undefined,
+      },
     };
 
-    const res = await createProjectIntake({
-      project: projectData,
-      intake: intakePayload,
-      quotationId: selectedQuotationId
-    });
+    const res = await createProjectIntake({ project: projectData, intake: intakePayload, quotationId: selectedQuotationId });
 
     if (res.ok) {
-      toast({ title: "Project Created", description: `${projectName} has been successfully created.` });
+      toast({ title: "Project Created", description: `${finalProjectName} has been successfully created.` });
       onOpenChange(false);
       resetForm();
       navigate(`/projects/${res.projectId || projectId}`);
@@ -167,243 +495,657 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
     }
   };
 
-  const dealTypes: { id: Project["dealType"]; label: string; icon: any; desc: string }[] = [
-    { id: "Solo", label: "Solo", icon: User, desc: "Direct deal. No partners." },
-    { id: "Partner", label: "Partner", icon: Users, desc: "Profit sharing deal." },
-    { id: "Fixed", label: "Fixed", icon: IndianRupee, desc: "Fixed backend margin deal." },
-    { id: "Vendorship", label: "Vendorship", icon: ShieldCheck, desc: "Usage of license fee deal." },
-    { id: "INC", label: "INC", icon: Zap, desc: "Labour / Service only work." },
-  ];
-
   return (
-    <Sheet open={open} onOpenChange={(v) => { if(!v) resetForm(); onOpenChange(v); }}>
-      <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden bg-background border-none shadow-2xl overflow-y-auto custom-scrollbar">
-        <SheetHeader className="p-6 bg-primary/5 border-b">
+    <Sheet open={open} onOpenChange={(v) => { if (!v) resetForm(); onOpenChange(v); }}>
+      <SheetContent className="w-full sm:max-w-3xl sm:w-[85vw] p-0 overflow-y-auto custom-scrollbar">
+        <SheetHeader className="p-6 border-b sticky top-0 z-10 bg-background/95 backdrop-blur">
           <SheetTitle className="flex items-center gap-2 text-xl">
-            <Briefcase className="h-6 w-6 text-primary" />
-            Launch New Project
+            <Briefcase className="h-5 w-5 text-primary" />
+            Create New Project
           </SheetTitle>
-          <SheetDescription>
-            {step === 1 ? "Select the scenario for this deal." : "Configure project details and commercials."}
-          </SheetDescription>
         </SheetHeader>
 
-        <div className="p-6">
-          {step === 1 && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {dealTypes.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => { setDealType(t.id); setStep(2); }}
-                    className={`flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-all hover:shadow-md ${
-                      dealType === t.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
-                    }`}
-                  >
-                    <div className={`p-2 rounded-lg ${dealType === t.id ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
-                      <t.icon className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="font-semibold">{t.label}</p>
-                      <p className="text-xs text-muted-foreground">{t.desc}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
+        <div className="p-6 space-y-8">
 
-              {dealType === "Solo" && eligibleQuotations.length > 0 && (
-                <div className="space-y-3">
-                  <Label className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Or Convert Existing Quotation</Label>
-                  <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
+          {/* ── Section 1: Origin ── */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">How did this project come to us?</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              {[
+                {
+                  key: "MSS_DIRECT" as LeadPath,
+                  icon: User,
+                  title: "Direct Client",
+                  sub: "We acquired this client directly",
+                },
+                {
+                  key: "PARTNER" as LeadPath,
+                  icon: Users,
+                  title: "Partner Network",
+                  sub: "A partner brought this deal to us",
+                },
+                {
+                  key: "INC_GIVEN" as LeadPath,
+                  icon: HardHat,
+                  title: "INC Work Given to Us",
+                  sub: "A company is giving us installation work",
+                },
+                {
+                  key: "OUTSOURCED_INC" as LeadPath,
+                  icon: UsersRound,
+                  title: "Outsourced INC",
+                  sub: "Subcontractor executes; MSS retains customer contract",
+                },
+              ].map(({ key, icon: Icon, title, sub }) => (
+                <button
+                  key={key}
+                  onClick={() => setLeadPath(key)}
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${
+                    leadPath === key ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Icon className={`h-4 w-4 ${leadPath === key ? "text-primary" : "text-muted-foreground"}`} />
+                    <span className="font-semibold text-sm">{title}</span>
+                    {leadPath === key && <Check className="h-3.5 w-3.5 text-primary ml-auto" />}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{sub}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Path A: Direct Client / Outsourced INC ── */}
+          {(leadPath === "MSS_DIRECT" || leadPath === "OUTSOURCED_INC") && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+
+              {/* Quotation attachment */}
+              {eligibleQuotations.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Attach Quotation (optional)</h3>
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar border rounded-xl p-3 bg-muted/30">
                     {eligibleQuotations.map(q => (
-                      <div 
-                        key={q.id} 
-                        className="p-3 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors flex justify-between items-center group"
+                      <div
+                        key={q.id}
                         onClick={() => handleQuotationSelect(q.id)}
+                        className={`p-3 rounded-lg border cursor-pointer transition-colors flex justify-between items-center ${
+                          selectedQuotationId === q.id
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:bg-muted/50"
+                        }`}
                       >
                         <div>
                           <p className="text-sm font-medium">{q.clientName}</p>
-                          <p className="text-xs text-muted-foreground">{q.quotationNumber} • {q.systemCapacity}kW • ₹{q.clientAgreedAmount?.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{(q.clientAgreedAmount || q.totalAmount)?.toLocaleString()}</p>
                         </div>
-                        <Plus className="h-4 w-4 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                        {selectedQuotationId === q.id
+                          ? <Check className="h-4 w-4 text-primary" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                       </div>
                     ))}
                   </div>
+                  {selectedQuotationId && (
+                    <p className="text-xs text-green-600 font-medium">✓ Quotation attached — details auto-filled below. Verify and edit as needed.</p>
+                  )}
                 </div>
               )}
-            </div>
-          )}
 
-          {step === 2 && (
-            <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2 col-span-2">
-                  <Label>Project Name</Label>
-                  <Input 
-                    placeholder="e.g., Sharma Residency 5kW" 
-                    value={projectName}
-                    onChange={(e) => setProjectName(e.target.value)}
-                  />
+              {/* Customer */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Customer</h3>
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => setCustomerMode("select")}
+                    className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${customerMode === "select" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-muted-foreground"}`}
+                  >
+                    Select Existing
+                  </button>
+                  <button
+                    onClick={() => setCustomerMode("add")}
+                    className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${customerMode === "add" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border text-muted-foreground"}`}
+                  >
+                    Add New Customer
+                  </button>
                 </div>
-                
-                <div className="space-y-2">
-                  <Label>Customer</Label>
+
+                {customerMode === "select" ? (
                   <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select customer" />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Select customer..." /></SelectTrigger>
                     <SelectContent>
-                      {customers.map(c => (
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 border rounded-xl bg-muted/20">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label>Customer Name <span className="text-destructive">*</span></Label>
+                      <div className="relative">
+                        <Input
+                          placeholder="Full name as on documents"
+                          value={newCustomerName}
+                          onChange={e => setNewCustomerName(e.target.value)}
+                        />
+                        {selectedQuotationId && newCustomerName && (
+                          <div className="flex items-center gap-1 mt-1 text-xs text-amber-600">
+                            <AlertTriangle className="h-3 w-3" />
+                            Verify this name matches the approved quotation exactly.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Phone</Label>
+                      <Input placeholder="10-digit mobile" value={newCustomerPhone} onChange={e => setNewCustomerPhone(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Email</Label>
+                      <Input placeholder="email@example.com" value={newCustomerEmail} onChange={e => setNewCustomerEmail(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label>Installation Address</Label>
+                      <Textarea placeholder="Full address" value={newCustomerAddress} onChange={e => setNewCustomerAddress(e.target.value)} rows={2} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {leadPath === "OUTSOURCED_INC" && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subcontractor</h3>
+                  <Select value={selectedSubcontractorId} onValueChange={setSelectedSubcontractorId}>
+                    <SelectTrigger><SelectValue placeholder="Select subcontractor partner" /></SelectTrigger>
+                    <SelectContent>
+                      {partners.filter((p) => p.type === "Subcontractor").map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+              )}
 
-                <div className="space-y-2">
-                  <Label>Project Type</Label>
-                  <Select value={projectType} onValueChange={(v: any) => setProjectType(v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Residential">Residential</SelectItem>
-                      <SelectItem value="Commercial">Commercial</SelectItem>
-                      <SelectItem value="Industrial">Industrial</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Location</Label>
-                  <Input 
-                    placeholder="City / Site Area" 
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Capacity (kW)</Label>
-                  <Input 
-                    placeholder="e.g., 5" 
-                    value={capacity}
-                    onChange={(e) => setCapacity(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Contract Value (₹)</Label>
-                  <Input 
-                    type="number"
-                    placeholder="Total deal amount" 
-                    value={contractAmount}
-                    onChange={(e) => setContractAmount(e.target.value)}
-                  />
-                </div>
+              {/* K Number */}
+              <div className="space-y-1.5">
+                <Label>Electricity Bill Number (K Number)</Label>
+                <Input placeholder="e.g. KA05E12345" value={kNumber} onChange={e => setKNumber(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Customer's electricity connection number — required for DISCOM submission.</p>
               </div>
 
-              {dealType !== "Solo" && dealType !== "INC" && (
-                <div className="p-4 rounded-xl bg-muted/30 border border-dashed space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-semibold uppercase tracking-wider">Partner Economics</span>
+              {/* Project details */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Project Details</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label>Project Name <span className="text-destructive">*</span></Label>
+                    <Input placeholder="e.g. Sharma Residency 5kW" value={projectName} onChange={e => setProjectName(e.target.value)} />
                   </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Select Partner</Label>
-                      <Select value={selectedPartnerId} onValueChange={setSelectedPartnerId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Which partner?" />
-                        </SelectTrigger>
+                  <div className="space-y-1.5">
+                    <Label>Project Type</Label>
+                    <Select value={projectType} onValueChange={(v) => setProjectType(v as Project["projectType"])}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Residential">Residential</SelectItem>
+                        <SelectItem value="Commercial">Commercial</SelectItem>
+                        <SelectItem value="Industrial">Industrial</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Capacity (kW) <span className="text-destructive">*</span></Label>
+                    <div className="relative">
+                      <Input placeholder="e.g. 5" value={capacity} onChange={e => setCapacity(e.target.value)} className="pr-10" />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">kW</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label>Contract Amount (₹)</Label>
+                    <div className="relative">
+                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input placeholder="Total project value" type="number" value={contractAmount} onChange={e => setContractAmount(e.target.value)} className="pl-9" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Internal cost estimate (₹)</Label>
+                    <Input type="number" min={0} step={0.01} placeholder="0" value={internalCostEstimate} onChange={(e) => setInternalCostEstimate(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Payment type</Label>
+                    <Select value={paymentTypeMss || "cash"} onValueChange={(v) => setPaymentTypeMss(v as typeof paymentTypeMss)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="loan">Loan</SelectItem>
+                        <SelectItem value="cash-and-loan">Cash + Loan</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {(paymentTypeMss === "loan" || paymentTypeMss === "cash-and-loan") && (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label>Funding loan</Label>
+                      <Select value={fundingLoanId} onValueChange={setFundingLoanId}>
+                        <SelectTrigger><SelectValue placeholder="Select loan" /></SelectTrigger>
                         <SelectContent>
-                          {partners.map(p => (
-                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                          {loans.filter((l) => l.status === "Active").map((l) => (
+                            <SelectItem key={l.id} value={l.id}>{l.source} — {l.personName || "—"} (₹{l.outstanding?.toLocaleString?.() ?? l.outstanding})</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-
-                    <div className="space-y-2">
-                      <Label>Earning Model</Label>
-                      <Select value={partnerType} onValueChange={(v: any) => setPartnerType(v)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
+                  )}
+                  <div className="space-y-1.5">
+                    <Label>Agent (optional)</Label>
+                    <Select value={selectedAgentId || "__none__"} onValueChange={(v) => setSelectedAgentId(v === "__none__" ? "" : v)}>
+                      <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {agents.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Commission % (optional)</Label>
+                    <Input type="number" min={0} step={0.1} placeholder="e.g. 2" value={commissionRatePct} onChange={(e) => setCommissionRatePct(e.target.value)} />
+                  </div>
+                  {leadPath === "OUTSOURCED_INC" && (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label>INC scope</Label>
+                      <Select value={incScopeChoice || "labour"} onValueChange={(v) => setIncScopeChoice(v as typeof incScopeChoice)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="profit">Profit Sharing (%)</SelectItem>
-                          <SelectItem value="fixed">Fixed Share (₹)</SelectItem>
-                          <SelectItem value="vendorship">Vendorship Fee (₹)</SelectItem>
+                          <SelectItem value="labour">Labour only</SelectItem>
+                          <SelectItem value="labour_and_materials">Labour + materials</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
+                  )}
+                </div>
+              </div>
 
-                    <div className="space-y-2 col-span-2">
-                      <Label>
-                        {partnerType === "profit" ? "Profit Percentage (%)" : partnerType === "fixed" ? "Fixed Margin / Share (₹)" : "Vendorship Fee (₹)"}
-                      </Label>
-                      <Input 
-                        type="number"
-                        placeholder="Enter value" 
-                        value={partnerShare}
-                        onChange={(e) => setPartnerShare(e.target.value)}
-                      />
+              {/* Vendorship code */}
+              {leadPath === "MSS_DIRECT" && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">DISCOM Vendorship Code</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {[
+                    { key: "OUR_CODE" as VendorshipChoice, icon: ShieldCheck, title: "Use Our Own Code", sub: "MSS's registration. Document Creator available." },
+                    { key: "THIRD_PARTY" as VendorshipChoice, icon: Building2, title: "Use Third-Party Code", sub: "A vendorship code company's registration. We pay a fee." },
+                  ].map(({ key, icon: Icon, title, sub }) => (
+                    <button
+                      key={key}
+                      onClick={() => setVendorshipChoice(key)}
+                      className={`p-3 rounded-xl border-2 text-left transition-all ${
+                        vendorshipChoice === key ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon className={`h-4 w-4 ${vendorshipChoice === key ? "text-primary" : "text-muted-foreground"}`} />
+                        <span className="font-medium text-sm">{title}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{sub}</p>
+                    </button>
+                  ))}
+                </div>
+
+                {vendorshipChoice === "THIRD_PARTY" && (
+                  <div className="space-y-3 p-4 border rounded-xl bg-amber-500/5 border-amber-500/20 animate-in fade-in duration-200">
+                    <div className="space-y-1.5">
+                      <Label>Select Vendorship Code Company <span className="text-destructive">*</span></Label>
+                      <Select value={vendorshipCompanyId} onValueChange={setVendorshipCompanyId}>
+                        <SelectTrigger><SelectValue placeholder="Choose company..." /></SelectTrigger>
+                        <SelectContent>
+                          {vendorshipCompanies.map(c => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Fee for this project (₹)</Label>
+                      <Input type="number" placeholder="e.g. 25000" value={vendorshipFeeAmount} onChange={e => setVendorshipFeeAmount(e.target.value)} />
+                      <p className="text-xs text-muted-foreground">This will be auto-recorded as a project expense under "Vendorship Code Fee".</p>
                     </div>
                   </div>
+                )}
+              </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Path B: Partner Network ── */}
+          {leadPath === "PARTNER" && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+
+              {/* Partner selection */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Partner</h3>
+                <Select value={selectedPartnerId} onValueChange={(v) => {
+                  setSelectedPartnerId(v);
+                  const p = partners.find(x => x.id === v);
+                  if (p?.type === "Fixed-Rate") setPartnerEconomicsType("fixed_rate");
+                  else setPartnerEconomicsType("profit_share");
+                  if (p?.defaultRatePerKw) setFixedRatePerKw(String(p.defaultRatePerKw));
+                }}>
+                  <SelectTrigger><SelectValue placeholder="Select partner..." /></SelectTrigger>
+                  <SelectContent>
+                    {dealBringerPartners.map(p => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <span>{p.name}</span>
+                        <Badge variant="outline" className="ml-2 text-xs">{p.type}</Badge>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Quotation attachment (optional) */}
+              {eligibleQuotations.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Attach Quotation (optional)</h3>
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar border rounded-xl p-3 bg-muted/30">
+                    {eligibleQuotations.map(q => (
+                      <div
+                        key={q.id}
+                        onClick={() => handleQuotationSelect(q.id)}
+                        className={`p-3 rounded-lg border cursor-pointer transition-colors flex justify-between items-center ${selectedQuotationId === q.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}
+                      >
+                        <div>
+                          <p className="text-sm font-medium">{q.clientName}</p>
+                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{(q.clientAgreedAmount || q.totalAmount)?.toLocaleString()}</p>
+                        </div>
+                        {selectedQuotationId === q.id ? <Check className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                    ))}
+                  </div>
+                  {selectedQuotationId && (
+                    <p className="text-xs text-green-600 font-medium">✓ Quotation attached — details auto-filled below.</p>
+                  )}
                 </div>
               )}
 
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground bg-muted/50 p-2 rounded">
-                <Info className="h-3 w-3" />
-                <span>
-                  {dealType === "Solo" ? "Full project control and revenue goes to company." : 
-                   dealType === "Partner" ? "Profit is shared with the partner after all costs." :
-                   dealType === "Fixed" ? "Partner takes margin above fixed backend amount." :
-                   dealType === "Vendorship" ? "Partner pays a flat fee for using your credentials." :
-                   "Focus is strictly on execution and labour management."}
-                </span>
+              {/* Customer (optional) */}
+              <div className="space-y-1.5">
+                <Label>Customer Name <span className="text-xs text-muted-foreground">(can be TBD)</span></Label>
+                <Input placeholder="Customer name or leave blank if unknown" value={partnerCustomerName} onChange={e => setPartnerCustomerName(e.target.value)} />
+              </div>
+
+              {/* Project details */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Project Details</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label>Project Name</Label>
+                    <Input placeholder="Auto-generated if blank" value={partnerProjectName} onChange={e => setPartnerProjectName(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Project Type</Label>
+                    <Select value={partnerProjectType} onValueChange={(v) => setPartnerProjectType(v as Project["projectType"])}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Residential">Residential</SelectItem>
+                        <SelectItem value="Commercial">Commercial</SelectItem>
+                        <SelectItem value="Industrial">Industrial</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Capacity (kW) <span className="text-destructive">*</span></Label>
+                    <div className="relative">
+                      <Input placeholder="e.g. 5" value={partnerCapacity} onChange={e => setPartnerCapacity(e.target.value)} className="pr-10" />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">kW</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label>Total Contract Value (₹) <span className="text-destructive">*</span></Label>
+                    <div className="relative">
+                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input placeholder="What the customer pays" type="number" value={partnerContractAmount} onChange={e => setPartnerContractAmount(e.target.value)} className="pl-9" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Partner economics */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Partner Economics</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setPartnerEconomicsType("profit_share")}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${partnerEconomicsType === "profit_share" ? "border-primary bg-primary/5" : "border-border"}`}
+                  >
+                    <p className="font-medium text-sm">Profit Share</p>
+                    <p className="text-xs text-muted-foreground">Partner earns a % of profit after MSS costs</p>
+                  </button>
+                  <button
+                    onClick={() => setPartnerEconomicsType("fixed_rate")}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${partnerEconomicsType === "fixed_rate" ? "border-primary bg-primary/5" : "border-border"}`}
+                  >
+                    <p className="font-medium text-sm">Fixed Rate</p>
+                    <p className="text-xs text-muted-foreground">MSS earns fixed ₹/kW, partner keeps the rest</p>
+                  </button>
+                </div>
+
+                {partnerEconomicsType === "profit_share" && (
+                  <div className="space-y-1.5">
+                    <Label>Partner's Profit Share (%)</Label>
+                    <Input type="number" placeholder="e.g. 30" value={profitSharePercent} onChange={e => setProfitSharePercent(e.target.value)} />
+                  </div>
+                )}
+                {partnerEconomicsType === "fixed_rate" && (
+                  <div className="space-y-1.5">
+                    <Label>MSS Backend Rate (₹/kW)</Label>
+                    <Input type="number" placeholder="e.g. 65000" value={fixedRatePerKw} onChange={e => setFixedRatePerKw(e.target.value)} />
+                  </div>
+                )}
+              </div>
+
+              {/* Billing */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Billing & Invoice</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {[
+                    { key: "MSS" as const, title: "MSS Bills Customer", sub: "We raise the invoice to the customer" },
+                    { key: "PARTNER" as const, title: "Partner Bills Customer", sub: "Partner raises invoice to customer" },
+                  ].map(({ key, title, sub }) => (
+                    <button key={key} onClick={() => setBillingParty(key)}
+                      className={`p-3 rounded-xl border-2 text-left transition-all ${billingParty === key ? "border-primary bg-primary/5" : "border-border"}`}
+                    >
+                      <p className="font-medium text-sm">{title}</p>
+                      <p className="text-xs text-muted-foreground">{sub}</p>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Does the partner give us a GST invoice for their profit share?</Label>
+                  <div className="flex gap-2">
+                    {[{ k: "yes" as const, label: "Yes — they invoice us" }, { k: "no" as const, label: "No — deduct 9% offset" }].map(({ k, label }) => (
+                      <button key={k} onClick={() => setPartnerGstInvoice(k)}
+                        className={`px-4 py-2 rounded-lg text-sm border transition-colors ${partnerGstInvoice === k ? "border-primary bg-primary/5 text-primary font-medium" : "border-border"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {partnerGstInvoice === "no" && (
+                    <p className="text-xs text-amber-600 bg-amber-500/10 rounded-lg px-3 py-2">9% will be deducted from the partner's share as GST offset before payment.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Vendorship code */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">DISCOM Vendorship Code</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {[
+                    { key: "OUR_CODE" as VendorshipChoice, icon: ShieldCheck, title: "Use Our Own Code", sub: "We charge partner a usage fee" },
+                    { key: "THIRD_PARTY" as VendorshipChoice, icon: Building2, title: "Use Third-Party Code", sub: "Partner bears this cost from their share" },
+                  ].map(({ key, icon: Icon, title, sub }) => (
+                    <button key={key} onClick={() => setPartnerVendorshipChoice(key)}
+                      className={`p-3 rounded-xl border-2 text-left transition-all ${partnerVendorshipChoice === key ? "border-primary bg-primary/5" : "border-border"}`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon className={`h-4 w-4 ${partnerVendorshipChoice === key ? "text-primary" : "text-muted-foreground"}`} />
+                        <span className="font-medium text-sm">{title}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{sub}</p>
+                    </button>
+                  ))}
+                </div>
+
+                {partnerVendorshipChoice === "OUR_CODE" && (
+                  <div className="space-y-1.5">
+                    <Label>Vendorship Usage Fee charged to partner (₹)</Label>
+                    <Input type="number" placeholder="e.g. 15000" value={partnerVendorshipFeeAmount} onChange={e => setPartnerVendorshipFeeAmount(e.target.value)} />
+                    <p className="text-xs text-muted-foreground">Tracked as receivable from the partner.</p>
+                  </div>
+                )}
+
+                {partnerVendorshipChoice === "THIRD_PARTY" && (
+                  <div className="space-y-3 p-4 border rounded-xl bg-amber-500/5 border-amber-500/20 animate-in fade-in duration-200">
+                    <div className="space-y-1.5">
+                      <Label>Vendorship Code Company</Label>
+                      <Select value={partnerThirdPartyCompanyId} onValueChange={setPartnerThirdPartyCompanyId}>
+                        <SelectTrigger><SelectValue placeholder="Choose company..." /></SelectTrigger>
+                        <SelectContent>
+                          {vendorshipCompanies.map(c => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Fee amount (₹) <span className="text-xs text-muted-foreground">— deducted from partner's share</span></Label>
+                      <Input type="number" placeholder="e.g. 25000" value={partnerVendorshipFeeAmount} onChange={e => setPartnerVendorshipFeeAmount(e.target.value)} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Path C: INC Work Given to Us ── */}
+          {leadPath === "INC_GIVEN" && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+
+              {/* Quotation attachment (optional) */}
+              {eligibleQuotations.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Attach Quotation (optional)</h3>
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar border rounded-xl p-3 bg-muted/30">
+                    {eligibleQuotations.map(q => (
+                      <div
+                        key={q.id}
+                        onClick={() => handleQuotationSelect(q.id)}
+                        className={`p-3 rounded-lg border cursor-pointer transition-colors flex justify-between items-center ${selectedQuotationId === q.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}
+                      >
+                        <div>
+                          <p className="text-sm font-medium">{q.clientName}</p>
+                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{(q.clientAgreedAmount || q.totalAmount)?.toLocaleString()}</p>
+                        </div>
+                        {selectedQuotationId === q.id ? <Check className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                    ))}
+                  </div>
+                  {selectedQuotationId && <p className="text-xs text-green-600 font-medium">✓ Quotation attached.</p>}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">INC Work Source</h3>
+                <Select value={incGiverCompanyId} onValueChange={setIncGiverCompanyId}>
+                  <SelectTrigger><SelectValue placeholder="Select company giving us this work..." /></SelectTrigger>
+                  <SelectContent>
+                    {incGiverCompanies.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">The company whose installation job we are doing. We will collect from them after completion.</p>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rate Basis</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { k: "per_kw" as RateBasis, label: "Per kW" },
+                    { k: "per_sqft" as RateBasis, label: "Per sq ft" },
+                    { k: "fixed" as RateBasis, label: "Fixed Total" },
+                  ].map(({ k, label }) => (
+                    <button key={k} onClick={() => setRateBasis(k)}
+                      className={`p-3 rounded-xl border-2 text-center text-sm transition-all ${rateBasis === k ? "border-primary bg-primary/5 font-medium" : "border-border"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {rateBasis !== "fixed" && (
+                    <div className="space-y-1.5">
+                      <Label>{rateBasis === "per_kw" ? "Rate (₹/kW)" : "Rate (₹/sq ft)"}</Label>
+                      <Input type="number" placeholder="e.g. 8000" value={rateValue} onChange={e => setRateValue(e.target.value)} />
+                    </div>
+                  )}
+                  {rateBasis === "per_kw" && (
+                    <div className="space-y-1.5">
+                      <Label>Capacity (kW)</Label>
+                      <Input type="number" placeholder="e.g. 10" value={incCapacity} onChange={e => setIncCapacity(e.target.value)} />
+                    </div>
+                  )}
+                  {rateBasis === "per_sqft" && (
+                    <div className="space-y-1.5">
+                      <Label>Area (sq ft)</Label>
+                      <Input type="number" placeholder="e.g. 500" value={incArea} onChange={e => setIncArea(e.target.value)} />
+                    </div>
+                  )}
+                  {rateBasis === "fixed" && (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label>Fixed Amount (₹)</Label>
+                      <Input type="number" placeholder="Total agreed amount" value={incFixedAmount} onChange={e => setIncFixedAmount(e.target.value)} />
+                    </div>
+                  )}
+                </div>
+
+                {incTotalAmount > 0 && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-primary/5 border border-primary/20 rounded-lg text-sm">
+                    <Zap className="h-4 w-4 text-primary" />
+                    <span className="font-medium">Total to collect: ₹{incTotalAmount.toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Project Info</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label>Project Name / Reference</Label>
+                    <Input placeholder="Auto-generated if blank" value={incProjectName} onChange={e => setIncProjectName(e.target.value)} />
+                  </div>
+                  {rateBasis === "per_kw" && (
+                    <div className="space-y-1.5">
+                      <Label>Capacity (kW)</Label>
+                      <Input type="number" placeholder="Already entered above" value={incCapacity} onChange={e => setIncCapacity(e.target.value)} disabled />
+                    </div>
+                  )}
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label>Site Address</Label>
+                    <Input placeholder="Installation site address" value={incAddress} onChange={e => setIncAddress(e.target.value)} />
+                  </div>
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        <SheetFooter className="p-6 bg-muted/20 border-t flex items-center justify-between">
-          {step === 2 && (
-            <Button variant="ghost" onClick={() => setStep(1)}>
-              Back to Type
-            </Button>
-          )}
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            {step === 2 && (
-              <Button onClick={handleCreate} className="bg-primary hover:bg-primary/90">
-                Confirm & Create
-              </Button>
-            )}
-          </div>
+        <SheetFooter className="p-6 border-t flex items-center justify-end gap-2 sticky bottom-0 bg-background/95 backdrop-blur">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleCreate} disabled={!leadPath} className="bg-primary hover:bg-primary/90">
+            <Check className="w-4 h-4 mr-2" />
+            Create Project
+          </Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>
   );
 };
-
-function ShieldCheck(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  )
-}
