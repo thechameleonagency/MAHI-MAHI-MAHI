@@ -213,6 +213,7 @@ export interface Blockage {
   assignedTo?: string; // Employee ID or "self" or "super-admin"
   assignedToName?: string;
   assignedAt?: string;
+  startDate?: string;
 }
 
 export interface Ticket {
@@ -257,6 +258,29 @@ export interface DeletionRequest {
 // Work status approval status type
 export type WorkStatusApprovalStatus = "pending" | "requested" | "approved" | "rejected" | "closed";
 
+// Sub-item approval shape (also reused for the main-stage `subItemApprovals` map below).
+export interface WorkStatusSubItemApproval {
+  status: WorkStatusApprovalStatus;
+  requestedAt?: string;
+  requestedBy?: string;
+  requestedByName?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  approvedByName?: string;
+  rejectionReason?: string;
+  photoCount?: number;
+  videoCount?: number;
+  photoUrls?: string[];
+  videoUrls?: string[];
+  /** Free-form update label (who last touched this sub-item). */
+  updatedBy?: string;
+  updatedByName?: string;
+  /** ISO timestamp of last meaningful change. */
+  updatedAt?: string;
+  /** Free-form comment for an update (rejection reason is separate). */
+  notes?: string;
+}
+
 // Work status approval info per item (supports both main stages and sub-items)
 export interface WorkStatusApprovalInfo {
   status: WorkStatusApprovalStatus;
@@ -269,20 +293,17 @@ export interface WorkStatusApprovalInfo {
   rejectionReason?: string;
   photoCount?: number;
   videoCount?: number;
+  /** Optional media URLs captured at the main-stage level (mirrors sub-item shape). */
+  photoUrls?: string[];
+  videoUrls?: string[];
+  /** Activity / audit metadata used by ProgressReportTab for "last updated" cells. */
+  updatedBy?: string;
+  updatedByName?: string;
+  updatedAt?: string;
+  notes?: string;
   // Sub-item approvals (for expanded stages like structure, panel, etc.)
   subItemApprovals?: {
-    [subItemKey: string]: {
-      status: WorkStatusApprovalStatus;
-      requestedAt?: string;
-      requestedBy?: string;
-      requestedByName?: string;
-      approvedAt?: string;
-      approvedBy?: string;
-      approvedByName?: string;
-      rejectionReason?: string;
-      photoCount?: number;
-      videoCount?: number;
-    };
+    [subItemKey: string]: WorkStatusSubItemApproval;
   };
 }
 

@@ -334,7 +334,7 @@ export interface AttendanceRecord {
   id: string;
   employeeId: number;
   date: string;
-  status: "present" | "absent" | "holiday" | "half-day";
+  status: "present" | "absent" | "holiday" | "half-day" | "paid_leave";
   sites: string[];
   notes?: string;
 }
@@ -587,15 +587,6 @@ export interface InventoryPresetItem {
   name: string;
   quantity: number;
   unit: string;
-}
-
-export interface InventoryPreset {
-  id: string;
-  name: string;
-  category: "residential" | "commercial" | "industrial" | "custom";
-  presetType: "quotation" | "invoice"; // For Quotation vs For Invoice presets
-  items: InventoryPresetItem[];
-  createdAt: string;
 }
 
 export type { ServicePreset, ServicePresetService };

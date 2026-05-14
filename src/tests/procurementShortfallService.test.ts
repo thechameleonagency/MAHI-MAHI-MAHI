@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ProcurementShortfallService } from "@/application/services/ProcurementShortfallService";
-import type { InventoryItem, InventoryPreset, Project, Quotation } from "@/types/project";
+import type { InventoryItem, Project, Quotation } from "@/types/project";
+import type { SiteChecklistTemplate } from "@/types/templates";
 
 const makeProject = (overrides: Partial<Project> = {}): Project => ({
   id: "P-1",
@@ -9,7 +10,6 @@ const makeProject = (overrides: Partial<Project> = {}): Project => ({
   projectType: "Residential",
   projectCategory: "solar",
   ownerType: "solo",
-  status: "Ongoing",
   progressStage: "work-in-progress",
   client: "Client",
   capacity: "5 kW",
@@ -71,7 +71,7 @@ describe("ProcurementShortfallService", () => {
       projects: [project],
       inventoryItems,
       getProjectQuotation: () => quotation,
-      getInventoryPresetById: () => undefined,
+      getSiteChecklistTemplateById: () => undefined,
     });
 
     expect(shortfalls).toHaveLength(1);
@@ -79,7 +79,7 @@ describe("ProcurementShortfallService", () => {
     expect(shortfalls[0].needByDate).toBe("2026-05-11");
   });
 
-  it("falls back to project preset when quotation snapshot is unavailable", () => {
+  it("falls back to project site-checklist template when quotation snapshot is unavailable", () => {
     const service = new ProcurementShortfallService();
     const inventoryItems: InventoryItem[] = [
       {
@@ -96,11 +96,10 @@ describe("ProcurementShortfallService", () => {
       },
     ];
     const project = makeProject({ presetId: "PRE-1", materialsSent: [] });
-    const preset: InventoryPreset = {
+    const preset: SiteChecklistTemplate = {
       id: "PRE-1",
       name: "Residential 5kW",
-      category: "residential",
-      presetType: "quotation",
+      segment: "residential",
       createdAt: "2026-05-01",
       items: [{ inventoryItemId: 5, name: "MC4 Connector Pair", quantity: 80, unit: "pcs" }],
     };
@@ -109,7 +108,7 @@ describe("ProcurementShortfallService", () => {
       projects: [project],
       inventoryItems,
       getProjectQuotation: () => undefined,
-      getInventoryPresetById: () => preset,
+      getSiteChecklistTemplateById: () => preset,
     });
 
     expect(shortfalls).toHaveLength(1);

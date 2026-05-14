@@ -1,5 +1,6 @@
 import { format } from "date-fns";
-import type { InventoryItem, InventoryPreset, Project, Quotation } from "@/types/project";
+import type { InventoryItem, Project, Quotation } from "@/types/project";
+import type { SiteChecklistTemplate } from "@/types/templates";
 
 export type ProcurementShortfall = {
   projectId: string;
@@ -24,7 +25,12 @@ type BuildShortfallsInput = {
   projects: Project[];
   inventoryItems: InventoryItem[];
   getProjectQuotation: (projectId: string) => Quotation | undefined;
-  getInventoryPresetById: (presetId: string) => InventoryPreset | undefined;
+  /**
+   * Resolve a Site Checklist Template by id (used as fallback when a quotation
+   * snapshot is absent). Previously `getInventoryPresetById` — renamed after
+   * the Templates merge but kept as a function-typed input for backward compat.
+   */
+  getSiteChecklistTemplateById: (templateId: string) => SiteChecklistTemplate | undefined;
 };
 
 export class ProcurementShortfallService {
@@ -32,7 +38,7 @@ export class ProcurementShortfallService {
     const rows: ProcurementShortfall[] = [];
 
     input.projects.forEach((project) => {
-      const requiredItems = this.getRequiredItems(project, input.getProjectQuotation, input.getInventoryPresetById);
+      const requiredItems = this.getRequiredItems(project, input.getProjectQuotation, input.getSiteChecklistTemplateById);
       if (requiredItems.length === 0) {
         return;
       }
@@ -73,7 +79,7 @@ export class ProcurementShortfallService {
   private getRequiredItems(
     project: Project,
     getProjectQuotation: (projectId: string) => Quotation | undefined,
-    getInventoryPresetById: (presetId: string) => InventoryPreset | undefined,
+    getSiteChecklistTemplateById: (templateId: string) => SiteChecklistTemplate | undefined,
   ): RequirementSeed[] {
     const quotation = getProjectQuotation(project.id);
     const presetFromQuotation = quotation?.presetSnapshot?.map((item) => ({
@@ -83,7 +89,7 @@ export class ProcurementShortfallService {
     }));
 
     const presetFromProject = project.presetId
-      ? getInventoryPresetById(project.presetId)?.items.map((item) => ({
+      ? getSiteChecklistTemplateById(project.presetId)?.items.map((item) => ({
           inventoryItemId: item.inventoryItemId,
           name: item.name,
           quantity: item.quantity,

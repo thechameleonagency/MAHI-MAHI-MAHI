@@ -6,6 +6,7 @@ import type { AppRepositoryContext } from "@/infrastructure/repositories/contrac
 import { canTransitionQuotationStatus, type QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
 import type { AppAction } from "@/domain/policies/permissionMatrix";
 import type { Quotation } from "@/types/project";
+import type { Customer } from "@/types/finance";
 import { applyQuotationPatch } from "@/domain/quotation/applyQuotationPatch";
 
 type TransitionQuotationPayload = {

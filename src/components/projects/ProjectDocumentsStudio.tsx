@@ -149,7 +149,20 @@ export function ProjectDocumentsStudio({ project, quotation, updateProject, gene
               <Info className="h-4 w-4" />
               <span>External Vendorship Code: Documents must be uploaded manually.</span>
             </div>
-            <Button size="sm" variant="outline" className="h-8 border-amber-200 text-amber-700 hover:bg-amber-100">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 border-amber-200 text-amber-700 hover:bg-amber-100"
+              onClick={() => {
+                // Prototype: external vendorship docs are uploaded out-of-band.
+                // Surface a clear next step instead of opening a hidden picker that never persisted.
+                toast({
+                  title: "Manual upload required",
+                  description:
+                    "External vendorship code documents are not stored in the prototype. Share them with the project coordinator out-of-band.",
+                });
+              }}
+            >
               <Plus className="h-3.5 w-3.5 mr-1" /> Upload Doc
             </Button>
           </div>

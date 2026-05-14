@@ -76,7 +76,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
           </div>
           <div className="flex items-center gap-2">
             <IndianRupee className="h-4 w-4 text-muted-foreground" />
-            <span>Contract: ₹{project.contractAmount.toLocaleString()}</span>
+            <span>Contract: ₹{(project.contractAmount || 0).toLocaleString()}</span>
           </div>
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -133,8 +133,8 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center">
-            <Building2 className="h-6 w-6 text-blue-600" />
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <Building2 className="h-6 w-6 text-primary" />
           </div>
           <div>
             <h3 className="font-semibold text-lg">{customer.name}</h3>
@@ -157,7 +157,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
           </div>
           <div className="flex items-center gap-2">
             <IndianRupee className="h-4 w-4 text-muted-foreground" />
-            <span>Total: ₹{customer.totalPurchases.toLocaleString()}</span>
+            <span>Total: ₹{(customer.totalPurchases || 0).toLocaleString()}</span>
           </div>
         </div>
 
@@ -247,12 +247,12 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
           </div>
           <div className="flex items-center gap-2">
             <IndianRupee className="h-4 w-4 text-muted-foreground" />
-            <span>Salary: ₹{employee.salary.toLocaleString()}</span>
+            <span>Salary: ₹{(employee.salary || 0).toLocaleString()}</span>
           </div>
           <div className="flex items-center gap-2">
             <Wallet className="h-4 w-4 text-muted-foreground" />
             <span className={employee.pendingAmount >= 0 ? "text-primary" : "text-destructive"}>
-              {employee.pendingAmount >= 0 ? "Pending" : "Advance"}: ₹{Math.abs(employee.pendingAmount).toLocaleString()}
+              {employee.pendingAmount >= 0 ? "Pending" : "Advance"}: ₹{Math.abs(employee.pendingAmount || 0).toLocaleString()}
             </span>
           </div>
         </div>
@@ -296,12 +296,12 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center">
-            <Handshake className="h-6 w-6 text-blue-600" />
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <Handshake className="h-6 w-6 text-primary" />
           </div>
           <div>
             <h3 className="font-semibold text-lg">{partner.name}</h3>
-            <Badge variant="outline" className="capitalize">{partner.partnerCategory ?? "Partner"}</Badge>
+            <Badge variant="outline" className="capitalize">{(partner as { partnerCategory?: string }).partnerCategory ?? "Partner"}</Badge>
           </div>
         </div>
 
@@ -356,7 +356,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
           <div>
             <h3 className="font-semibold text-lg">{vendor.name}</h3>
             <div className="flex flex-wrap gap-1">
-              {vendor.category.map((cat, idx) => (
+              {(Array.isArray(vendor.category) ? vendor.category : [vendor.category].filter(Boolean)).map((cat: string, idx: number) => (
                 <Badge key={idx} variant="outline" className="text-xs">{cat}</Badge>
               ))}
             </div>
@@ -379,7 +379,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
           <div className="flex items-center gap-2">
             <IndianRupee className="h-4 w-4 text-muted-foreground" />
             <span className={vendor.outstandingAmount > 0 ? "text-amber-600" : "text-primary"}>
-              Outstanding: ₹{vendor.outstandingAmount.toLocaleString()}
+              Outstanding: ₹{(vendor.outstandingAmount || 0).toLocaleString()}
             </span>
           </div>
         </div>

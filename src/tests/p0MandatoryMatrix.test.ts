@@ -28,7 +28,6 @@ const makeProject = (overrides: Partial<Project> = {}): Project => ({
   projectType: "Residential",
   projectCategory: "solar",
   ownerType: "solo",
-  status: "Ongoing",
   progressStage: "work-in-progress",
   client: "Client A",
   capacity: "5 kW",
@@ -125,7 +124,7 @@ describe("P0 mandatory matrix (GAPS §7)", () => {
       projects: [project],
       inventoryItems,
       getProjectQuotation: () => quotation,
-      getInventoryPresetById: () => undefined,
+      getSiteChecklistTemplateById: () => undefined,
     });
     expect(shortfalls.length).toBeGreaterThan(0);
   });
@@ -208,7 +207,7 @@ describe("P0 mandatory matrix (GAPS §7)", () => {
       projects: [project],
       inventoryItems,
       getProjectQuotation: () => quotation,
-      getInventoryPresetById: () => undefined,
+      getSiteChecklistTemplateById: () => undefined,
     });
     expect(shortfalls.length).toBeGreaterThan(0);
   });

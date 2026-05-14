@@ -168,7 +168,6 @@ const ProjectDetail = () => {
     saleBills,
     sites,
     inventoryItems: globalInvItems,
-    inventoryPresets,
     siteChecklistTemplates,
     getProjectById,
     getQuotationById,
@@ -295,6 +294,8 @@ const ProjectDetail = () => {
   useEffect(() => {
     if (!project) return;
     setExecutionNotesDraft(project.executionNotes ?? "");
+    // Intentionally narrow deps: only re-sync the draft when the project switches or the persisted note changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, project?.executionNotes]);
 
   // Edit project form state
@@ -529,7 +530,7 @@ const ProjectDetail = () => {
   const getPresetItems = () => {
     if (quotation?.presetSnapshot) return quotation.presetSnapshot.map(item => ({ id: item.id, itemName: item.name, category: "Material", quantity: item.quantity, unit: item.unit }));
     if (project?.presetId) {
-      const preset = inventoryPresets.find(p => p.id === project.presetId);
+      const preset = siteChecklistTemplates.find(p => p.id === project.presetId);
       if (preset) return preset.items.map((item, idx) => ({ id: idx + 1, itemName: item.name, category: "Material", quantity: item.quantity, unit: item.unit }));
     }
     return [];
@@ -716,9 +717,17 @@ const ProjectDetail = () => {
                             return;
                           }
                         }
+                        // Project.lifecycleStatus is "Draft" | "Active" | "On Hold" | "Completed".
+                        // The state machine has "New" | "In Progress" | "On Hold" | "Completed" | "Closed".
+                        // Map state-machine values to the Project enum (per audit A19, Closed → Completed).
+                        const lifecycleNext: "Draft" | "Active" | "On Hold" | "Completed" =
+                          to === "New" ? "Draft"
+                            : to === "In Progress" ? "Active"
+                              : to === "Closed" ? "Completed"
+                                : to;
                         updateProject(project.id, {
-                          lifecycleStatus: to,
-                          ...(to === "Completed" ? { endDate: new Date().toISOString().slice(0, 10) } : {}),
+                          lifecycleStatus: lifecycleNext,
+                          ...(lifecycleNext === "Completed" ? { endDate: new Date().toISOString().slice(0, 10) } : {}),
                         });
                       }}
                     >

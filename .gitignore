@@ -7,6 +7,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Vite dev-server transient logs (kept out of git per audit Phase 4)
+vite-dev.err
+vite-dev.log
+
 node_modules
 dist
 dist-ssr

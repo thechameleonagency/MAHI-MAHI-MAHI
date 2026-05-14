@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Sheet, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
@@ -109,12 +109,19 @@ export function UnifiedIncomeModal({ isOpen, onClose, projectId: prefillProjectI
   const selectedProject = useMemo(() => projects.find(p => p.id === selectedProjectId), [projects, selectedProjectId]);
 
   // Auto-fill receivedFrom from project client
-  const _autoFillClient = useMemo(() => {
+  const autoFillClient = useMemo(() => {
     if (selectedProject && mainCategory === "project") {
       return selectedProject.client || "";
     }
     return "";
   }, [selectedProject, mainCategory]);
+
+  useEffect(() => {
+    if (autoFillClient && !receivedFrom) {
+      setReceivedFrom(autoFillClient);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFillClient]);
 
   const resetForm = () => {
     setStep("main-category");
@@ -549,7 +556,7 @@ export function UnifiedIncomeModal({ isOpen, onClose, projectId: prefillProjectI
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Amount</span>
-                  <span className={`font-bold text-lg ${isOutgoing ? "text-destructive" : "text-blue-500"}`}>
+                  <span className={`font-bold text-lg ${isOutgoing ? "text-destructive" : "text-primary"}`}>
                     {isOutgoing ? "-" : "+"}₹{parseFloat(amount).toLocaleString()}
                   </span>
                 </div>
@@ -580,17 +587,17 @@ export function UnifiedIncomeModal({ isOpen, onClose, projectId: prefillProjectI
                     {isOutgoing ? (
                       <p>• Company Ledger: <span className="text-destructive">-₹{parseFloat(amount).toLocaleString()}</span></p>
                     ) : (
-                      <p>• Company Ledger: <span className="text-blue-500">+₹{parseFloat(amount).toLocaleString()}</span></p>
+                      <p>• Company Ledger: <span className="text-primary">+₹{parseFloat(amount).toLocaleString()}</span></p>
                     )}
-                    {selectedProject && !isOutgoing && <p>• Site Ledger ({selectedProject.name}): <span className="text-blue-500">+₹{parseFloat(amount).toLocaleString()}</span></p>}
+                    {selectedProject && !isOutgoing && <p>• Site Ledger ({selectedProject.name}): <span className="text-primary">+₹{parseFloat(amount).toLocaleString()}</span></p>}
                     {mainCategory === "partner" && selectedPartnerId && (
-                      <p>• Partner Ledger ({partners.find(p => p.id === selectedPartnerId)?.name}): <span className={isOutgoing ? "text-destructive" : "text-blue-500"}>{isOutgoing ? "-" : "+"}₹{parseFloat(amount).toLocaleString()}</span></p>
+                      <p>• Partner Ledger ({partners.find(p => p.id === selectedPartnerId)?.name}): <span className={isOutgoing ? "text-destructive" : "text-primary"}>{isOutgoing ? "-" : "+"}₹{parseFloat(amount).toLocaleString()}</span></p>
                     )}
                     {mainCategory === "employee-payment" && selectedEmployeeId && !isOutgoing && (
                       <p>• Employee Liability: <span className="text-amber-500">+₹{parseFloat(amount).toLocaleString()} (Company owes)</span></p>
                     )}
                     {mainCategory === "employee-payment" && selectedEmployeeId && isOutgoing && (
-                      <p>• Employee Liability: <span className="text-blue-500">-₹{parseFloat(amount).toLocaleString()} (Reimbursed)</span></p>
+                      <p>• Employee Liability: <span className="text-primary">-₹{parseFloat(amount).toLocaleString()} (Reimbursed)</span></p>
                     )}
                   </div>
                 </div>

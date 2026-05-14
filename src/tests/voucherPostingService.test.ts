@@ -21,10 +21,19 @@ describe("VoucherPostingService", () => {
 
   it("sends unsupported event to review queue", () => {
     const result = service.post({
+      type: "UnsupportedEvent",
+      sourceDocumentId: "UNSUPPORTED-1",
+      amount: 1000,
+    } as unknown as Parameters<VoucherPostingService["post"]>[0]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("creates balanced voucher for partner payout", () => {
+    const result = service.post({
       type: "PartnerPayoutRecorded",
       sourceDocumentId: "PP-1",
       amount: 1000,
     });
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
   });
 });
