@@ -3,17 +3,20 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { PageShell } from "@/components/layout/PageShell";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
-import { DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
+import { DEFAULT_TABLE_PAGE_SIZE, dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
+import { formatINR } from "@/lib/formatCurrency";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
+import { toast } from "@/hooks/use-toast";
+import type { VendorshipCompany } from "@/types/finance";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
-import { Building2, Plus, Phone, Mail, MapPin, Code, Pencil, Trash2, IndianRupee } from "lucide-react";
-import type { VendorshipCompany } from "@/types/finance";
-import { toast } from "@/hooks/use-toast";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DataTableShell } from "@/components/data-table/DataTableShell";
+import { Plus, Pencil, Trash2, Building2, MapPin, Code } from "lucide-react";
 
 const emptyForm = (): Omit<VendorshipCompany, "id" | "createdAt"> => ({
   name: "",
@@ -121,79 +124,69 @@ export default function VendorshipCompanies() {
         </div>
       ) : (
         <>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {pagedCompanies.map(c => {
-            const totalFees = feesByCompany(c.id);
-            const linkedProjects = projectsByCompany(c.id);
-            return (
-              <div key={c.id} className="border rounded-xl p-5 bg-card space-y-4 hover:shadow-sm transition-shadow">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <Building2 className="h-5 w-5 text-primary" />
+        <DataTableShell variant="inline" maxHeight={listTableViewportMaxHeight(gridPageSize)} scrollResetKey={`${safeGridPage}-${gridPageSize}-${filtered.length}`}>
+          <TableHeader>
+            <TableRow className={dataTableClasses.headRow}>
+              <TableHead>Company</TableHead>
+              <TableHead className="hidden md:table-cell">Code</TableHead>
+              <TableHead className="hidden lg:table-cell">Phone</TableHead>
+              <TableHead className="text-right">Projects</TableHead>
+              <TableHead className="text-right">Fees paid</TableHead>
+              <TableHead className="hidden xl:table-cell">Email</TableHead>
+              <TableHead className="w-[100px] text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pagedCompanies.map((c) => {
+              const totalFees = feesByCompany(c.id);
+              const linkedProjects = projectsByCompany(c.id);
+              return (
+                <TableRow key={c.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                        <Building2 className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{c.name}</p>
+                        {c.address && (
+                          <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                            <MapPin className="h-3 w-3 shrink-0" />
+                            {c.address}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold truncate">{c.name}</p>
-                      {c.registrationCode && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <Code className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground font-mono">{c.registrationCode}</span>
-                        </div>
-                      )}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell font-mono text-sm text-muted-foreground">
+                    {c.registrationCode ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Code className="h-3 w-3" />
+                        {c.registrationCode}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell text-sm">{c.phone || "—"}</TableCell>
+                  <TableCell className="text-right tabular-nums">{linkedProjects}</TableCell>
+                  <TableCell className="text-right tabular-nums font-medium">{formatINR(totalFees)}</TableCell>
+                  <TableCell className="hidden xl:table-cell text-sm text-muted-foreground truncate max-w-[200px]">{c.email || "—"}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button size="icon" variant="ghost" className="h-8 w-8" type="button" onClick={() => openEdit(c)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" type="button" onClick={() => handleDelete(c)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                  </div>
-                  <div className="flex gap-1 shrink-0">
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(c)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => handleDelete(c)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-lg bg-muted/40 p-3">
-                    <p className="text-xs text-muted-foreground">Linked Projects</p>
-                    <p className="text-lg font-bold mt-0.5">{linkedProjects}</p>
-                  </div>
-                  <div className="rounded-lg bg-muted/40 p-3">
-                    <p className="text-xs text-muted-foreground">Total Fees Paid</p>
-                    <div className="flex items-center gap-0.5 mt-0.5">
-                      <IndianRupee className="h-3.5 w-3.5 text-muted-foreground" />
-                      <p className="text-lg font-bold">{totalFees.toLocaleString()}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 text-sm text-muted-foreground">
-                  {c.phone && (
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-3.5 w-3.5 shrink-0" />
-                      <span>{c.phone}</span>
-                    </div>
-                  )}
-                  {c.email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{c.email}</span>
-                    </div>
-                  )}
-                  {c.address && (
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{c.address}</span>
-                    </div>
-                  )}
-                </div>
-
-                {c.notes && (
-                  <p className="text-xs text-muted-foreground border-t pt-3">{c.notes}</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </DataTableShell>
         <TablePaginationBar
           className="pt-2"
           page={safeGridPage}

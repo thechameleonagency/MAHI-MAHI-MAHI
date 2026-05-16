@@ -14,11 +14,15 @@ import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { differenceInDays, parseISO } from "date-fns";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import { downloadCSV } from "@/lib/csvExport";
+import { toast } from "@/hooks/use-toast";
+import { formatINR } from "@/lib/formatCurrency";
 
 const DebtorsCreditors = () => {
   const { invoices, saleBills, vendorBills } = useAppData();
   const navigate = useNavigate();
-  const now = new Date();
   const [dcTab, setDcTab] = useState("debtors");
   const [debPage, setDebPage] = useState(1);
   const [debSize, setDebSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -26,19 +30,31 @@ const DebtorsCreditors = () => {
   const [credSize, setCredSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
   const debtors = useMemo(() => {
+    const asOf = new Date();
     const allInv = [...invoices, ...saleBills].filter(i => i.status !== "paid");
     return allInv.map(inv => {
       const outstanding = inv.total - inv.amountReceived;
-      const daysOverdue = inv.dueDate ? Math.max(0, differenceInDays(now, parseISO(inv.dueDate))) : 0;
-      return { ...inv, outstanding, daysOverdue };
+      const agingDays =
+        inv.dueDate
+          ? Math.max(0, differenceInDays(asOf, parseISO(inv.dueDate)))
+          : inv.status !== "paid" && inv.invoiceDate
+            ? Math.max(0, differenceInDays(asOf, parseISO(inv.invoiceDate)))
+            : 0;
+      return { ...inv, outstanding, daysOverdue: agingDays };
     }).sort((a, b) => b.outstanding - a.outstanding);
   }, [invoices, saleBills]);
 
   const creditors = useMemo(() => {
+    const asOf = new Date();
     return vendorBills.filter(b => b.status !== "paid").map(bill => {
       const outstanding = bill.total - bill.amountPaid;
-      const daysOverdue = bill.dueDate ? Math.max(0, differenceInDays(now, parseISO(bill.dueDate))) : 0;
-      return { ...bill, outstanding, daysOverdue };
+      const agingDays =
+        bill.dueDate
+          ? Math.max(0, differenceInDays(asOf, parseISO(bill.dueDate)))
+          : bill.billDate
+            ? Math.max(0, differenceInDays(asOf, parseISO(bill.billDate)))
+            : 0;
+      return { ...bill, outstanding, daysOverdue: agingDays };
     }).sort((a, b) => b.outstanding - a.outstanding);
   }, [vendorBills]);
 
@@ -85,8 +101,6 @@ const DebtorsCreditors = () => {
     else setCredPage(1);
   }, [dcTab]);
 
-  const fmt = (v: number) => `₹${v.toLocaleString("en-IN")}`;
-
   return (
     <PageShell className="space-y-6">
       <StickyPageHeader
@@ -99,14 +113,61 @@ const DebtorsCreditors = () => {
           <InlineKpiStrip
             className="w-full flex-wrap justify-start"
             items={[
-              { label: "Receivables", value: fmt(stats.totalReceivables) },
-              { label: "Recv. overdue", value: fmt(stats.overdueReceivables) },
-              { label: "Payables", value: fmt(stats.totalPayables) },
-              { label: "Pay. overdue", value: fmt(stats.overduePayables) },
+              { label: "Receivables", value: formatINR(stats.totalReceivables) },
+              { label: "Recv. overdue", value: formatINR(stats.overdueReceivables) },
+              { label: "Payables", value: formatINR(stats.totalPayables) },
+              { label: "Pay. overdue", value: formatINR(stats.overduePayables) },
             ]}
           />
         }
-      />
+      >
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => {
+            if (dcTab === "debtors") {
+              if (debtors.length === 0) {
+                toast({ title: "Nothing to export", description: "No debtor rows.", variant: "destructive" });
+                return;
+              }
+              downloadCSV(
+                "debtors_aging.csv",
+                debtors.map((d) => ({
+                  customer: d.customerName,
+                  invoice: d.invoiceNumber,
+                  outstanding: d.outstanding,
+                  agingDays: d.daysOverdue,
+                  dueDate: d.dueDate || "",
+                  status: d.status,
+                })),
+                ["customer", "invoice", "outstanding", "agingDays", "dueDate", "status"],
+              );
+            } else {
+              if (creditors.length === 0) {
+                toast({ title: "Nothing to export", description: "No creditor rows.", variant: "destructive" });
+                return;
+              }
+              downloadCSV(
+                "creditors_aging.csv",
+                creditors.map((c) => ({
+                  vendor: c.vendorName,
+                  bill: c.billNumber,
+                  outstanding: c.outstanding,
+                  agingDays: c.daysOverdue,
+                  dueDate: c.dueDate || "",
+                  status: c.status,
+                })),
+                ["vendor", "bill", "outstanding", "agingDays", "dueDate", "status"],
+              );
+            }
+            toast({ title: "Exported", description: "CSV downloaded." });
+          }}
+        >
+          <Download className="h-3 w-3 mr-1" />
+          Export {dcTab === "debtors" ? "debtors" : "creditors"}
+        </Button>
+      </StickyPageHeader>
 
       {/* Aging Chart */}
       <Card>
@@ -119,7 +180,7 @@ const DebtorsCreditors = () => {
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
               <XAxis dataKey="bucket" className="text-xs" />
               <YAxis className="text-xs" tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: number) => fmt(v)} />
+              <Tooltip formatter={(v: number) => formatINR(v)} />
               <Legend />
               <Bar dataKey="Receivables" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
               <Bar dataKey="Payables" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
@@ -183,9 +244,9 @@ const DebtorsCreditors = () => {
                         {d.customerName}
                       </TableCell>
                       <TableCell className="cursor-pointer text-primary hover:underline">{d.invoiceNumber}</TableCell>
-                      <TableCell className="text-right">{fmt(d.total)}</TableCell>
-                      <TableCell className="text-right">{fmt(d.amountReceived)}</TableCell>
-                      <TableCell className="text-right font-medium">{fmt(d.outstanding)}</TableCell>
+                      <TableCell className="text-right">{formatINR(d.total)}</TableCell>
+                      <TableCell className="text-right">{formatINR(d.amountReceived)}</TableCell>
+                      <TableCell className="text-right font-medium">{formatINR(d.outstanding)}</TableCell>
                       <TableCell >{d.dueDate || "-"}</TableCell>
                       <TableCell className="text-right">
                         {d.daysOverdue > 0 ? (
@@ -265,9 +326,9 @@ const DebtorsCreditors = () => {
                         {c.vendorName || `Vendor ${c.vendorId}`}
                       </TableCell>
                       <TableCell >{c.billNumber}</TableCell>
-                      <TableCell className="text-right">{fmt(c.total)}</TableCell>
-                      <TableCell className="text-right">{fmt(c.amountPaid)}</TableCell>
-                      <TableCell className="text-right font-medium">{fmt(c.outstanding)}</TableCell>
+                      <TableCell className="text-right">{formatINR(c.total)}</TableCell>
+                      <TableCell className="text-right">{formatINR(c.amountPaid)}</TableCell>
+                      <TableCell className="text-right font-medium">{formatINR(c.outstanding)}</TableCell>
                       <TableCell >{c.dueDate || "-"}</TableCell>
                       <TableCell className="text-right">
                         {c.daysOverdue > 0 ? (

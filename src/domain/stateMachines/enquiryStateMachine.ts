@@ -8,7 +8,7 @@ const baseTransitions: Record<EnquiryStatus, EnquiryStatus[]> = {
   "meeting-scheduled": ["quotation-sent", "converted", "lost"],
   "quotation-sent": ["converted", "lost"],
   converted: [],
-  lost: [],
+  lost: [], // Admin/super_admin can reopen lost enquiries via the explicit override below
 };
 
 export const canTransitionEnquiryStatus = (
@@ -17,8 +17,13 @@ export const canTransitionEnquiryStatus = (
   actorRole: UserRole,
   reason?: string,
 ): boolean => {
+  // Intentional rescue path: admins can reopen lost enquiries to re-engage the lead
   if (from === "lost" && to === "contacted") {
     return ["super_admin", "admin"].includes(actorRole) && Boolean(reason?.trim());
+  }
+
+  if (from === "quotation-sent" && to === "lost") {
+    return (reason?.trim().length ?? 0) >= 3;
   }
 
   return baseTransitions[from].includes(to);

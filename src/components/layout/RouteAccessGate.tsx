@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { toast } from "@/hooks/use-toast";
+import { isRegisteredAppRoute } from "@/lib/appRouteRegistry";
 
 const RouteAccessGate = () => {
   const location = useLocation();
@@ -11,6 +12,10 @@ const RouteAccessGate = () => {
   const { currentRole } = useAppSession();
 
   useEffect(() => {
+    if (!isRegisteredAppRoute(location.pathname)) {
+      return;
+    }
+
     const canAccess = permissionService.canAccessPath(currentRole, location.pathname);
     if (!canAccess) {
       toast({

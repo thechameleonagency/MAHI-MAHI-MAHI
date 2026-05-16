@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { ArrowLeft, Printer, Send, Download, Plus, Trash2, Check, Building2, Phone, Mail, Globe, Edit, FileText, Eye, MoreHorizontal, UserPlus, UserCheck, X, Save, CheckCircle, Briefcase, IndianRupee, MessageCircle, Calendar, Clock, MapPin, Share2, AlertTriangle, ChevronDown, Zap, CreditCard, Package } from "lucide-react";
+import { ArrowLeft, Printer, Send, Download, Plus, Trash2, Check, Phone, Mail, Edit, FileText, Eye, UserCheck, X, Save, CheckCircle, Briefcase, MessageCircle, Calendar, Clock, MapPin, Share2, AlertTriangle, ChevronDown, Zap, CreditCard, Package, Columns2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useNavigate, useLocation } from "react-router-dom";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -32,10 +32,10 @@ import { EntityLink } from "@/components/shared/EntityInfoModal";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar, DEFAULT_TABLE_PAGE_SIZE } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
-import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface QuotationMaterial {
   id: number;
@@ -98,26 +98,29 @@ const Quotations = () => {
   const quotationRef = useRef<HTMLDivElement>(null);
   const { 
     quotations: savedQuotations, 
-    customers,
-    addCustomer,
+    _customers,
+    _addCustomer,
     addQuotation, 
     updateQuotation, 
     transitionQuotationStatus,
-    reviseQuotation,
+    _reviseQuotation,
     deleteQuotation,
-    createProjectFromConfirmedQuotation,
+    _createProjectFromConfirmedQuotation,
     createProjectIntake,
     generateId,
     partners,
     agents,
     quotationVisibilityPresets = [],
     addQuotationVisibilityPreset,
-    deleteQuotationVisibilityPreset,
-    inventoryPresets = [],
+    _deleteQuotationVisibilityPreset,
+    siteChecklistTemplates = [],
+    quotationTemplates = [],
+    addQuotationTemplate,
+    inventoryItems = [],
+    canDo,
   } = useAppData();
   
   // State for Create Project in edit/create view
-  const [showCreateProjectInForm, setShowCreateProjectInForm] = useState(false);
   
   // View state: list, create, edit (solar-only quotations)
   const [currentView, setCurrentView] = useState<"list" | "create" | "edit">("list");
@@ -126,12 +129,10 @@ const Quotations = () => {
   
   const [listPage, setListPage] = useState(1);
   const [listPageSize, setListPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
-  const [clientPage, setClientPage] = useState(1);
-  const [clientPageSize, setClientPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
   const [selectedQuotationForProject, setSelectedQuotationForProject] = useState<typeof savedQuotations[0] | null>(null);
-  const [projectAmountType, setProjectAmountType] = useState<"temporary" | "final">("final");
+  const [projectAmountType, _setProjectAmountType] = useState<"temporary" | "final">("final");
   const [projectContractAmount, setProjectContractAmount] = useState(0);
   const [projectPaymentType, setProjectPaymentType] = useState<"cash" | "loan" | "cash-and-loan">("cash");
   const [projectBankDocAmount, setProjectBankDocAmount] = useState(0);
@@ -144,6 +145,12 @@ const Quotations = () => {
   const [qChannel, setQChannel] = useState("");
   const [qExternal, setQExternal] = useState("");
   
+  // Save Amounts Modal
+  const [_isSaveAmountsOpen, setIsSaveAmountsOpen] = useState(false);
+  const [saveAmountsQuotationId, setSaveAmountsQuotationId] = useState<string | null>(null);
+  const [saveAmountTemp, setSaveAmountTemp] = useState<number | string>("");
+  const [saveAmountFinal, setSaveAmountFinal] = useState<number | string>("");
+
   // Delete Confirmation Modal
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [quotationToDelete, setQuotationToDelete] = useState<Quotation | null>(null);
@@ -196,8 +203,57 @@ const Quotations = () => {
     "all" | "draft" | "sent" | "approved" | "confirmed" | "rejected" | "converted"
   >("all");
   const [listSearchQuery, setListSearchQuery] = useState("");
-  
-  // Materials
+
+  const QUOTE_LIST_COL_LS = "mss.quotations.listColumns.v1";
+  type QuoteListColKey = "number" | "client" | "phone" | "system" | "amount" | "date" | "status";
+  const DEFAULT_QUOTE_LIST_COLS: Record<QuoteListColKey, boolean> = {
+    number: true,
+    client: true,
+    phone: true,
+    system: true,
+    amount: true,
+    date: true,
+    status: true,
+  };
+  const [quoteListColVis, setQuoteListColVis] = useState<Record<QuoteListColKey, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem(QUOTE_LIST_COL_LS);
+      if (!raw) return { ...DEFAULT_QUOTE_LIST_COLS };
+      const parsed = JSON.parse(raw) as Partial<Record<QuoteListColKey, boolean>>;
+      return { ...DEFAULT_QUOTE_LIST_COLS, ...parsed };
+    } catch {
+      return { ...DEFAULT_QUOTE_LIST_COLS };
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(QUOTE_LIST_COL_LS, JSON.stringify(quoteListColVis));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [quoteListColVis]);
+
+  const quoteListColSpan = useMemo(() => {
+    let n = 1;
+    (Object.keys(DEFAULT_QUOTE_LIST_COLS) as QuoteListColKey[]).forEach((k) => {
+      if (quoteListColVis[k]) n += 1;
+    });
+    return n;
+  }, [quoteListColVis]); // DEFAULT_QUOTE_LIST_COLS is module-scoped and never changes.
+
+  const setQuoteListCol = (key: QuoteListColKey, checked: boolean) => {
+    setQuoteListColVis((prev) => {
+      const next = { ...prev, [key]: checked };
+      const visibleCount = (Object.keys(DEFAULT_QUOTE_LIST_COLS) as QuoteListColKey[]).filter((k) => next[k]).length;
+      if (visibleCount === 0) return prev;
+      return next;
+    });
+  };
+
+  useEffect(() => { setListPage(1); }, [statusFilter, listSearchQuery]);
+
+  // Materials — will be populated from dynamicPresetMaterials once available
   const [materials, setMaterials] = useState<QuotationMaterial[]>(presetMaterials["residential-3"]);
   
   // Pricing
@@ -207,11 +263,8 @@ const Quotations = () => {
   
   // Temporary vs Final Quotation amounts
   const [bankDocumentationAmount, setBankDocumentationAmount] = useState<number | null>(null);
-  const [temporaryAmount, setTemporaryAmount] = useState<number | null>(null);
-  const [finalAmount, setFinalAmount] = useState<number | null>(null);
-  const [selectedExportType, setSelectedExportType] = useState<"temporary" | "final">("temporary");
-  const [isExportChoiceOpen, setIsExportChoiceOpen] = useState(false);
-  const [hideInternalCosts, setHideInternalCosts] = useState(true);
+  const [_temporaryAmount, _setTemporaryAmount] = useState<number | null>(null);
+  const [_finalAmount, _setFinalAmount] = useState<number | null>(null);
   
   // Payment Type (Cash, Loan, or Cash & Loan) - determines project timeline flow
   const [paymentType, setPaymentType] = useState<"cash" | "loan" | "cash-and-loan" | "">("");
@@ -233,12 +286,12 @@ const Quotations = () => {
   const [notes, setNotes] = useState("• Installation includes complete wiring and commissioning\n• Net metering application assistance included\n• Free site survey and design consultation\n• AMC available after warranty period");
   
   // Terms & Conditions
-  const [termsAndConditions, setTermsAndConditions] = useState("• Prices are subject to change without prior notice\n• All disputes subject to local jurisdiction\n• Payment terms must be adhered to as per agreement\n• Warranty is void in case of physical damage or improper handling");
+  const [_termsAndConditions, _setTermsAndConditions] = useState("• Prices are subject to change without prior notice\n• All disputes subject to local jurisdiction\n• Payment terms must be adhered to as per agreement\n• Warranty is void in case of physical damage or improper handling");
   
   // Checklist items from Masters
   const { getQuotationChecklistItems } = useMasters();
   const checklistItems = getQuotationChecklistItems();
-  const [selectedChecklistItems, setSelectedChecklistItems] = useState<string[]>(
+  const [_selectedChecklistItems, _setSelectedChecklistItems] = useState<string[]>(
     checklistItems.map(item => item.value)
   );
   
@@ -252,6 +305,13 @@ const Quotations = () => {
     warranty: true,
     termsConditions: true,
   });
+
+  // Shell skeleton ready flag
+  const [shellReady, setShellReady] = React.useState(false);
+  React.useEffect(() => {
+    const t = setTimeout(() => setShellReady(true), 80);
+    return () => clearTimeout(t);
+  }, []);
   
   // What You Get items
   const whatYouGet = [
@@ -268,7 +328,8 @@ const Quotations = () => {
   const [isSaveTemplateOpen, setIsSaveTemplateOpen] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [templateName, setTemplateName] = useState("");
-  
+  const [quotationBoilerplateKey, setQuotationBoilerplateKey] = useState(0);
+
   // Visibility preset
   const [isSaveVisibilityPresetOpen, setIsSaveVisibilityPresetOpen] = useState(false);
   const [visibilityPresetName, setVisibilityPresetName] = useState("");
@@ -306,7 +367,7 @@ const Quotations = () => {
     setFloorHeight("1st Floor");
     setReferenceClientName("");
     setSystemConfigNotes("");
-    setMaterials(presetMaterials["residential-3"]);
+    setMaterials(dynamicPresetMaterials["residential-3"] || presetMaterials["residential-3"]);
     setDiscountPercent(0);
     setGstPercent(13.8);
     setGovtSubsidy(78000);
@@ -353,7 +414,7 @@ const Quotations = () => {
   }, [location.search, navigate]);
 
   // Open save amounts confirmation modal
-  const handleOpenSaveAmounts = (quotation: Quotation) => {
+  const _handleOpenSaveAmounts = (quotation: Quotation) => {
     setSaveAmountsQuotationId(quotation.id);
     setSaveAmountTemp(quotation.temporaryAmount || quotation.totalAmount);
     setSaveAmountFinal(quotation.finalAmount || quotation.totalAmount);
@@ -361,15 +422,15 @@ const Quotations = () => {
   };
 
   // Confirm save amounts
-  const handleConfirmSaveAmounts = async () => {
+  const _handleConfirmSaveAmounts = async () => {
     if (!saveAmountsQuotationId) {
       setIsSaveAmountsOpen(false);
       return;
     }
     const ur = await updateQuotation(saveAmountsQuotationId, {
-      temporaryAmount: saveAmountTemp,
-      finalAmount: saveAmountFinal,
-      totalAmount: saveAmountFinal || saveAmountTemp,
+      temporaryAmount: Number(saveAmountTemp) || 0,
+      finalAmount: Number(saveAmountFinal) || 0,
+      totalAmount: Number(saveAmountFinal || saveAmountTemp) || 0,
     });
     if (!ur.ok) {
       toast({ title: "Could not save amounts", description: ur.error ?? "Command failed", variant: "destructive" });
@@ -414,22 +475,37 @@ const Quotations = () => {
     safeListPage * listPageSize
   );
 
-  const convertedClients = useMemo(() => savedQuotations.filter((q) => q.isConverted), [savedQuotations]);
-  const { pagedItems: pagedClients, safePage: safeClientPage } = usePagedSlice(convertedClients, clientPage, clientPageSize);
-
   useEffect(() => {
     setListPage((p) => Math.min(p, listTotalPages));
   }, [listTotalPages]);
 
-  useEffect(() => {
-    setClientPage(1);
-  }, [convertedClients.length]);
+  // Build dynamic preset materials from inventory context, fallback to hardcoded
+  const dynamicPresetMaterials = useMemo((): Record<string, QuotationMaterial[]> => {
+    if (!inventoryItems || inventoryItems.length === 0) return presetMaterials;
+    const baseItems = inventoryItems
+      .filter(item => item.category !== "Service")
+      .map((item, idx) => ({
+        id: idx + 1,
+        category: item.category || "Other",
+        itemName: item.name,
+        size: (item as any).size || "",
+        quantity: 1,
+        rate: (item as any).unitPrice || (item as any).buyPrice || 0,
+        unit: (item as any).unit || "pcs",
+      }));
+    if (baseItems.length === 0) return presetMaterials;
+    return {
+      "residential-3": baseItems,
+      "commercial-20": baseItems.map(i => ({ ...i, quantity: Math.ceil(i.quantity * 5) })),
+      "industrial-100": baseItems.map(i => ({ ...i, quantity: Math.ceil(i.quantity * 25) })),
+    };
+  }, [inventoryItems]);
 
   // Load preset when category/capacity changes
   const handlePresetChange = (category: string, capacity: string) => {
     const key = `${category}-${capacity}`;
-    if (presetMaterials[key]) {
-      setMaterials(presetMaterials[key]);
+    if (dynamicPresetMaterials[key]) {
+      setMaterials(dynamicPresetMaterials[key]);
       
       // Update system config based on preset
       if (category === "residential" && capacity === "3") {
@@ -559,14 +635,68 @@ const Quotations = () => {
   };
 
   const handleSaveAsTemplate = () => {
-    if (!templateName) {
+    if (!templateName.trim()) {
       toast({ title: "Error", description: "Please enter template name", variant: "destructive" });
       return;
     }
-    // In real implementation, save to presets
+    if (quotationTemplates.some(t => t.name.toLowerCase() === templateName.trim().toLowerCase())) {
+      toast({ title: "Duplicate Name", description: "A template with this name already exists", variant: "destructive" });
+      return;
+    }
+    addQuotationTemplate({
+      id: generateId("QT"),
+      name: templateName.trim(),
+      segment: systemCategory as any,
+      panelBrand,
+      panelWattage: parseInt(panelWattage, 10) || undefined,
+      inverterCapacity,
+      structureType,
+      materialItems: materials.map((m) => ({
+        inventoryItemId: typeof m.id === "number" ? m.id : 0,
+        name: m.itemName,
+        quantity: m.quantity,
+        unit: m.unit || "pcs",
+      })),
+      services: [],
+      createdAt: new Date().toISOString(),
+    });
     toast({ title: "Template Saved", description: `"${templateName}" has been saved to presets` });
     setIsSaveTemplateOpen(false);
     setTemplateName("");
+  };
+
+  const handleApplyQuotationBoilerplate = (templateId: string) => {
+    const t = quotationTemplates.find((x) => x.id === templateId);
+    if (!t) {
+      toast({ title: "Template not found", variant: "destructive" });
+      return;
+    }
+    setSystemCategory(t.segment);
+    if (t.panelBrand) setPanelBrand(t.panelBrand);
+    if (t.panelWattage != null) setPanelWattage(String(t.panelWattage));
+    if (t.inverterCapacity) setInverterCapacity(t.inverterCapacity);
+    if (t.structureType) setStructureType(t.structureType);
+    if (t.materialItems.length > 0) {
+      setMaterials(
+        t.materialItems.map((item, idx) => ({
+          id: Date.now() + idx,
+          category: "Material",
+          itemName: item.name,
+          size: "",
+          quantity: item.quantity,
+          rate: 0,
+          unit: item.unit,
+        }))
+      );
+    } else {
+      const cap = t.segment === "residential" ? "3" : t.segment === "commercial" ? "20" : "100";
+      setSystemCapacity(cap);
+      handlePresetChange(t.segment, cap);
+    }
+    toast({
+      title: "Quotation template applied",
+      description: `"${t.name}" — review material rates before sending.`,
+    });
   };
 
   const handleExportPDF = async () => {
@@ -592,7 +722,7 @@ const Quotations = () => {
         title: "PDF Exported",
         description: "Quotation has been saved as PDF"
       });
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: "Export Failed",
         description: "Could not generate PDF",
@@ -704,10 +834,15 @@ const Quotations = () => {
   };
 
   const handleConvertToClient = async (quotationId: string) => {
-    const approvedResult = await transitionQuotationStatus(quotationId, "approved");
-    if (!approvedResult.ok) {
-      toast({ title: "Invalid Transition", description: approvedResult.error || "Could not approve quotation", variant: "destructive" });
-      return;
+    const quotation = savedQuotations.find(q => q.id === quotationId);
+    if (!quotation) return;
+
+    if (quotation.status !== "approved") {
+      const approvedResult = await transitionQuotationStatus(quotationId, "approved");
+      if (!approvedResult.ok) {
+        toast({ title: "Invalid Transition", description: approvedResult.error || "Could not approve quotation", variant: "destructive" });
+        return;
+      }
     }
 
     const confirmResult = await transitionQuotationStatus(quotationId, "confirmed");
@@ -728,7 +863,7 @@ const Quotations = () => {
     toast({ title: "Client Converted", description: "Lead has been converted to client" });
   };
 
-  const handleDeleteQuotation = (quotation: Quotation) => {
+  const _handleDeleteQuotation = (quotation: Quotation) => {
     // Check for related entities
     const relatedEntities: {type: string; id: string; name: string}[] = [];
     
@@ -791,7 +926,7 @@ const Quotations = () => {
     setDeleteReason("");
   };
 
-  const handleCreateInvoice = (quotation: Quotation) => {
+  const _handleCreateInvoice = (quotation: Quotation) => {
     // Use bankDocumentationAmount for loan files, otherwise clientAgreedAmount or totalAmount
     const invoiceAmount = quotation.paymentType === "loan" && quotation.bankDocumentationAmount
       ? quotation.bankDocumentationAmount
@@ -951,15 +1086,7 @@ const Quotations = () => {
                       ? 0
                       : undefined,
                 settlementDirection: projectKind === "VENDOR_NETWORK" ? "partner_pays_company" : "company_pays_partner",
-                investmentPercent: 0,
                 profitSharePercent: projectKind === "PARTNER_EPC" ? parseFloat(qProfitSharePercent || "0") : 0,
-                investedAmount: 0,
-                partnershipModel: projectKind === "FIXED_EPC" ? ("fixed_backend" as const) : ("profit_share" as const),
-                ...(projectKind === "FIXED_EPC" && {
-                  customerContractAmount: amount,
-                  mssFixedOrBackendAmount: parseFloat(qFixedBackend) || 0,
-                  partnerPassThroughOrMargin: Math.max(0, (parseFloat(qFixedSell) || amount) - (parseFloat(qFixedBackend) || 0)),
-                }),
               },
             ],
             totalPartnerInvestment: 0,
@@ -996,6 +1123,11 @@ const Quotations = () => {
       return;
     }
     const navigateId = created.projectId ?? newProjectId;
+
+    // Link quotation → project (D9)
+    if (navigateId) {
+      await updateQuotation(selectedQuotationForProject.id, { convertedToProjectId: navigateId } as any);
+    }
 
     toast({
       title: "Project Created",
@@ -1041,7 +1173,7 @@ const Quotations = () => {
     setActiveTab("create");
   };
 
-  const handleCreateNew = () => {
+  const _handleCreateNew = () => {
     resetForm();
     setEditingQuotationId(null);
     setCurrentView("create");
@@ -1100,6 +1232,38 @@ const Quotations = () => {
                     <SelectItem value="converted">Converted</SelectItem>
                   </SelectContent>
                 </Select>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-9 shrink-0" type="button">
+                      <Columns2 className="h-4 w-4 mr-2" />
+                      Columns
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel>List columns</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {(
+                      [
+                        ["number", "Quotation #"],
+                        ["client", "Client"],
+                        ["phone", "Phone"],
+                        ["system", "System"],
+                        ["amount", "Amount"],
+                        ["date", "Date"],
+                        ["status", "Status"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <DropdownMenuCheckboxItem
+                        key={key}
+                        checked={quoteListColVis[key]}
+                        onCheckedChange={(c) => setQuoteListCol(key, c === true)}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        {label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
               <InlineKpiStrip
                 className="w-full sm:w-auto sm:justify-end"
@@ -1171,6 +1335,7 @@ const Quotations = () => {
               setEditingQuotationId(null);
               setCurrentView("create");
             }}
+            disabled={!canDo("quotation:create")}
           >
             <Plus className="w-4 h-4 mr-2" />
             New quotation
@@ -1195,18 +1360,48 @@ const Quotations = () => {
         >
           <TableHeader>
             <TableRow className={dataTableClasses.headRow}>
-              <TableHead>Quotation #</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>System</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Status</TableHead>
+              {quoteListColVis.number && <TableHead>Quotation #</TableHead>}
+              {quoteListColVis.client && <TableHead>Client</TableHead>}
+              {quoteListColVis.phone && <TableHead>Phone</TableHead>}
+              {quoteListColVis.system && <TableHead>System</TableHead>}
+              {quoteListColVis.amount && <TableHead>Amount</TableHead>}
+              {quoteListColVis.date && <TableHead>Date</TableHead>}
+              {quoteListColVis.status && <TableHead>Status</TableHead>}
               <TableHead className="text-right w-[50px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pagedQuotations.map((quotation) => (
+            {!shellReady ? (
+              Array.from({ length: Math.min(listPageSize, 5) }).map((_, i) => (
+                <TableRow key={i}>
+                  {Array.from({ length: quoteListColSpan }).map((_, j) => (
+                    <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : pagedQuotations.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={quoteListColSpan} className="text-center py-12 text-muted-foreground">
+                  <div className="flex flex-col items-center gap-2">
+                    <p>No quotations found.</p>
+                    <Button
+                      size="sm"
+                      type="button"
+                      disabled={!canDo("quotation:create")}
+                      onClick={() => {
+                        resetForm();
+                        setEditingQuotationId(null);
+                        setCurrentView("create");
+                      }}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      New quotation
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              pagedQuotations.map((quotation) => (
               <TableRow
                 key={quotation.id}
                 className="cursor-pointer hover:bg-muted/50 group"
@@ -1215,27 +1410,39 @@ const Quotations = () => {
                   setIsViewQuotationOpen(true);
                 }}
               >
+                {quoteListColVis.number && (
                 <TableCell className="font-medium text-primary">
                   {quotation.quotationNumber}
                 </TableCell>
+                )}
+                {quoteListColVis.client && (
                 <TableCell>
                   <EntityLink 
                     entityType="customer" 
                     entityId={quotation.customerId || ""} 
                     name={quotation.clientName} 
-                    onClick={(e) => e.stopPropagation()}
                   />
                 </TableCell>
+                )}
+                {quoteListColVis.phone && (
                 <TableCell className="text-muted-foreground">{quotation.clientPhone}</TableCell>
+                )}
+                {quoteListColVis.system && (
                 <TableCell>
                   <Badge variant="outline" className="capitalize">
                     {quotation.systemCategory} {quotation.systemCapacity}kW
                   </Badge>
                 </TableCell>
+                )}
+                {quoteListColVis.amount && (
                 <TableCell className="font-medium text-primary">
                   ₹{quotation.totalAmount.toLocaleString()}
                 </TableCell>
+                )}
+                {quoteListColVis.date && (
                 <TableCell className="text-muted-foreground">{quotation.createdAt}</TableCell>
+                )}
+                {quoteListColVis.status && (
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Badge className={`${getStatusColor(quotation.status)} border-0 capitalize`}>
@@ -1248,11 +1455,12 @@ const Quotations = () => {
                     )}
                   </div>
                 </TableCell>
+                )}
                 <TableCell className="text-right">
                   <ChevronDown className="h-4 w-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
                 </TableCell>
               </TableRow>
-            ))}
+            )))}
           </TableBody>
         </DataTableShell>
 
@@ -1503,8 +1711,8 @@ const Quotations = () => {
                       )}
                       
                       {selectedQuotation.status === "draft" && (
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           size="sm"
                           className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
                           onClick={() => { void handleMarkAsApproved(selectedQuotation.id); setIsViewQuotationOpen(false); }}
@@ -1514,8 +1722,31 @@ const Quotations = () => {
                         </Button>
                       )}
 
+                      {(selectedQuotation.status === "sent" || selectedQuotation.status === "approved") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10 text-emerald-700"
+                          onClick={() => { void handleConvertToClient(selectedQuotation.id); setIsViewQuotationOpen(false); }}
+                          disabled={!canDo("quotation:confirm")}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Confirm Quotation
+                        </Button>
+                      )}
+
+                      {(selectedQuotation.status === "approved" || selectedQuotation.status === "confirmed") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsSendConfirmOpen(true)}
+                        >
+                          Send Confirmation
+                        </Button>
+                      )}
+
                       {selectedQuotation.status === "approved" && (
-                        <Button 
+                        <Button
                           size="sm"
                           className="bg-primary text-white"
                           onClick={() => { handleCreateProject(selectedQuotation); setIsViewQuotationOpen(false); }}
@@ -1635,24 +1866,26 @@ const Quotations = () => {
                   <CardTitle className="text-lg">System Configuration</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Template Selector */}
+                  {/* Template Selector — sources materials from unified Site Checklist Templates. */}
                   <div className="space-y-2 pb-4 border-b">
                     <Label>Select Template (Optional)</Label>
                     <Select 
                       value="" 
                       onValueChange={(templateId) => {
-                        const template = inventoryPresets.find(p => p.id === templateId);
-                        if (template && template.presetType === "quotation") {
-                          // Auto-populate materials from template
-                          const templateMaterials = template.items.map((item, idx) => ({
-                            id: idx + 1,
-                            category: "Material",
-                            itemName: item.name,
-                            size: "",
-                            quantity: item.quantity,
-                            rate: 0, // Rate will be set manually or from inventory lookup
-                            unit: item.unit,
-                          }));
+                        const template = siteChecklistTemplates.find(p => p.id === templateId);
+                        if (template) {
+                          const templateMaterials = template.items.map((item, idx) => {
+                            const richLine = template.materialsBom?.find(b => b.id === item.inventoryItemId);
+                            return {
+                              id: idx + 1,
+                              category: richLine?.category || "Material",
+                              itemName: item.name,
+                              size: richLine?.size || "",
+                              quantity: item.quantity,
+                              rate: richLine?.rate ?? 0,
+                              unit: item.unit,
+                            };
+                          });
                           setMaterials(templateMaterials);
                           toast({
                             title: "Template Applied",
@@ -1665,17 +1898,48 @@ const Quotations = () => {
                         <SelectValue placeholder="Load materials from template..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {inventoryPresets
-                          .filter(p => p.presetType === "quotation")
-                          .map(template => (
-                            <SelectItem key={template.id} value={template.id}>
-                              {template.name} ({template.category})
-                            </SelectItem>
-                          ))}
+                        {siteChecklistTemplates.map(template => (
+                          <SelectItem key={template.id} value={template.id}>
+                            {template.name} ({template.segment})
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
                       Select a template to auto-populate materials list
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 pb-4 border-b">
+                    <Label>Apply quotation template</Label>
+                    <Select
+                      key={quotationBoilerplateKey}
+                      value=""
+                      disabled={quotationTemplates.length === 0}
+                      onValueChange={(templateId) => {
+                        handleApplyQuotationBoilerplate(templateId);
+                        setQuotationBoilerplateKey((k) => k + 1);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            quotationTemplates.length
+                              ? "Load boilerplate from saved template…"
+                              : "No quotation templates saved yet"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {quotationTemplates.map((tpl) => (
+                          <SelectItem key={tpl.id} value={tpl.id}>
+                            {tpl.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Full boilerplate from Save as Template (separate from the inventory-line template selector above).
                     </p>
                   </div>
 
@@ -2073,12 +2337,17 @@ const Quotations = () => {
                       <span className="text-sm">Warranty Information</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Checkbox 
-                        checked={sectionVisibility.termsConditions} 
+                      <Checkbox
+                        checked={sectionVisibility.termsConditions}
                         onCheckedChange={(checked) => setSectionVisibility(prev => ({...prev, termsConditions: !!checked}))}
                       />
                       <span className="text-sm">Terms & Conditions</span>
                     </div>
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <Button variant="outline" size="sm" onClick={() => setIsSaveVisibilityPresetOpen(true)}>
+                      Save as Preset
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -2493,17 +2762,18 @@ const Quotations = () => {
               <div className="space-y-2">
                 <Label>Select from Inventory</Label>
                 <div className="border rounded-lg max-h-[250px] overflow-y-auto">
-                  {[
+                  {(inventoryItems.length > 0 ? inventoryItems.map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    category: item.category,
+                    stock: (item as any).quantity ?? (item as any).stock ?? 0,
+                    rate: (item as any).unitPrice ?? (item as any).buyPrice ?? 0,
+                  })) : [
                     { id: 1, name: "Waaree 540W Mono Perc", category: "Panel", stock: 120, rate: 13000 },
                     { id: 2, name: "Growatt 5kW Inverter", category: "Inverter", stock: 5, rate: 42000 },
                     { id: 3, name: "DC Cable 4sqmm", category: "Cable", stock: 500, rate: 45 },
                     { id: 4, name: "Structure GI Rail", category: "Structure", stock: 450, rate: 110 },
-                    { id: 6, name: "Luminous 150Ah Battery", category: "Battery", stock: 12, rate: 15000 },
-                    { id: 7, name: "MC4 Connectors", category: "Misc", stock: 200, rate: 35 },
-                    { id: 123, name: "AC DB", category: "Wiring", stock: 15, rate: 4500 },
-                    { id: 124, name: "DC DB", category: "Wiring", stock: 15, rate: 3500 },
-                    { id: 139, name: "LA (Lightning Arrestor)", category: "Earthing", stock: 20, rate: 3200 },
-                  ].map((item) => (
+                  ]).map((item) => (
                     <div 
                       key={item.id} 
                       className="flex items-center justify-between p-3 border-b last:border-0 hover:bg-muted/30 cursor-pointer"
@@ -2868,11 +3138,27 @@ const Quotations = () => {
                 <div className="space-y-3">
                   <div className="space-y-2">
                     <Label>Vendorship Fee (₹)</Label>
-                    <Input 
-                      type="number" 
-                      value={qVendorshipFee} 
-                      onChange={(e) => setQVendorshipFee(e.target.value)} 
-                      placeholder="Fee payable by partner" 
+                    <Input
+                      type="number"
+                      value={qVendorshipFee}
+                      onChange={(e) => setQVendorshipFee(e.target.value)}
+                      placeholder="Fee payable by partner"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Channel Partner Name</Label>
+                    <Input
+                      value={qChannel}
+                      onChange={(e) => setQChannel(e.target.value)}
+                      placeholder="Channel partner (optional)"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>External Network</Label>
+                    <Input
+                      value={qExternal}
+                      onChange={(e) => setQExternal(e.target.value)}
+                      placeholder="External network (optional)"
                     />
                   </div>
                 </div>

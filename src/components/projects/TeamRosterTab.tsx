@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Plus, Trash2, Calendar, Users, Info } from "lucide-react";
-import { format } from "date-fns";
+import { formatUiDate } from "@/lib/formatUiDate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
-import type { Project, Team } from "@/types/project";
+import type { Project } from "@/types/project";
 
 interface TeamRosterTabProps {
   project: Project;
@@ -28,6 +28,11 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
   const handleAddAssignment = () => {
     if (!selectedTeamId) {
       toast({ title: "Select a team", variant: "destructive" });
+      return;
+    }
+
+    if (new Date(endDate) < new Date(startDate)) {
+      toast({ title: "Invalid dates", description: "End date must be on or after start date", variant: "destructive" });
       return;
     }
 
@@ -84,7 +89,7 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase text-muted-foreground">End Date</Label>
-              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-white" />
+              <Input type="date" min={startDate || undefined} value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-white" />
             </div>
             <Button onClick={handleAddAssignment} className="shadow-md shadow-primary/20">
               <Plus className="h-4 w-4 mr-2" />
@@ -129,7 +134,7 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
                     <TableCell>
                       <div className="flex flex-wrap gap-1 max-w-[300px]">
                         {getTeamMembers(assignment.teamId).map((name, idx) => (
-                          <Badge key={idx} variant="secondary" className="font-normal text-[10px] px-1.5 py-0">
+                          <Badge key={idx} variant="secondary" className="font-normal text-2xs px-1.5 py-0">
                             {name}
                           </Badge>
                         ))}
@@ -137,8 +142,8 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
                     </TableCell>
                     <TableCell>
                       <div className="text-xs">
-                        <p className="font-semibold text-foreground">{format(new Date(assignment.startDate), "dd MMM")} — {format(new Date(assignment.endDate), "dd MMM, yyyy")}</p>
-                        <p className="text-muted-foreground text-[10px] mt-0.5">Duration tracked individually</p>
+                        <p className="font-semibold text-foreground">{formatUiDate(assignment.startDate, "dd MMM")} — {formatUiDate(assignment.endDate, "dd MMM, yyyy")}</p>
+                        <p className="text-muted-foreground text-2xs mt-0.5">Duration tracked individually</p>
                       </div>
                     </TableCell>
                     <TableCell>

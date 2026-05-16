@@ -13,9 +13,10 @@ import BankReconciliationModal from "@/components/audit/BankReconciliationModal"
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO } from "date-fns";
 import { PrototypeFinanceNotice } from "@/components/prototype/PrototypeFinanceNotice";
+import { formatINR } from "@/lib/formatCurrency";
 
 const AuditDashboard = () => {
-  const { invoices, saleBills, expenses, incomes, vendorBills, inventoryItems, customers, vendors } = useAppData();
+  const { invoices, saleBills, expenses, _incomes, vendorBills, inventoryItems, _customers, _vendors } = useAppData();
   const navigate = useNavigate();
   const [period, setPeriod] = useState("current");
   const [showReconciliation, setShowReconciliation] = useState(false);
@@ -111,8 +112,6 @@ const AuditDashboard = () => {
     return Array.from(vendorMap.values()).sort((a, b) => b.total - a.total).slice(0, 5);
   }, [vendorBills]);
 
-  const fmt = (v: number) => `₹${v.toLocaleString("en-IN")}`;
-
   return (
     <PageShell className="space-y-6">
       <StickyPageHeader
@@ -138,7 +137,7 @@ const AuditDashboard = () => {
             </div>
             <InlineKpiStrip
               className="w-full min-w-0 sm:max-w-[min(100%,52rem)] sm:justify-end"
-              items={kpiCards.map((k) => ({ label: k.label, value: fmt(k.value) }))}
+              items={kpiCards.map((k) => ({ label: k.label, value: formatINR(k.value) }))}
             />
           </>
         }
@@ -165,7 +164,7 @@ const AuditDashboard = () => {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                 <XAxis dataKey="month" className="text-xs" />
                 <YAxis className="text-xs" tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: number) => fmt(v)} />
+                <Tooltip formatter={(v: number) => formatINR(v)} />
                 <Legend />
                 <Bar dataKey="Revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="Expenses" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
@@ -184,7 +183,7 @@ const AuditDashboard = () => {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                 <XAxis dataKey="month" className="text-xs" />
                 <YAxis className="text-xs" tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: number) => fmt(v)} />
+                <Tooltip formatter={(v: number) => formatINR(v)} />
                 <Line type="monotone" dataKey="Profit" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ fill: "hsl(var(--primary))" }} />
               </LineChart>
             </ResponsiveContainer>
@@ -211,7 +210,7 @@ const AuditDashboard = () => {
                       <p className="text-xs text-muted-foreground">{c.count} invoices</p>
                     </div>
                   </div>
-                  <span className="text-sm font-semibold text-foreground">{fmt(c.total)}</span>
+                  <span className="text-sm font-semibold text-foreground">{formatINR(c.total)}</span>
                 </div>
               ))}
             </div>
@@ -235,7 +234,7 @@ const AuditDashboard = () => {
                       <p className="text-xs text-muted-foreground">{v.count} bills</p>
                     </div>
                   </div>
-                  <span className="text-sm font-semibold text-foreground">{fmt(v.total)}</span>
+                  <span className="text-sm font-semibold text-foreground">{formatINR(v.total)}</span>
                 </div>
               ))}
             </div>

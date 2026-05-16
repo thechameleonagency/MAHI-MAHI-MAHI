@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Phone, Mail, MapPin, UserCheck, IndianRupee, Building2, Check, Clock, ExternalLink, Plus, Wallet } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
+import { ArrowLeft, Phone, Mail, MapPin, UserCheck, Check, Clock, ExternalLink, Plus, Wallet, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,19 +22,77 @@ import { toast } from "sonner";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { getPriorityColor } from "@/lib/statusColors";
+import { formatINR } from "@/lib/formatCurrency";
+import { cn } from "@/lib/utils";
 import { expectedAgentFeeForProject, parseCapacityKw } from "@/domain/agents/agentCommission";
 
 const AgentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { agents, projects, enquiries, updateProject } = useAppData();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { agents, projects, enquiries, updateProject, updateAgent, addAgentCommissionPayment, getCommissionPaymentsByAgent, generateId } = useAppData();
+
+  const [agentTab, setAgentTab] = useState<"enquiries" | "projects" | "commissions">("projects");
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t === "enquiries" || t === "projects" || t === "commissions") setAgentTab(t);
+  }, [searchParams]);
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentProjectId, setPaymentProjectId] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentMode, setPaymentMode] = useState("Bank Transfer");
+  const [paymentMode, setPaymentMode] = useState("bank_transfer");
   const [paymentDate, setPaymentDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [paymentNotes, setPaymentNotes] = useState("");
+
+  const [isEditAgentOpen, setIsEditAgentOpen] = useState(false);
+  const [eaName, setEaName] = useState("");
+  const [eaPhone, setEaPhone] = useState("");
+  const [eaEmail, setEaEmail] = useState("");
+  const [eaAddress, setEaAddress] = useState("");
+  const [eaRateType, setEaRateType] = useState<"per-kw" | "per-project">("per-kw");
+  const [eaRatePerKw, setEaRatePerKw] = useState("");
+  const [eaFlatRate, setEaFlatRate] = useState("");
+  const [eaStatus, setEaStatus] = useState<"active" | "inactive">("active");
+
+  const openEditAgent = () => {
+    if (!agent) return;
+    setEaName(agent.name);
+    setEaPhone(agent.phone);
+    setEaEmail(agent.email ?? "");
+    setEaAddress(agent.address ?? "");
+    setEaRateType(agent.rateType);
+    setEaRatePerKw(String(agent.ratePerKw ?? ""));
+    setEaFlatRate(agent.flatRate != null ? String(agent.flatRate) : "");
+    setEaStatus(agent.status);
+    setIsEditAgentOpen(true);
+  };
+
+  const saveAgentProfile = () => {
+    if (!agent || !id) return;
+    const name = eaName.trim();
+    if (!name) {
+      toast.error("Name is required");
+      return;
+    }
+    const rpk = parseFloat(eaRatePerKw);
+    const flat = parseFloat(eaFlatRate);
+    updateAgent(id, {
+      name,
+      phone: eaPhone.trim(),
+      email: eaEmail.trim() || undefined,
+      address: eaAddress.trim(),
+      rateType: eaRateType,
+      ratePerKw: Number.isFinite(rpk) && rpk >= 0 ? rpk : agent.ratePerKw,
+      flatRate: eaRateType === "per-project" && Number.isFinite(flat) && flat >= 0 ? flat : undefined,
+      status: eaStatus,
+    });
+    toast.success("Agent profile updated");
+    setIsEditAgentOpen(false);
+  };
 
   const agent = useMemo(() => agents.find(a => a.id === id), [agents, id]);
 
@@ -65,7 +123,7 @@ const AgentDetail = () => {
 
   const pendingCommission = totalCommission - paidCommission;
 
-  const expectedFromTerms = useMemo(() => {
+  const _expectedFromTerms = useMemo(() => {
     if (!agent) return 0;
     return agentProjects.reduce((sum, p) => {
       const kw = parseCapacityKw(p.capacity);
@@ -116,8 +174,8 @@ const AgentDetail = () => {
   );
 
   const handleRecordPayment = () => {
-    const amount = parseFloat(paymentAmount);
-    if (!paymentProjectId || !amount || amount <= 0) {
+    const amount = Number.parseFloat(paymentAmount);
+    if (!paymentProjectId || !Number.isFinite(amount) || amount <= 0) {
       toast.error("Please select a project and enter a valid amount");
       return;
     }
@@ -126,7 +184,7 @@ const AgentDetail = () => {
 
     const pending = (project.commissionAmount || 0) - (project.commissionPaid || 0);
     if (amount > pending) {
-      toast.error(`Amount exceeds pending commission of ₹${pending.toLocaleString()}`);
+      toast.error(`Amount exceeds pending commission of ${formatINR(pending)}`);
       return;
     }
 
@@ -134,11 +192,23 @@ const AgentDetail = () => {
       commissionPaid: (project.commissionPaid || 0) + amount,
     });
 
-    toast.success(`₹${amount.toLocaleString()} commission payment recorded for ${project.name}`);
+    addAgentCommissionPayment({
+      id: generateId("ACP"),
+      agentId: id!,
+      projectId: paymentProjectId,
+      projectName: project.name,
+      amount,
+      date: paymentDate,
+      mode: paymentMode as "cash" | "bank_transfer" | "cheque" | "upi" | "other", // values already match union
+      notes: paymentNotes || undefined,
+      createdAt: new Date().toISOString(),
+    });
+
+    toast.success(`${formatINR(amount)} commission payment recorded for ${project.name}`);
     setShowPaymentModal(false);
     setPaymentProjectId("");
     setPaymentAmount("");
-    setPaymentMode("Bank Transfer");
+    setPaymentMode("bank_transfer");
     setPaymentDate(format(new Date(), "yyyy-MM-dd"));
     setPaymentNotes("");
   };
@@ -206,6 +276,9 @@ const AgentDetail = () => {
           <Button variant="outline" onClick={() => setShowPaymentModal(true)} disabled={projectsWithPending.length === 0}>
             <Wallet className="h-4 w-4 mr-2" /> Record Payment
           </Button>
+          <Button variant="outline" onClick={openEditAgent}>
+            <Pencil className="h-4 w-4 mr-2" /> Edit profile
+          </Button>
           <Button onClick={() => navigate(`/enquiries?from=agent&referredBy=${encodeURIComponent(agent.name)}`)}>
             <Plus className="h-4 w-4 mr-2" /> Add Enquiry from Agent
           </Button>
@@ -225,17 +298,29 @@ const AgentDetail = () => {
               <UserCheck className="mr-1 w-3 h-3" /> Agent
             </Badge>
             <Badge variant="outline">
-              {agent.rateType === "per-kw" ? `₹${agent.ratePerKw.toLocaleString()}/kW` : `₹${(agent.flatRate || 0).toLocaleString()}/project`}
+              {agent.rateType === "per-kw" ? `${formatINR(agent.ratePerKw)}/kW` : `${formatINR(agent.flatRate || 0)}/project`}
             </Badge>
-            <Badge className={agent.status === "active" ? "border-0 bg-primary/10 text-primary" : "border-0 bg-muted text-muted-foreground"}>
-              {agent.status}
-            </Badge>
+            <StatusBadge status={agent.status} label={agent.status} className="text-xs" />
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="projects">
+      <Tabs
+        value={agentTab}
+        onValueChange={(v) => {
+          const next = v as "enquiries" | "projects" | "commissions";
+          setAgentTab(next);
+          setSearchParams(
+            (prev) => {
+              const n = new URLSearchParams(prev);
+              n.set("tab", next);
+              return n;
+            },
+            { replace: true },
+          );
+        }}
+      >
         <TabsList>
           <TabsTrigger value="enquiries">Enquiries ({agentEnquiries.length})</TabsTrigger>
           <TabsTrigger value="projects">Converted Projects ({agentProjects.length})</TabsTrigger>
@@ -280,21 +365,25 @@ const AgentDetail = () => {
                         <TableCell>{e.customerName}</TableCell>
                         <TableCell>{e.systemCapacity || "—"}</TableCell>
                         <TableCell>
-                          <Badge variant="secondary" className="capitalize">{e.status}</Badge>
+                          <StatusBadge status={e.status} className="text-xs" />
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="capitalize">{e.priority}</Badge>
+                          <Badge variant="outline" className={cn("border-0 capitalize", getPriorityColor(e.priority))}>
+                            {e.priority}
+                          </Badge>
                         </TableCell>
                         <TableCell>{e.createdAt}</TableCell>
-                        <TableCell className="text-right">₹{e.estimatedBudget.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR(e.estimatedBudget)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </DataTableShell>
               ) : (
-                <div className="px-6 py-10 text-center text-muted-foreground">
-                  No enquiries referred by this agent yet
-                </div>
+                <ListEmptyState
+                  icon={UserCheck}
+                  title="No enquiries yet"
+                  description="This agent has not been linked to any enquiries."
+                />
               )}
             </CardContent>
           </Card>
@@ -339,19 +428,26 @@ const AgentDetail = () => {
                         <TableCell>{p.client}</TableCell>
                         <TableCell>{p.capacity}</TableCell>
                         <TableCell>
-                          <Badge className={p.status === "Ongoing" ? "bg-primary/10 text-primary border-0" : "bg-muted text-muted-foreground border-0"}>
-                            {p.status}
-                          </Badge>
+                          <StatusBadge status={p.status} label={p.status} className="text-xs" />
                         </TableCell>
-                        <TableCell className="text-right">₹{p.contractAmount.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">₹{(p.commissionAmount || 0).toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR(p.contractAmount)}</TableCell>
+                        <TableCell className="text-right">{formatINR(p.commissionAmount || 0)}</TableCell>
                         <TableCell>
                           {(p.commissionPaid || 0) >= (p.commissionAmount || 0) ? (
-                            <Badge className="bg-blue-500/20 text-blue-500 border-0"><Check className="w-3 h-3 mr-1" />Paid</Badge>
+                            <span className="inline-flex items-center gap-1">
+                              <Check className="h-3 w-3 text-muted-foreground" aria-hidden />
+                              <StatusBadge status="paid" label="Paid" className="text-xs" />
+                            </span>
                           ) : (p.commissionPaid || 0) > 0 ? (
-                            <Badge className="bg-blue-500/20 text-blue-500 border-0"><Clock className="w-3 h-3 mr-1" />Partial</Badge>
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="h-3 w-3 text-muted-foreground" aria-hidden />
+                              <StatusBadge status="partial" label="Partial" className="text-xs" />
+                            </span>
                           ) : (
-                            <Badge className="bg-amber-500/20 text-amber-500 border-0"><Clock className="w-3 h-3 mr-1" />Pending</Badge>
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="h-3 w-3 text-muted-foreground" aria-hidden />
+                              <StatusBadge status="pending" label="Pending" className="text-xs" />
+                            </span>
                           )}
                         </TableCell>
                         <TableCell>
@@ -384,6 +480,34 @@ const AgentDetail = () => {
         </TabsContent>
 
         <TabsContent value="commissions">
+          {id && (
+            <Card className="mb-4">
+              <CardContent className="py-3">
+                {(() => {
+                  const ledger = getCommissionPaymentsByAgent(id);
+                  const paidFromLedger = ledger.reduce((s, p) => s + p.amount, 0);
+                  const earned = totalCommission;
+                  const balance = Math.max(0, earned - paidFromLedger);
+                  return (
+                    <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+                      <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+                        <p className="text-xs text-muted-foreground">Earned (projects)</p>
+                        <p className="text-lg font-semibold">₹{earned.toLocaleString("en-IN")}</p>
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+                        <p className="text-xs text-muted-foreground">Paid (ledger)</p>
+                        <p className="text-lg font-semibold text-primary">₹{paidFromLedger.toLocaleString("en-IN")}</p>
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+                        <p className="text-xs text-muted-foreground">Balance due</p>
+                        <p className="text-lg font-semibold text-amber-600">₹{balance.toLocaleString("en-IN")}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardContent className="space-y-0 p-0 pt-4">
               {commissionRows.length > 0 ? (
@@ -456,12 +580,63 @@ const AgentDetail = () => {
               )}
             </CardContent>
           </Card>
+
+          {/* Payment log — sorted newest first; running paid is cumulative oldest→newest */}
+          {id && (() => {
+            const payments = [...getCommissionPaymentsByAgent(id)].sort((a, b) => b.date.localeCompare(a.date));
+            const chronological = [...payments].sort((a, b) => a.date.localeCompare(b.date));
+            let run = 0;
+            const runningById = new Map<string, number>();
+            chronological.forEach((p) => {
+              run += p.amount;
+              runningById.set(p.id, run);
+            });
+            return (
+              <Card className="mt-4">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Commission payments</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-0 p-0">
+                  {payments.length === 0 ? (
+                    <div className="px-6 py-8 text-center text-sm text-muted-foreground">No commission payments recorded yet.</div>
+                  ) : (
+                    <DataTableShell variant="inline">
+                      <TableHeader>
+                        <TableRow className={dataTableClasses.headRow}>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Project</TableHead>
+                          <TableHead>Mode</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead className="text-right">Paid to date</TableHead>
+                          <TableHead>Notes</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {payments.map((pay) => (
+                          <TableRow key={pay.id}>
+                            <TableCell>{pay.date}</TableCell>
+                            <TableCell>{pay.projectName ?? pay.projectId}</TableCell>
+                            <TableCell className="capitalize">{pay.mode.replace("_", " ")}</TableCell>
+                            <TableCell className="text-right text-primary">₹{pay.amount.toLocaleString()}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              ₹{(runningById.get(pay.id) ?? 0).toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-xs">{pay.notes ?? "—"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </DataTableShell>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
         </TabsContent>
       </Tabs>
 
       {/* Record Payment Modal */}
       <Sheet open={showPaymentModal} onOpenChange={setShowPaymentModal}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Record Commission Payment</SheetTitle>
           </SheetHeader>
@@ -501,8 +676,14 @@ const AgentDetail = () => {
               <Select value={paymentMode} onValueChange={setPaymentMode}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {["Bank Transfer", "Cash", "UPI", "Cheque"].map(m => (
-                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  {[
+                    { value: "bank_transfer", label: "Bank Transfer" },
+                    { value: "cash", label: "Cash" },
+                    { value: "upi", label: "UPI" },
+                    { value: "cheque", label: "Cheque" },
+                    { value: "other", label: "Other" },
+                  ].map(m => (
+                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -515,6 +696,73 @@ const AgentDetail = () => {
           <SheetFooter>
             <Button variant="outline" onClick={() => setShowPaymentModal(false)}>Cancel</Button>
             <Button onClick={handleRecordPayment}>Record Payment</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={isEditAgentOpen} onOpenChange={setIsEditAgentOpen}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Edit agent</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={eaName} onChange={(e) => setEaName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Phone</Label>
+              <Input value={eaPhone} onChange={(e) => setEaPhone(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input value={eaEmail} onChange={(e) => setEaEmail(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Address</Label>
+              <Textarea value={eaAddress} onChange={(e) => setEaAddress(e.target.value)} rows={2} />
+            </div>
+            <div className="space-y-2">
+              <Label>Commission model</Label>
+              <Select value={eaRateType} onValueChange={(v) => setEaRateType(v as "per-kw" | "per-project")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="per-kw">Per kW</SelectItem>
+                  <SelectItem value="per-project">Per project (flat)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {eaRateType === "per-kw" ? (
+              <div className="space-y-2">
+                <Label>Rate per kW (₹)</Label>
+                <Input type="number" min={0} step={0.01} value={eaRatePerKw} onChange={(e) => setEaRatePerKw(e.target.value)} />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Flat rate per project (₹)</Label>
+                <Input type="number" min={0} step={1} value={eaFlatRate} onChange={(e) => setEaFlatRate(e.target.value)} />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={eaStatus} onValueChange={(v) => setEaStatus(v as "active" | "inactive")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <SheetFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsEditAgentOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={saveAgentProfile}>Save</Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>

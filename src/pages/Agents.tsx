@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Plus, Search, Edit, Eye, Phone, Mail, MapPin, IndianRupee, UserCheck, Trash2, ExternalLink, Camera } from "lucide-react";
+import { useNavigate, Link } from "react-router-dom";
+import { Plus, Search, Edit, MapPin, UserCheck, Trash2, ExternalLink, Camera, Wallet } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,15 +11,25 @@ import { dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstan
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ToastAction } from "@/components/ui/toast";
 import { toast } from "@/hooks/use-toast";
 import type { Agent } from "@/types/finance";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { formatINR } from "@/lib/formatCurrency";
 
 const Agents = () => {
   const navigate = useNavigate();
@@ -33,6 +44,7 @@ const Agents = () => {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [agentPendingDelete, setAgentPendingDelete] = useState<Agent | null>(null);
 
   // Form state
   const [name, setName] = useState("");
@@ -40,13 +52,13 @@ const Agents = () => {
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
   const [rateType, setRateType] = useState<"per-kw" | "per-project">("per-kw");
-  const [ratePerKw, setRatePerKw] = useState("1000");
+  const [ratePerKw, setRatePerKw] = useState("");
   const [flatRate, setFlatRate] = useState("");
   const [agentPhoto, setAgentPhoto] = useState("");
 
   const resetForm = () => {
     setName(""); setPhone(""); setEmail(""); setAddress("");
-    setRateType("per-kw"); setRatePerKw("1000"); setFlatRate(""); setAgentPhoto("");
+    setRateType("per-kw"); setRatePerKw(""); setFlatRate(""); setAgentPhoto("");
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,7 +75,12 @@ const Agents = () => {
     const agentEnquiries = enquiries.filter(e => e.agentId === agentId);
     const ongoing = agentProjects.filter(p => p.status === "Ongoing").length;
     const completed = agentProjects.filter(p => p.status === "Completed").length;
-    const totalCommission = agentProjects.reduce((s, p) => s + (p.commissionAmount || 0), 0);
+    const agent = agents?.find((a: any) => a.id === agentId);
+    const ratePerKw = parseFloat(String(agent?.ratePerKw ?? "0"));
+    const totalCommission = agentProjects.reduce((s, p) => {
+      const cap = parseFloat(p.capacity) || 0;
+      return s + (ratePerKw > 0 ? cap * ratePerKw : (p.commissionAmount || 0));
+    }, 0);
     const paidCommission = agentProjects.reduce((s, p) => s + (p.commissionPaid || 0), 0);
     const convertedEnquiries = agentEnquiries.filter(e => e.status === "converted").length;
     
@@ -150,8 +167,6 @@ const Agents = () => {
       pendingCommission: allStats.reduce((s, st) => s + st.pending, 0),
     };
   }, [agents, projects, enquiries]);
-
-  const formatCurrency = (amount: number) => `₹${amount.toLocaleString()}`;
 
   const AgentFormFields = () => (
     <div className="space-y-4">
@@ -260,13 +275,16 @@ const Agents = () => {
                 { label: "Total Enquiries", value: summaryStats.totalEnquiries },
                 { label: "Conversions", value: summaryStats.totalConversions },
                 { label: "Projects", value: summaryStats.totalProjects },
-                { label: "Commission", value: formatCurrency(summaryStats.totalCommission) },
-                { label: "Pending", value: formatCurrency(summaryStats.pendingCommission) },
+                { label: "Commission", value: formatINR(summaryStats.totalCommission) },
+                { label: "Pending", value: formatINR(summaryStats.pendingCommission) },
               ]}
             />
           </>
         }
       >
+        <Button size="sm" variant="outline" asChild>
+          <Link to="/agents/commissions/ledger">Commission ledger</Link>
+        </Button>
         <Button size="sm" onClick={() => { resetForm(); setIsAddOpen(true); }}>
           <Plus className="mr-2 h-4 w-4" />
           Add
@@ -295,6 +313,7 @@ const Agents = () => {
                 <TableHead>Phone</TableHead>
                 <TableHead className="text-right">Enquiries</TableHead>
                 <TableHead className="text-right">Converted</TableHead>
+                <TableHead className="text-right">Conv. %</TableHead>
                 <TableHead className="text-right">Projects</TableHead>
                 <TableHead className="text-right">Commission</TableHead>
                 <TableHead className="text-right">Pending</TableHead>
@@ -303,7 +322,33 @@ const Agents = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pagedAgents.map((agent) => {
+              {filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="p-0">
+                    {agents.length === 0 ? (
+                      <ListEmptyState
+                        icon={UserCheck}
+                        title="No agents yet"
+                        description="Add referral / commission partners to track payouts."
+                        actionLabel="Create agent"
+                        onAction={() => { resetForm(); setIsAddOpen(true); }}
+                      />
+                    ) : (
+                      <ListEmptyState
+                        icon={UserCheck}
+                        title="No agents match this search or filter"
+                        actionLabel="Clear filters"
+                        onAction={() => {
+                          setSearchQuery("");
+                          setStatusFilter("all");
+                          setTablePage(1);
+                        }}
+                      />
+                    )}
+                  </TableCell>
+                </TableRow>
+              ) : (
+              pagedAgents.map((agent) => {
                 const stats = getAgentStats(agent.id);
                 return (
                   <TableRow key={agent.id} className="hover:bg-muted/40">
@@ -329,10 +374,13 @@ const Agents = () => {
                     <TableCell className="text-muted-foreground">{agent.phone}</TableCell>
                     <TableCell className="text-right">{stats.totalEnquiries}</TableCell>
                     <TableCell className="text-right text-primary font-medium">{stats.convertedEnquiries}</TableCell>
+                    <TableCell className="text-right text-muted-foreground text-sm">
+                      {stats.totalEnquiries > 0 ? `${Math.round((stats.convertedEnquiries / stats.totalEnquiries) * 100)}%` : "—"}
+                    </TableCell>
                     <TableCell className="text-right">{stats.total}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(stats.totalCommission)}</TableCell>
+                    <TableCell className="text-right">{formatINR(stats.totalCommission)}</TableCell>
                     <TableCell className={`text-right ${stats.pending > 0 ? "text-amber-600 font-medium" : ""}`}>
-                      {formatCurrency(stats.pending)}
+                      {formatINR(stats.pending)}
                     </TableCell>
                     <TableCell>
                       <Badge variant={agent.status === "active" ? "default" : "secondary"} className="capitalize">
@@ -344,6 +392,15 @@ const Agents = () => {
                         <Button variant="ghost" size="sm" onClick={() => openEdit(agent)}>
                           <Edit className="h-4 w-4" />
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          title="Commissions"
+                          onClick={() => navigate(`/agents/${agent.id}?tab=commissions`)}
+                        >
+                          <Wallet className="h-4 w-4" />
+                        </Button>
                         <Button variant="ghost" size="sm" onClick={() => navigate(`/agents/${agent.id}`)}>
                           <ExternalLink className="h-4 w-4" />
                         </Button>
@@ -351,21 +408,8 @@ const Agents = () => {
                           variant="ghost"
                           size="sm"
                           className="text-destructive"
-                          onClick={() => {
-                            toast({
-                              title: "Delete Agent?",
-                              description: `Are you sure you want to delete ${agent.name}? This cannot be undone.`,
-                              variant: "destructive",
-                              action: (
-                                <ToastAction altText="Delete" onClick={() => {
-                                  deleteAgent(agent.id);
-                                  toast({ title: "Agent Deleted", description: "Agent has been removed" });
-                                }}>
-                                  Delete
-                                </ToastAction>
-                              )
-                            });
-                          }}
+                          type="button"
+                          onClick={() => setAgentPendingDelete(agent)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -373,23 +417,13 @@ const Agents = () => {
                     </TableCell>
                   </TableRow>
                 );
-              })}
+              }))}
             </TableBody>
           </DataTableShell>
 
-      {filtered.length === 0 && (
-        <div className="text-center py-12">
-          <UserCheck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">No agents found</p>
-          <Button className="mt-4" onClick={() => { resetForm(); setIsAddOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" /> Add Your First Agent
-          </Button>
-        </div>
-      )}
-
       {/* Add Agent Sheet */}
       <Sheet open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader><SheetTitle>Add New Agent</SheetTitle></SheetHeader>
           <AgentFormFields />
           <SheetFooter>
@@ -401,7 +435,7 @@ const Agents = () => {
 
       {/* Edit Agent Sheet */}
       <Sheet open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader><SheetTitle>Edit Agent</SheetTitle></SheetHeader>
           <AgentFormFields />
           <SheetFooter>
@@ -411,7 +445,33 @@ const Agents = () => {
         </SheetContent>
       </Sheet>
 
-      {/* Deleted AlertDialog */}
+      <AlertDialog open={!!agentPendingDelete} onOpenChange={(open) => !open && setAgentPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete agent?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {agentPendingDelete
+                ? `Remove ${agentPendingDelete.name} from the directory. Linked history may become orphaned in the prototype. This cannot be undone.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (agentPendingDelete) {
+                  deleteAgent(agentPendingDelete.id);
+                  toast({ title: "Agent deleted", description: "Agent has been removed." });
+                }
+                setAgentPendingDelete(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 };

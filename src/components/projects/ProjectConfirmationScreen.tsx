@@ -46,7 +46,7 @@ export default function ProjectConfirmationScreen({
       case "partnership":
         return <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20"><Handshake className="w-3 h-3 mr-1" />Partnership</Badge>;
       case "outsourced":
-        return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20"><Users className="w-3 h-3 mr-1" />Outsourced</Badge>;
+        return <Badge className="bg-primary/10 text-primary border-primary/20"><Users className="w-3 h-3 mr-1" />Outsourced</Badge>;
       default:
         return <Badge className="bg-primary/10 text-primary border-primary/20"><Building2 className="w-3 h-3 mr-1" />Solo</Badge>;
     }
@@ -160,10 +160,10 @@ export default function ProjectConfirmationScreen({
 
       {/* Outsourced Party Details */}
       {data.ownerType === "outsourced" && data.partyName && (
-        <Card className="border-blue-500/20">
+        <Card className="border-primary/20">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-500" />
+              <Users className="w-4 h-4 text-primary" />
               Outsourced Party Details
             </CardTitle>
           </CardHeader>
@@ -184,7 +184,7 @@ export default function ProjectConfirmationScreen({
               {data.amountToParty && (
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">Amount Payable</p>
-                  <p className="font-semibold text-blue-600">₹{data.amountToParty.toLocaleString()}</p>
+                  <p className="font-semibold text-primary">₹{data.amountToParty.toLocaleString()}</p>
                 </div>
               )}
             </div>
@@ -194,11 +194,11 @@ export default function ProjectConfirmationScreen({
 
       {/* Commission Details */}
       {(data.commissionPercent || data.commissionAmount) && (
-        <Card className="border-blue-500/20">
+        <Card className="border-primary/20">
           <CardContent className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center">
-                <IndianRupee className="w-5 h-5 text-blue-600" />
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <IndianRupee className="w-5 h-5 text-primary" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Referral Commission</p>
@@ -207,12 +207,12 @@ export default function ProjectConfirmationScreen({
             </div>
             <div className="text-right">
               {data.commissionPercent && (
-                <Badge variant="outline" className="text-blue-600 mb-1">
+                <Badge variant="outline" className="text-primary mb-1">
                   {data.commissionPercent}%
                 </Badge>
               )}
               {data.commissionAmount && (
-                <p className="font-semibold text-blue-600">₹{data.commissionAmount.toLocaleString()}</p>
+                <p className="font-semibold text-primary">₹{data.commissionAmount.toLocaleString()}</p>
               )}
             </div>
           </CardContent>

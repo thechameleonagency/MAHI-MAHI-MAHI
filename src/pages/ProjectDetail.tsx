@@ -2,7 +2,7 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft, Briefcase, Calendar, Camera, CheckCircle2, ClipboardList, Edit,
-  FileText, Handshake, IndianRupee, LinkIcon, MapPin,
+  FileText, Handshake, IndianRupee, _LinkIcon, MapPin,
   MoreVertical, Package, Plus, ReceiptText, Truck, Users, CheckSquare, User, X, Zap,
 } from "lucide-react";
 import { format, isValid, parseISO } from "date-fns";
@@ -48,7 +48,7 @@ import {
   calculateProjectVendorshipFee,
   isPartnerCreditTransaction,
   isPartnerDebitTransaction,
-  partnerProjectLabel,
+  _partnerProjectLabel,
 } from "@/domain/partners/derivePartnerEconomics";
 import type { Payment, Expense, Invoice } from "@/types/finance";
 import type { Project, ProjectPartner, ProjectPartnerType } from "@/types/project";
@@ -164,7 +164,7 @@ const ProjectDetail = () => {
     partners,
     partnerTransactions,
     payments,
-    projects,
+    _projects,
     saleBills,
     sites,
     inventoryItems: globalInvItems,
@@ -248,16 +248,16 @@ const ProjectDetail = () => {
   const labourExpenses = projExpenses.filter(e => e.category === "Labour" && e.subCategory !== "Outsourced");
   const materialExpenses = projExpenses.filter(e => e.category === "Material" || e.category === "Inventory");
   const outsourcedWorkRows = useMemo(() => projExpenses.filter(e => e.subCategory === "Outsourced").map(expenseToOutsourcedWorkRow), [projExpenses]);
-  const foodExpenses = projExpenses.filter(e => e.category === "food").map(e => ({ id: e.id, date: e.date, description: e.description || e.subCategory || "Food expense", whoPaid: !e.paidBy ? "Company" : e.paidBy.type === "company" ? "Company" : (e.paidBy.entityName || "Employee"), amount: e.amount }));
-  const otherExpenses = projExpenses.filter(e => e.category === "other").map(e => ({ id: e.id, date: e.date, description: e.description || e.subCategory || "Other expense", whoPaid: !e.paidBy ? "Company" : e.paidBy.type === "company" ? "Company" : (e.paidBy.entityName || "Employee"), amount: e.amount }));
+  const _foodExpenses = projExpenses.filter(e => e.category === "food").map(e => ({ id: e.id, date: e.date, description: e.description || e.subCategory || "Food expense", whoPaid: !e.paidBy ? "Company" : e.paidBy.type === "company" ? "Company" : (e.paidBy.entityName || "Employee"), amount: e.amount }));
+  const _otherExpenses = projExpenses.filter(e => e.category === "other").map(e => ({ id: e.id, date: e.date, description: e.description || e.subCategory || "Other expense", whoPaid: !e.paidBy ? "Company" : e.paidBy.type === "company" ? "Company" : (e.paidBy.entityName || "Employee"), amount: e.amount }));
 
-  const transportTotal = transportExpenses.reduce((s, e) => s + e.amount, 0);
+  const _transportTotal = transportExpenses.reduce((s, e) => s + e.amount, 0);
   const inHouseLabourTotal = labourExpenses.reduce((s, e) => s + e.amount, 0);
   const outsourcedTotal = outsourcedWorkRows.reduce((s, e) => s + e.total, 0);
-  const labourTotal = inHouseLabourTotal + outsourcedTotal;
-  const materialTotal = materialExpenses.reduce((s, e) => s + e.amount, 0);
+  const _labourTotal = inHouseLabourTotal + outsourcedTotal;
+  const _materialTotal = materialExpenses.reduce((s, e) => s + e.amount, 0);
 
-  const projectDocumentedRevenue = useMemo(() => {
+  const _projectDocumentedRevenue = useMemo(() => {
     if (!id) return 0;
     return [...invoices, ...(saleBills ?? [])].filter(i => i.projectId === id).reduce((s, i) => s + (i.total ?? 0), 0);
   }, [id, invoices, saleBills]);
@@ -268,9 +268,9 @@ const ProjectDetail = () => {
     quantity: item.stock, unitPrice: item.buyPrice, unit: item.unit, category: item.category, size: item.size, allowDecimalReturn: item.allowDecimalReturn,
   }));
 
-  const employeesList = employees.map(emp => ({ id: emp.id, name: emp.name, role: emp.role, salary: emp.salary, initial: emp.name.charAt(0) }));
+  const _employeesList = employees.map(emp => ({ id: emp.id, name: emp.name, role: emp.role, salary: emp.salary, initial: emp.name.charAt(0) }));
 
-  // Attendance rows for this project â€” filter by site IDs that belong to this project
+  // Attendance rows for this project - filter by site IDs that belong to this project
   const projectSiteIds = sites.filter(s => s.projectId === project?.id).map(s => String(s.id));
   const attendanceRows = attendanceRecords
     .filter((record) => projectSiteIds.some(sid => record.sites?.includes(sid)))
@@ -284,7 +284,7 @@ const ProjectDetail = () => {
   const [taskAssignmentOpen, setTaskAssignmentOpen] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isAddOutsourceOpen, setIsAddOutsourceOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("progress-report");
+  const [_activeTab, _setActiveTab] = useState("progress-report");
   const [isAddSiteOpen, setIsAddSiteOpen] = useState(false);
   const [newSiteName, setNewSiteName] = useState("");
   const [newSiteWorkStart, setNewSiteWorkStart] = useState(() => new Date().toISOString().split("T")[0]);
@@ -327,7 +327,7 @@ const ProjectDetail = () => {
 
   // Site checklist template choice
   const [siteTemplateChoice, setSiteTemplateChoice] = useState<Record<number, string>>({});
-  const defaultSiteTemplateId = useMemo(() => {
+  const _defaultSiteTemplateId = useMemo(() => {
     const pt = project?.projectType;
     if (pt === "Commercial" || pt === "Industrial") return siteChecklistTemplates.find(t => t.segment === "commercial")?.id ?? siteChecklistTemplates[0]?.id ?? "";
     return siteChecklistTemplates.find(t => t.segment === "residential")?.id ?? siteChecklistTemplates[0]?.id ?? "";
@@ -569,13 +569,13 @@ const ProjectDetail = () => {
   const partnerProjectTransactions = partnerRow ? partnerTransactions.filter((txn) => txn.partnerId === partnerRow.partnerId && txn.projectId === project.id) : [];
   const partnerPaid = partnerProjectTransactions.filter(isPartnerCreditTransaction).reduce((sum, txn) => sum + txn.amount, 0);
   const partnerReceived = partnerProjectTransactions.filter(isPartnerDebitTransaction).reduce((sum, txn) => sum + txn.amount, 0);
-  const pendingToPartner = Math.max(0, partnerEarning - partnerPaid);
-  const pendingFromPartner = Math.max(0, vendorshipFee - partnerReceived);
+  const _pendingToPartner = Math.max(0, partnerEarning - partnerPaid);
+  const _pendingFromPartner = Math.max(0, vendorshipFee - partnerReceived);
   const billed = projectInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
   const collected = projectPayments.filter((payment) => payment.direction === "in").reduce((sum, payment) => sum + payment.amount, 0);
   const actualCost = project.totalCost || projectExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   const companyRetainedRevenue = project.contractAmount - partnerEarning;
-  const companyNet = kind === "VENDOR_NETWORK" ? projectProfit + vendorshipFee : companyRetainedRevenue - actualCost;
+  const _companyNet = kind === "VENDOR_NETWORK" ? projectProfit + vendorshipFee : companyRetainedRevenue - actualCost;
 
   const scope = project.scope;
   const docLabel = scope?.vendorshipOwner === "MSS" ? "Document Creator" : "Document Vault";
@@ -587,7 +587,7 @@ const ProjectDetail = () => {
   const forbidChannelFee = projectForbidsAction(project, "channel_fee");
 
   const contractDisplay = project?.contractAmount || 0;
-  const pendingDisplay = Math.max(0, contractDisplay - collected);
+  const _pendingDisplay = Math.max(0, contractDisplay - collected);
 
   return (
     <PageShell className="space-y-4 md:space-y-6">
@@ -1112,7 +1112,7 @@ const ProjectDetail = () => {
                 rows={5}
                 value={executionNotesDraft}
                 onChange={(e) => setExecutionNotesDraft(e.target.value)}
-                placeholder="e.g. 12 Apr â€” Structure complete, awaiting DISCOM inspectionâ€¦"
+                placeholder="e.g. 12 Apr - Structure complete, awaiting DISCOM inspection..."
                 className="text-sm"
               />
               <div className="mt-3 flex justify-end">
@@ -1351,7 +1351,7 @@ const ProjectDetail = () => {
             <MiniMetric label="Profit" value={formatCurrency(projectProfit)} />
           </div>
 
-          {/* Invoices â€” only for kinds that bill */}
+          {/* Invoices - only for kinds that bill */}
           {!["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(kind) && (
             <TabCard title="Invoices" icon={<ReceiptText className="h-4 w-4 text-primary" />}>
               <div className="mb-3 flex justify-end">
@@ -1467,7 +1467,7 @@ const ProjectDetail = () => {
                 </TabCard>
                 <TabCard title="Field notes & milestones" icon={<ClipboardList className="h-4 w-4 text-muted-foreground" />}>
                   <p className="mb-2 text-xs text-muted-foreground">Log site progress, milestone completions, and follow-ups.</p>
-                  <Textarea rows={5} value={executionNotesDraft} onChange={(e) => setExecutionNotesDraft(e.target.value)} placeholder="e.g. 12 Apr â€” Structure complete, awaiting DISCOM inspectionâ€¦" className="text-sm" />
+                  <Textarea rows={5} value={executionNotesDraft} onChange={(e) => setExecutionNotesDraft(e.target.value)} placeholder="e.g. 12 Apr - Structure complete, awaiting DISCOM inspection..." className="text-sm" />
                   <div className="mt-3 flex justify-end">
                     <Button type="button" size="sm" onClick={handleSaveExecutionNotes}>Save notes</Button>
                   </div>
@@ -1883,7 +1883,7 @@ const ProjectDetail = () => {
           <div className="space-y-3 py-2">
             <div className="space-y-2">
               <Label>Site name</Label>
-              <Input value={newSiteName} onChange={(e) => setNewSiteName(e.target.value)} placeholder="e.g. Rooftop â€” Block A" />
+              <Input value={newSiteName} onChange={(e) => setNewSiteName(e.target.value)} placeholder="e.g. Rooftop - Block A" />
             </div>
             <div className="space-y-2">
               <Label>Work start date</Label>

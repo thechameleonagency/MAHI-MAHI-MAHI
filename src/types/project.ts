@@ -123,6 +123,11 @@ export interface CommercialBaseline {
   lines: CommercialBaselineLine[];
   materialsTotal: number;
   servicesTotal: number;
+  /** Originating commercial basis from quotation / intake (Phase 4.5b). */
+  basis?: "fixed" | "per_kw" | "per_sqft";
+  rateValue?: number;
+  /** kW or sqft quantity when basis is not fixed. */
+  pricingQuantity?: number;
 }
 
 /** Execution tracking row: baseline line + issued quantity vs quoted. */
@@ -154,9 +159,36 @@ export interface ProjectScopeConfig {
   vendorshipCompanyId?: string;
 }
 
+/**
+ * Per-project site checklist entry — describes a planned material/item the project needs,
+ * with running quantities for what has been issued / returned / consumed.
+ *
+ * `qtyPlanned` is the canonical "we need this much" number. It is seeded from the linked
+ * quotation's BOM at project creation; super admin can edit per project. Marking items as
+ * sent through Materials Sent flow bumps `qtySent` and writes a matching record into
+ * `Project.materialsSent`. Cost tracking uses `qtySent * unitPrice` as actual material cost.
+ */
+export interface ProjectSiteChecklistItem {
+  id: string;
+  name: string;
+  category?: string;
+  unit: string;
+  qtyPlanned: number;
+  qtySent: number;
+  qtyReturned: number;
+  qtyConsumed: number;
+  unitPrice?: number;
+  sourceQuotationItemId?: string | number;
+  /** True when super admin added/edited this item per project requirements (not from quotation). */
+  addedByOverride?: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;
+  /** @deprecated The 8-value kind taxonomy is being collapsed into {@link projectMode} + attribute
+   *  fields. Kept for backwards compatibility while migration is in progress. `normalizeProject`
+   *  keeps this in sync with the new fields. */
   projectKind?: "SOLO_EPC" | "PARTNER_EPC" | "FIXED_EPC" | "VENDOR_NETWORK" | "INC" | "INC_GIVEN" | "OUTSOURCED_INC" | "VENDORSHIP_ONLY";
   projectKindConfigSnapshot?: {
     requiredParties: string[];
@@ -166,11 +198,34 @@ export interface Project {
     requiredDocuments: string[];
     forbiddenActions: string[];
   };
-  
+
+  // New project taxonomy (3 types + attribute fields). See [domain/projectTypes/types.ts].
+  /** 3-value type: DIRECT_CLIENT | PARTNER_NETWORK | INC_GIVEN_TO_US. Field name is `projectMode`
+   *  because `projectType` (residential / commercial / industrial) is already taken. */
+  projectMode?: "DIRECT_CLIENT" | "PARTNER_NETWORK" | "INC_GIVEN_TO_US";
+  vendorshipOwner?: "MSS" | "partner" | "none";
+  partnerRole?: "epc" | "fixed_margin" | "vendor_channel" | "vendorship_only";
+  executionScope?: "full" | "service_only" | "none";
+  /** Per-project site checklist — seeded from quotation BOM, editable by super admin per project. */
+  siteChecklist?: ProjectSiteChecklistItem[];
+
+  /** Attaches outsourcing info to an existing project. Set when the user picks Outsourced INC
+   *  in the Create Project sheet and selects an existing open project. */
+  outsource?: {
+    partyId?: string;
+    partyName?: string;
+    rateBasis: "per_kw" | "per_sqft" | "fixed";
+    rateValue: number;
+    quantity?: number;
+    total: number;
+    notes?: string;
+    attachedAt: string;
+  } | null;
+
   // Project classification (Legacy/Migration)
-  type?: "EPC" | "INC" | "OTHER"; 
+  type?: "EPC" | "INC" | "OTHER";
   projectType: "Residential" | "Commercial" | "Industrial";
-  projectCategory: "solar" | "other"; 
+  projectCategory: "solar" | "other";
   // ownerType coexists for backward compatibility with tests/legacy views
   ownerType?: "solo" | "partnership" | "outsourced" | string;
   
@@ -300,6 +355,26 @@ export interface Project {
   startDate: string;
   endDate?: string | null;
   createdAt: string;
+
+  /** Site readiness gate for "Start project" action. Set via the Site Readiness button on ProjectDetail. */
+  siteReadiness?: {
+    ready: boolean;
+    note?: string;
+    markedAt: string;
+    markedBy: number;
+  };
+  /** Timestamp when "Start project" was actually clicked (distinct from planned startDate). */
+  startedAt?: string;
+  /** Mid-project add-on work (INC_GIVEN flow). Each line picks a basis and adjusts contractAmount. */
+  additionalWorkLines?: {
+    id: string;
+    description: string;
+    basis: "fixed" | "per_kw" | "per_sqft";
+    rate: number;
+    qty?: number;
+    total: number;
+    addedAt: string;
+  }[];
 }
 
 export interface Employee {
@@ -342,7 +417,7 @@ export interface AttendanceRecord {
 export interface Quotation {
   id: string;
   quotationNumber: string;
-  status: "draft" | "sent" | "approved" | "confirmed" | "rejected";
+  status: "draft" | "sent" | "approved" | "rejected" | "converted_to_project";
   quotationType: "solar" | "other";
   enquiryId?: string;
   
@@ -382,6 +457,12 @@ export interface Quotation {
   
   // Client Agreed Amount - What client will actually pay (used as contractAmount in Project)
   clientAgreedAmount?: number;
+
+  /** Commercial pricing mode (Phase 4.5b) — drives project baseline and change-request deltas. */
+  pricingBasis?: "fixed" | "per_kw" | "per_sqft";
+  pricingRate?: number;
+  /** kW or sqft depending on pricingBasis. */
+  pricingQuantity?: number;
   
   // Bank Documentation Amount - ONLY for loan files (higher amount shown for bank/GST purposes)
   bankDocumentationAmount?: number;
@@ -417,14 +498,21 @@ export interface Quotation {
   }[];
   
   // Status
+  /** @deprecated derive from `status === "converted_to_project"` */
   isConverted: boolean;
+  /** @deprecated use `linkedProjectId` */
   convertedToProjectId?: string;
+  linkedProjectId?: string;
   convertedToInvoiceId?: string;
-  
-  // Dates
+  rejectionReason?: string;
+
+  // Dates (status transition timestamps — used to render real Status History)
   createdAt: string;
   sentAt?: string;
   approvedAt?: string;
+  rejectedAt?: string;
+  convertedAt?: string;
+  /** @deprecated kept for legacy seed compatibility; mirrors `approvedAt` */
   confirmedAt?: string;
   revisionOfQuotationId?: string;
   lifecycleLockReason?: string;
@@ -682,7 +770,7 @@ export interface Enquiry {
   systemCapacity: string;
   estimatedBudget: number;
   requirements: string;
-  status: "new" | "contacted" | "meeting-scheduled" | "quotation-sent" | "converted" | "lost";
+  status: "new" | "meeting_scheduled" | "quotation_sent" | "converted" | "lost";
   priority: "low" | "medium" | "high";
   assignedTo: string;
   meetingDate?: string;

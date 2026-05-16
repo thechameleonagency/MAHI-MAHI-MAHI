@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Coffee, Package, Filter } from "lucide-react";
+import { Coffee, Package } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -28,7 +28,7 @@ interface FoodOthersExpenseTableProps {
 export default function FoodOthersExpenseTable({
   type,
   expenses,
-  employees = []
+  _employees = []
 }: FoodOthersExpenseTableProps) {
   const [dateFilter, setDateFilter] = useState("all");
   const [whoPaidFilter, setWhoPaidFilter] = useState("all");

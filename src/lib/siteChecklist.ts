@@ -2,6 +2,29 @@ import type { InventoryItem, SiteChecklistItem, SiteRecord } from "@/types/proje
 import type { SiteChecklistTemplate } from "@/types/templates";
 import type { SiteChecklistPreset } from "@/data/masters";
 
+/** Clear invalid material refs so saves never persist orphan inventory IDs (L43). */
+export function stripOrphanChecklistInventoryRefs(
+  checklistItems: SiteChecklistItem[] | undefined,
+  inventoryItems: InventoryItem[],
+): SiteChecklistItem[] | undefined {
+  if (!checklistItems?.length) return checklistItems;
+  const catalog = new Set(inventoryItems.map((i) => i.id));
+  return checklistItems.map((line) => {
+    if (line.requiresMaterial && line.inventoryItemId !== undefined && !catalog.has(line.inventoryItemId)) {
+      return {
+        ...line,
+        requiresMaterial: false,
+        inventoryItemId: undefined,
+        status: "pending",
+        materialName: line.materialName
+          ? `${line.materialName} (removed invalid stock ID)`
+          : line.materialName,
+      };
+    }
+    return line;
+  });
+}
+
 /** Marks checklist lines whose `inventoryItemId` is absent from `inventoryItems`. */
 export function findUnknownChecklistInventoryIds(
   checklistItems: SiteChecklistItem[] | undefined,

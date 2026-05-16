@@ -133,10 +133,10 @@ export function getProjectStageLabel(stage: string): string {
 export function getProjectStageBadgeClass(stage: string): string {
   const stageClasses: Record<string, string> = {
     "enquiry": "bg-muted text-muted-foreground",
-    "site-survey": "bg-blue-500/10 text-blue-600 border-blue-500/30",
+    "site-survey": "bg-primary/10 text-primary border-primary/30",
     "quotation-sent": "bg-amber-500/10 text-amber-600 border-amber-500/30",
     "work-in-progress": "bg-purple-500/10 text-purple-600 border-purple-500/30",
-    "completed": "bg-blue-500/10 text-blue-600 border-blue-500/30",
+    "completed": "bg-primary/10 text-primary border-primary/30",
   };
   return stageClasses[stage] || "bg-muted text-muted-foreground";
 }

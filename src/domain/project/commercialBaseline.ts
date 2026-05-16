@@ -1,5 +1,6 @@
 import type { CommercialBaseline, CommercialBaselineLine, ExecutionLineItem } from "@/types/project";
 import type { Quotation } from "@/types/project";
+import { commercialBaselineWithPricing } from "@/lib/pricingBasis";
 
 /** Build immutable commercial baseline + execution rows from quotation material snapshot. */
 export function commercialBaselineFromQuotation(q: Quotation): { baseline: CommercialBaseline; executionLineItems: ExecutionLineItem[] } {
@@ -37,7 +38,10 @@ export function commercialBaselineFromQuotation(q: Quotation): { baseline: Comme
     issuedQty: 0,
   }));
 
-  return { baseline, executionLineItems };
+  return {
+    baseline: commercialBaselineWithPricing(baseline, q),
+    executionLineItems,
+  };
 }
 
 /** Fallback baseline for non-quote intakes — single line from contract intent. */

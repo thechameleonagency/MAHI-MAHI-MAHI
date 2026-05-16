@@ -19,10 +19,14 @@ import ExportHeader from "@/components/ExportHeader";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import type { Invoice, InvoiceItem } from "@/types/finance";
+import { PAYMENT_MODES } from "@/types/finance";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { formatCurrency } from "@/lib/formatCurrency";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 const Invoices = () => {
   const navigate = useNavigate();
@@ -40,7 +44,9 @@ const Invoices = () => {
     updateInvoice,
     updateSaleBill,
     addPayment,
+    addCustomer,
     generateId,
+    canDo,
   } = useAppData();
   
   const [searchQuery, setSearchQuery] = useState("");
@@ -87,19 +93,20 @@ const Invoices = () => {
     const project = searchParams.get('project');
 
     if (from === 'quotation' && client) {
-      const parsedAmount = parseFloat(amount || '0');
+      const parsedAmount = Number.parseFloat(amount || "0");
+      const safeAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : 0;
       const prefillData = {
         customerName: client,
         customerAddress: address || undefined,
         customerContact: contact || undefined,
         customerState: state || undefined,
         quotationId: quotationId || undefined,
-        total: parsedAmount,
-        items: parsedAmount > 0 ? [{
+        total: safeAmount,
+        items: safeAmount > 0 ? [{
           description: `Solar System Installation${project ? ` - ${project}` : ''}`,
           hsn: "85414012",
           quantity: 1,
-          rate: parsedAmount,
+          rate: safeAmount,
           gstRate: 12
         }] : undefined,
       };
@@ -115,19 +122,20 @@ const Invoices = () => {
       
       navigate('/invoices', { replace: true });
     } else if (from === 'project' && client) {
-      const parsedAmount = parseFloat(amount || '0');
+      const parsedAmount = Number.parseFloat(amount || "0");
+      const safeAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : 0;
       const prefillData = {
         customerName: client,
         customerAddress: address || undefined,
         customerContact: contact || undefined,
         customerState: state || undefined,
         projectId: projectId || undefined,
-        total: parsedAmount,
-        items: parsedAmount > 0 ? [{
+        total: safeAmount,
+        items: safeAmount > 0 ? [{
           description: `Solar System Installation - ${project || 'Project'}`,
           hsn: "85414012",
           quantity: 1,
-          rate: parsedAmount,
+          rate: safeAmount,
           gstRate: 12
         }] : undefined,
       };
@@ -146,6 +154,18 @@ const Invoices = () => {
   }, [location.search, navigate]);
 
   const handleInvoiceCreated = (invoice: Invoice) => {
+    if (invoice.projectId) {
+      const proj = projects.find((p) => p.id === invoice.projectId);
+      const cap = proj?.contractAmount;
+      if (typeof cap === "number" && cap > 0 && invoice.total > cap + 0.01) {
+        toast({
+          title: "Exceeds project contract",
+          description: `Invoice total ${formatCurrency(invoice.total)} is above project contract ${formatCurrency(cap)}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
     if (invoice.type === "sale-bill") {
       addSaleBill(invoice);
     } else {
@@ -157,14 +177,33 @@ const Invoices = () => {
   };
 
   const handleRecordPayment = () => {
-    if (!selectedInvoice || !paymentAmount) {
+    if (!selectedInvoice) {
+      toast({ title: "Error", description: "Select an invoice first.", variant: "destructive" });
+      return;
+    }
+    if (selectedInvoice.status === "draft") {
+      toast({ title: "Finalize draft first", description: "Draft documents cannot receive payments until finalized.", variant: "destructive" });
+      return;
+    }
+    if (!paymentAmount) {
       toast({ title: "Error", description: "Amount is required", variant: "destructive" });
       return;
     }
 
-    const amount = parseFloat(paymentAmount);
-    const newReceived = selectedInvoice.amountReceived + amount;
-    const newStatus = newReceived >= selectedInvoice.total ? "paid" : "partial";
+    const amount = Number.parseFloat(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast({ title: "Invalid Amount", description: "Payment amount must be greater than zero.", variant: "destructive" });
+      return;
+    }
+    const newReceived = (selectedInvoice.amountReceived || 0) + amount;
+    let newStatus: Invoice["status"];
+    if (newReceived > selectedInvoice.total + 0.01) {
+      newStatus = "overpaid";
+    } else if (newReceived >= selectedInvoice.total - 0.01) {
+      newStatus = "paid";
+    } else {
+      newStatus = "partial";
+    }
 
     const patch = { 
       amountReceived: newReceived, 
@@ -187,6 +226,7 @@ const Invoices = () => {
       counterpartyId: selectedInvoice.customerId,
       counterpartyName: selectedInvoice.customerName,
       invoiceId: selectedInvoice.id,
+      projectId: selectedInvoice.projectId || undefined,
       notes: `Payment for ${selectedInvoice.invoiceNumber}`,
     });
 
@@ -194,6 +234,25 @@ const Invoices = () => {
     setPaymentAmount("");
     setPaymentMode("");
     toast({ title: "Payment Recorded", description: `₹${amount.toLocaleString()} has been recorded` });
+  };
+
+  const handleFinalizeDraft = () => {
+    if (!selectedInvoice || selectedInvoice.status !== "draft") return;
+    const today = new Date().toISOString().split("T")[0];
+    const invDate = selectedInvoice.invoiceDate?.trim() || today;
+    const due = selectedInvoice.dueDate?.trim() || invDate;
+    const patch = {
+      status: "pending" as const,
+      invoiceDate: invDate,
+      dueDate: due,
+    };
+    if ((selectedInvoice.type ?? "invoice") === "sale-bill") {
+      updateSaleBill(selectedInvoice.id, patch);
+    } else {
+      updateInvoice(selectedInvoice.id, patch);
+    }
+    setSelectedInvoice((prev) => (prev && prev.id === selectedInvoice.id ? { ...prev, ...patch } : prev));
+    toast({ title: "Draft finalized", description: `${selectedInvoice.invoiceNumber} is now pending collection.` });
   };
 
   const handleExportPDF = async () => {
@@ -215,7 +274,7 @@ const Invoices = () => {
       pdf.save(`${selectedInvoice.invoiceNumber}.pdf`);
       
       toast({ title: "PDF Exported", description: "Invoice has been exported successfully" });
-    } catch (error) {
+    } catch (_error) {
       toast({ title: "Export Failed", description: "Could not export PDF", variant: "destructive" });
     }
   };
@@ -249,23 +308,43 @@ const Invoices = () => {
 
   const { pagedItems: pagedInvoices, safePage } = usePagedSlice(filteredInvoices, tablePage, tablePageSize);
 
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, string> = {
-      "pending": "bg-amber-500/10 text-amber-500 border-0",
-      "partial": "bg-blue-500/10 text-blue-500 border-0",
-      "paid": "bg-primary/10 text-primary border-0",
-      "overdue": "bg-destructive/10 text-destructive border-0",
-    };
-    return <Badge className={styles[status] || ""}>{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>;
+  const getStatusBadge = (status: string) => (
+    <StatusBadge
+      status={status}
+      label={
+        status === "overpaid"
+          ? "Overpaid"
+          : status === "draft"
+            ? "Draft"
+            : status.charAt(0).toUpperCase() + status.slice(1)
+      }
+    />
+  );
+
+  const formatInvoiceRowDate = (iso: string) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-IN");
   };
 
-  const formatCurrency = (amount: number) => `₹${amount.toLocaleString()}`;
+  const formatDetailDate = (iso: string | undefined) => {
+    if (!iso?.trim()) return "—";
+    const d = new Date(iso.includes("T") ? iso : `${iso.slice(0, 10)}T12:00:00`);
+    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-IN");
+  };
 
-  // Stats
+  const invoiceOverdueAmount = (inv: Invoice) => {
+    const bal = Math.max(0, inv.total - (inv.amountReceived || 0));
+    if (bal < 0.01 || inv.status === "paid" || inv.status === "overpaid" || inv.status === "draft") return 0;
+    const dueRaw = inv.dueDate?.trim();
+    if (!dueRaw) return 0;
+    const due = new Date(dueRaw.includes("T") ? dueRaw : `${dueRaw.slice(0, 10)}T23:59:59`);
+    if (Number.isNaN(due.getTime())) return 0;
+    return due.getTime() < Date.now() ? bal : 0;
+  };
   const totalInvoiced = allBillingDocuments.reduce((sum, i) => sum + i.total, 0);
   const totalReceived = allBillingDocuments.reduce((sum, i) => sum + i.amountReceived, 0);
   const pendingAmount = totalInvoiced - totalReceived;
-  const pendingCount = allBillingDocuments.filter((i) => i.status !== "paid").length;
+  const pendingCount = allBillingDocuments.filter((i) => i.status !== "paid" && i.status !== "overpaid" && i.status !== "draft").length;
 
   return (
     <PageShell className="space-y-3 md:space-y-4">
@@ -319,9 +398,11 @@ const Invoices = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All status</SelectItem>
+                    <SelectItem value="draft">Draft</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="partial">Partial</SelectItem>
                     <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="overpaid">Overpaid</SelectItem>
                     <SelectItem value="overdue">Overdue</SelectItem>
                   </SelectContent>
                 </Select>
@@ -340,7 +421,7 @@ const Invoices = () => {
           </>
         }
       >
-        <Button size="sm" onClick={() => setIsAddInvoiceOpen(true)}>
+        <Button size="sm" onClick={() => setIsAddInvoiceOpen(true)} disabled={!canDo("finance:create_invoice")}>
           <Plus className="mr-2 h-4 w-4" />
           New
         </Button>
@@ -371,6 +452,8 @@ const Invoices = () => {
             <TableHead className="text-right">Amount</TableHead>
             <TableHead className="text-right">Received</TableHead>
             <TableHead className="text-right">Balance</TableHead>
+            <TableHead className="text-right">Tax (C/S/I)</TableHead>
+            <TableHead className="text-right">Overdue</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Date</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -380,7 +463,7 @@ const Invoices = () => {
             {pagedInvoices.map((invoice) => (
               <TableRow key={invoice.id} className="border-border">
                 <TableCell>
-                  <Badge variant="outline" className="text-[10px] font-normal">
+                  <Badge variant="outline" className="text-2xs font-normal">
                     {(invoice.type ?? "invoice") === "sale-bill" ? "SB" : "INV"}
                   </Badge>
                 </TableCell>
@@ -388,11 +471,17 @@ const Invoices = () => {
                 <TableCell>{invoice.customerName}</TableCell>
                 <TableCell className="text-right">{formatCurrency(invoice.total)}</TableCell>
                 <TableCell className="text-right text-primary">{formatCurrency(invoice.amountReceived)}</TableCell>
-                <TableCell className="text-right text-amber-500">
-                  {formatCurrency(invoice.total - invoice.amountReceived)}
+                <TableCell className={`text-right ${invoice.total - (invoice.amountReceived || 0) < -0.01 ? "text-violet-600 font-medium" : "text-amber-500"}`}>
+                  {formatCurrency(invoice.total - (invoice.amountReceived || 0))}
+                </TableCell>
+                <TableCell className="text-right text-muted-foreground text-xs">
+                  {formatCurrency(invoice.cgst || 0)} / {formatCurrency(invoice.sgst || 0)} / {formatCurrency(invoice.igst || 0)}
+                </TableCell>
+                <TableCell className="text-right text-destructive">
+                  {invoiceOverdueAmount(invoice) > 0 ? formatCurrency(invoiceOverdueAmount(invoice)) : "—"}
                 </TableCell>
                 <TableCell>{getStatusBadge(invoice.status)}</TableCell>
-                <TableCell>{new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}</TableCell>
+                <TableCell>{formatInvoiceRowDate(invoice.invoiceDate)}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex gap-1 justify-end">
                     <Button 
@@ -405,14 +494,15 @@ const Invoices = () => {
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
-                    {invoice.status !== "paid" && (
-                      <Button 
-                        variant="ghost" 
+                    {invoice.status !== "paid" && invoice.status !== "overpaid" && invoice.status !== "draft" && (
+                      <Button
+                        variant="ghost"
                         size="sm"
                         onClick={() => {
                           setSelectedInvoice(invoice);
                           setIsRecordPaymentOpen(true);
                         }}
+                        disabled={!canDo("finance:record_payment")}
                       >
                         <IndianRupee className="h-4 w-4" />
                       </Button>
@@ -424,10 +514,13 @@ const Invoices = () => {
           </TableBody>
       </DataTableShell>
       {filteredInvoices.length === 0 && (
-        <div className="text-center py-8">
-          <FileText className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground">No documents match</p>
-        </div>
+        <ListEmptyState
+          icon={FileText}
+          title="No documents match"
+          description="Try another status or search, or create a new invoice or sale bill."
+          actionLabel="New document"
+          onAction={() => setIsAddInvoiceOpen(true)}
+        />
       )}
 
       {/* Create Invoice Sheet */}
@@ -444,12 +537,15 @@ const Invoices = () => {
         inventoryItems={inventoryItems}
         servicePresets={servicePresets}
         onCreated={handleInvoiceCreated}
+        onCustomerCreated={(customer) => {
+          addCustomer(customer);
+        }}
         prefill={invoicePrefill}
       />
 
       {/* Invoice Detail Modal */}
       <Sheet open={isInvoiceDetailOpen} onOpenChange={setIsInvoiceDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between">
               <span>Invoice Details</span>
@@ -482,8 +578,8 @@ const Invoices = () => {
                 </div>
                 <div className="text-right">
                   <p className="text-2xl font-bold">{selectedInvoice.invoiceNumber}</p>
-                  <p className="text-sm text-muted-foreground">Date: {new Date(selectedInvoice.invoiceDate).toLocaleDateString('en-IN')}</p>
-                  <p className="text-sm text-muted-foreground">Due: {new Date(selectedInvoice.dueDate).toLocaleDateString('en-IN')}</p>
+                  <p className="text-sm text-muted-foreground">Date: {formatDetailDate(selectedInvoice.invoiceDate)}</p>
+                  <p className="text-sm text-muted-foreground">Due: {formatDetailDate(selectedInvoice.dueDate)}</p>
                   <div className="mt-2">{getStatusBadge(selectedInvoice.status)}</div>
                 </div>
               </div>
@@ -502,7 +598,7 @@ const Invoices = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {selectedInvoice.items.map((item, idx) => (
+                  {(selectedInvoice.items ?? []).map((item, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{item.description}</TableCell>
                       <TableCell>{item.hsn}</TableCell>
@@ -514,6 +610,29 @@ const Invoices = () => {
                   ))}
                 </TableBody>
               </Table>
+
+              {(selectedInvoice.paymentTerms || selectedInvoice.bankAccount || selectedInvoice.notes) && (
+                <div className="mt-4 rounded-lg border bg-muted/20 p-4 text-sm space-y-2">
+                  {selectedInvoice.paymentTerms && (
+                    <p>
+                      <span className="text-muted-foreground">Payment terms: </span>
+                      {selectedInvoice.paymentTerms}
+                    </p>
+                  )}
+                  {selectedInvoice.bankAccount && (
+                    <p>
+                      <span className="text-muted-foreground">Bank / UPI: </span>
+                      {selectedInvoice.bankAccount}
+                    </p>
+                  )}
+                  {selectedInvoice.notes && (
+                    <p className="whitespace-pre-wrap">
+                      <span className="text-muted-foreground">Notes: </span>
+                      {selectedInvoice.notes}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="mt-6 flex justify-end">
                 <div className="w-64 space-y-2">
@@ -557,12 +676,24 @@ const Invoices = () => {
             </div>
           )}
 
-          <SheetFooter>
-            {selectedInvoice && selectedInvoice.status !== "paid" && (
-              <Button onClick={() => {
-                setIsInvoiceDetailOpen(false);
-                setIsRecordPaymentOpen(true);
-              }}>
+          <SheetFooter className="flex flex-wrap gap-2 sm:justify-end">
+            {selectedInvoice?.status === "draft" && (
+              <Button type="button" onClick={handleFinalizeDraft}>
+                Finalize draft
+              </Button>
+            )}
+            {selectedInvoice &&
+              selectedInvoice.status !== "paid" &&
+              selectedInvoice.status !== "overpaid" &&
+              selectedInvoice.status !== "draft" && (
+              <Button
+                type="button"
+                onClick={() => {
+                  setIsInvoiceDetailOpen(false);
+                  setIsRecordPaymentOpen(true);
+                }}
+                disabled={!canDo("finance:record_payment")}
+              >
                 <IndianRupee className="h-4 w-4 mr-2" />
                 Record Payment
               </Button>
@@ -573,7 +704,7 @@ const Invoices = () => {
 
       {/* Record Payment Sheet */}
       <Sheet open={isRecordPaymentOpen} onOpenChange={setIsRecordPaymentOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Record Payment</SheetTitle>
           </SheetHeader>
@@ -601,10 +732,11 @@ const Invoices = () => {
                   <SelectValue placeholder="Select mode" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                  <SelectItem value="Cash">Cash</SelectItem>
-                  <SelectItem value="UPI">UPI</SelectItem>
-                  <SelectItem value="Cheque">Cheque</SelectItem>
+                  {PAYMENT_MODES.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

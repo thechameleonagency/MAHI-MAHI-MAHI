@@ -5,31 +5,35 @@ export type DashboardMetricKey =
   | "quotationsInFlight"
   | "activeProjects"
   | "activeSites"
-  | "openTasks"
+  | "overdueTasks"
+  | "overdueFollowUps"
   | "openBlockages"
   | "receivables"
   | "lowStockMaterials"
-  | "pendingApprovals";
+  | "procurementGaps"
+  | "emiDueSoon";
 
 export class RoleDashboardService {
   getVisibleMetrics(role: UserRole): DashboardMetricKey[] {
     if (role === "salesperson") {
-      return ["openEnquiries", "quotationsInFlight", "activeProjects", "openTasks", "pendingApprovals"];
+      return ["openEnquiries", "overdueFollowUps", "quotationsInFlight", "activeProjects", "receivables"];
     }
     if (role === "installation_team") {
-      return ["activeSites", "openTasks", "openBlockages", "lowStockMaterials"];
+      return ["activeSites", "overdueTasks", "openBlockages", "lowStockMaterials", "procurementGaps"];
     }
 
     return [
       "openEnquiries",
+      "overdueFollowUps",
       "quotationsInFlight",
       "activeProjects",
       "activeSites",
-      "openTasks",
+      "overdueTasks",
       "openBlockages",
       "receivables",
       "lowStockMaterials",
-      "pendingApprovals",
+      "procurementGaps",
+      "emiDueSoon",
     ];
   }
 }

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
-import { Plus, Search, CreditCard, IndianRupee, Calendar, Building2, User, Clock, Bell, AlertCircle, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Plus, Search, CreditCard, IndianRupee, Calendar, Building2, User, Clock, Bell, AlertCircle, Trash2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,7 +22,11 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatINR } from "@/lib/formatCurrency";
+import { normalizeLoanPersonKey } from "@/lib/loanPerson";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { differenceInCalendarDays, parseISO, addMonths, format, isValid } from "date-fns";
+import { downloadCSV } from "@/lib/csvExport";
+import { validateContactPhone } from "@/lib/phoneValidators";
 
 function lastLoanRepaymentDate(loanId: string, repayments: LoanRepayment[]): string | null {
   const dates = repayments.filter((r) => r.loanId === loanId).map((r) => r.date);
@@ -78,7 +83,9 @@ const Loans = () => {
   const [loanReminderDate, setLoanReminderDate] = useState("");
   const [loanReminderNotes, setLoanReminderNotes] = useState("");
   const [loanStartDate, setLoanStartDate] = useState(new Date().toISOString().split('T')[0]);
-  
+  /** Optional contact for person/partner (or RM phone); validated when non-empty (V58). */
+  const [loanPersonContact, setLoanPersonContact] = useState("");
+
   // Repayment form
   const [repaymentAmount, setRepaymentAmount] = useState("");
   const [repaymentDate, setRepaymentDate] = useState(new Date().toISOString().split('T')[0]);
@@ -104,6 +111,7 @@ const Loans = () => {
     setLoanReminderDate("");
     setLoanReminderNotes("");
     setLoanStartDate(todayIso());
+    setLoanPersonContact("");
   };
 
   const handleAddLoan = () => {
@@ -147,6 +155,15 @@ const Loans = () => {
       return;
     }
 
+    const contactTrim = loanPersonContact.trim();
+    if (contactTrim) {
+      const pc = validateContactPhone(contactTrim);
+      if (!pc.ok) {
+        toast({ title: "Invalid contact phone", description: (pc as { message: string }).message, variant: "destructive" });
+        return;
+      }
+    }
+
     const newLoan: Loan = {
       id: generateId('L'),
       source: loanSource,
@@ -162,6 +179,8 @@ const Loans = () => {
       startDate: loanStartDate,
       outstanding: parseFloat(loanPrincipal),
       status: "Active",
+      personName: loanSourceType === "person" ? loanSource : undefined,
+      personContact: contactTrim || undefined,
     };
 
     addLoan(newLoan);
@@ -251,6 +270,47 @@ const Loans = () => {
 
   const { pagedItems: pagedLoans, safePage } = usePagedSlice(filteredLoans, tablePage, tablePageSize);
 
+  const exportLoansCsv = () => {
+    if (filteredLoans.length === 0) {
+      toast({ title: "Nothing to export", description: "Adjust filters first.", variant: "destructive" });
+      return;
+    }
+    downloadCSV(
+      `loans-${format(new Date(), "yyyy-MM-dd")}.csv`,
+      filteredLoans.map((l) => ({
+        id: l.id,
+        source: l.source,
+        sourceType: l.sourceType,
+        status: l.status,
+        paymentType: l.paymentType,
+        principal: l.principal,
+        outstanding: l.outstanding,
+        emiAmount: l.emiAmount,
+        tenure: l.tenure,
+        interestRate: l.interestRate,
+        startDate: l.startDate,
+        dueDate: l.dueDate ?? "",
+        reminderDate: l.reminderDate ?? "",
+      })),
+      [
+        "id",
+        "source",
+        "sourceType",
+        "status",
+        "paymentType",
+        "principal",
+        "outstanding",
+        "emiAmount",
+        "tenure",
+        "interestRate",
+        "startDate",
+        "dueDate",
+        "reminderDate",
+      ],
+    );
+    toast({ title: "Exported", description: "CSV matches the current filtered list." });
+  };
+
   const formatCurrency = (amount: number) => formatINR(amount);
 
   // Stats - only count EMI loans for monthly EMI calculation
@@ -316,6 +376,10 @@ const Loans = () => {
           />
         }
       >
+        <Button size="sm" variant="outline" type="button" onClick={exportLoansCsv}>
+          <Download className="mr-2 h-4 w-4" />
+          Export CSV
+        </Button>
         <Button size="sm" onClick={() => { resetLoanForm(); setIsAddLoanOpen(true); }} disabled={!canDo("loan:update")}>
           <Plus className="h-4 w-4 mr-2" />
           Add
@@ -411,7 +475,13 @@ const Loans = () => {
                 <TableCell>
                   <div className="flex items-center gap-2">
                     {getSourceIcon(loan.sourceType)}
-                    <span className="font-medium">{loan.source}</span>
+                    <Link
+                      to={`/loans/person/${encodeURIComponent(normalizeLoanPersonKey(loan))}`}
+                      className="font-medium hover:underline text-foreground hover:text-primary"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {loan.source}
+                    </Link>
                   </div>
                 </TableCell>
                 <TableCell>{getPaymentTypeBadge(loan.paymentType)}</TableCell>
@@ -467,34 +537,28 @@ const Loans = () => {
           </TableBody>
       </DataTableShell>
       {filteredLoans.length === 0 && (
-        <div className="text-center py-12">
-          <CreditCard className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">
-            {loans.length === 0 ? "No loans recorded yet." : "No loans match the current filters."}
-          </p>
-          {loans.length === 0 ? (
-            <Button className="mt-4" onClick={() => { resetLoanForm(); setIsAddLoanOpen(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add your first loan
-            </Button>
-          ) : (
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={() => {
-                  setSearchQuery("");
-                  setStatusFilter("all");
-                  setTypeFilter("all");
-                  setTablePage(1);
-                }}
-              >
-                Clear filters
-              </Button>
-            </div>
-          )}
-        </div>
+        loans.length === 0 ? (
+          <ListEmptyState
+            icon={CreditCard}
+            title="No loans recorded yet"
+            description="Track EMIs, person-to-person borrowings, or NBFC loans here."
+            actionLabel="Add your first loan"
+            onAction={() => { resetLoanForm(); setIsAddLoanOpen(true); }}
+          />
+        ) : (
+          <ListEmptyState
+            icon={CreditCard}
+            title="No loans match the current filters"
+            description="Adjust the filters or clear them to see all loans."
+            actionLabel="Clear filters"
+            onAction={() => {
+              setSearchQuery("");
+              setStatusFilter("all");
+              setTypeFilter("all");
+              setTablePage(1);
+            }}
+          />
+        )
       )}
 
       {/* Recent Repayments */}
@@ -589,6 +653,16 @@ const Loans = () => {
             <div className="space-y-2">
               <Label>Source Name *</Label>
               <Input value={loanSource} onChange={(e) => setLoanSource(e.target.value)} placeholder="HDFC Bank / Person name" />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Contact phone (optional)</Label>
+              <Input
+                value={loanPersonContact}
+                onChange={(e) => setLoanPersonContact(e.target.value)}
+                placeholder="+91 …"
+              />
+              <p className="text-xs text-muted-foreground">Validated when filled. Useful for personal/partner loans or bank RM.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

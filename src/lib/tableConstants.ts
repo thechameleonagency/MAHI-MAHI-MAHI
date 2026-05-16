@@ -23,7 +23,7 @@ export const dataTableClasses = {
  * Height cap for entire table shell (scroll area + totals + pagination strip).
  * Use as `style={{ maxHeight: listTableViewportMaxHeight(pageSize) }}` or pass to DataTableShell.maxHeight.
  */
-export function listTableViewportMaxHeight(pageSize: number): string {
+export function listTableViewportMaxHeight(_pageSize: number): string {
   // Force the table shell to never exceed the viewport minus top headers/nav.
   // This guarantees the page won't scroll, so the table's internal sticky header works.
   return `calc(100vh - 240px)`;

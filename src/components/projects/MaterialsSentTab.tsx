@@ -17,6 +17,7 @@ import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { formatUiDate } from "@/lib/formatUiDate";
 import { useAppData } from "@/contexts/AppDataContext";
 import type { ExecutionLineItem } from "@/types/project";
 
@@ -125,7 +126,7 @@ export default function MaterialsSentTab({
   projectId: _projectId,
   materials,
   presetItems,
-  inventoryItems,
+  _inventoryItems,
   executionLineItems,
   toolsAssigned = [],
   onIssueMaterials,
@@ -347,6 +348,7 @@ export default function MaterialsSentTab({
       addTask({
         id: generateId("TASK"),
         employeeId: parseInt(taskAssignee),
+        projectId: _projectId || "",
         siteId: site.id.toString(),
         siteName: projectName,
         workType,
@@ -601,7 +603,7 @@ export default function MaterialsSentTab({
                                       {material.issues.map((issue, idx) => (
                                         <Badge key={idx} variant="outline" className="text-xs font-normal">
                                           <Calendar className="w-3 h-3 mr-1" />
-                                          {format(new Date(issue.date), "dd MMM")}: <span className="font-medium ml-1">{issue.quantity}</span>
+                                          {formatUiDate(issue.date, "dd MMM")}: <span className="font-medium ml-1">{issue.quantity}</span>
                                         </Badge>
                                       ))}
                                     </div>

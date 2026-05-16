@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo } from "react";
 import { Sheet, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { Building2, User, Crown, Handshake, Split, ArrowRight, ArrowLeft, Check,
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import { 
-  EXPENSE_SCHEMA,
+  _EXPENSE_SCHEMA,
   EXPENSE_MAIN_CATEGORIES,
   getCategoryByValue, 
   getSubCategoriesByCategory,
@@ -34,9 +34,21 @@ import {
   requiresVendor as schemaRequiresVendor,
   type MainExpenseCategory,
 } from "@/lib/expenseSchema";
-import type { Expense } from "@/types/finance";
+import type { Expense, AuditLogEntry } from "@/types/finance";
 import { UnifiedFinanceValidationService } from "@/application/services/UnifiedFinanceValidationService";
+import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
+import { formatINR } from "@/lib/formatCurrency";
+import { formatUiDate } from "@/lib/formatUiDate";
 
+/** Ledger preview: negative outflow (formatINR is always positive ₹…). */
+function formatInrOutflow(n: number): string {
+  if (!Number.isFinite(n) || n === 0) return formatINR(0);
+  return `-${formatINR(Math.abs(n))}`;
+}
+function formatInrCredit(n: number): string {
+  if (!Number.isFinite(n) || n === 0) return formatINR(0);
+  return `+${formatINR(Math.abs(n))}`;
+}
 
 const MAIN_CAT_ICONS: Record<string, React.ReactNode> = {
   company: <Building2 className="w-5 h-5" />,
@@ -88,11 +100,11 @@ export function UnifiedExpenseModal({
   projectPartnerIds = [],
   isProjectCompleted = false,
 }: UnifiedExpenseModalProps) {
-  const { employees, partners, projects, addExpense, generateId, inventoryItems } = useAppData();
+  const { employees, partners, projects, addExpense, generateId, inventoryItems, addAuditLog } = useAppData();
   const ownerName = (() => { try { return JSON.parse(localStorage.getItem("mss.settings.company") || "{}").ownerName || "Owner"; } catch { return "Owner"; } })();
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
   
-  const [step, setStep] = useState<Step>("main-category");
+  const [step, setStep] = useState<Step>(() => (prefillProjectId || prefillEmployeeId ? "category" : "main-category"));
   
   // Main category
   const [mainCategory, setMainCategory] = useState<MainExpenseCategory | "">(
@@ -126,7 +138,6 @@ export function UnifiedExpenseModal({
       setDate(new Date().toISOString().split("T")[0]);
       setBillingMonth(new Date().toISOString().slice(0, 7));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
@@ -247,13 +258,14 @@ export function UnifiedExpenseModal({
     }
   }, [selectedInventoryItem, inventoryQuantity]);
 
-  useEffect(() => {
-    if (isOpen && prefillProjectId) {
+  /** L35: sync prefill before paint so the wizard does not flash main-category when project/employee context is known. */
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    if (prefillProjectId) {
       setSelectedProjectId(prefillProjectId);
       setMainCategory("site");
       setStep("category");
-    }
-    if (isOpen && prefillEmployeeId) {
+    } else if (prefillEmployeeId) {
       setSelectedEmployeeId(prefillEmployeeId);
       setMainCategory("employee");
       setStep("category");
@@ -301,6 +313,37 @@ export function UnifiedExpenseModal({
     setPartnerLevel("company");
   };
 
+  const EXPENSE_MODAL_DRAFT_KEY = "unified-expense-modal-v1";
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (prefillProjectId || prefillEmployeeId) return;
+    const d = loadFormDraft<{
+      v: number;
+      step?: Step;
+      mainCategory?: string;
+      category?: string;
+      subCategory?: string;
+      amount?: string;
+      date?: string;
+      selectedProjectId?: string;
+      selectedEmployeeId?: number | null;
+      notes?: string;
+      payerType?: "company" | "employee" | "owner" | "partner" | "split";
+    }>(EXPENSE_MODAL_DRAFT_KEY);
+    if (d?.v !== 1) return;
+    if (d.step) setStep(d.step);
+    if (d.mainCategory != null) setMainCategory(d.mainCategory as MainExpenseCategory | "");
+    if (d.category != null) setCategory(d.category);
+    if (d.subCategory != null) setSubCategory(d.subCategory);
+    if (d.amount != null) setAmount(d.amount);
+    if (d.date != null) setDate(d.date);
+    if (d.selectedProjectId != null) setSelectedProjectId(d.selectedProjectId);
+    if (d.selectedEmployeeId !== undefined) setSelectedEmployeeId(d.selectedEmployeeId);
+    if (d.notes != null) setNotes(d.notes);
+    if (d.payerType) setPayerType(d.payerType);
+  }, [isOpen, prefillProjectId, prefillEmployeeId]);
+
   const calculateSplitTotal = () => {
     let total = parseFloat(splitCompanyAmount) || 0;
     total += parseFloat(splitOwnerAmount) || 0;
@@ -325,14 +368,27 @@ export function UnifiedExpenseModal({
           if (partnerLevel === "site" && !selectedProjectId) return false;
         } else if (needsPartner && !selectedPartnerId) return false;
         return true;
-      case "details": return !!amount && parseFloat(amount) > 0;
+      case "details": {
+        const a = Number.parseFloat(amount);
+        return !!amount && Number.isFinite(a) && a > 0;
+      }
       case "payer":
         if (payerType === "employee" && !payerEmployeeId) return false;
         if (payerType === "partner" && !payerPartnerId) return false;
         if (payerType === "split") {
+          if (new Set(splitEmployeeIds).size !== splitEmployeeIds.length) return false;
+          if (new Set(splitPartnerIds).size !== splitPartnerIds.length) return false;
+          const tiny = (n: number) => n > 0 && n < 0.01;
+          if (tiny(parseFloat(splitCompanyAmount) || 0) || tiny(parseFloat(splitOwnerAmount) || 0)) return false;
+          for (const id of splitEmployeeIds) {
+            if (tiny(parseFloat(splitEmployeeAmounts[id] || "0"))) return false;
+          }
+          for (const id of splitPartnerIds) {
+            if (tiny(parseFloat(splitPartnerAmounts[id] || "0"))) return false;
+          }
           const total = calculateSplitTotal();
-          const target = parseFloat(amount) || 0;
-          if (total <= 0 || Math.abs(total - target) > 0.01) return false;
+          const target = Number.parseFloat(amount);
+          if (!Number.isFinite(target) || total <= 0 || Math.abs(total - target) > 0.01) return false;
         }
         return true;
       case "confirm": return true;
@@ -353,7 +409,7 @@ export function UnifiedExpenseModal({
         "main-category": "Select an expense category to continue.",
         category: "Fill all required fields for this category.",
         details: "Enter a valid expense amount greater than zero.",
-        payer: "Select who paid, or balance the split to match the expense amount.",
+        payer: "Select who paid, balance the split to the expense total, avoid duplicate people in split, and no amounts under ₹0.01 unless zero.",
       };
       toast({ title: "Required Fields", description: msgs[step] ?? "Complete this step before proceeding.", variant: "destructive" });
       return;
@@ -364,6 +420,14 @@ export function UnifiedExpenseModal({
   const goBack = () => { const idx = steps.indexOf(step); if (idx > 0) setStep(steps[idx - 1]); };
 
   const buildExpense = (): Expense => {
+    const splitMoney = (s: string) => {
+      const n = Number.parseFloat(s);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const totalAmt = Number.parseFloat(amount);
+    if (!Number.isFinite(totalAmt)) {
+      throw new Error("Invalid expense amount");
+    }
     let paidBy: Expense["paidBy"];
     if (payerType === "company") {
       paidBy = { type: "company" };
@@ -377,23 +441,30 @@ export function UnifiedExpenseModal({
       paidBy = { type: "partner", entityId: payerPartnerId, entityName: p?.name };
     } else {
       const splits: Expense["paidBy"]["splits"] = [];
-      if (parseFloat(splitCompanyAmount) > 0) splits.push({ entityId: "company", entityType: "company", entityName: "Company", amount: parseFloat(splitCompanyAmount) });
-      if (parseFloat(splitOwnerAmount) > 0) splits.push({ entityId: "owner", entityType: "owner", entityName: `${ownerName} (Owner)`, amount: parseFloat(splitOwnerAmount) });
-      splitEmployeeIds.forEach(id => {
-        const amt = parseFloat(splitEmployeeAmounts[id] || "0");
+      const uniqEmp = [...new Set(splitEmployeeIds)].filter((id) => employees.some((e) => e.id === id));
+      const uniqPart = [...new Set(splitPartnerIds)].filter((id) => partners.some((p) => p.id === id));
+      const sc = splitMoney(splitCompanyAmount);
+      const so = splitMoney(splitOwnerAmount);
+      if (sc > 0) splits.push({ entityId: "company", entityType: "company", entityName: "Company", amount: sc });
+      if (so > 0) splits.push({ entityId: "owner", entityType: "owner", entityName: `${ownerName} (Owner)`, amount: so });
+      uniqEmp.forEach(id => {
+        const amt = splitMoney(splitEmployeeAmounts[id] || "0");
         if (amt > 0) splits.push({ entityId: id.toString(), entityType: "employee", entityName: employees.find(e => e.id === id)?.name || "", amount: amt });
       });
-      splitPartnerIds.forEach(id => {
-        const amt = parseFloat(splitPartnerAmounts[id] || "0");
+      uniqPart.forEach(id => {
+        const amt = splitMoney(splitPartnerAmounts[id] || "0");
         if (amt > 0) splits.push({ entityId: id, entityType: "partner", entityName: partners.find(p => p.id === id)?.name || "", amount: amt });
       });
       paidBy = { type: "company", splits };
     }
 
+    const reimbRaw = Number.parseFloat(reimbursementAmount);
+    const reimbAmt = Number.isFinite(reimbRaw) && reimbRaw > 0 ? reimbRaw : totalAmt;
+
     return {
       id: generateId("EXP"),
       date,
-      amount: parseFloat(amount),
+      amount: totalAmt,
       mainCategory: mainCategory as MainExpenseCategory,
       projectId: (needsProject || optionalProject) ? selectedProjectId || undefined : undefined,
       projectName: (needsProject || optionalProject) ? (selectedProject?.name || prefillProjectName) : undefined,
@@ -403,7 +474,7 @@ export function UnifiedExpenseModal({
       paidBy,
       notes: notes || undefined,
       description: notes || undefined,
-      quantity: quantity ? parseFloat(quantity) : undefined,
+      quantity: quantity ? (() => { const q = Number.parseFloat(quantity); return Number.isFinite(q) ? q : undefined; })() : undefined,
       unit: unit || schemaUnit || undefined,
       paymentMode,
       employeeId: needsEmployee ? selectedEmployeeId?.toString() : undefined,
@@ -417,7 +488,7 @@ export function UnifiedExpenseModal({
         : participantIds.length > 0
           ? participantIds.map(id => employees.find(e => e.id === id)?.name || "").filter(Boolean)
           : undefined,
-      reimbursement: willReimburse ? { enabled: true, amount: parseFloat(reimbursementAmount) || parseFloat(amount), status: "pending" } : undefined,
+      reimbursement: willReimburse ? { enabled: true, amount: reimbAmt, status: "pending" } : undefined,
       billingMonth: needsMonth ? billingMonth : undefined,
       billPeriodStart: needsBillPeriod ? billPeriodStart : undefined,
       billPeriodEnd: needsBillPeriod ? billPeriodEnd : undefined,
@@ -448,18 +519,41 @@ export function UnifiedExpenseModal({
       return;
     }
 
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    const parsedAmount = Number.parseFloat(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       toast({ title: "Invalid Amount", description: "Please enter a valid expense amount", variant: "destructive" });
       return;
     }
     try {
-      const expense = buildExpense();
+      let expense = buildExpense();
+      const reimbAmt = willReimburse ? (Number.parseFloat(reimbursementAmount) || parsedAmount) : 0;
+      if (willReimburse && reimbAmt + 0.005 < parsedAmount) {
+        const gapNote = `Partial reimbursement: ${formatINR(reimbAmt)} requested of ${formatINR(parsedAmount)} expense.`;
+        expense = {
+          ...expense,
+          notes: [expense.notes, gapNote].filter(Boolean).join(" | "),
+          description: [expense.description, gapNote].filter(Boolean).join(" | "),
+        };
+        const audit: AuditLogEntry = {
+          id: generateId("LOG"),
+          timestamp: new Date().toISOString(),
+          userId: "prototype-user",
+          userName: "prototype",
+          action: "create",
+          entityType: "expense_reimbursement",
+          entityId: expense.id,
+          entityName: expense.category,
+          field: "reimbursement_gap",
+          newValue: gapNote,
+        };
+        addAuditLog(audit);
+      }
       const ok = addExpense(expense);
       if (!ok) {
         return;
       }
-      toast({ title: "Expense Added", description: `₹${parsedAmount.toLocaleString()} recorded for ${categoryInfo?.label || category}` });
+      clearFormDraft("unified-expense-modal-v1");
+      toast({ title: "Expense Added", description: `${formatINR(parsedAmount)} recorded for ${categoryInfo?.label || category}` });
       resetForm();
       onClose();
     } catch (e) {
@@ -486,7 +580,25 @@ export function UnifiedExpenseModal({
   }
 
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => { if (!open) { resetForm(); onClose(); } }}>
+    <Sheet open={isOpen} onOpenChange={(open) => {
+      if (!open) {
+        saveFormDraft(EXPENSE_MODAL_DRAFT_KEY, {
+          v: 1,
+          step,
+          mainCategory,
+          category,
+          subCategory,
+          amount,
+          date,
+          selectedProjectId,
+          selectedEmployeeId,
+          notes,
+          payerType,
+        });
+        resetForm();
+        onClose();
+      }
+    }}>
       <AppSheetContent layout="form" size="lg">
         <SheetHeader>
           <SheetTitle className="text-xl font-semibold">Add Expense</SheetTitle>
@@ -759,7 +871,7 @@ export function UnifiedExpenseModal({
                         <SelectTrigger><SelectValue placeholder="Choose item" /></SelectTrigger>
                         <SelectContent>
                           {inventoryItems.map(item => (
-                            <SelectItem key={item.id} value={item.id.toString()}>{item.name} (₹{item.buyPrice}/{item.unit})</SelectItem>
+                            <SelectItem key={item.id} value={item.id.toString()}>{item.name} ({formatINR(item.buyPrice)}/{item.unit})</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -773,7 +885,12 @@ export function UnifiedExpenseModal({
                     <div className="bg-primary/10 rounded-md p-2 text-sm">
                       <span className="font-medium">{selectedInventoryItem.name}</span>
                       <span className="text-muted-foreground"> × {inventoryQuantity} {selectedInventoryItem.unit} = </span>
-                      <span className="font-semibold text-primary">₹{((parseFloat(inventoryQuantity) || 0) * selectedInventoryItem.buyPrice).toLocaleString()}</span>
+                      <span className="font-semibold text-primary">
+                        {formatINR(
+                          (Number.isFinite(Number.parseFloat(inventoryQuantity)) ? Number.parseFloat(inventoryQuantity) : 0) *
+                            selectedInventoryItem.buyPrice,
+                        )}
+                      </span>
                     </div>
                   )}
                 </CardContent>
@@ -863,7 +980,14 @@ export function UnifiedExpenseModal({
                   })}
                   <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t">
                     <span>Total</span>
-                    <span>₹{Object.values(multiEmployeeAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0).toLocaleString()}</span>
+                    <span>
+                      {formatINR(
+                        Object.values(multiEmployeeAmounts).reduce(
+                          (s, v) => s + (Number.isFinite(Number.parseFloat(v)) ? Number.parseFloat(v) : 0),
+                          0,
+                        ),
+                      )}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -903,7 +1027,15 @@ export function UnifiedExpenseModal({
                 </div>
                 {participantIds.length > 0 && amount && (
                   <p className="text-xs text-muted-foreground">
-                    {participantIds.length} participants • ₹{(parseFloat(amount) / participantIds.length).toFixed(0)}/person
+                    {participantIds.length} participants •{" "}
+                    {formatINR(
+                      (() => {
+                        const a = Number.parseFloat(amount);
+                        return Number.isFinite(a) && participantIds.length > 0 ? a / participantIds.length : 0;
+                      })(),
+                    )}
+                    {" "}
+                    /person
                   </p>
                 )}
               </div>
@@ -996,9 +1128,13 @@ export function UnifiedExpenseModal({
                 <div className="flex justify-between items-center">
                   <Label className="text-sm font-medium">Split Payment Breakdown</Label>
                   <span className={`text-xs font-medium ${
-                    Math.abs(calculateSplitTotal() - (parseFloat(amount) || 0)) <= 1 ? "text-primary" : "text-destructive"
+                    (() => {
+                      const target = Number.parseFloat(amount);
+                      const tot = calculateSplitTotal();
+                      return Number.isFinite(target) && Math.abs(tot - target) <= 1 ? "text-primary" : "text-destructive";
+                    })()
                   }`}>
-                    ₹{calculateSplitTotal().toLocaleString()} / ₹{parseFloat(amount || "0").toLocaleString()}
+                    {formatINR(calculateSplitTotal())} / {formatINR(Number.isFinite(Number.parseFloat(amount)) ? Number.parseFloat(amount) : 0)}
                   </span>
                 </div>
 
@@ -1098,7 +1234,7 @@ export function UnifiedExpenseModal({
                 {willReimburse && (
                   <div className="flex items-center gap-3 ml-6">
                     <Label className="text-sm text-muted-foreground">Reimbursement Amount:</Label>
-                    <Input type="number" placeholder={amount || "Full amount"} min="0" max={amount || undefined} value={reimbursementAmount} onChange={(e) => { const v = parseFloat(e.target.value); const max = parseFloat(amount) || 0; setReimbursementAmount(max > 0 && v > max ? amount : e.target.value); }} className="w-32 h-8" />
+                    <Input type="number" placeholder={amount || "Full amount"} min="0" max={amount || undefined} value={reimbursementAmount} onChange={(e) => { const v = Number.parseFloat(e.target.value); const max = Number.parseFloat(amount); const maxOk = Number.isFinite(max) ? max : 0; setReimbursementAmount(maxOk > 0 && Number.isFinite(v) && v > maxOk ? amount : e.target.value); }} className="w-32 h-8" />
                   </div>
                 )}
               </div>
@@ -1139,11 +1275,13 @@ export function UnifiedExpenseModal({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Amount</span>
-                  <span className="font-bold text-lg">₹{parseFloat(amount).toLocaleString()}</span>
+                  <span className="font-bold text-lg">
+                    {Number.isFinite(Number.parseFloat(amount)) ? formatINR(Number.parseFloat(amount)) : "—"}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Date</span>
-                  <span className="font-medium">{new Date(date).toLocaleDateString()}</span>
+                  <span className="font-medium">{formatUiDate(date)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Payment Mode</span>
@@ -1172,7 +1310,20 @@ export function UnifiedExpenseModal({
                 )}
                 {needsMonth && <div className="flex justify-between"><span className="text-muted-foreground">Billing Month</span><span className="font-medium">{billingMonth}</span></div>}
                 {vendorName && <div className="flex justify-between"><span className="text-muted-foreground">Vendor</span><span className="font-medium">{vendorName}</span></div>}
-                {willReimburse && <div className="flex justify-between text-primary"><span>Reimbursement</span><span className="font-medium">₹{(parseFloat(reimbursementAmount) || parseFloat(amount)).toLocaleString()}</span></div>}
+                {willReimburse && (
+                  <div className="flex justify-between text-primary">
+                    <span>Reimbursement</span>
+                    <span className="font-medium">
+                      {formatINR(
+                        (() => {
+                          const r = Number.parseFloat(reimbursementAmount);
+                          const t = Number.parseFloat(amount);
+                          return Number.isFinite(r) && r > 0 ? r : Number.isFinite(t) ? t : 0;
+                        })(),
+                      )}
+                    </span>
+                  </div>
+                )}
                 {notes && <div className="pt-2 border-t"><span className="text-muted-foreground text-sm">Notes: </span><span className="text-sm">{notes}</span></div>}
 
                 {/* Ledger Impact Preview */}
@@ -1180,38 +1331,90 @@ export function UnifiedExpenseModal({
                   <p className="text-xs font-medium text-muted-foreground mb-1">Ledger Impact</p>
                   <div className="text-xs space-y-1">
                     {payerType === "company" && (
-                      <p>• Company Ledger: <span className="text-destructive">-₹{parseFloat(amount).toLocaleString()}</span></p>
+                      <p>• Company Ledger: <span className="text-destructive">{formatInrOutflow(Number.parseFloat(amount) || 0)}</span></p>
                     )}
                     {payerType === "employee" && payerEmployeeId && (
                       <>
-                        <p>• {employees.find(e => e.id === payerEmployeeId)?.name} paid: <span className="text-destructive">-₹{parseFloat(amount).toLocaleString()}</span></p>
-                        {willReimburse && <p>• Company Liability: <span className="text-amber-500">+₹{(parseFloat(reimbursementAmount) || parseFloat(amount)).toLocaleString()} (owes employee)</span></p>}
+                        <p>• {employees.find(e => e.id === payerEmployeeId)?.name} paid: <span className="text-destructive">{formatInrOutflow(Number.parseFloat(amount) || 0)}</span></p>
+                        {willReimburse && (
+                          <p>
+                            • Company Liability:{" "}
+                            <span className="text-amber-500">
+                              {formatInrCredit(
+                                (() => {
+                                  const r = Number.parseFloat(reimbursementAmount);
+                                  const t = Number.parseFloat(amount);
+                                  return Number.isFinite(r) && r > 0 ? r : Number.isFinite(t) ? t : 0;
+                                })(),
+                              )}{" "}
+                              (owes employee)
+                            </span>
+                          </p>
+                        )}
                       </>
                     )}
                     {payerType === "owner" && (
                       <>
-                        <p>• Owner Ledger: <span className="text-destructive">-₹{parseFloat(amount).toLocaleString()}</span></p>
-                        {willReimburse && <p>• Company Liability: <span className="text-amber-500">+₹{(parseFloat(reimbursementAmount) || parseFloat(amount)).toLocaleString()} (owes owner)</span></p>}
+                        <p>• Owner Ledger: <span className="text-destructive">{formatInrOutflow(Number.parseFloat(amount) || 0)}</span></p>
+                        {willReimburse && (
+                          <p>
+                            • Company Liability:{" "}
+                            <span className="text-amber-500">
+                              {formatInrCredit(
+                                (() => {
+                                  const r = Number.parseFloat(reimbursementAmount);
+                                  const t = Number.parseFloat(amount);
+                                  return Number.isFinite(r) && r > 0 ? r : Number.isFinite(t) ? t : 0;
+                                })(),
+                              )}{" "}
+                              (owes owner)
+                            </span>
+                          </p>
+                        )}
                       </>
                     )}
                     {payerType === "partner" && payerPartnerId && (
-                      <p>• {partners.find(p => p.id === payerPartnerId)?.name} Ledger: <span className="text-destructive">-₹{parseFloat(amount).toLocaleString()}</span></p>
+                      <p>
+                        • {partners.find(p => p.id === payerPartnerId)?.name} Ledger:{" "}
+                        <span className="text-destructive">{formatInrOutflow(Number.parseFloat(amount) || 0)}</span>
+                      </p>
                     )}
                     {payerType === "split" && (
                       <>
-                        {parseFloat(splitCompanyAmount) > 0 && <p>• Company: <span className="text-destructive">-₹{parseFloat(splitCompanyAmount).toLocaleString()}</span></p>}
-                        {parseFloat(splitOwnerAmount) > 0 && <p>• Owner: <span className="text-destructive">-₹{parseFloat(splitOwnerAmount).toLocaleString()}</span></p>}
+                        {Number.parseFloat(splitCompanyAmount) > 0 && (
+                          <p>
+                            • Company: <span className="text-destructive">{formatInrOutflow(Number.parseFloat(splitCompanyAmount))}</span>
+                          </p>
+                        )}
+                        {Number.parseFloat(splitOwnerAmount) > 0 && (
+                          <p>
+                            • Owner: <span className="text-destructive">{formatInrOutflow(Number.parseFloat(splitOwnerAmount))}</span>
+                          </p>
+                        )}
                         {splitEmployeeIds.map(id => {
-                          const amt = parseFloat(splitEmployeeAmounts[id] || "0");
-                          return amt > 0 ? <p key={id}>• {employees.find(e => e.id === id)?.name}: <span className="text-destructive">-₹{amt.toLocaleString()}</span></p> : null;
+                          const amt = Number.parseFloat(splitEmployeeAmounts[id] || "0");
+                          return amt > 0 ? (
+                            <p key={id}>
+                              • {employees.find(e => e.id === id)?.name}: <span className="text-destructive">{formatInrOutflow(amt)}</span>
+                            </p>
+                          ) : null;
                         })}
                         {splitPartnerIds.map(id => {
-                          const amt = parseFloat(splitPartnerAmounts[id] || "0");
-                          return amt > 0 ? <p key={id}>• {partners.find(p => p.id === id)?.name}: <span className="text-destructive">-₹{amt.toLocaleString()}</span></p> : null;
+                          const amt = Number.parseFloat(splitPartnerAmounts[id] || "0");
+                          return amt > 0 ? (
+                            <p key={id}>
+                              • {partners.find(p => p.id === id)?.name}: <span className="text-destructive">{formatInrOutflow(amt)}</span>
+                            </p>
+                          ) : null;
                         })}
                       </>
                     )}
-                    {needsProject && selectedProject && <p>• Site Ledger ({selectedProject.name}): <span className="text-destructive">-₹{parseFloat(amount).toLocaleString()}</span></p>}
+                    {needsProject && selectedProject && (
+                      <p>
+                        • Site Ledger ({selectedProject.name}):{" "}
+                        <span className="text-destructive">{formatInrOutflow(Number.parseFloat(amount) || 0)}</span>
+                      </p>
+                    )}
                   </div>
                 </div>
               </CardContent>

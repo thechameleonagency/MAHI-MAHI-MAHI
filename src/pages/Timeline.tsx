@@ -19,7 +19,7 @@ import {
   IndianRupee,
   Package,
   User,
-  Clock,
+
   ChevronLeft,
   ChevronRight,
   Activity,
@@ -51,6 +51,8 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { cn } from "@/lib/utils";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getTaskOverdueAging } from "@/lib/agingHelpers";
 
 /** Top-level timeline dimensions (aligned with sidebar “Timeline”). */
 type TimelineMainTab = "sites" | "people" | "office";
@@ -158,7 +160,7 @@ function buildOfficeActivity(params: {
       details: `${inv.invoiceNumber} · ${inv.customerName} · ${formatCompactMoney(inv.total)} (${inv.status})`,
       user: "Accounts",
       icon: "invoice",
-      accentClass: "text-blue-600 bg-blue-500/15",
+      accentClass: "text-primary bg-primary/15",
     });
   });
 
@@ -190,8 +192,8 @@ function buildOfficeActivity(params: {
 
 function getWorkTypeColor(workType: string): string {
   const colors: Record<string, string> = {
-    Structure: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
-    Panel: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+    Structure: "border-primary/30 bg-primary/10 text-primary dark:text-blue-300",
+    Panel: "border-primary/30 bg-primary/10 text-primary dark:text-blue-300",
     Inverter: "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
     Wiring: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
     Earthing: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
@@ -367,7 +369,7 @@ const Timeline = () => {
   }, [officeByDate, officeFilterType]);
 
   const getEmployeeName = (empId: number) => employees.find((e) => e.id === empId)?.name ?? "Unknown";
-  const getProjectName = (projId: string) => projects.find((p) => p.id === projId)?.name ?? projId;
+  const _getProjectName = (projId: string) => projects.find((p) => p.id === projId)?.name ?? projId;
 
   const kpiStrip = useMemo(() => {
     const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
@@ -404,37 +406,57 @@ const Timeline = () => {
             { label: "Timeline" },
           ]}
           subRow={
-            <div className="flex flex-wrap gap-4 border-t border-border/60 pt-4">
-              <div className="flex flex-wrap gap-3">
-                {kpiStrip.map((k) => (
-                  <div key={k.label} className="rounded-xl border bg-muted/40 px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{k.label}</p>
-                    <p className="text-lg font-semibold tabular-nums">{k.value}</p>
-                  </div>
-                ))}
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+              {/* Compact KPI chips */}
+              {kpiStrip.map((k) => (
+                <div key={k.label} className="flex items-center gap-1.5 rounded-full border bg-muted/40 px-2.5 py-1">
+                  <span className="text-2xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
+                  <span className="text-xs font-semibold tabular-nums">{k.value}</span>
+                </div>
+              ))}
+
+              {/* Window segmented control */}
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Window</span>
+                <div className="flex rounded-lg border bg-background p-0.5">
+                  {([7, 14, 30] as const).map((n) => (
+                    <Button
+                      key={n}
+                      type="button"
+                      variant={sitesDaysBack === n ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => setSitesDaysBack(n)}
+                    >
+                      {n}d
+                    </Button>
+                  ))}
+                </div>
+
+                {/* Project filter */}
+                <Select value={sitesProjectId} onValueChange={setSitesProjectId}>
+                  <SelectTrigger className="h-8 w-[200px] text-xs">
+                    <SelectValue placeholder="All projects / sites" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All projects / sites</SelectItem>
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button asChild variant="outline" size="sm" className="h-8 shrink-0">
+                  <Link to="/active-sites">Active sites</Link>
+                </Button>
               </div>
-              <Button asChild variant="outline" size="sm" className="shrink-0">
-                <Link to="/active-sites">Active sites</Link>
-              </Button>
             </div>
           }
         >
-          <div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight">Timeline</h1>
-                <p className="max-w-2xl text-sm text-muted-foreground">
-                  One place for site work logs, team activity, and finance movement. Use the tabs below to switch
-                  context — your choice is remembered in the URL (<code className="rounded bg-muted px-1 text-xs">?tab=</code>
-                  ).
-                </p>
-              </div>
-            </div>
-          </div>
         </StickyPageHeader>
 
         {/* Primary tab switcher */}
-        <div className="grid gap-2 rounded-2xl border bg-card/80 p-1.5 shadow-sm sm:grid-cols-3">
+        <div className="grid gap-2 rounded-xl border bg-card/80 p-1.5 shadow-sm sm:grid-cols-3">
           {mainTabs.map(({ id, label, hint, icon: Icon }) => (
             <button
               key={id}
@@ -466,48 +488,7 @@ const Timeline = () => {
         {/* Sites */}
         {tab === "sites" && (
           <section className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <Card className="overflow-hidden border-dashed">
-              <CardHeader className="pb-3">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <CardTitle className="text-lg">Site activity & daily spend</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      Tasks grouped by day with expenses recorded the same day. Narrow by project or window.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-medium text-muted-foreground">Window</span>
-                    <div className="flex rounded-lg border bg-background p-0.5">
-                      {([7, 14, 30] as const).map((n) => (
-                        <Button
-                          key={n}
-                          type="button"
-                          variant={sitesDaysBack === n ? "secondary" : "ghost"}
-                          size="sm"
-                          className="h-8 px-3 text-xs"
-                          onClick={() => setSitesDaysBack(n)}
-                        >
-                          Last {n}d
-                        </Button>
-                      ))}
-                    </div>
-                    <Select value={sitesProjectId} onValueChange={setSitesProjectId}>
-                      <SelectTrigger className="w-[min(100%,220px)]">
-                        <SelectValue placeholder="Project filter" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All projects / sites</SelectItem>
-                        {projects.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </CardHeader>
-            </Card>
+            {/* Filters live in the page header now (window / project / active sites button). */}
 
             {recentDatesWithData.length === 0 ? (
               <Card>
@@ -546,7 +527,7 @@ const Timeline = () => {
                     <div className="mb-6 flex flex-wrap items-center gap-4">
                       <div
                         className={cn(
-                          "relative z-[1] rounded-2xl border px-5 py-3 shadow-sm",
+                          "relative z-[1] rounded-xl border px-5 py-3 shadow-sm",
                           isToday ? "border-primary bg-primary text-primary-foreground" : "bg-muted/60",
                         )}
                       >
@@ -557,27 +538,28 @@ const Timeline = () => {
                       </div>
                       <Separator orientation="vertical" className="hidden h-10 md:block" />
                       <Card className="flex-1 bg-muted/30">
-                        <CardContent className="flex flex-wrap gap-4 py-3">
+                        <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className="cursor-help">
-                                <p className="text-[10px] uppercase text-muted-foreground">Day spend</p>
-                                <p className="font-semibold text-primary">{formatCompactMoney(totalCost)}</p>
+                                <p className="text-2xs uppercase tracking-wide text-muted-foreground">Day spend</p>
+                                <p className="mt-0.5 text-base font-semibold text-primary tabular-nums">{formatCompactMoney(totalCost)}</p>
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>Sum of expenses dated this day (after filters).</TooltipContent>
                           </Tooltip>
-                          <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                            <span className="inline-flex items-center gap-1">
+                          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-1.5">
                               <Truck className="h-3.5 w-3.5" />
-                              Transport {transportExpenses.length} ·{" "}
-                              {formatCompactMoney(transportExpenses.reduce((s, e) => s + e.amount, 0))}
+                              Transport {transportExpenses.length} · {formatCompactMoney(transportExpenses.reduce((s, e) => s + e.amount, 0))}
                             </span>
-                            <span className="inline-flex items-center gap-1">
+                            <span className="inline-flex items-center gap-1.5">
                               <Coffee className="h-3.5 w-3.5" />
                               Food {foodExpenses.length}
                             </span>
-                            <span>Labour {labourExpenses.length}</span>
+                            <span className="inline-flex items-center gap-1.5">
+                              Labour {labourExpenses.length}
+                            </span>
                           </div>
                         </CardContent>
                       </Card>
@@ -599,8 +581,9 @@ const Timeline = () => {
                                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                                     <MapPin className="h-4 w-4 text-primary" />
                                   </div>
-                                  <span className="truncate font-medium">
+                                  <span className="truncate font-medium flex items-center gap-1.5 flex-wrap">
                                     {task.siteName || project?.name || task.siteId}
+                                    <AgingChip signal={getTaskOverdueAging(task)} />
                                   </span>
                                 </div>
                                 <Badge variant={task.status === "done" ? "default" : "secondary"} className="shrink-0">
@@ -830,7 +813,7 @@ const Timeline = () => {
                         </div>
                         <div className="text-right text-sm">
                           <p className="font-semibold tabular-nums">{empData.completedTasks}/{empData.totalTasks}</p>
-                          <p className="text-[10px] uppercase text-muted-foreground">done / total</p>
+                          <p className="text-2xs uppercase text-muted-foreground">done / total</p>
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-4">
@@ -852,7 +835,7 @@ const Timeline = () => {
                                   <span className="mt-2 text-muted-foreground">—</span>
                                 ) : (
                                   <>
-                                    <span className="mt-2 inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                                    <span className="mt-2 inline-flex items-center gap-1 text-primary dark:text-primary">
                                       <CheckCircle2 className="h-3 w-3" />
                                       {completed}
                                     </span>
@@ -871,13 +854,13 @@ const Timeline = () => {
                         <div className="flex gap-4 border-t pt-3 text-center text-sm">
                           <div className="flex-1 rounded-lg bg-muted/40 py-2">
                             <p className="text-xl font-bold">{empData.totalTasks}</p>
-                            <p className="text-[10px] uppercase text-muted-foreground">tasks</p>
+                            <p className="text-2xs uppercase text-muted-foreground">tasks</p>
                           </div>
                           <div className="flex-1 rounded-lg bg-muted/40 py-2">
                             <p className="text-xl font-bold">
                               {new Set(empData.tasksByDay.flatMap((d) => d.tasks.map((t) => t.siteId))).size}
                             </p>
-                            <p className="text-[10px] uppercase text-muted-foreground">sites</p>
+                            <p className="text-2xs uppercase text-muted-foreground">sites</p>
                           </div>
                         </div>
                       </CardContent>
@@ -975,12 +958,12 @@ const Timeline = () => {
                             <div className="min-w-0 flex-1 space-y-1">
                               <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0">
                                 <p className="text-sm font-medium leading-tight">{item.action}</p>
-                                <span className="text-[10px] font-medium uppercase text-muted-foreground">
+                                <span className="text-2xs font-medium uppercase text-muted-foreground">
                                   {item.timeLabel}
                                 </span>
                               </div>
                               <p className="text-xs leading-snug text-muted-foreground">{item.details}</p>
-                              <Badge variant="outline" className="text-[10px]">
+                              <Badge variant="outline" className="text-2xs">
                                 {item.user}
                               </Badge>
                             </div>

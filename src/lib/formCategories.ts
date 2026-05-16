@@ -1,5 +1,45 @@
 /** Centralized category options for inventory / vendors / tools (UA11). */
 
+/** Tool registry categories (slug `value` stored on `Tool.category`). */
+export const TOOL_CATEGORY_SELECT_ITEMS = [
+  { value: "power-tool", label: "Power Tool" },
+  { value: "hand-tool", label: "Hand Tool" },
+  { value: "measuring-tool", label: "Measuring Tool" },
+  { value: "safety-equipment", label: "Safety Equipment" },
+  { value: "machinery", label: "Machinery" },
+  { value: "digging-tool", label: "Digging Tool" },
+  { value: "others", label: "Others" },
+] as const;
+
+/** Display / filter order for material inventory categories (includes legacy seed labels). */
+export const MATERIAL_CATEGORY_ORDER = [
+  "Structure",
+  "Panel/Module",
+  "Panel",
+  "Panels",
+  "Inverter",
+  "Inverters",
+  "Wiring",
+  "Earthing",
+  "Meter",
+  "Cable",
+  "Electrical",
+  "Civil",
+  "BOS",
+  "Consumable",
+  "Service",
+  "Other",
+] as const;
+
+export function materialCategorySortKey(a: string, b: string): number {
+  const ia = MATERIAL_CATEGORY_ORDER.indexOf(a as (typeof MATERIAL_CATEGORY_ORDER)[number]);
+  const ib = MATERIAL_CATEGORY_ORDER.indexOf(b as (typeof MATERIAL_CATEGORY_ORDER)[number]);
+  const ra = ia === -1 ? MATERIAL_CATEGORY_ORDER.length : ia;
+  const rb = ib === -1 ? MATERIAL_CATEGORY_ORDER.length : ib;
+  if (ra !== rb) return ra - rb;
+  return a.localeCompare(b);
+}
+
 export const VENDOR_CATEGORY_OPTIONS = [
   "Panels",
   "Inverters",

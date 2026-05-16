@@ -5,7 +5,6 @@ import type { PermissionService } from "@/application/services/PermissionService
 import type { AuditService } from "@/application/services/AuditService";
 import type { Command } from "@/application/commands/types";
 import type { Enquiry } from "@/types/project";
-import type { Customer } from "@/types/finance";
 
 type UpdateEnquiryStatusPayload = {
   enquiryId: string;
@@ -62,7 +61,7 @@ export const registerEnquiryCommands = (
   commandBus.register<Command<UpdateEnquiryStatusPayload>, { enquiryId: string; nextStatus: EnquiryStatus }>(
     UPDATE_ENQUIRY_STATUS_COMMAND,
     (command) => {
-      permissionService.assertCanPerformAction(command.actorRole, "enquiry:create");
+      permissionService.assertCanPerformAction(command.actorRole, "approval:resolve");
 
       const enquiry = repositories.enquiryRepository.getById(command.payload.enquiryId);
       if (!enquiry) {
@@ -110,11 +109,16 @@ export const registerEnquiryCommands = (
   commandBus.register<Command<ConvertEnquiryPayload>, { enquiryId: string }>(
     CONVERT_ENQUIRY_COMMAND,
     (command) => {
+      // Audit B14: align with the UI gate at AppDataContext.convertEnquiryToCustomer (also `enquiry:create`).
       permissionService.assertCanPerformAction(command.actorRole, "enquiry:create");
       const { enquiryId } = command.payload;
       const enquiry = repositories.enquiryRepository.getById(enquiryId);
       if (!enquiry) {
         return { ok: false, errorCode: "ENQUIRY_NOT_FOUND", message: "Enquiry not found" };
+      }
+
+      if (!canTransitionEnquiryStatus(enquiry.status, "converted", command.actorRole)) {
+        return { ok: false, errorCode: "INVALID_ENQUIRY_TRANSITION", message: `Cannot convert enquiry from status: ${enquiry.status}` };
       }
 
       // Update Enquiry Status

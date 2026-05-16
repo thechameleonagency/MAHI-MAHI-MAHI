@@ -15,8 +15,28 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")) return "react-vendor";
+          if (id.includes("react-router")) return "react-router";
+          if (id.includes("@tanstack")) return "tanstack";
+          if (id.includes("@radix-ui")) return "radix-ui";
+          if (id.includes("recharts") || id.includes("d3-")) return "charts";
+          if (id.includes("lucide-react")) return "lucide";
+          if (id.includes("date-fns")) return "date-fns";
+          return "vendor";
+        },
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,
+    /** Windows: default `forks` pool often hits `spawn UNKNOWN` / flaky workers. */
+    pool: "threads",
   },
 }));

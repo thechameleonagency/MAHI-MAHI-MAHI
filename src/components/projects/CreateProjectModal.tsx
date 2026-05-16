@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Briefcase, User, Users, Wrench, IndianRupee, Zap, ChevronRight, Check,
+  Briefcase, User, Users, _Wrench, IndianRupee, Zap, ChevronRight, Check,
   ShieldCheck, AlertTriangle, Building2, HardHat,
   UsersRound,
 } from "lucide-react";
@@ -18,6 +18,7 @@ import type { ProjectKind } from "@/domain/projectTypes/types";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
+import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
 
 interface CreateProjectModalProps {
   open: boolean;
@@ -323,6 +324,19 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
         toast({ title: "Missing fields", description: "Capacity and contract amount are required.", variant: "destructive" });
         return;
       }
+      if (partnerEconomicsType === "profit_share") {
+        const ps = Number.parseFloat(profitSharePercent);
+        if (!Number.isFinite(ps) || ps < 0 || ps > 100) {
+          toast({ title: "Invalid profit share", description: "Enter a percentage between 0 and 100.", variant: "destructive" });
+          return;
+        }
+      } else {
+        const fr = Number.parseFloat(fixedRatePerKw);
+        if (!Number.isFinite(fr) || fr <= 0) {
+          toast({ title: "Invalid fixed rate", description: "Enter a positive ₹ per kW rate for the partner.", variant: "destructive" });
+          return;
+        }
+      }
 
       const partner = partners.find(p => p.id === selectedPartnerId);
       finalProjectName = partnerProjectName || `${partner?.name || "Partner"} – ${partnerCapacity}kW`;
@@ -384,6 +398,15 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
         ? parsePositiveAmount(rateValue) * parsePositiveAmount(incCapacity) * 1000
         : parsePositiveAmount(rateValue) * parsePositiveAmount(incArea);
 
+      if (totalAmt <= 0) {
+        toast({
+          title: "INC amount",
+          description: "Enter rates and quantities so the computed contract total is positive.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       finalProjectName = incProjectName || `INC – ${incCo?.name || "Unknown"} – ${incCapacity || "?"}kW`;
       finalCapacity = incCapacity || "0";
       finalContractAmount = totalAmt;
@@ -403,6 +426,22 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
         rateValue: parsePositiveAmount(rateValue),
       };
     } else {
+      return;
+    }
+
+    if (commissionRatePct?.trim()) {
+      const cr = Number.parseFloat(commissionRatePct);
+      if (!Number.isFinite(cr) || cr < 0 || cr > 100) {
+        toast({ title: "Invalid commission %", description: "Agent commission must be between 0 and 100.", variant: "destructive" });
+        return;
+      }
+    }
+
+    if (
+      (leadPath === "MSS_DIRECT" || leadPath === "OUTSOURCED_INC" || leadPath === "PARTNER") &&
+      finalContractAmount <= 0
+    ) {
+      toast({ title: "Contract amount", description: "Enter a positive contract amount.", variant: "destructive" });
       return;
     }
 
@@ -453,7 +492,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
       agentName: selectedAgent?.name,
       commissionRate: commissionRatePct ? Number.parseFloat(commissionRatePct) : undefined,
       incScope:
-        (projectKind === "OUTSOURCED_INC" || projectKind === "INC") && incScopeChoice ? incScopeChoice : undefined,
+        (projectKind === "OUTSOURCED_INC" || projectKind === "INC_GIVEN") && incScopeChoice ? incScopeChoice : undefined,
     };
 
     const intakePayload: ProjectIntakePayload = {
@@ -486,6 +525,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
     const res = await createProjectIntake({ project: projectData, intake: intakePayload, quotationId: selectedQuotationId });
 
     if (res.ok) {
+      clearFormDraft("create-project-modal-v1");
       toast({ title: "Project Created", description: `${finalProjectName} has been successfully created.` });
       onOpenChange(false);
       resetForm();
@@ -495,8 +535,50 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
     }
   };
 
+  const CREATE_PROJECT_DRAFT_KEY = "create-project-modal-v1";
+
+  useEffect(() => {
+    if (!open) return;
+    const d = loadFormDraft<{
+      v: number;
+      leadPath?: LeadPath | null;
+      projectName?: string;
+      contractAmount?: string;
+      capacity?: string;
+      selectedCustomerId?: string;
+      partnerContractAmount?: string;
+      selectedPartnerId?: string;
+    }>(CREATE_PROJECT_DRAFT_KEY);
+    if (d?.v !== 1) return;
+    if (d.leadPath != null) setLeadPath(d.leadPath);
+    if (d.projectName != null) setProjectName(d.projectName);
+    if (d.contractAmount != null) setContractAmount(d.contractAmount);
+    if (d.capacity != null) setCapacity(d.capacity);
+    if (d.selectedCustomerId != null) setSelectedCustomerId(d.selectedCustomerId);
+    if (d.partnerContractAmount != null) setPartnerContractAmount(d.partnerContractAmount);
+    if (d.selectedPartnerId != null) setSelectedPartnerId(d.selectedPartnerId);
+  }, [open]);
+
   return (
-    <Sheet open={open} onOpenChange={(v) => { if (!v) resetForm(); onOpenChange(v); }}>
+    <Sheet
+      open={open}
+      onOpenChange={(v) => {
+        onOpenChange(v);
+        if (!v) {
+          saveFormDraft(CREATE_PROJECT_DRAFT_KEY, {
+            v: 1,
+            leadPath,
+            projectName,
+            contractAmount,
+            capacity,
+            selectedCustomerId,
+            partnerContractAmount,
+            selectedPartnerId,
+          });
+          resetForm();
+        }
+      }}
+    >
       <SheetContent className="w-full sm:max-w-3xl sm:w-[85vw] p-0 overflow-y-auto custom-scrollbar">
         <SheetHeader className="p-6 border-b sticky top-0 z-10 bg-background/95 backdrop-blur">
           <SheetTitle className="flex items-center gap-2 text-xl">

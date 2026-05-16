@@ -4,7 +4,7 @@ import {
   Plus,
   Search,
   Store,
-  Phone,
+  _Phone,
   Mail,
   MapPin,
   Eye,
@@ -14,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +38,7 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { VENDOR_CATEGORY_OPTIONS } from "@/lib/formCategories";
+import { validateContactPhone } from "@/lib/phoneValidators";
 
 /** Same normalization as Finance (legacy); finance tab filter keywords are lowercase snippets. */
 type VendorVm = {
@@ -53,7 +55,7 @@ type VendorVm = {
 
 const Vendors = () => {
   const navigate = useNavigate();
-  const { vendors: rawVendors, addVendor, updateVendor, deleteVendor, generateId, projects } = useAppData();
+  const { vendors: rawVendors, addVendor, updateVendor, deleteVendor, _generateId, projects } = useAppData();
 
   const vendors: VendorVm[] = useMemo(
     () =>
@@ -100,9 +102,15 @@ const Vendors = () => {
       toast({ title: "Error", description: "Name and contact are required", variant: "destructive" });
       return;
     }
+    const ph = validateContactPhone(vendorContact);
+    if (!ph.ok) {
+      toast({ title: "Invalid contact", description: (ph as { message: string }).message, variant: "destructive" });
+      return;
+    }
 
     const newVendor: Vendor = {
-      id: generateId("VND"),
+      // Vendor.id is a number in the prototype seed. Use timestamp for a stable, unique numeric id.
+      id: Date.now(),
       name: vendorName,
       category: vendorCategory.length ? vendorCategory : ["Other"],
       contact: vendorContact,
@@ -121,6 +129,11 @@ const Vendors = () => {
   const handleEditVendor = () => {
     if (!selectedVendor || !vendorName || !vendorContact) {
       toast({ title: "Error", description: "Name and contact are required", variant: "destructive" });
+      return;
+    }
+    const ph = validateContactPhone(vendorContact);
+    if (!ph.ok) {
+      toast({ title: "Invalid contact", description: (ph as { message: string }).message, variant: "destructive" });
       return;
     }
 
@@ -354,18 +367,16 @@ const Vendors = () => {
                       <Plus className="mr-1 h-3 w-3" />
                       Add Purchase
                     </Button>
-                    {vendor.outstandingAmount > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 text-xs"
-                        type="button"
-                        onClick={() => navigate(`/vendors/${vendor.id}?action=record-payment`)}
-                      >
-                        <IndianRupee className="mr-1 h-3 w-3" />
-                        Record Payment
-                      </Button>
-                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 text-xs"
+                      type="button"
+                      onClick={() => navigate(`/vendors/${vendor.id}?action=record-payment`)}
+                    >
+                      <IndianRupee className="mr-1 h-3 w-3" />
+                      Record Payment
+                    </Button>
                   </div>
                   <div className="flex gap-2">
                     <Button variant="destructive" size="sm" className="flex-1 text-xs" type="button" onClick={() => setVendorPendingDelete(vendor)}>
@@ -399,14 +410,13 @@ const Vendors = () => {
       </div>
 
       {filteredVendors.length === 0 && (
-        <div className="py-12 text-center">
-          <Store className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-          <p className="text-muted-foreground">No vendors match.</p>
-          <Button className="mt-4" type="button" onClick={() => { resetForm(); setIsAddVendorOpen(true); }}>
-            <Plus className="mr-2 h-4 w-4" />
-            Register vendor
-          </Button>
-        </div>
+        <ListEmptyState
+          icon={Store}
+          title="No vendors match"
+          description="Register a vendor to start tracking bills and payments."
+          actionLabel="Register vendor"
+          onAction={() => { resetForm(); setIsAddVendorOpen(true); }}
+        />
       )}
 
       <Sheet open={isAddVendorOpen} onOpenChange={(v) => { if (!v) resetForm(); setIsAddVendorOpen(v); }}>

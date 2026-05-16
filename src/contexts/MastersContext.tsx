@@ -45,7 +45,7 @@ import {
   inverterBrands,
   structureTypes,
   systemCapacities,
-  quotationPresetCategories,
+  _quotationPresetCategories,
   quotationMaterialCategories,
   quotationChecklistItems,
   payerTypes,

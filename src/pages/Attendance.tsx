@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Calendar as CalendarIcon, Check, Pencil, Trash2, Gift, AlertTriangle, MoreVertical } from "lucide-react";
+import { Plus, Calendar as CalendarIcon, Check, Pencil, Trash2, Gift, AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,14 +18,17 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { format, getDaysInMonth, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isSameDay } from "date-fns";
+import { format, getDaysInMonth, startOfMonth, eachDayOfInterval, isSameDay } from "date-fns";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { DateInput } from "@/components/ui/DateInput";
 import { toast } from "@/hooks/use-toast";
 import { EntityLink } from "@/components/shared/EntityInfoModal";
 import { PayrollPolicyService } from "@/application/services/PayrollPolicyService";
+import { formatINR } from "@/lib/formatCurrency";
+import { formatUiDate } from "@/lib/formatUiDate";
 
 const Attendance = () => {
   const payrollPolicyService = new PayrollPolicyService();
@@ -33,12 +36,17 @@ const Attendance = () => {
     employees, sites, holidays, addHoliday, removeHoliday,
     addEmployeePaidHoliday, hasEmployeePaidHolidayInMonth, getEmployeePaidHolidaysByMonth,
     getTasksByEmployee, getExpensesByEmployee, attendanceRecords,
+    addAttendanceRecord,
     teams, projects,
-    generateId
+    generateId,
+    canDo,
+    addExpense,
   } = useAppData();
   
-  // Selected date for attendance
+  // B3.23: Day grid + actions use `selectedDate` (yyyy-MM-dd). Month KPIs (paid-leave quota, payroll summary)
+  // use the **calendar month of that selected date**, not "today", so changing the picker shifts which month the stats describe.
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [refreshKey, setRefreshKey] = useState(0);
   const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
   
   // Teams assigned to sites on this date
@@ -110,7 +118,7 @@ const Attendance = () => {
     });
     
     setAttendanceState(newState);
-  }, [selectedDateStr, attendanceRecords, employees, getEmployeePaidHolidaysByMonth]);
+  }, [selectedDateStr, attendanceRecords, employees, getEmployeePaidHolidaysByMonth, refreshKey]);
   
   // Site selection dialog state
   const [isSiteSelectionOpen, setIsSiteSelectionOpen] = useState(false);
@@ -232,7 +240,12 @@ const Attendance = () => {
     
     const activeDays = presentDays + holidayDays + paidLeaveDays;
     const currentEarnings = Math.round(activeDays * perDayRate);
-    const lastMonthPending = emp.pendingAmount || 0; // This would come from previous month calculations
+    const lastMonthPending = emp.pendingAmount || 0;
+    const monthStr = format(selectedDate, "yyyy-MM");
+    const empExpenses = (getExpensesByEmployee?.(emp.id.toString()) || []).filter((e: { date?: string }) => (e.date || "").startsWith(monthStr));
+    const bonusAmount = empExpenses.filter((e: { category?: string }) => e.category === "Bonus").reduce((s: number, e: { amount?: number }) => s + (e.amount || 0), 0);
+    const overtimeAmount = empExpenses.filter((e: { category?: string }) => e.category === "Overtime").reduce((s: number, e: { amount?: number }) => s + (e.amount || 0), 0);
+    const deductionsAmount = empExpenses.filter((e: { category?: string }) => e.category === "Deduction").reduce((s: number, e: { amount?: number }) => s + (e.amount || 0), 0);
     const payrollResult = payrollPolicyService.calculate({
       monthlySalary: emp.salary,
       totalWorkingDays: daysInMonth,
@@ -240,9 +253,9 @@ const Attendance = () => {
       paidLeaveDays,
       unpaidDays: absentDays,
       companyHolidays: holidayDays,
-      overtimeAmount: 0,
-      bonusAmount: 0,
-      deductionsAmount: 0,
+      overtimeAmount,
+      bonusAmount,
+      deductionsAmount,
       salaryAdvances: 0,
       manualAdjustments: lastMonthPending,
     });
@@ -261,6 +274,37 @@ const Attendance = () => {
       lastMonthPending,
       totalPayable
     };
+  };
+
+  const postPayrollSummaryAsExpense = (emp: (typeof employeesWithAttendance)[0]) => {
+    if (!canDo("finance:record_expense_income")) {
+      toast({ title: "Not permitted", description: "Your role cannot record expenses.", variant: "destructive" });
+      return;
+    }
+    const monthStr = format(selectedDate, "yyyy-MM");
+    const monthlyData = calculateMonthlyEarnings(emp);
+    const amt = Math.round(monthlyData.totalPayable || 0);
+    if (!amt || amt <= 0) {
+      toast({ title: "Nothing to post", description: "Total payable is zero for this summary.", variant: "destructive" });
+      return;
+    }
+    const ok = addExpense({
+      id: generateId("EXP"),
+      date: new Date().toISOString().slice(0, 10),
+      amount: amt,
+      mainCategory: "employee",
+      category: "salary",
+      subCategory: "Payroll (attendance summary)",
+      description: `Salary accrual ${monthStr} — ${emp.name}`,
+      context: "employee",
+      paidBy: { type: "company" },
+      employeeId: String(emp.id),
+      employeeName: emp.name,
+      billingMonth: monthStr,
+    });
+    if (ok) {
+      toast({ title: "Salary expense posted", description: `${formatINR(amt)} for ${emp.name} (${format(selectedDate, "MMMM yyyy")}).` });
+    }
   };
 
   const handleAutoFillSuggestions = () => {
@@ -350,11 +394,18 @@ const Attendance = () => {
       markPaidLeave(selectedEmployeeForSite);
     } else {
       // Mark present
-      setAttendanceState(prev => ({ 
-        ...prev, 
+      setAttendanceState(prev => ({
+        ...prev,
         [selectedEmployeeForSite.id]: { status: "present", sites: selectedSites }
       }));
-      
+      addAttendanceRecord({
+        id: generateId("ATT"),
+        employeeId: selectedEmployeeForSite.id,
+        date: selectedDateStr,
+        status: "present",
+        sites: selectedSites,
+      });
+
       setConfirmationData({
         employeeName: selectedEmployeeForSite.name,
         status: "present",
@@ -398,7 +449,7 @@ const Attendance = () => {
     
     toast({
       title: "Paid Leave Marked",
-      description: `${employee.name} has been marked on paid leave for ${format(selectedDate, 'dd MMM yyyy')}.`,
+      description: `${employee.name} has been marked on paid leave for ${formatUiDate(selectedDateStr)}.`,
     });
   };
 
@@ -426,7 +477,14 @@ const Attendance = () => {
     }
     
     setAttendanceState(prev => ({ ...prev, [employee.id]: { status: "absent", sites: [] } }));
-    
+    addAttendanceRecord({
+      id: generateId("ATT"),
+      employeeId: employee.id,
+      date: selectedDateStr,
+      status: "absent",
+      sites: [],
+    });
+
     // Show confirmation
     setConfirmationData({
       employeeName: employee.name,
@@ -501,7 +559,7 @@ const Attendance = () => {
     }
   };
 
-  const handleMultipleDateSelect = (date: Date | undefined) => {
+  const _handleMultipleDateSelect = (date: Date | undefined) => {
     if (!date) return;
     
     setSelectedHolidayDates(prev => {
@@ -551,15 +609,38 @@ const Attendance = () => {
         <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:gap-3">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <CalendarIcon className="h-4 w-4 shrink-0 text-primary" />
-            <input
-              type="date"
+            <DateInput
+              max={format(new Date(), "yyyy-MM-dd")}
               value={format(selectedDate, "yyyy-MM-dd")}
-              onChange={(e) => setSelectedDate(new Date(e.target.value))}
-              className="h-8 rounded-md border border-border bg-background px-2 py-1 text-sm font-medium"
+              onChange={(e) => {
+                const ymd = e.target.value;
+                if (ymd > format(new Date(), "yyyy-MM-dd")) {
+                  toast({
+                    title: "Invalid date",
+                    description: "Attendance cannot be recorded for future dates.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                setSelectedDate(new Date(ymd + "T12:00:00"));
+              }}
+              className="h-8 w-auto max-w-[11rem] bg-background text-sm font-medium"
             />
             <span className="hidden text-xs text-muted-foreground sm:inline">Past dates editable</span>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => {
+                setRefreshKey((k) => k + 1);
+                toast({ title: "Refreshed", description: "Attendance view reloaded from saved records." });
+              }}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -574,6 +655,7 @@ const Attendance = () => {
               variant="outline"
               className="shrink-0 border-primary text-primary"
               onClick={() => setIsMarkHolidayOpen(true)}
+              disabled={!canDo("hr:mark_holiday")}
             >
               <Plus className="mr-2 h-4 w-4" />
               Holiday
@@ -617,7 +699,7 @@ const Attendance = () => {
                     <div className="flex items-center gap-2">
                       <EntityLink entityType="employee" entityId={emp.id} name={emp.name} />
                       {emp.suggestion && (
-                        <Badge variant="outline" className="h-4 px-1 text-[10px] bg-primary/5 text-primary border-primary/20 animate-pulse">
+                        <Badge variant="outline" className="h-4 px-1 text-2xs bg-primary/5 text-primary border-primary/20 animate-pulse">
                           Suggested: {emp.suggestion.teamName}
                         </Badge>
                       )}
@@ -629,7 +711,7 @@ const Attendance = () => {
                 {/* Monthly Earnings Summary */}
                 <div className="space-y-2 border-t pt-3">
                   <div className="text-xs font-medium text-muted-foreground uppercase">
-                    {format(new Date(), 'MMMM yyyy')} Summary
+                    {format(selectedDate, 'MMMM yyyy')} Summary
                   </div>
                   
                   <div className="grid grid-cols-2 gap-2 text-xs">
@@ -639,44 +721,54 @@ const Attendance = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Per Day:</span>
-                      <span className="font-medium text-primary">₹{monthlyData.perDayRate.toLocaleString()}</span>
+                      <span className="font-medium text-primary">₹{(monthlyData.perDayRate || 0).toLocaleString()}</span>
                     </div>
                   </div>
                   
-                  <div className="text-[10px] text-muted-foreground">
+                  <div className="text-2xs text-muted-foreground">
                     (P: {monthlyData.presentDays}, H: {monthlyData.holidayDays}, PL: {monthlyData.paidLeaveDays})
                   </div>
                   
                   <div className="space-y-1 pt-2 border-t">
                     <div className="flex justify-between text-xs">
                       <span className="text-muted-foreground">Current Earnings:</span>
-                      <span className="font-medium">₹{monthlyData.currentEarnings.toLocaleString()}</span>
+                      <span className="font-medium">₹{(monthlyData.currentEarnings || 0).toLocaleString()}</span>
                     </div>
                     {monthlyData.lastMonthPending !== 0 && (
                       <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Last Month Pending:</span>
-                        <span className={`font-medium ${monthlyData.lastMonthPending > 0 ? 'text-amber-600' : 'text-blue-600'}`}>
-                          {monthlyData.lastMonthPending > 0 ? '+' : ''}₹{monthlyData.lastMonthPending.toLocaleString()}
+                        <span className={`font-medium ${monthlyData.lastMonthPending > 0 ? 'text-amber-600' : 'text-primary'}`}>
+                          {monthlyData.lastMonthPending > 0 ? '+' : ''}₹{(monthlyData.lastMonthPending || 0).toLocaleString()}
                         </span>
                       </div>
                     )}
                     <div className="flex justify-between text-sm font-semibold pt-1">
                       <span>Total Payable:</span>
-                      <span className="text-primary">₹{monthlyData.totalPayable.toLocaleString()}</span>
+                      <span className="text-primary">₹{(monthlyData.totalPayable || 0).toLocaleString()}</span>
                     </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full mt-2 text-xs"
+                      disabled={!monthlyData.totalPayable || monthlyData.totalPayable <= 0}
+                      onClick={() => postPayrollSummaryAsExpense(emp)}
+                    >
+                      Post salary expense
+                    </Button>
                   </div>
                   
                   {/* Paid Leave Status Indicator */}
                   <div className="flex items-center justify-between text-xs pt-2 border-t">
                     <span className="text-muted-foreground">Paid Leave ({format(selectedDate, 'MMM')})</span>
                     {paidLeaves.length === 0 ? (
-                      <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-500/20">
+                      <Badge variant="outline" className="text-2xs bg-primary/10 text-primary border-primary/20">
                         1/1 Available
                       </Badge>
                     ) : (
-                      <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-600 border-amber-500/20">
+                      <Badge variant="outline" className="text-2xs bg-amber-500/10 text-amber-600 border-amber-500/20">
                         <Gift className="w-3 h-3 mr-1" />
-                        {paidLeaves.length} Used ({paidLeaves.map(pl => format(new Date(pl.date), 'dd')).join(', ')})
+                        {paidLeaves.length} Used ({paidLeaves.map(pl => formatUiDate(pl.date, "dd")).join(', ')})
                       </Badge>
                     )}
                   </div>
@@ -1053,7 +1145,7 @@ const Attendance = () => {
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-medium text-foreground">Today's Date</p>
-                    <p className="text-lg font-semibold text-primary">{format(new Date(), "dd MMM, yyyy")}</p>
+                    <p className="text-lg font-semibold text-primary">{formatUiDate(new Date(), "dd MMM, yyyy")}</p>
                   </div>
                   <Button 
                     className="bg-primary text-primary-foreground w-full sm:w-auto"

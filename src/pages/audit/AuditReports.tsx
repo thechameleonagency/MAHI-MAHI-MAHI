@@ -7,9 +7,27 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Download, FileText, TrendingUp, Package, Scale, BookOpen, Wallet, HardDrive, IndianRupee, FileSpreadsheet } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import {
+  buildCashBankEntries,
+  computeGstSummary,
+  computeProfitLoss,
+  debtorCreditorSummary,
+} from "@/lib/audit";
 
 const AuditReports = () => {
-  const { invoices, saleBills, expenses, incomes, vendorBills, inventoryItems, tools, payments } = useAppData();
+  const {
+    invoices,
+    saleBills,
+    expenses,
+    incomes,
+    vendorBills,
+    inventoryItems,
+    tools,
+    payments,
+    vendorPayments,
+    loanRepayments,
+    materialDamageRecords,
+  } = useAppData();
 
   const downloadCSV = (data: Record<string, any>[], filename: string) => {
     if (data.length === 0) {
@@ -68,14 +86,33 @@ const AuditReports = () => {
       icon: TrendingUp,
       records: null,
       onExport: () => {
-        const allInv = [...invoices, ...saleBills];
-        const revenue = allInv.reduce((s, i) => s + i.total, 0);
-        const totalExp = expenses.reduce((s, e) => s + e.amount, 0);
-        downloadCSV([
-          { "Line Item": "Total Revenue", Amount: revenue },
-          { "Line Item": "Total Expenses", Amount: totalExp },
-          { "Line Item": "Net Profit", Amount: revenue - totalExp },
-        ], "profit_loss");
+        const pl = computeProfitLoss(
+          {
+            invoices,
+            saleBills,
+            expenses,
+            incomes,
+            vendorBills,
+            inventoryItems,
+            materialDamageRecords,
+            payments,
+          },
+          () => true,
+          "accrual",
+        );
+        downloadCSV(
+          [
+            { "Line Item": "Revenue (accrual)", Amount: pl.revenueTotal },
+            { "Line Item": "COGS", Amount: pl.cogs },
+            { "Line Item": "Damage write-off", Amount: pl.damageWriteOff },
+            { "Line Item": "Agent / commission", Amount: pl.agentAndCommission },
+            { "Line Item": "Partner share", Amount: pl.partnerShare },
+            { "Line Item": "Direct expenses", Amount: pl.totalDirect },
+            { "Line Item": "Indirect expenses", Amount: pl.totalIndirect },
+            { "Line Item": "Net profit", Amount: pl.netProfit },
+          ],
+          "profit_loss",
+        );
       },
     },
     {
@@ -83,12 +120,21 @@ const AuditReports = () => {
       description: "Outstanding receivables from customers",
       icon: Scale,
       records: [...invoices, ...saleBills].filter(i => i.status !== "paid").length,
-      onExport: () => downloadCSV(
-        [...invoices, ...saleBills].filter(i => i.status !== "paid").map(inv => ({
-          Customer: inv.customerName, "Invoice #": inv.invoiceNumber,
-          Total: inv.total, Received: inv.amountReceived, Outstanding: inv.total - inv.amountReceived,
-          "Due Date": inv.dueDate || "", Status: inv.status,
-        })), "debtors_report"),
+      onExport: () => {
+        const dc = debtorCreditorSummary(invoices, saleBills, vendorBills);
+        downloadCSV(
+          dc.debtors.map((inv) => ({
+            Customer: inv.customerName,
+            "Invoice #": inv.invoiceNumber,
+            Total: inv.total,
+            Received: inv.amountReceived ?? 0,
+            Outstanding: inv.outstanding,
+            "Days overdue": inv.daysOverdue,
+            Status: inv.status,
+          })),
+          "debtors_report",
+        );
+      },
     },
     {
       title: "Creditors Report",
@@ -120,14 +166,16 @@ const AuditReports = () => {
       icon: BookOpen,
       records: null,
       onExport: () => {
-        const allInv = [...invoices, ...saleBills];
-        const outputGST = allInv.reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
-        const inputGST = vendorBills.reduce((s, b) => s + (b.gst || 0), 0);
-        downloadCSV([
-          { Item: "Output GST (CGST+SGST+IGST)", Amount: outputGST },
-          { Item: "Input GST Credit", Amount: inputGST },
-          { Item: "Net GST Payable", Amount: outputGST - inputGST },
-        ], "gst_summary");
+        const gst = computeGstSummary(invoices, saleBills, vendorBills, () => true);
+        downloadCSV(
+          [
+            { Item: "Output GST (CGST+SGST+IGST)", Amount: gst.outputGST },
+            { Item: "Input GST Credit", Amount: gst.inputGST },
+            { Item: "Net GST Payable", Amount: gst.netPayable },
+            { Item: "Reverse-charge bills (notes)", Amount: gst.reverseChargeCount },
+          ],
+          "gst_summary",
+        );
       },
     },
     {
@@ -158,13 +206,28 @@ const AuditReports = () => {
       title: "Cash & Bank Ledger",
       description: "All payment transactions",
       icon: Wallet,
-      records: payments.length,
-      onExport: () => downloadCSV(
-        payments.map(p => ({
-          Date: p.date, Type: p.direction === "in" ? "Received" : "Paid", Amount: p.amount, Mode: p.paymentMode,
-          Counterparty: p.counterpartyName || "",
-          Project: p.projectName || "", Reference: p.reference || "",
-        })), "cash_bank_ledger"),
+      records: buildCashBankEntries({ payments, expenses, incomes, vendorPayments, loanRepayments }).length,
+      onExport: () => {
+        const rows = buildCashBankEntries({
+          payments,
+          expenses,
+          incomes,
+          vendorPayments,
+          loanRepayments,
+        });
+        downloadCSV(
+          rows.map((r) => ({
+            Date: r.date,
+            Description: r.description,
+            Account: r.account,
+            Debit: r.debit,
+            Credit: r.credit,
+            Type: r.type,
+            Reference: r.reference,
+          })),
+          "cash_bank_ledger",
+        );
+      },
     },
   ];
 

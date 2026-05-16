@@ -1,73 +1,72 @@
 import type { Partner, PartnerTransaction } from "@/types/finance";
 
-/** How MSS classifies operational partners vs project economics (aligned with Partnership EPC flows). */
-export type PartnerCategory = "equity" | "execution" | "supply";
+/**
+ * Partners are deal-bringers only — Profit-Share and Fixed-Rate.
+ * Subcontractor and Channel are retained for execution/network roles.
+ * Vendorship code companies and INC-Giver companies are separate entity types (not partners).
+ */
+export type PartnerCategory = "deal-bringer" | "execution" | "network";
 
 export const PARTNER_CATEGORY_LABELS: Record<PartnerCategory, string> = {
-  equity: "Equity & capital",
-  execution: "EPC execution",
-  supply: "Supply & services",
+  "deal-bringer": "Brings deals / clients",
+  execution: "Execution & labour",
+  network: "Network & commissions",
 };
 
 export const partnerCategoryOfType = (t: Partner["type"]): PartnerCategory => {
   switch (t) {
-    case "Investor":
-    case "Co-Owner":
-    case "Money-Only":
-      return "equity";
-    case "Contractor":
+    case "Profit-Share":
+    case "Fixed-Rate":
+      return "deal-bringer";
+    case "Subcontractor":
       return "execution";
+    case "Channel":
+      return "network";
     default:
-      return "supply";
+      return "deal-bringer";
   }
 };
 
 export const PARTNER_TYPES_ORDERED: Partner["type"][] = [
-  "Investor",
-  "Co-Owner",
-  "Money-Only",
-  "Contractor",
-  "Service-Provider",
-  "Material-Provider",
-  "Labour-Provider",
-  "Transport-Provider",
+  "Profit-Share",
+  "Fixed-Rate",
+  "Channel",
+  "Subcontractor",
 ];
 
-/** One-line expectation for list/detail copy (product language, matches BRD themes). */
 export const PARTNER_TYPE_PURPOSE: Record<Partner["type"], string> = {
-  "Investor": "Adds capital against agreed share — profit settled from company pool.",
-  "Co-Owner": "Operational co-promoter — vote on economics alongside MSS on shared projects.",
-  "Money-Only": "Passive capital partner — cheque/equity only; no operational control.",
-  Contractor: "Subcontracts part or whole of EPC delivery — billed on milestones / completion.",
-  "Service-Provider": "Design, approvals, AMC, or liaison — fee or success-based.",
-  "Material-Provider": "Structured supply bills (panels, structural, cabling) booked to project.",
-  "Labour-Provider": "Specialist labour gangs / OEM crews — routed through WO and site.",
-  "Transport-Provider": "Site logistics freight — billed per lift or KM slab.",
+  "Profit-Share":
+    "Brings clients for partner EPC projects. Profit is split by agreed % after MSS costs. Partner invoices MSS for their share (or we deduct 9% if no GST invoice).",
+  "Fixed-Rate":
+    "Brings clients at their own sell price. MSS gets a fixed ₹/kW backend rate. Partner keeps the margin above our rate.",
+  Channel:
+    "Part of our vendor network. Manages external execution with a commission-based arrangement.",
+  Subcontractor:
+    "We give them our installation work to execute. They handle on-ground delivery and are paid by MSS.",
 };
 
-/** Allowed settlement line types shown in dialogs (Finance model must stay consistent). */
+export const PARTNER_TYPE_DEAL_AFFINITY: Record<Partner["type"], string[]> = {
+  "Profit-Share": ["PARTNER_EPC"],
+  "Fixed-Rate": ["FIXED_EPC"],
+  Channel: ["VENDOR_NETWORK"],
+  Subcontractor: ["OUTSOURCED_INC"],
+};
+
 export function partnerSettlementKinds(type: Partner["type"]): PartnerTransaction["type"][] {
   switch (type) {
-    case "Investor":
-    case "Co-Owner":
-    case "Money-Only":
-      return ["Investment", "Profit Payment", "Investment Return", "Expense Return"];
-    case "Contractor":
+    case "Profit-Share":
+      return ["Profit Payment", "Expense Return", "Investment"];
+    case "Fixed-Rate":
       return ["Profit Payment", "Expense Return"];
-    case "Material-Provider":
-      return ["Material Supply", "Profit Payment"];
-    case "Labour-Provider":
-      return ["Labour Supply", "Profit Payment"];
-    case "Transport-Provider":
-      return ["Transport Supply", "Profit Payment"];
-    case "Service-Provider":
-      return ["Expense Return", "Profit Payment", "Investment Return"];
+    case "Channel":
+      return ["Profit Payment", "Expense Return"];
+    case "Subcontractor":
+      return ["Profit Payment", "Expense Return"];
     default:
       return ["Profit Payment"];
   }
 }
 
-/** Primary toolbar actions on Partner detail — keys drive UI/dialogs. */
 export type PartnerUiAction =
   | "record_settlement"
   | "capital_call"
@@ -80,61 +79,39 @@ export function partnerToolbarActions(type: Partner["type"]): { key: PartnerUiAc
     description: "See roles on linked projects below.",
   };
   switch (type) {
-    case "Investor":
-    case "Money-Only":
+    case "Profit-Share":
       return [
         {
-          key: "capital_call",
-          label: "Capital / drawdown",
-          description: "Record fresh investment routed to MSS pool or a site bucket.",
-        },
-        {
           key: "record_settlement",
-          label: "Settle dues",
-          description: "Profit distribution or return-of-capital with voucher backing.",
+          label: "Settle profit share",
+          description: "Distribute agreed profit percentage for completed projects.",
         },
         baseNote,
       ];
-    case "Co-Owner":
+    case "Fixed-Rate":
       return [
         {
-          key: "capital_call",
-          label: "Equity contribution",
-          description: "Log additional promoter equity for an active project.",
-        },
-        {
           key: "record_settlement",
-          label: "Partner settlement",
-          description: "Share of profit, expense recovery, or internal transfer.",
+          label: "Pay backend amount",
+          description: "Settlement of the fixed backend rate for delivered projects.",
         },
         baseNote,
       ];
-    case "Contractor":
+    case "Channel":
       return [
         {
           key: "record_settlement",
-          label: "Pay contractor",
-          description: "Milestone or net-off against scope (maps to partner settlement).",
+          label: "Record commission",
+          description: "Commission payment for network-managed project execution.",
         },
         baseNote,
       ];
-    case "Material-Provider":
-    case "Labour-Provider":
-    case "Transport-Provider":
+    case "Subcontractor":
       return [
         {
           key: "record_settlement",
-          label: "Record inward supply",
-          description: `Log ${type.includes("Labour") ? "labour WO" : type.includes("Transport") ? "freight invoice" : "material bill"} against GST line.`,
-        },
-        baseNote,
-      ];
-    case "Service-Provider":
-      return [
-        {
-          key: "record_settlement",
-          label: "Service fee / commission",
-          description: "Channel, design retainers, liaison — matches Expense Return / Profit Payment.",
+          label: "Pay subcontractor",
+          description: "Payment to the subcontractor for installation work they executed.",
         },
         baseNote,
       ];

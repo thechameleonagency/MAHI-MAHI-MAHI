@@ -15,6 +15,12 @@ export interface Customer {
   amountReceived?: number;
   lastPurchase?: string;
   createdAt: string;
+  /** Differentiates project (solar install) customers from inventory-only buyers; defaults to 'project'. */
+  customerKind?: "project" | "inventory" | "both";
+  /** Set when the customer is archived (last linked project completed). null/undefined = active. */
+  archivedAt?: string | null;
+  /** Cache for fast auto-archive evaluation. */
+  lastProjectCompletedAt?: string;
 }
 
 export interface InvoiceItem {
@@ -58,7 +64,7 @@ export interface Invoice {
   amountReceived?: number;
   receivedIn?: string;
   receivedDate?: string;
-  status: "pending" | "partial" | "paid" | "overdue" | "overpaid";
+  status: "draft" | "pending" | "partial" | "paid" | "overdue" | "overpaid" | "voided";
   invoiceDate: string;
   dueDate: string;
   createdAt: string;
@@ -83,6 +89,8 @@ export interface Payment {
   projectId?: string;
   projectName?: string;
   invoiceId?: string;
+  /** When a project income row matches this payment (same project, amount, date). */
+  linkedIncomeId?: string;
   vendorBillId?: string;
   loanId?: string;
 }
@@ -184,6 +192,8 @@ export interface Income {
   reimbursementStatus?: "pending" | "paid";
   isOutgoing?: boolean;
   createdAt: string;
+  /** When a customer payment row matches this income (same project, amount, date). */
+  linkedPaymentId?: string;
 }
 
 export interface PartnerSiteInvestment {
@@ -229,6 +239,8 @@ export interface Loan {
   id: string;
   source: string;
   sourceType: "bank" | "person" | "partner" | "nbfc" | "other";
+  /** Stable, opaque key for the loan counterparty so list and detail views agree on identity (C6). */
+  personId?: string;
   personName?: string;
   personContact?: string;
   principal: number;
@@ -240,6 +252,9 @@ export interface Loan {
   reminderDate?: string;
   reminderNotes?: string;
   startDate: string;
+  /** EMIs already paid by the borrower at the time this loan was recorded in the system.
+   *  Used to back-fill an accurate outstanding for in-flight EMI loans. */
+  emisPaidAlready?: number;
   outstanding: number;
   status: "Active" | "Closed";
 }
@@ -408,4 +423,14 @@ export interface EmployeePayrollRecord {
   paidDate: string;
   mode: "cash" | "bank_transfer" | "cheque" | "upi" | "other";
   notes?: string;
+}
+
+export interface EmployeeWalletLedgerEntry {
+  id: string;
+  employeeId: number;
+  date: string;
+  kind: "advance" | "recovery" | "adjustment";
+  amount: number;
+  notes?: string;
+  createdAt: string;
 }

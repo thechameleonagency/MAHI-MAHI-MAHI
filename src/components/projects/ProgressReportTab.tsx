@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
-import { AlertTriangle, Check, Clock, Plus, Flag, Users, Calendar, MapPin, ChevronDown, ChevronRight, FileText, Phone, Briefcase, CheckCircle2, XCircle, Circle, IndianRupee, RotateCcw, User, Wrench, Zap, Camera, Video, Image, Tag, ClipboardList } from "lucide-react";
+import { AlertTriangle, Check, Clock, Plus, Flag, Users, Calendar, MapPin, ChevronDown, ChevronRight, FileText, Briefcase, CheckCircle2, XCircle, Circle, IndianRupee, RotateCcw, User, Wrench, Zap, Camera, Video } from "lucide-react";
 import { ImageViewerModal } from "@/components/shared/ImageViewerModal";
 import { TaskAssignmentModal } from "@/components/employees/TaskAssignmentModal";
 import { Button } from "@/components/ui/button";
@@ -14,14 +14,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "@/hooks/use-toast";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
+import { formatUiDate } from "@/lib/formatUiDate";
 import type {
   Blockage,
   Ticket,
   ProjectTimelineStatus,
-  WorkStatusApprovalInfo,
+  _WorkStatusApprovalInfo,
   WorkStatusApprovalStatus,
 } from "@/types/blockage";
 import { WORK_STATUS_STAGES, BLOCKAGE_TIMELINE_STAGES, DEFAULT_CUSTOM_STAGE_TAGS, type CustomBlockageStageTag } from "@/types/blockage";
@@ -374,7 +374,7 @@ export function ProgressReportTab({
   const activeBlockages = blockages.filter(b => b.status === "active");
   const resolvedBlockages = blockages.filter(b => b.status === "resolved");
   const pendingTickets = tickets.filter(t => t.status === "pending" || t.status === "in-progress");
-  const completedTickets = tickets.filter(t => t.status === "completed");
+  const _completedTickets = tickets.filter(t => t.status === "completed");
   const activeTickets = tickets.filter(t => t.status !== "completed" && t.status !== "cancelled");
   const resolvedTickets = tickets.filter(t => t.status === "completed" || t.status === "cancelled");
 
@@ -607,7 +607,7 @@ export function ProgressReportTab({
     const prev = workStatusApprovals;
     const photoN = photoUrls?.length ?? photoCount ?? 0;
     const videoN = videoUrls?.length ?? 0;
-    const count = photoN + videoN;
+    const _count = photoN + videoN;
     const hasMedia = photoN > 0 || videoN > 0;
     const subStatus: WorkStatusApprovalStatus =
       isAdmin ? "approved" : hasMedia ? "requested" : "pending";
@@ -842,7 +842,7 @@ export function ProgressReportTab({
   };
   
   // Get pending transport count (placeholder - would need to know expected quantity)
-  const getPendingTransportCount = (stageKey: string): number => {
+  const _getPendingTransportCount = (stageKey: string): number => {
     // For now, return a static demo value
     const transported = getTransportedCount(stageKey);
     return transported > 0 ? Math.max(0, 5 - transported) : 0;
@@ -1641,7 +1641,7 @@ export function ProgressReportTab({
                       <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          Due: {format(new Date(ticket.dueDate), "dd MMM")}
+                          Due: {formatUiDate(ticket.dueDate, "dd MMM")}
                           {ticket.dueTime && ` at ${ticket.dueTime}`}
                         </span>
                         <span className="flex items-center gap-1">
@@ -1821,7 +1821,7 @@ export function ProgressReportTab({
                             <p className="text-2xs text-muted-foreground">Resolve By</p>
                             <p className="font-medium">
                               {blockage.resolveByDate 
-                                ? format(new Date(blockage.resolveByDate), "dd MMM yyyy")
+                                ? formatUiDate(blockage.resolveByDate)
                                 : 'Not set'
                               }
                             </p>
@@ -1856,10 +1856,10 @@ export function ProgressReportTab({
             <div className="space-y-4">
               {resolvedBlockages.map(blockage => {
                 const resolvedDate = blockage.resolvedAt 
-                  ? format(new Date(blockage.resolvedAt), "dd MMM yyyy")
+                  ? formatUiDate(blockage.resolvedAt)
                   : 'Unknown';
                 const createdDate = blockage.createdAt 
-                  ? format(new Date(blockage.createdAt), "dd MMM yyyy")
+                  ? formatUiDate(blockage.createdAt)
                   : 'Unknown';
                 
                 return (
@@ -2011,7 +2011,7 @@ export function ProgressReportTab({
                                 </Badge>
                               </div>
                               <p className="text-xs text-muted-foreground">
-                                {ticket.taskType === "custom" ? ticket.customTaskType : ticket.taskType} • Due: {format(new Date(ticket.dueDate), "dd MMM yyyy")}
+                                {ticket.taskType === "custom" ? ticket.customTaskType : ticket.taskType} • Due: {formatUiDate(ticket.dueDate)}
                               </p>
                             </div>
                             <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
@@ -2050,7 +2050,7 @@ export function ProgressReportTab({
                             </div>
                             <p className="text-xs text-muted-foreground">
                               {ticket.taskType === "custom" ? ticket.customTaskType : ticket.taskType}
-                              {ticket.completedAt && ` • Completed: ${format(new Date(ticket.completedAt), "dd MMM yyyy")}`}
+                              {ticket.completedAt && ` • Completed: ${formatUiDate(ticket.completedAt)}`}
                             </p>
                           </div>
                         </div>
@@ -2114,7 +2114,7 @@ export function ProgressReportTab({
                       <span className="text-muted-foreground">-</span>
                     </div>
                     
-                    {FILE_LOGIN_STEPS.map((step, idx) => {
+                    {FILE_LOGIN_STEPS.map((step, _idx) => {
                       const currentIndex = FILE_LOGIN_STEPS.findIndex(s => s.value === fileLogin);
                       const stepIndex = FILE_LOGIN_STEPS.findIndex(s => s.value === step.value);
                       const isComplete = fileLogin === "complete" || stepIndex < currentIndex;
@@ -2707,7 +2707,7 @@ export function ProgressReportTab({
                                               <>
                                                 <span>•</span>
                                                 <span>
-                                                  {format(new Date(subApproval.updatedAt), "dd MMM, h:mm a")}
+                                                  {formatUiDate(subApproval.updatedAt, "dd MMM, h:mm a")}
                                                 </span>
                                               </>
                                             )}
@@ -2774,7 +2774,7 @@ export function ProgressReportTab({
                               </div>
                               {approval?.approvedByName && (
                                 <div className="mt-1 text-muted-foreground">
-                                  Confirmed by: {approval.approvedByName} • {approval.approvedAt && format(new Date(approval.approvedAt), "dd MMM yyyy, h:mm a")}
+                                  Confirmed by: {approval.approvedByName} • {approval.approvedAt && formatUiDate(approval.approvedAt, "dd MMM yyyy, h:mm a")}
                                 </div>
                               )}
                             </div>
@@ -3276,7 +3276,7 @@ export function ProgressReportTab({
                               {blockage.resolvedAt && (
                                 <span className="flex items-center gap-1">
                                   <Calendar className="w-3 h-3" />
-                                  Resolved: {format(new Date(blockage.resolvedAt), "dd MMM yyyy")}
+                                  Resolved: {formatUiDate(blockage.resolvedAt)}
                                 </span>
                               )}
                               {blockage.resolvedByName && (

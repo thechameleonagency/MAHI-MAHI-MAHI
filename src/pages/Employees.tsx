@@ -1,7 +1,6 @@
-import { useMemo, useState } from "react";
-import { Plus, MapPin, User, Briefcase, Upload, X, ChevronLeft, ChevronRight, IndianRupee, AlertCircle, Check, Filter, ClipboardList } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, User, Briefcase, Upload, X, ChevronLeft, ChevronRight, IndianRupee, AlertCircle, Check, Filter, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,6 +10,7 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,6 +18,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useNavigate } from "react-router-dom";
 import { format, addDays, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameDay } from "date-fns";
 import { useAppData } from "@/contexts/AppDataContext";
+import { toast } from "@/hooks/use-toast";
+import { validateContactPhone } from "@/lib/phoneValidators";
+import type { Employee } from "@/types/project";
+import type { EmployeePayrollRecord } from "@/types/finance";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
@@ -34,21 +38,69 @@ interface UploadedDoc {
 
 const Employees = () => {
   const navigate = useNavigate();
-  const { employees: contextEmployees, sites } = useAppData();
-  
+  const { employees: contextEmployees, attendanceRecords, expenses: contextExpenses, sites, addEmployee, addEmployeePayrollRecord, updateEmployee, addExpense, generateId } = useAppData();
+
   // Use context employees with extended fields for display
   const employees = contextEmployees.map(emp => ({
     ...emp,
     site: "Office / Idle",
     wallet: emp.pendingAmount || 0,
-    initial: emp.name.charAt(0),
-    aadhar: "",
-    dob: "",
-    joiningDate: "",
-    daysPresent: 22,
-    daysAbsent: 3,
-    holidays: 5,
+    initial: emp.initial || emp.name.charAt(0),
+    aadhar: emp.aadhar || "",
+    dob: emp.dob || "",
+    joiningDate: emp.joiningDate || "",
+    daysPresent: attendanceRecords.filter(r => r.employeeId === emp.id && r.status === "present").length,
+    daysAbsent: attendanceRecords.filter(r => r.employeeId === emp.id && r.status === "absent").length,
+    holidays: attendanceRecords.filter(r => r.employeeId === emp.id && r.status === "holiday").length,
   }));
+
+  const refMonthPrefix = format(new Date(), "yyyy-MM");
+  const payrollRowExtras = useMemo(() => {
+    const map = new Map<number, { currentSite: string; hoursThisMonth: number }>();
+    for (const emp of contextEmployees) {
+      const monthRecs = attendanceRecords.filter((r) => r.employeeId === emp.id && r.date.startsWith(refMonthPrefix));
+      let hours = 0;
+      for (const r of monthRecs) {
+        if (r.status === "present") hours += 8;
+        else if (r.status === "half-day") hours += 4;
+      }
+      const pick = [...attendanceRecords]
+        .filter((r) => r.employeeId === emp.id && (r.status === "present" || r.status === "half-day"))
+        .sort((a, b) => b.date.localeCompare(a.date))[0];
+      const site = pick?.sites?.[0]?.trim() || "—";
+      map.set(emp.id, { currentSite: site, hoursThisMonth: hours });
+    }
+    return map;
+  }, [contextEmployees, attendanceRecords, refMonthPrefix]);
+
+  // Build deployment data: employees with weekly schedule derived from attendance
+  const deploymentData = useMemo(() => {
+    return contextEmployees.map(emp => {
+      const schedule = Array.from({ length: 31 }, (_, day) => {
+        const dateStr = `2024-12-${String(day + 1).padStart(2, "0")}`;
+        const rec = attendanceRecords.find(r => r.employeeId === emp.id && r.date === dateStr);
+        if (!rec) return "-";
+        if (rec.status === "holiday") return "Holiday";
+        if (rec.status === "absent") return "-";
+        return "Office";
+      });
+      return { id: emp.id, name: emp.name, role: emp.role, avatar: (emp.initial || emp.name.charAt(0)), schedule };
+    });
+  }, [contextEmployees, attendanceRecords]);
+
+  // Build payroll months: last 12 months with pending salary per employee (filled per selected employee)
+  const payrollMonthsList = useMemo(() => {
+    const months = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({
+        value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: d.toLocaleString("en-IN", { month: "long", year: "numeric" }),
+      });
+    }
+    return months;
+  }, []);
 
   const [activeTab, setActiveTab] = useState("payroll");
   const [isAddEmployeeOpen, setIsAddEmployeeOpen] = useState(false);
@@ -66,14 +118,69 @@ const Employees = () => {
   const [expenseCategory, setExpenseCategory] = useState("");
   const [expenseItem, setExpenseItem] = useState("");
   const [expenseCostAllocation, setExpenseCostAllocation] = useState("reimburse");
-  const [isInventoryItem, setIsInventoryItem] = useState(false);
+  const [_isInventoryItem, setIsInventoryItem] = useState(false);
   const [expenseWhoPaid, setExpenseWhoPaid] = useState("company");
   const [expenseAmount, setExpenseAmount] = useState("");
   
   // Pay salary form state
   const [selectedMonths, setSelectedMonths] = useState<string[]>(["dec-2024"]);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paymentMode, setPaymentMode] = useState<EmployeePayrollRecord["mode"]>("cash");
+  const [paymentNotes, setPaymentNotes] = useState("");
+
+  /** E3: when employee + month(s) are selected in Pay Salary, pre-fill amount from attendance and net of advances. */
+  useEffect(() => {
+    if (!isPaySalaryOpen || !selectedEmployeeForPayment || selectedMonths.length === 0) return;
+    const emp = contextEmployees.find((e) => e.id === selectedEmployeeForPayment.id);
+    if (!emp) return;
+    const dailyRate = (emp.salary || 0) / 26;
+    let daysPresent = 0;
+    selectedMonths.forEach((mv) => {
+      attendanceRecords.forEach((r) => {
+        if (r.employeeId !== emp.id || !r.date.startsWith(mv)) return;
+        if (r.status === "present" || r.status === "paid_leave") daysPresent += 1;
+      });
+    });
+    const advanceTotal = contextExpenses.reduce((sum, ex) => {
+      if (String(ex.employeeId) !== String(emp.id)) return sum;
+      const cat = (ex.category || "").toLowerCase();
+      if (!cat.includes("advance")) return sum;
+      if (!selectedMonths.some((mv) => ex.date?.startsWith(mv))) return sum;
+      return sum + (ex.amount || 0);
+    }, 0);
+    const suggested = Math.max(0, Math.round(daysPresent * dailyRate - advanceTotal));
+    setPaymentAmount(String(suggested));
+  }, [isPaySalaryOpen, selectedEmployeeForPayment, selectedMonths, contextEmployees, attendanceRecords, contextExpenses]);
+
+  // Add employee form state (B9 — was fully uncontrolled)
+  const [newEmpName, setNewEmpName] = useState("");
+  const [newEmpPhone, setNewEmpPhone] = useState("");
+  const [newEmpAddress, setNewEmpAddress] = useState("");
+  const [newEmpAadhar, setNewEmpAadhar] = useState("");
+  const [newEmpDob, setNewEmpDob] = useState("");
+  const [newEmpAltPhone, setNewEmpAltPhone] = useState("");
+  const [newEmpSalary, setNewEmpSalary] = useState("");
+  const [newEmpRole, setNewEmpRole] = useState("");
+  const [newEmpJoiningDate, setNewEmpJoiningDate] = useState(new Date().toISOString().slice(0, 10));
   
+  // Months for Pay Salary modal: last 12 months with pending amount per selected employee
+  const months = useMemo(() => {
+    if (!selectedEmployeeForPayment) return payrollMonthsList.map(m => ({ ...m, pending: 0 }));
+    const emp = contextEmployees.find(e => e.id === selectedEmployeeForPayment.id);
+    if (!emp) return payrollMonthsList.map(m => ({ ...m, pending: 0 }));
+    const dailyRate = (emp.salary || 0) / 26;
+    return payrollMonthsList.map(m => {
+      const present = attendanceRecords.filter(r =>
+        r.employeeId === emp.id &&
+        r.status === "present" &&
+        r.date.startsWith(m.value)
+      ).length;
+      const computed = Math.round(present * dailyRate);
+      return { ...m, pending: computed };
+    });
+  }, [selectedEmployeeForPayment, contextEmployees, attendanceRecords, payrollMonthsList]);
+
   // Week navigation state
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
   
@@ -84,6 +191,12 @@ const Employees = () => {
   const [payrollPageSize, setPayrollPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [deploymentPage, setDeploymentPage] = useState(1);
   const [deploymentPageSize, setDeploymentPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+
+  const [shellReady, setShellReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setShellReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
   
   // Upload docs state
   const [uploadedAadhar, setUploadedAadhar] = useState<UploadedDoc | null>({ name: "aadhar_front.jpg", preview: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=150&h=100&fit=crop" });
@@ -118,8 +231,43 @@ const Employees = () => {
   };
 
   const handleSaveEmployee = () => {
+    if (!newEmpName.trim() || !newEmpRole) return;
+    const mainPh = validateContactPhone(newEmpPhone);
+    if (!mainPh.ok) {
+      toast({ title: "Invalid phone", description: (mainPh as { message: string }).message, variant: "destructive" });
+      return;
+    }
+    const altPh = validateContactPhone(newEmpAltPhone);
+    if (!altPh.ok) {
+      toast({ title: "Invalid alternate phone", description: (altPh as { message: string }).message, variant: "destructive" });
+      return;
+    }
+    const newEmployee: Employee = {
+      id: Date.now(),
+      name: newEmpName.trim(),
+      initial: newEmpName.trim().charAt(0).toUpperCase(),
+      role: newEmpRole,
+      phone: newEmpPhone,
+      email: "",
+      status: "Active",
+      site: "Office / Idle",
+      salary: parseFloat(newEmpSalary) || 0,
+      wallet: 0,
+      aadhar: newEmpAadhar,
+      dob: newEmpDob,
+      joiningDate: newEmpJoiningDate,
+      daysPresent: 0,
+      daysAbsent: 0,
+      holidays: 0,
+      advancePaid: 0,
+      pendingAmount: parseFloat(newEmpSalary) || 0,
+    };
+    addEmployee(newEmployee);
     setIsAddEmployeeOpen(false);
     setIsEmployeeSavedOpen(true);
+    setNewEmpName(""); setNewEmpPhone(""); setNewEmpAddress("");
+    setNewEmpAadhar(""); setNewEmpDob(""); setNewEmpAltPhone("");
+    setNewEmpSalary(""); setNewEmpRole(""); setNewEmpJoiningDate(new Date().toISOString().slice(0, 10));
   };
 
   const handleAddExpense = (emp: typeof employees[0]) => {
@@ -136,14 +284,17 @@ const Employees = () => {
 
   const handlePaySalary = (emp: typeof employees[0]) => {
     setSelectedEmployeeForPayment(emp);
-    // Smart default selection
-    const pendingMonths = months.filter(m => m.pending > 0);
-    if (pendingMonths.length > 0) {
-      setSelectedMonths([pendingMonths[0].value]);
-    } else {
-      setSelectedMonths(["dec-2024"]);
-    }
-    setPaymentAmount(emp.pendingAmount > 0 ? emp.pendingAmount.toString() : "");
+    // Default to current month
+    const now = new Date();
+    const currentMonthVal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    setSelectedMonths([currentMonthVal]);
+    // Auto-fill: compute this month's salary from attendance
+    const dailyRate = (emp.salary || 0) / 26;
+    const presentThisMonth = attendanceRecords.filter(
+      r => r.employeeId === emp.id && r.status === "present" && r.date.startsWith(currentMonthVal)
+    ).length;
+    const autoAmount = presentThisMonth > 0 ? Math.round(presentThisMonth * dailyRate) : (emp.pendingAmount > 0 ? emp.pendingAmount : emp.salary || 0);
+    setPaymentAmount(autoAmount.toString());
     setIsPaySalaryOpen(true);
   };
 
@@ -272,7 +423,7 @@ const Employees = () => {
         {/* Payroll Tab */}
         <TabsContent value="payroll" className="pt-4 md:pt-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-4">
-            <h2 className="text-base md:text-lg font-semibold">Salary & Payroll (Dec 2024)</h2>
+            <h2 className="text-base md:text-lg font-semibold">Salary & Payroll ({format(new Date(), "MMM yyyy")})</h2>
           </div>
 
           <DataTableShell
@@ -298,13 +449,32 @@ const Employees = () => {
                 <TableHead className="text-center min-w-[60px]">Present</TableHead>
                 <TableHead className="text-center min-w-[60px]">Absent</TableHead>
                 <TableHead className="text-center min-w-[60px]">Holiday</TableHead>
+                <TableHead className="min-w-[120px]">Current site</TableHead>
+                <TableHead className="text-right min-w-[72px]" title="Estimated hours from attendance this calendar month (8h per present day, 4h per half-day).">
+                  Hrs / mo
+                </TableHead>
                 <TableHead className="text-right min-w-[100px]">Pending</TableHead>
                 <TableHead className="text-right min-w-[80px]">Advance</TableHead>
                 <TableHead className="min-w-[200px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-                {pagedEmployees.map((emp) => (
+              {!shellReady ? (
+                Array.from({ length: Math.min(payrollPageSize, 5) }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 10 }).map((_, j) => (
+                      <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : pagedEmployees.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                    No employees found.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pagedEmployees.map((emp) => (
                   <TableRow key={emp.id} className="cursor-pointer hover:bg-muted/50" onClick={() => handleEmployeeClick(emp.id)}>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleEmployeeClick(emp.id)}>
@@ -322,6 +492,12 @@ const Employees = () => {
                     <TableCell className="text-center text-primary font-medium">{emp.daysPresent}</TableCell>
                     <TableCell className="text-center text-destructive font-medium">{emp.daysAbsent}</TableCell>
                     <TableCell className="text-center text-muted-foreground">{emp.holidays}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[140px] truncate" title={payrollRowExtras.get(emp.id)?.currentSite}>
+                      {payrollRowExtras.get(emp.id)?.currentSite ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {payrollRowExtras.get(emp.id)?.hoursThisMonth ?? 0}
+                    </TableCell>
                     <TableCell className="text-right">
                       {emp.pendingAmount < 0 ? (
                         <div className="flex items-center justify-end gap-2">
@@ -355,7 +531,7 @@ const Employees = () => {
                         <Button 
                           variant="outline" 
                           size="sm" 
-                          className="h-8 text-xs border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white"
+                          className="h-8 text-xs border-primary text-primary hover:bg-primary hover:text-white"
                           onClick={() => {
                             setSelectedEmployeeForTask(emp);
                             setIsTaskModalOpen(true);
@@ -367,8 +543,9 @@ const Employees = () => {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
+                ))
+              )}
+            </TableBody>
           </DataTableShell>
         </TabsContent>
 
@@ -465,7 +642,22 @@ const Employees = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-                    {pagedDeploymentData.map((emp) => (
+              {!shellReady ? (
+                Array.from({ length: Math.min(deploymentPageSize, 5) }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: weekDays.length + 1 }).map((_, j) => (
+                      <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : pagedDeploymentData.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={weekDays.length + 1} className="text-center py-12 text-muted-foreground">
+                    No deployment data found.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pagedDeploymentData.map((emp) => (
                       <TableRow key={emp.id}>
                         <TableCell className="sticky left-0 bg-card z-10">
                           <div 
@@ -497,22 +689,23 @@ const Employees = () => {
                                 </Badge>
                               ) : (
                                 <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-0">
-                                  {schedule.length > 10 ? schedule.slice(0, 10) + "..." : schedule}
+                                  {String(schedule).length > 10 ? String(schedule).slice(0, 10) + "..." : String(schedule)}
                                 </Badge>
                               )}
                             </TableCell>
                           );
                         })}
                       </TableRow>
-                    ))}
-                  </TableBody>
+                    ))
+                  )}
+                </TableBody>
           </DataTableShell>
         </TabsContent>
       </Tabs>
 
       {/* Add Employee Sheet */}
       <Sheet open={isAddEmployeeOpen} onOpenChange={setIsAddEmployeeOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Add New Employee</SheetTitle>
           </SheetHeader>
@@ -527,32 +720,32 @@ const Employees = () => {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" placeholder="Enter full name" />
+                  <Label htmlFor="name">Full Name *</Label>
+                  <Input id="name" placeholder="Enter full name" value={newEmpName} onChange={e => setNewEmpName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number</Label>
-                  <Input id="phone" placeholder="+91 XXXXX XXXXX" />
+                  <Input id="phone" placeholder="+91 XXXXX XXXXX" value={newEmpPhone} onChange={e => setNewEmpPhone(e.target.value)} />
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="address">Current Address</Label>
-                <Input id="address" placeholder="Enter current address" />
+                <Input id="address" placeholder="Enter current address" value={newEmpAddress} onChange={e => setNewEmpAddress(e.target.value)} />
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="aadhar">Aadhar Number</Label>
-                  <Input id="aadhar" placeholder="XXXX XXXX XXXX" />
+                  <Input id="aadhar" placeholder="XXXX XXXX XXXX" value={newEmpAadhar} onChange={e => setNewEmpAadhar(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="dob">Date of Birth</Label>
-                  <Input id="dob" type="date" />
+                  <Input id="dob" type="date" value={newEmpDob} onChange={e => setNewEmpDob(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="altPhone">Alternate Number</Label>
-                  <Input id="altPhone" placeholder="Enter alternate number" />
+                  <Input id="altPhone" placeholder="Enter alternate number" value={newEmpAltPhone} onChange={e => setNewEmpAltPhone(e.target.value)} />
                 </div>
               </div>
             </div>
@@ -567,26 +760,27 @@ const Employees = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="salary">Salary (Monthly)</Label>
-                  <Input id="salary" placeholder="₹ Enter amount" />
+                  <Input id="salary" placeholder="₹ Enter amount" value={newEmpSalary} onChange={e => setNewEmpSalary(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="role">Role</Label>
-                  <Select>
+                  <Label htmlFor="role">Role *</Label>
+                  <Select value={newEmpRole} onValueChange={setNewEmpRole}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="supervisor">Site Supervisor</SelectItem>
-                      <SelectItem value="installer">Installer</SelectItem>
-                      <SelectItem value="electrician">Electrician</SelectItem>
-                      <SelectItem value="helper">Helper</SelectItem>
-                      <SelectItem value="accountant">Accountant</SelectItem>
+                      <SelectItem value="Site Supervisor">Site Supervisor</SelectItem>
+                      <SelectItem value="Installer">Installer</SelectItem>
+                      <SelectItem value="Electrician">Electrician</SelectItem>
+                      <SelectItem value="Helper">Helper</SelectItem>
+                      <SelectItem value="Accountant">Accountant</SelectItem>
+                      <SelectItem value="Manager">Manager</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="joiningDate">Joining Date</Label>
-                  <Input id="joiningDate" type="date" />
+                  <Input id="joiningDate" type="date" value={newEmpJoiningDate} onChange={e => setNewEmpJoiningDate(e.target.value)} />
                 </div>
               </div>
             </div>
@@ -673,7 +867,7 @@ const Employees = () => {
 
           <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsAddEmployeeOpen(false)}>Cancel</Button>
-            <Button className="bg-primary text-primary-foreground" onClick={handleSaveEmployee}>Save Employee</Button>
+            <Button className="bg-primary text-primary-foreground" onClick={handleSaveEmployee} disabled={!newEmpName.trim() || !newEmpRole}>Save Employee</Button>
           </div>
         </SheetContent>
       </Sheet>
@@ -698,7 +892,7 @@ const Employees = () => {
 
       {/* Pay Salary Sheet - Scrollable with Month Selection */}
       <Sheet open={isPaySalaryOpen} onOpenChange={setIsPaySalaryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Pay Salary</SheetTitle>
           </SheetHeader>
@@ -762,41 +956,56 @@ const Employees = () => {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label>Payment Amount</Label>
-                  <Input 
-                    placeholder="₹ Enter amount" 
+                  <Input
+                    placeholder="₹ Enter amount"
                     value={paymentAmount}
                     onChange={(e) => setPaymentAmount(e.target.value)}
                   />
+                  {selectedEmployeeForPayment && selectedMonths.length > 0 && (() => {
+                    const emp = contextEmployees.find(e => e.id === selectedEmployeeForPayment.id);
+                    if (!emp) return null;
+                    const totalPresent = selectedMonths.reduce((sum, mv) => {
+                      return sum + attendanceRecords.filter(r => r.employeeId === emp.id && (r.status === "present" || r.status === "paid_leave") && r.date.startsWith(mv)).length;
+                    }, 0);
+                    if (totalPresent === 0) return null;
+                    const computed = Math.round(totalPresent * (emp.salary / 26));
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        Auto-computed: {totalPresent} days × ₹{Math.round(emp.salary / 26).toLocaleString()}/day = <span className="font-medium text-foreground">₹{computed.toLocaleString()}</span>
+                      </p>
+                    );
+                  })()}
                   {isAmountExceedsPending() && (
                     <div className="flex items-center gap-2 p-2 bg-amber-500/10 rounded text-amber-600 text-xs">
                       <AlertCircle className="w-4 h-4" />
-                      Amount exceeds pending (₹{getTotalSelectedPending().toLocaleString()}). Extra will be added to next month.
+                      Amount exceeds computed salary. Please verify.
                     </div>
                   )}
                 </div>
 
                 <div className="space-y-2">
                   <Label>Payment Date</Label>
-                  <Input type="date" defaultValue={new Date().toISOString().split('T')[0]} />
+                  <Input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} />
                 </div>
 
                 <div className="space-y-2">
                   <Label>Payment Method</Label>
-                  <Select defaultValue="cash">
+                  <Select value={paymentMode} onValueChange={v => setPaymentMode(v as EmployeePayrollRecord["mode"])}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select method" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="bank">Bank Transfer</SelectItem>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                       <SelectItem value="upi">UPI</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
                   <Label>Notes (Optional)</Label>
-                  <Input placeholder="Add any notes..." />
+                  <Input placeholder="Add any notes..." value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} />
                 </div>
               </div>
             </div>
@@ -804,7 +1013,39 @@ const Employees = () => {
 
           <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsPaySalaryOpen(false)}>Cancel</Button>
-            <Button className="bg-primary text-primary-foreground" onClick={() => setIsPaySalaryOpen(false)}>
+            <Button className="bg-primary text-primary-foreground" disabled={!paymentAmount || !selectedEmployeeForPayment} onClick={() => {
+              if (!selectedEmployeeForPayment) return;
+              const net = parseFloat(paymentAmount) || 0;
+              const daysForPayroll = selectedMonths.reduce((sum, mv) => {
+                return sum + attendanceRecords.filter(
+                  (r) =>
+                    r.employeeId === selectedEmployeeForPayment.id &&
+                    (r.status === "present" || r.status === "paid_leave") &&
+                    r.date.startsWith(mv),
+                ).length;
+              }, 0);
+              const record: EmployeePayrollRecord = {
+                id: generateId("PAY"),
+                employeeId: selectedEmployeeForPayment.id,
+                employeeName: selectedEmployeeForPayment.name,
+                month: selectedMonths.join(", "),
+                year: new Date().getFullYear(),
+                daysPresent: daysForPayroll,
+                grossAmount: net,
+                deductions: 0,
+                netAmount: net,
+                paidDate: paymentDate,
+                mode: paymentMode,
+                notes: paymentNotes || undefined,
+              };
+              addEmployeePayrollRecord(record);
+              updateEmployee(selectedEmployeeForPayment.id, {
+                pendingAmount: Math.max(0, (selectedEmployeeForPayment.pendingAmount || 0) - net),
+              });
+              toast({ title: "Salary recorded", description: `Net ₹${net.toLocaleString("en-IN")} saved for ${selectedEmployeeForPayment.name}.` });
+              setIsPaySalaryOpen(false);
+              setPaymentAmount(""); setPaymentNotes("");
+            }}>
               Confirm Payment
             </Button>
           </div>
@@ -813,7 +1054,7 @@ const Employees = () => {
 
       {/* Add Expense Sheet - Enhanced with Office as site and cost messaging */}
       <Sheet open={isAddExpenseOpen} onOpenChange={setIsAddExpenseOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Add Expense</SheetTitle>
           </SheetHeader>
@@ -1004,7 +1245,30 @@ const Employees = () => {
 
           <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsExpenseConfirmOpen(false)}>Go Back</Button>
-            <Button className="bg-primary text-primary-foreground" onClick={() => setIsExpenseConfirmOpen(false)}>
+            <Button className="bg-primary text-primary-foreground" onClick={() => {
+              const parsedAmt = parseFloat(expenseAmount);
+              if (!isNaN(parsedAmt) && parsedAmt > 0 && selectedEmployeeForExpense) {
+                addExpense({
+                  id: generateId("EXP"),
+                  category: expenseCategory || "general",
+                  description: expenseItem || expenseCategory || "Employee expense",
+                  amount: parsedAmt,
+                  date: new Date().toISOString().slice(0, 10),
+                  paidBy:
+                    expenseWhoPaid === "company"
+                      ? { type: "company", entityName: "Company" }
+                      : { type: "employee", entityId: String(selectedEmployeeForExpense.id), entityName: selectedEmployeeForExpense.name },
+                  employeeId: String(selectedEmployeeForExpense.id),
+                });
+                if (expenseCostAllocation === "deduct") {
+                  updateEmployee(selectedEmployeeForExpense.id, {
+                    pendingAmount: Math.max(0, (selectedEmployeeForExpense.pendingAmount || 0) - parsedAmt),
+                  });
+                }
+              }
+              setIsExpenseConfirmOpen(false);
+              setExpenseAmount(""); setExpenseSite(""); setExpenseCategory(""); setExpenseItem(""); setExpenseWhoPaid("company"); setExpenseCostAllocation("reimburse");
+            }}>
               Confirm & Save
             </Button>
           </div>

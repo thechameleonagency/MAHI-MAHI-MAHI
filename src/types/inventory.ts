@@ -16,7 +16,7 @@ export interface VendorBill {
   amountPaid: number;
   status: VendorBillStatus;
   notes?: string;
-  /** Purchase order / LPO reference (prototype; no separate PO entity). */
+  /** Purchase order / LPO reference (prototype). No draft-PO workflow until a first-class PO model exists — use this field only. */
   purchaseOrderRef?: string;
   /** Local blob URL or data URL from uploaded bill document (prototype). */
   documentUrl?: string;

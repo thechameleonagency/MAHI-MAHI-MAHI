@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
   darkMode: ["class"],
@@ -15,6 +16,10 @@ export default {
     extend: {
       fontFamily: {
         lexend: ['Lexend', 'sans-serif'],
+      },
+      fontSize: {
+        '2xs': ['0.625rem', { lineHeight: '0.75rem' }], // 10px
+        'xs2': ['0.6875rem', { lineHeight: '0.875rem' }], // 11px
       },
       colors: {
         canvas: "hsl(var(--canvas))",
@@ -100,5 +105,5 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [tailwindcssAnimate],
 } satisfies Config;

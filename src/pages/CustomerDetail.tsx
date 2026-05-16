@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Phone, Mail, MapPin, Building2, User, FileText, Receipt, IndianRupee, Calendar, Plus, Check, Clock, AlertTriangle, ExternalLink, CreditCard, Eye } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Building2, User, IndianRupee, Plus, Check, Clock, AlertTriangle, ExternalLink, CreditCard, Eye, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,18 +16,21 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Separator } from "@/components/ui/separator";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { formatINR } from "@/lib/formatCurrency";
+import { formatUiDate } from "@/lib/formatUiDate";
+import { validateGstin } from "@/lib/formCategories";
 
 const CustomerDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { customers, invoices, saleBills, projects, quotations, payments, updateInvoice, updateSaleBill } = useAppData();
+  const { customers, invoices, saleBills, projects, quotations, _payments, updateInvoice, updateSaleBill, addPayment, generateId, canDo, updateCustomer } = useAppData();
   
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -48,6 +51,15 @@ const CustomerDetail = () => {
   const [cqPage, setCqPage] = useState(1);
   const [cqSize, setCqSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
+  const [isEditCustomerOpen, setIsEditCustomerOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editType, setEditType] = useState<"company" | "individual">("individual");
+  const [editGstin, setEditGstin] = useState("");
+  const [editState, setEditState] = useState("");
+
   const customer = useMemo(() => customers.find(c => c.id === id), [customers, id]);
 
   // Get all invoices and sale bills for this customer
@@ -61,16 +73,20 @@ const CustomerDetail = () => {
     [saleBills, id, customer]
   );
 
-  // Get pending and paid invoices
-  const pendingInvoices = useMemo(() => 
-    customerInvoices.filter(inv => inv.status === "pending" || inv.status === "partial" || inv.status === "overdue")
-      .sort((a, b) => new Date(a.invoiceDate).getTime() - new Date(b.invoiceDate).getTime()),
-    [customerInvoices]
-  );
+  // Get pending and paid invoices (+ pending sale bills for FIFO)
+  const pendingInvoices = useMemo(() => {
+    const invs = customerInvoices
+      .filter(inv => inv.status === "pending" || inv.status === "partial" || inv.status === "overdue")
+      .map(inv => ({ ...inv, _isSaleBill: false as const }));
+    const sbs = customerSaleBills
+      .filter(sb => sb.status === "pending" || sb.status === "partial" || sb.status === "overdue")
+      .map(sb => ({ ...sb, _isSaleBill: true as const }));
+    return [...invs, ...sbs].sort((a, b) => new Date(a.invoiceDate).getTime() - new Date(b.invoiceDate).getTime());
+  }, [customerInvoices, customerSaleBills]);
   
-  const paidInvoices = useMemo(() => 
-    customerInvoices.filter(inv => inv.status === "paid"),
-    [customerInvoices]
+  const paidInvoices = useMemo(
+    () => customerInvoices.filter((inv) => inv.status === "paid" || inv.status === "overpaid"),
+    [customerInvoices],
   );
 
   // Get customer's projects
@@ -133,8 +149,8 @@ const CustomerDetail = () => {
 
   // FIFO payment breakdown
   const fifoBreakdown = useMemo(() => {
-    const amount = parseFloat(paymentAmount) || 0;
-    if (amount <= 0 || pendingInvoices.length === 0) return [];
+    const amount = Number.parseFloat(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0 || pendingInvoices.length === 0) return [];
 
     const breakdown: { invoice: typeof pendingInvoices[0]; payAmount: number }[] = [];
     let remaining = amount;
@@ -151,8 +167,8 @@ const CustomerDetail = () => {
   }, [paymentAmount, pendingInvoices]);
 
   const handleRecordPayment = () => {
-    const amount = parseFloat(paymentAmount);
-    if (!amount || amount <= 0) {
+    const amount = Number.parseFloat(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
       toast({ title: "Invalid amount", variant: "destructive" });
       return;
     }
@@ -162,16 +178,16 @@ const CustomerDetail = () => {
       const newAmountReceived = invoice.amountReceived + payAmount;
       const newStatus = newAmountReceived >= invoice.total ? "paid" : "partial";
       
-      if (invoice.type === "sale-bill") {
-        updateSaleBill(invoice.id, { 
-          amountReceived: newAmountReceived, 
+      if (invoice._isSaleBill) {
+        updateSaleBill(invoice.id, {
+          amountReceived: newAmountReceived,
           status: newStatus,
           receivedDate: paymentDate,
           receivedIn: paymentMode,
         });
       } else {
-        updateInvoice(invoice.id, { 
-          amountReceived: newAmountReceived, 
+        updateInvoice(invoice.id, {
+          amountReceived: newAmountReceived,
           status: newStatus,
           receivedDate: paymentDate,
           receivedIn: paymentMode,
@@ -179,14 +195,50 @@ const CustomerDetail = () => {
       }
     });
 
+    addPayment({
+      id: generateId('PAY'),
+      date: paymentDate,
+      amount,
+      direction: 'in',
+      paymentMode,
+      counterpartyType: 'customer',
+      counterpartyId: id,
+      counterpartyName: customer?.name || '',
+      notes: `Customer payment — ${fifoBreakdown.length} invoice(s)`,
+    });
+
     toast({
       title: "Payment recorded",
-      description: `₹${amount.toLocaleString()} applied to ${fifoBreakdown.length} invoice(s)`,
+      description: `${formatINR(amount)} applied to ${fifoBreakdown.length} invoice(s)`,
     });
 
     setIsPaymentModalOpen(false);
     setPaymentAmount("");
     setPaymentNotes("");
+  };
+
+  const handleSaveCustomerEdits = () => {
+    if (!id || !customer) return;
+    const gst = validateGstin(editGstin);
+    if (!gst.ok) {
+      toast({ title: "Invalid GSTIN", description: gst.error, variant: "destructive" });
+      return;
+    }
+    if (!editName.trim() || !editPhone.trim()) {
+      toast({ title: "Required fields", description: "Name and phone are required.", variant: "destructive" });
+      return;
+    }
+    updateCustomer(id, {
+      name: editName.trim(),
+      phone: editPhone.trim(),
+      email: editEmail.trim(),
+      address: editAddress.trim(),
+      type: editType,
+      gstin: editGstin.trim() || undefined,
+      state: editState.trim() || undefined,
+    });
+    toast({ title: "Customer updated", description: "Profile changes saved." });
+    setIsEditCustomerOpen(false);
   };
 
   if (!customer) {
@@ -205,16 +257,26 @@ const CustomerDetail = () => {
   }
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "paid":
-        return <Badge className="bg-blue-500/20 text-blue-400 border-0"><Check className="w-3 h-3 mr-1" />Paid</Badge>;
-      case "partial":
-        return <Badge className="bg-yellow-500/20 text-yellow-400 border-0"><Clock className="w-3 h-3 mr-1" />Partial</Badge>;
-      case "overdue":
-        return <Badge className="bg-red-500/20 text-red-400 border-0"><AlertTriangle className="w-3 h-3 mr-1" />Overdue</Badge>;
-      default:
-        return <Badge className="bg-orange-500/20 text-orange-400 border-0"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
-    }
+    const labels: Record<string, string> = {
+      paid: "Paid",
+      partial: "Partial",
+      overdue: "Overdue",
+      pending: "Pending",
+      overpaid: "Overpaid",
+    };
+    const s =
+      status === "pending" || status === "paid" || status === "partial" || status === "overdue" || status === "overpaid"
+        ? status
+        : "pending";
+    return (
+      <span className="inline-flex items-center gap-1">
+        {s === "paid" && <Check className="h-3 w-3 text-muted-foreground" aria-hidden />}
+        {s === "overpaid" && <Check className="h-3 w-3 text-violet-600" aria-hidden />}
+        {(s === "partial" || s === "pending") && <Clock className="h-3 w-3 text-muted-foreground" aria-hidden />}
+        {s === "overdue" && <AlertTriangle className="h-3 w-3 text-muted-foreground" aria-hidden />}
+        <StatusBadge status={s} label={labels[s] ?? status} className="text-xs" />
+      </span>
+    );
   };
 
   return (
@@ -246,8 +308,8 @@ const CustomerDetail = () => {
             <InlineKpiStrip
               className="w-full sm:w-auto sm:justify-end"
               items={[
-                { label: "Pending", value: `₹${totalPending.toLocaleString()}` },
-                { label: "Received", value: `₹${totalReceived.toLocaleString()}` },
+                { label: "Pending", value: formatINR(totalPending) },
+                { label: "Received", value: formatINR(totalReceived) },
                 { label: "Projects", value: customerProjects.length },
                 { label: "Quotations", value: customerQuotations.length },
               ]}
@@ -256,12 +318,24 @@ const CustomerDetail = () => {
         }
       >
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" type="button" onClick={() => {
+            setEditName(customer.name);
+            setEditPhone(customer.phone);
+            setEditEmail(customer.email);
+            setEditAddress(customer.address);
+            setEditType(customer.type);
+            setEditGstin(customer.gstin ?? "");
+            setEditState(customer.state ?? "");
+            setIsEditCustomerOpen(true);
+          }}>
+            <Pencil className="h-4 w-4 mr-2" /> Edit customer
+          </Button>
           <Button variant="outline" asChild>
             <Link to={`/invoices?customer=${id}&create=invoice`}>
               <Plus className="h-4 w-4 mr-2" /> Create Invoice
             </Link>
           </Button>
-          <Button onClick={() => setIsPaymentModalOpen(true)} disabled={pendingInvoices.length === 0}>
+          <Button onClick={() => setIsPaymentModalOpen(true)} disabled={pendingInvoices.length === 0 || !canDo("finance:record_payment")}>
             <IndianRupee className="h-4 w-4 mr-2" /> Record Payment
           </Button>
         </div>
@@ -282,6 +356,14 @@ const CustomerDetail = () => {
             </Badge>
             {customer.gstin && <span>GSTIN: {customer.gstin}</span>}
           </div>
+          {(customer.lastPurchase || (customer.itemsBought?.length ?? 0) > 0) && (
+            <div className="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
+              {customer.lastPurchase ? <span>Last purchase: {customer.lastPurchase}</span> : null}
+              {customer.itemsBought && customer.itemsBought.length > 0 ? (
+                <span className="line-clamp-3">Items bought: {customer.itemsBought.join(", ")}</span>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
 
@@ -336,10 +418,10 @@ const CustomerDetail = () => {
                     {pagedPendingInv.map(inv => (
                       <TableRow key={inv.id}>
                         <TableCell className="font-medium">{inv.invoiceNumber}</TableCell>
-                        <TableCell>{format(new Date(inv.invoiceDate), "dd MMM yyyy")}</TableCell>
+                        <TableCell>{formatUiDate(inv.invoiceDate)}</TableCell>
                         <TableCell>{inv.projectName || "-"}</TableCell>
                         <TableCell className="text-right">₹{inv.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-right text-blue-400">₹{inv.amountReceived.toLocaleString()}</TableCell>
+                        <TableCell className="text-right text-primary">₹{inv.amountReceived.toLocaleString()}</TableCell>
                         <TableCell className="text-right text-orange-400">₹{(inv.total - inv.amountReceived).toLocaleString()}</TableCell>
                         <TableCell>{getStatusBadge(inv.status)}</TableCell>
                       </TableRow>
@@ -354,7 +436,7 @@ const CustomerDetail = () => {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Check className="h-4 w-4 text-blue-400" /> Paid Invoices
+                  <Check className="h-4 w-4 text-primary" /> Paid Invoices
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -388,10 +470,10 @@ const CustomerDetail = () => {
                     {pagedPaidInv.map(inv => (
                       <TableRow key={inv.id}>
                         <TableCell className="font-medium">{inv.invoiceNumber}</TableCell>
-                        <TableCell>{format(new Date(inv.invoiceDate), "dd MMM yyyy")}</TableCell>
+                        <TableCell>{formatUiDate(inv.invoiceDate)}</TableCell>
                         <TableCell>{inv.projectName || "-"}</TableCell>
                         <TableCell className="text-right">₹{inv.total.toLocaleString()}</TableCell>
-                        <TableCell>{inv.receivedDate ? format(new Date(inv.receivedDate), "dd MMM yyyy") : "-"}</TableCell>
+                        <TableCell>{inv.receivedDate ? formatUiDate(inv.receivedDate) : "-"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -443,7 +525,7 @@ const CustomerDetail = () => {
                     {pagedSaleBills.map(sb => (
                       <TableRow key={sb.id}>
                         <TableCell className="font-medium">{sb.invoiceNumber}</TableCell>
-                        <TableCell>{format(new Date(sb.invoiceDate), "dd MMM yyyy")}</TableCell>
+                        <TableCell>{formatUiDate(sb.invoiceDate)}</TableCell>
                         <TableCell className="text-right">₹{sb.total.toLocaleString()}</TableCell>
                         <TableCell className="text-right">₹{sb.amountReceived.toLocaleString()}</TableCell>
                         <TableCell>{getStatusBadge(sb.status)}</TableCell>
@@ -491,7 +573,7 @@ const CustomerDetail = () => {
                 <Card className="bg-muted/30">
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">Total Received</p>
-                    <p className="text-xl font-bold text-blue-500">₹{totalReceived.toLocaleString()}</p>
+                    <p className="text-xl font-bold text-primary">₹{totalReceived.toLocaleString()}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-muted/30">
@@ -533,7 +615,7 @@ const CustomerDetail = () => {
                   <TableBody>
                     {pagedPayHist.map((payment) => (
                       <TableRow key={payment.id}>
-                        <TableCell>{format(new Date(payment.date), "dd MMM yyyy")}</TableCell>
+                        <TableCell>{formatUiDate(payment.date)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="text-xs">
@@ -542,7 +624,7 @@ const CustomerDetail = () => {
                             <span className="font-medium">{payment.document}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-medium text-blue-500">
+                        <TableCell className="text-right font-medium text-primary">
                           ₹{payment.amount.toLocaleString()}
                         </TableCell>
                         <TableCell>
@@ -551,7 +633,7 @@ const CustomerDetail = () => {
                         <TableCell className="text-muted-foreground">-</TableCell>
                         <TableCell>
                           {payment.amount >= payment.total ? (
-                            <Badge className="bg-blue-500/20 text-blue-400 border-0">
+                            <Badge className="bg-primary/20 text-primary border-0">
                               <Check className="h-3 w-3 mr-1" />
                               Full
                             </Badge>
@@ -617,7 +699,7 @@ const CustomerDetail = () => {
                           <Badge variant="outline" className="capitalize">{p.projectCategory}</Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge className={p.status === "Completed" ? "bg-blue-500/20 text-blue-400" : "bg-blue-500/20 text-blue-400"}>
+                          <Badge className={p.status === "Completed" ? "bg-primary/20 text-primary" : "bg-primary/20 text-primary"}>
                             {p.status}
                           </Badge>
                         </TableCell>
@@ -678,7 +760,7 @@ const CustomerDetail = () => {
                         </TableCell>
                         <TableCell>
                           <Badge className={
-                            q.status === "approved" ? "bg-blue-500/20 text-blue-400" :
+                            q.status === "approved" ? "bg-primary/20 text-primary" :
                             q.status === "rejected" ? "bg-red-500/20 text-red-400" :
                             "bg-yellow-500/20 text-yellow-400"
                           }>
@@ -686,7 +768,7 @@ const CustomerDetail = () => {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">₹{(q.finalAmount || q.temporaryAmount || 0).toLocaleString()}</TableCell>
-                        <TableCell>{q.createdAt ? format(new Date(q.createdAt), "dd MMM yyyy") : "-"}</TableCell>
+                        <TableCell>{q.createdAt ? formatUiDate(q.createdAt) : "-"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -703,7 +785,7 @@ const CustomerDetail = () => {
 
       {/* FIFO Payment Modal */}
       <Sheet open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Record Payment</SheetTitle>
             <SheetDescription>
@@ -776,7 +858,7 @@ const CustomerDetail = () => {
                           (Due: ₹{(invoice.total - invoice.amountReceived).toLocaleString()})
                         </span>
                       </div>
-                      <span className="text-blue-400 font-medium">
+                      <span className="text-primary font-medium">
                         ₹{payAmount.toLocaleString()}
                         {payAmount >= invoice.total - invoice.amountReceived && (
                           <Check className="inline h-4 w-4 ml-1" />
@@ -786,24 +868,79 @@ const CustomerDetail = () => {
                   ))}
                   <div className="border-t pt-2 mt-2 flex justify-between font-medium">
                     <span>Total Applied</span>
-                    <span>₹{fifoBreakdown.reduce((s, b) => s + b.payAmount, 0).toLocaleString()}</span>
+                    <span>{formatINR(fifoBreakdown.reduce((s, b) => s + b.payAmount, 0))}</span>
                   </div>
                 </CardContent>
               </Card>
             )}
 
-            {parseFloat(paymentAmount) > totalPending && totalPending > 0 && (
+            {(Number.isFinite(Number.parseFloat(paymentAmount)) ? Number.parseFloat(paymentAmount) : 0) > totalPending && totalPending > 0 && (
               <p className="text-sm text-yellow-400">
-                Amount exceeds total pending (₹{totalPending.toLocaleString()}). Extra amount will not be applied.
+                Amount exceeds total pending ({formatINR(totalPending)}). Extra amount will not be applied.
               </p>
             )}
           </div>
 
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsPaymentModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleRecordPayment} disabled={fifoBreakdown.length === 0}>
+            <Button onClick={handleRecordPayment} disabled={fifoBreakdown.length === 0 || (totalPending > 0 && (Number.isFinite(Number.parseFloat(paymentAmount)) ? Number.parseFloat(paymentAmount) : 0) > totalPending)}>
               Record Payment
             </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={isEditCustomerOpen} onOpenChange={setIsEditCustomerOpen}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Edit customer</SheetTitle>
+            <SheetDescription>Update contact details and GST information.</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-3 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="ec-name">Name</Label>
+              <Input id="ec-name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="ec-phone">Phone</Label>
+                <Input id="ec-phone" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ec-email">Email</Label>
+                <Input id="ec-email" type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ec-address">Address</Label>
+              <Textarea id="ec-address" rows={3} value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Select value={editType} onValueChange={(v) => setEditType(v as "company" | "individual")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="individual">Individual</SelectItem>
+                  <SelectItem value="company">Company</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="ec-gstin">GSTIN</Label>
+                <Input id="ec-gstin" value={editGstin} onChange={(e) => setEditGstin(e.target.value.toUpperCase())} placeholder="15-character GSTIN" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ec-state">State code</Label>
+                <Input id="ec-state" value={editState} onChange={(e) => setEditState(e.target.value)} placeholder="e.g. 27" maxLength={2} />
+              </div>
+            </div>
+          </div>
+          <SheetFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setIsEditCustomerOpen(false)}>Cancel</Button>
+            <Button type="button" onClick={handleSaveCustomerEdits}>Save changes</Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>

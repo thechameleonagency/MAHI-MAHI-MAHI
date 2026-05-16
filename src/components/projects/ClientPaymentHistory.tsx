@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { Plus, IndianRupee, Calendar, CreditCard, Check, Clock } from "lucide-react";
+import { Plus, IndianRupee } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import type { ClientPaymentRecord } from "@/types/blockage";
+import { formatINR } from "@/lib/formatCurrency";
+import { formatUiDate } from "@/lib/formatUiDate";
 
 interface ClientPaymentHistoryProps {
   projectId: string;
@@ -25,6 +27,8 @@ interface ClientPaymentHistoryProps {
   onRecordPayment: (payment: Omit<ClientPaymentRecord, "id" | "recordedAt">) => void;
   /** External partner name for labels when settlement is partner/split */
   partnerName?: string;
+  /** When true, client cash cannot be recorded as received by partner or split (company-only). */
+  forbidPartnerSettlement?: boolean;
 }
 
 const PAYMENT_MODES = [
@@ -58,6 +62,7 @@ export function ClientPaymentHistory({
   payments,
   onRecordPayment,
   partnerName,
+  forbidPartnerSettlement,
 }: ClientPaymentHistoryProps) {
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
   const [paymentDate, setPaymentDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -77,6 +82,18 @@ export function ClientPaymentHistory({
     () => [...payments].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [payments],
   );
+
+  /** Oldest → newest cumulative received (B2.17 running total). */
+  const cumulativeByPaymentId = useMemo(() => {
+    const asc = [...sortedPayments].reverse();
+    let cum = 0;
+    const map = new Map<string, number>();
+    for (const p of asc) {
+      cum += p.amount;
+      map.set(p.id, cum);
+    }
+    return map;
+  }, [sortedPayments]);
   const [payPage, setPayPage] = useState(1);
   const [paySize, setPaySize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const { pagedItems: pagedPayments, safePage: safePayPage } = usePagedSlice(sortedPayments, payPage, paySize);
@@ -85,9 +102,25 @@ export function ClientPaymentHistory({
     setPayPage(1);
   }, [payments.length]);
 
+  const recipientOptions = useMemo(
+    () => (forbidPartnerSettlement ? RECIPIENT_OPTIONS.filter((o) => o.value === "company") : [...RECIPIENT_OPTIONS]),
+    [forbidPartnerSettlement],
+  );
+
+  useEffect(() => {
+    if (forbidPartnerSettlement && settlementRecipient !== "company") {
+      setSettlementRecipient("company");
+    }
+  }, [forbidPartnerSettlement, settlementRecipient]);
+
+  const entryAmountNum = Number.parseFloat(paymentAmount);
+  const previewCollected =
+    Number.isFinite(entryAmountNum) && entryAmountNum > 0 ? totalReceived + entryAmountNum : totalReceived;
+  const previewPending = contractAmount - previewCollected;
+
   const handleRecordPayment = () => {
-    const amount = parseFloat(paymentAmount);
-    if (!amount || amount <= 0) {
+    const amount = Number.parseFloat(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
       toast({ title: "Error", description: "Please enter a valid amount", variant: "destructive" });
       return;
     }
@@ -95,15 +128,32 @@ export function ClientPaymentHistory({
       toast({ title: "Error", description: "Please select a payment mode", variant: "destructive" });
       return;
     }
+    if (forbidPartnerSettlement && (settlementRecipient === "partner" || settlementRecipient === "split")) {
+      toast({
+        title: "Not allowed",
+        description: "Partner or split settlement is disabled for this project kind.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (totalReceived + amount > contractAmount + 0.01) {
+      toast({
+        title: "Over contract",
+        description: `Recorded payments (${formatINR(totalReceived)}) plus this entry (${formatINR(amount)}) exceed the contract (${formatINR(contractAmount)}). Adjust the amount or contract.`,
+        variant: "destructive",
+      });
+      return;
+    }
 
     let splitLines: ClientPaymentRecord["splitLines"];
     const stage = paymentStage as ClientPaymentRecord["paymentStage"];
 
     if (settlementRecipient === "split") {
-      const ca = parseFloat(splitCompany);
-      const pa = parseFloat(splitPartner);
-      if (!ca || ca < 0 || !pa || pa < 0) {
-        toast({ title: "Error", description: "Enter split amounts for company and partner.", variant: "destructive" });
+      const ca = Number.parseFloat(splitCompany);
+      const pa = Number.parseFloat(splitPartner);
+      if (!Number.isFinite(ca) || ca < 0 || !Number.isFinite(pa) || pa < 0) {
+        toast({ title: "Error", description: "Enter valid split amounts for company and partner.", variant: "destructive" });
         return;
       }
       const sum = ca + pa;
@@ -145,7 +195,7 @@ export function ClientPaymentHistory({
     setPaymentStage("other");
     setIsRecordPaymentOpen(false);
 
-    toast({ title: "Payment Recorded", description: `₹${amount.toLocaleString()} received from ${clientName}` });
+    toast({ title: "Payment Recorded", description: `${formatINR(amount)} received from ${clientName}` });
   };
 
   const getPaymentModeLabel = (mode: string) => {
@@ -171,16 +221,16 @@ export function ClientPaymentHistory({
         <div className="grid grid-cols-3 gap-4 mb-4">
           <div className="p-3 bg-muted/30 rounded-lg">
             <p className="text-xs text-muted-foreground">Contract Amount</p>
-            <p className="text-lg font-semibold">₹{contractAmount.toLocaleString()}</p>
+            <p className="text-lg font-semibold">{formatINR(contractAmount)}</p>
           </div>
-          <div className="p-3 bg-blue-500/10 rounded-lg">
+          <div className="p-3 bg-primary/10 rounded-lg">
             <p className="text-xs text-muted-foreground">Total Received</p>
-            <p className="text-lg font-semibold text-blue-600">₹{totalReceived.toLocaleString()}</p>
+            <p className="text-lg font-semibold text-primary">{formatINR(totalReceived)}</p>
           </div>
-          <div className={`p-3 rounded-lg ${pendingAmount > 0 ? 'bg-orange-500/10' : 'bg-blue-500/10'}`}>
+          <div className={`p-3 rounded-lg ${pendingAmount > 0 ? 'bg-orange-500/10' : 'bg-primary/10'}`}>
             <p className="text-xs text-muted-foreground">Pending</p>
-            <p className={`text-lg font-semibold ${pendingAmount > 0 ? 'text-orange-600' : 'text-blue-600'}`}>
-              ₹{pendingAmount.toLocaleString()}
+            <p className={`text-lg font-semibold ${pendingAmount > 0 ? 'text-orange-600' : 'text-primary'}`}>
+              {formatINR(pendingAmount)}
             </p>
           </div>
         </div>
@@ -207,6 +257,7 @@ export function ClientPaymentHistory({
               <TableRow className={dataTableClasses.headRow}>
                 <TableHead>Date</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="text-right">Cumulative</TableHead>
                 <TableHead>Received by</TableHead>
                 <TableHead>Stage</TableHead>
                 <TableHead>Mode</TableHead>
@@ -217,15 +268,18 @@ export function ClientPaymentHistory({
             <TableBody>
               {pagedPayments.map((payment) => (
                 <TableRow key={payment.id}>
-                  <TableCell>{format(new Date(payment.date), "dd MMM yyyy")}</TableCell>
-                  <TableCell className="text-right font-medium text-blue-600">
-                    ₹{payment.amount.toLocaleString()}
+                  <TableCell>{formatUiDate(payment.date)}</TableCell>
+                  <TableCell className="text-right font-medium text-primary">
+                    {formatINR(payment.amount)}
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground text-sm">
+                    {formatINR(cumulativeByPaymentId.get(payment.id) ?? 0)}
                   </TableCell>
                   <TableCell >
                     {payment.settlementRecipient === "split" && payment.splitLines?.length
                       ? payment.splitLines
                           .map((l) =>
-                            `${l.recipient === "company" ? "Co." : partnerName || "Partner"} ₹${l.amount.toLocaleString()}`,
+                            `${l.recipient === "company" ? "Co." : partnerName || "Partner"} ${formatINR(l.amount)}`,
                           )
                           .join(" · ")
                       : payment.settlementRecipient === "partner"
@@ -264,8 +318,8 @@ export function ClientPaymentHistory({
       </CardContent>
 
       {/* Record Payment Modal */}
-      <Sheet open={isRecordPaymentOpen} onOpenChange={setIsRecordPaymentOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+      <Sheet open={isRecordPaymentOpen} onOpenChange={(v) => { if (!v) { setSplitCompany(""); setSplitPartner(""); } setIsRecordPaymentOpen(v); }}>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Record Payment</SheetTitle>
           </SheetHeader>
@@ -275,7 +329,7 @@ export function ClientPaymentHistory({
                 <strong>Client:</strong> {clientName}
               </p>
               <p className="text-sm text-muted-foreground">
-                Pending: ₹{pendingAmount.toLocaleString()}
+                Pending: {formatINR(pendingAmount)}
               </p>
             </div>
 
@@ -296,6 +350,14 @@ export function ClientPaymentHistory({
                   value={paymentAmount}
                   onChange={(e) => setPaymentAmount(e.target.value)}
                 />
+                {Number.isFinite(entryAmountNum) && entryAmountNum > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    After save: {formatINR(previewCollected)} collected · {formatINR(Math.max(0, previewPending))} pending
+                    {previewCollected > contractAmount + 0.01 && (
+                      <span className="block text-destructive mt-1">Over contract — adjust amount or contract.</span>
+                    )}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -324,7 +386,7 @@ export function ClientPaymentHistory({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {RECIPIENT_OPTIONS.map((o) => (
+                    {recipientOptions.map((o) => (
                       <SelectItem key={o.value} value={o.value}>
                         {o.label}
                         {o.value === "partner" && partnerName ? ` (${partnerName})` : ""}

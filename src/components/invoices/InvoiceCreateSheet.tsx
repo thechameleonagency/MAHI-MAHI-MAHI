@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, X, Eye, Zap, Search, User } from "lucide-react";
+import { Plus, X, Zap, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import { ClientSelectionModal } from "./ClientSelectionModal";
 import type { Invoice, InvoiceItem, InvoiceService, Customer } from "@/types/finance";
 import { PAYMENT_MODES } from "@/types/finance";
 import { inferInvoiceOrSaleBillType, nextDocumentNumber } from "@/lib/invoiceDocumentType";
+import { validateContactPhone } from "@/lib/phoneValidators";
 
 // Service presets for quick selection
 const SERVICE_PRESETS = [
@@ -71,7 +72,7 @@ export function InvoiceCreateSheet({
   onCustomerCreated,
   prefill,
 }: InvoiceCreateSheetProps) {
-  const { getHsnCodes, getSacCodes, getGstRates, getStateCodes, getBankAccounts } = useMasters();
+  const { getHsnCodes, getSacCodes, _getGstRates, getStateCodes, getBankAccounts } = useMasters();
   
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
   const [dueDate, setDueDate] = useState("");
@@ -203,7 +204,7 @@ export function InvoiceCreateSheet({
   };
 
   // Customer selection handler - auto-links to their latest project/quotation
-  const handleCustomerSelect = (customerId: string) => {
+  const _handleCustomerSelect = (customerId: string) => {
     setSelectedCustomerId(customerId);
     const customer = customers.find(c => c.id === customerId);
     if (customer) {
@@ -355,8 +356,9 @@ export function InvoiceCreateSheet({
       return;
     }
 
-    if (buyerContact && !/^[+0-9\s\-()]{7,20}$/.test(buyerContact)) {
-      toast({ title: "Invalid Phone", description: "Enter a valid phone number.", variant: "destructive" });
+    const buyerPhoneCheck = validateContactPhone(buyerContact);
+    if (!buyerPhoneCheck.ok) {
+      toast({ title: "Invalid Phone", description: (buyerPhoneCheck as { message: string }).message, variant: "destructive" });
       return;
     }
 
@@ -471,6 +473,87 @@ export function InvoiceCreateSheet({
     });
   };
 
+  const handleSaveDraft = () => {
+    if (!buyerName.trim()) {
+      toast({ title: "Error", description: "Customer/Buyer name is required.", variant: "destructive" });
+      return;
+    }
+    const states = getStateCodes();
+    const buyerStateEff = buyerState || states[0]?.value || companyState;
+    if (buyerGstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(buyerGstin)) {
+      toast({ title: "Invalid GSTIN", description: "GSTIN must be a valid 15-character format.", variant: "destructive" });
+      return;
+    }
+    const buyerPhoneDraft = validateContactPhone(buyerContact);
+    if (!buyerPhoneDraft.ok) {
+      toast({ title: "Invalid Phone", description: (buyerPhoneDraft as { message: string }).message, variant: "destructive" });
+      return;
+    }
+    const allowedGstRates = new Set([0, 5, 12, 18, 28]);
+    const hasBadGst =
+      invoiceItems.some((i) => !allowedGstRates.has(i.gstRate)) ||
+      invoiceServices.some((s) => !allowedGstRates.has(s.gstRate));
+    if (hasBadGst) {
+      toast({ title: "Invalid GST Rate", description: "GST rate must be 0, 5, 12, 18, or 28.", variant: "destructive" });
+      return;
+    }
+    if (invoiceItems.some((i) => i.quantity <= 0)) {
+      toast({ title: "Invalid Quantity", description: "All line item quantities must be greater than zero.", variant: "destructive" });
+      return;
+    }
+    const totals = calculateTotals();
+    const resolvedType = inferInvoiceOrSaleBillType({
+      projectId: selectedProjectId || undefined,
+      quotationId: selectedQuotationId || undefined,
+      items: invoiceItems,
+      services: invoiceServices,
+    });
+    const invoiceNumber = nextDocumentNumber(resolvedType, existingDocuments);
+    const invDate = invoiceDate || new Date().toISOString().split("T")[0];
+    const due = dueDate || invDate;
+    const newInvoice: Invoice = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? `INV-${crypto.randomUUID()}`
+          : `INV-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.toUpperCase(),
+      invoiceNumber,
+      type: resolvedType,
+      customerId: selectedCustomerId || undefined,
+      customerName: buyerName,
+      customerAddress: buyerAddress,
+      customerGstin: buyerGstin,
+      customerState: buyerStateEff,
+      customerContact: buyerContact,
+      projectId: selectedProjectId || undefined,
+      projectName: selectedProjectId
+        ? projects.find((p) => p.id.toString() === selectedProjectId)?.name
+        : undefined,
+      quotationId: selectedQuotationId || undefined,
+      items: invoiceItems,
+      services: invoiceServices,
+      subtotal: totals.subtotal,
+      cgst: totals.cgst,
+      sgst: totals.sgst,
+      igst: totals.igst,
+      total: totals.total,
+      amountReceived: 0,
+      status: "draft",
+      invoiceDate: invDate,
+      dueDate: due,
+      createdAt: new Date().toISOString().split("T")[0],
+      paymentTerms: paymentTerms || undefined,
+      bankAccount: selectedBankAccount || undefined,
+      notes: invoiceNotes || undefined,
+    };
+    onCreated(newInvoice);
+    resetForm();
+    onOpenChange(false);
+    toast({
+      title: "Draft saved",
+      description: `${newInvoice.invoiceNumber} — finalize from Invoices when ready.`,
+    });
+  };
+
   const invoiceTotals = calculateTotals();
 
   return (
@@ -556,7 +639,7 @@ export function InvoiceCreateSheet({
                       {selectedProjectId && (
                         <div className="space-y-2 pt-2 border-t">
                           <Label>Load Preset (Optional)</Label>
-                          <Select onValueChange={(presetId) => {
+                          <Select onValueChange={(_presetId) => {
                             // Find the preset and load items
                             const selectedProject = projects.find(p => p.id.toString() === selectedProjectId);
                             if (selectedProject) {
@@ -942,11 +1025,16 @@ export function InvoiceCreateSheet({
               </div>
             </div>
         </div>
-        <div className="flex justify-between gap-3 pt-4 border-t">
+        <div className="flex flex-wrap justify-between gap-3 pt-4 border-t">
           <Button variant="outline" onClick={() => { resetForm(); onOpenChange(false); }}>Cancel</Button>
-          <Button className="bg-primary text-primary-foreground" onClick={handleCreateInvoice}>
-            Create
-          </Button>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <Button variant="secondary" type="button" onClick={handleSaveDraft}>
+              Save as draft
+            </Button>
+            <Button className="bg-primary text-primary-foreground" type="button" onClick={handleCreateInvoice}>
+              Create
+            </Button>
+          </div>
         </div>
       </AppSheetContent>
       {/* Client Selection Modal */}

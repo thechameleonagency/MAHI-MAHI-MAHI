@@ -32,16 +32,14 @@ import {
   Pin,
   PinOff,
   FileStack,
+  HardHat,
+  IndianRupee,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
-import {
-  dummyLeaveRequests,
-  dummyExpenseRequests,
-  dummyBlockageResolutionRequests,
-} from "@/data/notificationsData";
+import { useDerivedAlertCount } from "@/hooks/useDerivedAlertCount";
 import {
   readPinnedPaths,
   writePinnedPaths,
@@ -99,6 +97,7 @@ const navSections: NavSection[] = [
       { label: "Employees", icon: Users, path: "/employees" },
       { label: "Teams", icon: Layers, path: "/teams" },
       { label: "Agents", icon: UserCheck, path: "/agents" },
+      { label: "Agent commissions", icon: IndianRupee, path: "/agents/commissions/ledger" },
     ],
   },
   {
@@ -111,6 +110,8 @@ const navSections: NavSection[] = [
       { label: "Vendors", icon: ClipboardList, path: "/vendors" },
       { label: "Loans", icon: CreditCard, path: "/loans" },
       { label: "Partners", icon: Handshake, path: "/partners" },
+      { label: "Vendorship Code Companies", icon: ShieldCheck, path: "/vendorship-companies" },
+      { label: "INC Work Sources", icon: HardHat, path: "/inc-work-sources" },
     ],
   },
   {
@@ -178,12 +179,7 @@ const Sidebar = ({ mobileOpen, onMobileClose }: SidebarProps) => {
     setPinnedPaths(next);
   };
 
-  const pendingLeaveCount = dummyLeaveRequests.filter((r) => r.status === "pending").length;
-  const pendingExpenseCount = dummyExpenseRequests.filter((r) => r.status === "pending").length;
-  const pendingBlockageCount = dummyBlockageResolutionRequests.filter(
-    (r) => r.status === "pending_verification"
-  ).length;
-  const totalPendingNotifications = pendingLeaveCount + pendingExpenseCount + pendingBlockageCount;
+  const alertCount = useDerivedAlertCount();
 
   const isPathActive = (path: string) => {
     const [basePath, query] = path.split("?");
@@ -272,10 +268,10 @@ const Sidebar = ({ mobileOpen, onMobileClose }: SidebarProps) => {
         </div>
       </div>
 
-      <nav className="min-h-0 flex-1 space-y-0 overflow-y-auto overflow-x-hidden px-2.5 py-2">
+      <nav key={`sidebar-nav-${currentRole}`} className="min-h-0 flex-1 space-y-0 overflow-y-auto overflow-x-hidden px-2.5 py-2">
         {pinnedItemsOrdered.length > 0 && (
           <div className="space-y-0.5 pb-2">
-            <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="px-3 py-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
               Pinned
             </p>
             {pinnedItemsOrdered.map((item) => renderNavItem(item))}
@@ -288,7 +284,7 @@ const Sidebar = ({ mobileOpen, onMobileClose }: SidebarProps) => {
           if (items.length === 0) return null;
           return (
             <div key={section.id} className="pb-3 last:pb-0">
-              <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/90">
+              <p className="px-3 py-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground/90">
                 {section.title}
               </p>
               <div className="space-y-0.5">{items.map((item) => renderNavItem(item))}</div>
@@ -310,9 +306,9 @@ const Sidebar = ({ mobileOpen, onMobileClose }: SidebarProps) => {
             >
               <Bell className="h-4 w-4" />
               <span className="flex-1">Notifications</span>
-              {totalPendingNotifications > 0 && (
+              {alertCount > 0 && (
                 <Badge variant="destructive" className="h-5 min-w-[20px] px-1.5 text-xs">
-                  {totalPendingNotifications}
+                  {alertCount}
                 </Badge>
               )}
             </NavLink>

@@ -9,7 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { downloadCSV } from "@/lib/csvExport";
+import { toast } from "@/hooks/use-toast";
+import { formatINR, formatINR as fmt } from "@/lib/formatCurrency";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 import type { Expense } from "@/types/finance";
@@ -20,7 +24,7 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 
 function CategoryExpenseLinesTable({
   entries,
-  fmt,
+  _fmt,
   onProjectClick,
 }: {
   entries: Expense[];
@@ -66,7 +70,7 @@ function CategoryExpenseLinesTable({
         {paged.map((e) => (
           <TableRow key={e.id}>
             <TableCell >{e.date}</TableCell>
-            <TableCell className="text-right font-medium">{fmt(e.amount)}</TableCell>
+            <TableCell className="text-right font-medium">{formatINR(e.amount)}</TableCell>
             <TableCell
               className="cursor-pointer text-primary hover:underline"
               onClick={() => e.projectId && onProjectClick(e.projectId)}
@@ -84,8 +88,8 @@ function CategoryExpenseLinesTable({
 }
 
 const MAIN_CATEGORIES = [
-  { key: "company", label: "Company", color: "bg-blue-500" },
-  { key: "employee", label: "Employee", color: "bg-blue-500" },
+  { key: "company", label: "Company", color: "bg-primary" },
+  { key: "employee", label: "Employee", color: "bg-primary" },
   { key: "office", label: "Office", color: "bg-purple-500" },
   { key: "site", label: "Site/Project", color: "bg-orange-500" },
   { key: "owner", label: "Owner (MK)", color: "bg-red-500" },
@@ -121,11 +125,12 @@ const ExpenseAudit = () => {
 
   // Category breakdown for chart
   const chartData = useMemo(() => {
-    return MAIN_CATEGORIES.map(mc => ({
+    const src = selectedMain === "all" ? expenses : filteredExpenses;
+    return MAIN_CATEGORIES.map((mc) => ({
       category: mc.label,
-      amount: expenses.filter(e => e.mainCategory === mc.key).reduce((s, e) => s + e.amount, 0),
-    })).filter(d => d.amount > 0);
-  }, [expenses]);
+      amount: src.filter((e) => e.mainCategory === mc.key).reduce((s, e) => s + e.amount, 0),
+    })).filter((d) => d.amount > 0);
+  }, [expenses, filteredExpenses, selectedMain]);
 
   // Group by mainCategory then by category
   const grouped = useMemo(() => {
@@ -139,8 +144,6 @@ const ExpenseAudit = () => {
     });
     return groups;
   }, [filteredExpenses]);
-
-  const fmt = (v: number) => `₹${v.toLocaleString("en-IN")}`;
 
   return (
     <PageShell className="space-y-6">
@@ -168,15 +171,45 @@ const ExpenseAudit = () => {
             <InlineKpiStrip
               className="w-full min-w-0 sm:justify-end"
               items={[
-                { label: "Total", value: fmt(stats.total) },
+                { label: "Total", value: formatINR(stats.total) },
                 { label: "Top category", value: stats.highestCat },
                 { label: "Pending reimb.", value: stats.pendingReimbursements },
-                { label: "Site", value: fmt(stats.siteTotal) },
+                { label: "Site", value: formatINR(stats.siteTotal) },
               ]}
             />
           </>
         }
-      />
+      >
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => {
+            if (filteredExpenses.length === 0) {
+              toast({ title: "Nothing to export", description: "No expenses match the filter.", variant: "destructive" });
+              return;
+            }
+            downloadCSV(
+              `expense_audit_${selectedMain}.csv`,
+              filteredExpenses.map((e) => ({
+                date: e.date,
+                mainCategory: e.mainCategory ?? "",
+                category: e.category,
+                amount: e.amount,
+                project: e.projectName ?? "",
+                paidBy: e.paidBy?.entityName ?? e.paidBy?.type ?? "",
+                mode: e.paymentMode ?? "",
+                notes: e.notes ?? e.description ?? "",
+              })),
+              ["date", "mainCategory", "category", "amount", "project", "paidBy", "mode", "notes"],
+            );
+            toast({ title: "Exported", description: `${filteredExpenses.length} rows.` });
+          }}
+        >
+          <Download className="h-3 w-3 mr-1" />
+          Export CSV
+        </Button>
+      </StickyPageHeader>
 
       {/* Category Chart */}
       <Card>
@@ -189,7 +222,7 @@ const ExpenseAudit = () => {
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
               <XAxis type="number" tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} className="text-xs" />
               <YAxis type="category" dataKey="category" className="text-xs" width={100} />
-              <Tooltip formatter={(v: number) => fmt(v)} />
+              <Tooltip formatter={(v: number) => formatINR(v)} />
               <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -213,7 +246,7 @@ const ExpenseAudit = () => {
                       <span className="font-semibold text-sm">{mcInfo?.label || mainCat}</span>
                       <Badge variant="outline" className="text-xs">{Object.keys(categories).length} categories</Badge>
                     </div>
-                    <span className="font-bold text-sm">{fmt(mainTotal)}</span>
+                    <span className="font-bold text-sm">{formatINR(mainTotal)}</span>
                   </CardContent>
                 </Card>
               </CollapsibleTrigger>
@@ -227,7 +260,7 @@ const ExpenseAudit = () => {
                           <span className="text-sm font-medium">{cat}</span>
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary" className="text-xs">{exps.length} entries</Badge>
-                            <span className="text-sm font-bold">{fmt(catTotal)}</span>
+                            <span className="text-sm font-bold">{formatINR(catTotal)}</span>
                           </div>
                         </div>
                       </CardHeader>

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Search, Package, AlertTriangle, History, Edit, ArrowRight, Trash2, Check, RotateCcw, AlertCircle, ChevronDown, ChevronRight, Layers, Eye, Truck, User, Send, CheckCircle2, Recycle } from "lucide-react";
+import { Plus, Search, Package, AlertTriangle, History, Edit, ArrowRight, Trash2, Check, RotateCcw, AlertCircle, ChevronDown, ChevronRight, Layers, Eye, Truck, User, CheckCircle2, Recycle, Download, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,14 +22,23 @@ import { NeedToGetService } from "@/application/services/NeedToGetService";
 import { ProcurementShortfallService } from "@/application/services/ProcurementShortfallService";
 import { NeedToGetModal } from "@/components/need-to-get/NeedToGetModal";
 import { format } from "date-fns";
+import { downloadCSV } from "@/lib/csvExport";
+import { MATERIAL_CATEGORY_ORDER, materialCategorySortKey } from "@/lib/formCategories";
 
-const CATEGORY_ORDER = ["Structure", "Panel/Module", "Wiring", "Earthing", "Meter"];
+function escapeHtmlMat(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 const UNIT_OPTIONS = ["pcs", "foot", "meter", "kg"] as const;
 const UNIT_LABELS: Record<string, string> = { pcs: "Pcs/Nos", foot: "Foot", meter: "Meter", kg: "Kg" };
 
 const Materials = () => {
-  const { inventoryItems, projects, sites, employees, addTask, generateId, vendorBills, recordWarehouseInventoryMovement, addInventoryItem, returnItemFromSite, getProjectQuotation, getInventoryPresetById, vendors } = useAppData();
-  const masters = useMasters();
+  const { inventoryItems, projects, sites, employees, addTask, generateId, vendorBills, recordWarehouseInventoryMovement, addInventoryItem, returnItemFromSite, getProjectQuotation, getSiteChecklistTemplateById, vendors } = useAppData();
+  const _masters = useMasters();
   const needToGetService = useMemo(() => new NeedToGetService(), []);
   const [needToGetOpen, setNeedToGetOpen] = useState(false);
   
@@ -77,7 +86,7 @@ const Materials = () => {
   const [selectedSiteForReturn, setSelectedSiteForReturn] = useState("");
   const [returnAction, setReturnAction] = useState<"return" | "transfer">("return");
   const [returnQuantities, setReturnQuantities] = useState<Record<number, string>>({});
-  const [returnErrors, setReturnErrors] = useState<Record<number, string>>({});
+  const [returnErrors, _setReturnErrors] = useState<Record<number, string>>({});
   
   // Add item form state
   const [newItemName, setNewItemName] = useState("");
@@ -119,11 +128,7 @@ const Materials = () => {
   // Get unique categories
   const categories = useMemo(() => {
     const cats = [...new Set(inventoryItems.map(item => item.category))];
-    return cats.sort((a, b) => {
-      const ai = CATEGORY_ORDER.indexOf(a);
-      const bi = CATEGORY_ORDER.indexOf(b);
-      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-    });
+    return cats.sort((a, b) => materialCategorySortKey(a, b));
   }, [inventoryItems]);
 
   const filteredItems = useMemo(() => {
@@ -144,7 +149,7 @@ const Materials = () => {
       groups[item.category].push(item);
     }
     const sorted: Record<string, InventoryItem[]> = {};
-    for (const cat of CATEGORY_ORDER) {
+    for (const cat of [...MATERIAL_CATEGORY_ORDER]) {
       if (groups[cat]) sorted[cat] = groups[cat];
     }
     for (const cat in groups) {
@@ -178,12 +183,60 @@ const Materials = () => {
         projects,
         inventoryItems,
         getProjectQuotation,
-        getInventoryPresetById,
+        getSiteChecklistTemplateById,
       }),
-    [procurementShortfallService, projects, inventoryItems, getProjectQuotation, getInventoryPresetById],
+    [procurementShortfallService, projects, inventoryItems, getProjectQuotation, getSiteChecklistTemplateById],
   );
 
   const vendorsSorted = useMemo(() => [...vendors].sort((a, b) => a.name.localeCompare(b.name)), [vendors]);
+
+  const exportMaterialsCsv = () => {
+    if (filteredItems.length === 0) {
+      toast({ title: "Nothing to export", description: "Adjust filters or add items.", variant: "destructive" });
+      return;
+    }
+    downloadCSV(
+      `materials-${format(new Date(), "yyyy-MM-dd")}.csv`,
+      filteredItems.map((i) => ({
+        id: i.id,
+        name: i.name,
+        category: i.category,
+        stock: i.stock,
+        unit: i.unit,
+        buyPrice: i.buyPrice,
+        salePrice: i.salePrice,
+        minStock: i.minStock,
+      })),
+      ["id", "name", "category", "stock", "unit", "buyPrice", "salePrice", "minStock"],
+    );
+    toast({ title: "Exported", description: "CSV matches the current filtered list." });
+  };
+
+  const printMaterialsList = () => {
+    if (filteredItems.length === 0) {
+      toast({ title: "Nothing to print", variant: "destructive" });
+      return;
+    }
+    const w = window.open("", "_blank", "width=960,height=720");
+    if (!w) {
+      toast({ title: "Pop-up blocked", description: "Allow pop-ups to print.", variant: "destructive" });
+      return;
+    }
+    const rows = filteredItems
+      .map(
+        (i) =>
+          `<tr><td>${escapeHtmlMat(i.name)}</td><td>${escapeHtmlMat(i.category)}</td><td class="num">${i.stock}</td><td>${escapeHtmlMat(i.unit)}</td><td class="num">${i.buyPrice}</td><td class="num">${i.minStock}</td></tr>`,
+      )
+      .join("");
+    w.document.write(
+      `<!DOCTYPE html><html><head><title>Materials</title><style>body{font-family:system-ui;padding:16px;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px}th{background:#f3f3f3}.num{text-align:right}</style></head><body><h1>Materials register</h1><table><thead><tr><th>Name</th><th>Category</th><th>Stock</th><th>Unit</th><th>Buy ₹</th><th>Min</th></tr></thead><tbody>${rows}</tbody></table></body></html>`,
+    );
+    w.document.close();
+    w.onload = () => {
+      w.focus();
+      w.print();
+    };
+  };
 
   const toggleCategory = (cat: string) => {
     setCollapsedCategories(prev => {
@@ -209,7 +262,7 @@ const Materials = () => {
     setSelectedItemsToIssue(prev => ({ ...prev, [itemId]: qty }));
   };
 
-  const handleReturnQuantityChange = (itemId: number, value: string) => {
+  const _handleReturnQuantityChange = (itemId: number, value: string) => {
     setReturnQuantities(prev => ({ ...prev, [itemId]: value }));
   };
 
@@ -315,6 +368,7 @@ const Materials = () => {
       addTask({
         id: generateId("TASK"),
         employeeId: parseInt(issueTaskAssignee),
+        projectId: site?.projectId || "",
         siteId: selectedSiteForIssue,
         siteName: site?.name || "Site",
         workType: "Material Transport",
@@ -372,7 +426,7 @@ const Materials = () => {
   };
 
   // Compute calculated pieces for dual-unit
-  const calcPieces = (kgStr: string, weightStr: string): number => {
+  const _calcPieces = (kgStr: string, weightStr: string): number => {
     const kg = parseFloat(kgStr) || 0;
     const weight = parseFloat(weightStr) || 0;
     if (weight <= 0) return 0;
@@ -427,14 +481,14 @@ const Materials = () => {
     return purchaseQty;
   };
 
-  const getConversionFactor = (purchaseUnit: string, issueUnit: string, weight: string, length: string): number => {
+  const _getConversionFactor = (purchaseUnit: string, issueUnit: string, weight: string, length: string): number => {
     const conv = getConversionInfo(purchaseUnit, issueUnit);
     if (conv.type === 'weight') return parseFloat(weight) || 0;
     if (conv.type === 'length') return parseFloat(length) || 0;
     return 0;
   };
 
-  const needsPerPieceWeight = (purchaseUnit: string, issueUnit: string) => {
+  const _needsPerPieceWeight = (purchaseUnit: string, issueUnit: string) => {
     return getConversionInfo(purchaseUnit, issueUnit).type !== 'none';
   };
 
@@ -627,6 +681,14 @@ const Materials = () => {
         }
       >
         <div className="flex flex-wrap justify-end gap-1.5">
+          <Button size="sm" variant="outline" type="button" onClick={exportMaterialsCsv}>
+            <Download className="mr-1.5 h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button size="sm" variant="outline" type="button" onClick={printMaterialsList}>
+            <Printer className="mr-1.5 h-4 w-4" />
+            Print
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setIsIssueToSiteOpen(true)}>
             <ArrowRight className="mr-1.5 h-4 w-4" />
             Issue
@@ -952,7 +1014,7 @@ const Materials = () => {
                 <Select value={newItemCategory} onValueChange={setNewItemCategory}>
                   <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
                   <SelectContent>
-                    {CATEGORY_ORDER.map((cat) => (
+                    {MATERIAL_CATEGORY_ORDER.map((cat) => (
                       <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
                   </SelectContent>
@@ -1094,7 +1156,7 @@ const Materials = () => {
                   <Select defaultValue={selectedItemForEdit.category}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {CATEGORY_ORDER.map((cat) => (
+                      {MATERIAL_CATEGORY_ORDER.map((cat) => (
                         <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                       ))}
                     </SelectContent>

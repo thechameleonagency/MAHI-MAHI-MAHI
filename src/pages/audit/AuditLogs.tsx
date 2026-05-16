@@ -12,7 +12,9 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ScrollText, Plus, Pencil, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ScrollText, Plus, Pencil, Trash2, Download } from "lucide-react";
+import { downloadCSV } from "@/lib/csvExport";
 
 const AuditLogs = () => {
   const { auditLogs } = useAppData();
@@ -40,6 +42,24 @@ const AuditLogs = () => {
     const types = new Set(auditLogs.map(l => l.entityType));
     return Array.from(types);
   }, [auditLogs]);
+
+  const navigateToEntity = (entityType: string, entityId: string) => {
+    const routes: Record<string, string> = {
+      project: `/projects/${entityId}`,
+      employee: `/employees/${entityId}`,
+      customer: `/customers/${entityId}`,
+      partner: `/partners/${entityId}`,
+      agent: `/agents/${entityId}`,
+      vendor: `/vendors/${entityId}`,
+      enquiry: `/enquiries`,
+      quotation: `/quotations`,
+      invoice: `/finance`,
+      expense: `/finance`,
+    };
+    if (!entityId) return;
+    const route = routes[entityType.toLowerCase()];
+    if (route) navigate(route);
+  };
 
   const actionIcon = (action: string) => {
     switch (action) {
@@ -100,10 +120,22 @@ const AuditLogs = () => {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <ScrollText className="w-4 h-4" />
-            Change History ({filteredLogs.length} entries)
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ScrollText className="w-4 h-4" />
+              Change History ({filteredLogs.length} entries)
+            </CardTitle>
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => {
+              downloadCSV(`AuditLogs_${filterEntity}_${filterAction}.csv`, filteredLogs.map(l => ({
+                "Timestamp": l.timestamp, "User": l.userName, "Action": l.action,
+                "Entity Type": l.entityType, "Entity": l.entityName,
+                "Change": [l.field, l.oldValue, l.newValue].filter(Boolean).join(" | "),
+              })), ["Timestamp", "User", "Action", "Entity Type", "Entity", "Change"]);
+            }}>
+              <Download className="w-3 h-3 mr-1" />
+              Export CSV
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <DataTableShell
@@ -130,15 +162,13 @@ const AuditLogs = () => {
                 <TableHead>Action</TableHead>
                 <TableHead>Entity Type</TableHead>
                 <TableHead>Entity</TableHead>
-                <TableHead>Field</TableHead>
-                <TableHead>Old Value</TableHead>
-                <TableHead>New Value</TableHead>
+                <TableHead className="min-w-[220px]">Change</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredLogs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-12 text-center">
+                  <TableCell colSpan={6} className="py-12 text-center">
                     <div className="flex flex-col items-center gap-2">
                       <ScrollText className="h-8 w-8 text-muted-foreground/50" />
                       <p className="text-muted-foreground">No audit logs recorded yet</p>
@@ -165,10 +195,32 @@ const AuditLogs = () => {
                     </div>
                   </TableCell>
                   <TableCell >{log.entityType}</TableCell>
-                  <TableCell className="cursor-pointer text-primary hover:underline">{log.entityName}</TableCell>
-                  <TableCell className="text-muted-foreground">{log.field || "-"}</TableCell>
-                  <TableCell className="text-muted-foreground">{log.oldValue || "-"}</TableCell>
-                  <TableCell >{log.newValue || "-"}</TableCell>
+                  <TableCell
+                    className="cursor-pointer text-primary hover:underline"
+                    onClick={() => navigateToEntity(log.entityType, log.entityId)}
+                  >{log.entityName}</TableCell>
+                  <TableCell className="max-w-md text-xs leading-snug">
+                    {log.field ? (
+                      <div className="space-y-1">
+                        <span className="font-medium text-foreground">{log.field}</span>
+                        <div className="text-muted-foreground">
+                          {log.oldValue ? (
+                            <span className="text-destructive/90 line-through decoration-destructive/50">{log.oldValue}</span>
+                          ) : (
+                            <span className="italic">(empty)</span>
+                          )}
+                          {log.newValue != null && log.newValue !== "" ? (
+                            <>
+                              <span className="mx-1.5 text-muted-foreground">→</span>
+                              <span className="font-medium text-foreground">{log.newValue}</span>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

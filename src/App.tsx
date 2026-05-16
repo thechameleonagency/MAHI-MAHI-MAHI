@@ -16,7 +16,6 @@ import ProjectDetail from "./pages/ProjectDetail";
 import Quotations from "./pages/Quotations";
 import Customers from "./pages/Customers";
 import Invoices from "./pages/Invoices";
-import Inventory from "./pages/Inventory";
 import Materials from "./pages/Materials";
 import Tools from "./pages/Tools";
 import TemplatesPage from "./pages/inventory/TemplatesPage";
@@ -92,10 +91,13 @@ const App = () => (
                 <Route path="/customers/:id" element={<CustomerDetail />} />
                 <Route path="/invoices" element={<Invoices />} />
                 <Route path="/sale-bills" element={<Navigate to="/invoices" replace />} />
-                <Route path="/inventory" element={<Inventory />} />
+                {/* /inventory hub removed per audit B11 — `/inventory/materials` is the entry point. */}
+                <Route path="/inventory" element={<Navigate to="/inventory/materials" replace />} />
                 <Route path="/inventory/materials" element={<Materials />} />
                 <Route path="/inventory/tools" element={<Tools />} />
                 <Route path="/templates" element={<TemplatesPage />} />
+                {/* Legacy /presets and /inventory/presets routes redirect to the unified Templates page. */}
+                <Route path="/presets" element={<Navigate to="/templates" replace />} />
                 <Route path="/inventory/presets" element={<Navigate to="/templates" replace />} />
                 <Route path="/employees" element={<Employees />} />
                 <Route path="/teams" element={<Teams />} />

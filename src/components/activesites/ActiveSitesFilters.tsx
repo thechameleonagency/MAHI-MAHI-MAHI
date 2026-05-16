@@ -59,7 +59,7 @@ const MultiSelectFilter = ({ label, options, selected, onChange }: MultiSelectFi
         >
           {label}
           {selected.length > 0 && (
-            <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[10px]">
+            <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-2xs">
               {selected.length}
             </Badge>
           )}
@@ -138,10 +138,10 @@ const filterConfigs = {
     options: [
       { value: "structure", label: "Structure" },
       { value: "panel", label: "Panel" },
-      { value: "wiring", label: "Wiring" },
+      { value: "ac-dc", label: "AC/DC" },
       { value: "earthing", label: "Earthing" },
       { value: "inverter", label: "Inverter" },
-      { value: "civil", label: "Civil" },
+      { value: "transport", label: "Transport" },
     ]
   },
   discomStatus: {

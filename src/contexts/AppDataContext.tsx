@@ -9,8 +9,7 @@ import type {
   Tool,
   ToolMovementRecord,
   Vendor,
-  InventoryPreset,
-  ServicePreset as ProjectServicePreset,
+  ServicePreset as _ProjectServicePreset,
   Task,
   QuotationVisibilityPreset,
   Enquiry,
@@ -22,7 +21,7 @@ import type {
 } from "@/types/project";
 import { DEFAULT_SOLAR_PACKAGE_PRESETS, DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
-import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, VendorshipCompany, INCGiverCompany } from "@/types/finance";
+import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany } from "@/types/finance";
 import type { Blockage, Ticket, ProjectTimelineStatus, ClientPaymentRecord } from "@/types/blockage";
 import {
   dummyProjects,
@@ -45,10 +44,9 @@ import {
   dummyTasks,
   dummyEmployeePaidHolidays,
   dummyOwnerInvestments,
-  dummyDeletionRequests,
+  _dummyDeletionRequests,
   dummyClientPaymentRecords,
   dummyEnquiries,
-  dummyInventoryPresets,
   dummyQuotationVisibilityPresets,
   dummyAgents,
   dummyIncomes,
@@ -62,7 +60,7 @@ import {
   initialOperationalTickets,
   initialProjectTimelineByProjectId,
 } from "@/data/activeSitesSeed";
-import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate } from "@/lib/siteChecklist";
+import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate, stripOrphanChecklistInventoryRefs } from "@/lib/siteChecklist";
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
 import { dummyQuotationTemplates, dummySiteChecklistTemplates } from "@/data/templatesData";
 import { dummyInventoryItems, dummyTools, dummyVendorBills, dummyVendorPayments, type VendorBill, type VendorPayment } from "@/data/inventoryData";
@@ -75,7 +73,7 @@ import { VoucherPostingService, type AccountingEventType, type PostingResult } f
 import type { MovementType } from "@/application/services/InventoryMovementService";
 import { toast } from "@/hooks/use-toast";
 import { useFoundation } from "@/app/providers/FoundationProvider";
-import { CREATE_ENQUIRY_COMMAND, UPDATE_ENQUIRY_STATUS_COMMAND, CONVERT_ENQUIRY_COMMAND, type ConvertEnquiryPayload } from "@/application/commands/enquiry/registerEnquiryCommands";
+import { CREATE_ENQUIRY_COMMAND, UPDATE_ENQUIRY_STATUS_COMMAND, CONVERT_ENQUIRY_COMMAND } from "@/application/commands/enquiry/registerEnquiryCommands";
 import {
   CREATE_QUOTATION_COMMAND,
   TRANSITION_QUOTATION_STATUS_COMMAND,
@@ -139,10 +137,12 @@ interface AppState {
   vendorPayments: VendorPayment[];
   
   // Presets
-  inventoryPresets: InventoryPreset[];
   /** Master quotation boilerplates (materials + services). */
   quotationTemplates: QuotationTemplate[];
-  /** Site dispatch templates (materials only). */
+  /**
+   * Site dispatch templates — materials and optional rich solar-package BOM.
+   * Replaces the legacy `inventoryPresets` collection after the Templates merge.
+   */
   siteChecklistTemplates: SiteChecklistTemplate[];
   servicePresets: ServicePreset[];
   quotationVisibilityPresets: QuotationVisibilityPreset[];
@@ -173,6 +173,8 @@ interface AppState {
 
   // Employee payroll records
   employeePayrollRecords: EmployeePayrollRecord[];
+  /** Advances / recoveries separate from monthly payroll run (F62). */
+  employeeWalletLedger: EmployeeWalletLedgerEntry[];
 
   /** Settings → Solar package presets (Settings page). */
   solarPackagePresets: SolarPackagePreset[];
@@ -182,6 +184,9 @@ interface AppState {
   // New entity types
   vendorshipCompanies: VendorshipCompany[];
   incGiverCompanies: INCGiverCompany[];
+
+  /** B13: persisted uploaded statements for the BankReconciliation modal (prototype). */
+  bankReconciliationStatements: unknown[];
 }
 
 // ============ CONTEXT TYPE ============
@@ -208,6 +213,8 @@ interface AppDataContextType extends AppState {
     quantity: number;
     allowNegativeSiteBalanceOverride?: boolean;
     baselineLineId?: string;
+    /** Idempotency / dedupe key for materials issued/returned/scrapped in batched flows. */
+    clientRequestId?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   recordWarehouseInventoryMovement: (input: {
     itemId: number;
@@ -332,12 +339,6 @@ interface AppDataContextType extends AppState {
   deleteServicePreset: (id: string) => void;
   getServicePresetById: (id: string) => ServicePreset | undefined;
   
-  // Inventory Presets CRUD
-  addInventoryPreset: (preset: InventoryPreset) => void;
-  updateInventoryPreset: (id: string, updates: Partial<InventoryPreset>) => void;
-  deleteInventoryPreset: (id: string) => void;
-  getInventoryPresetById: (id: string) => InventoryPreset | undefined;
-  
   // Quotation Visibility Presets CRUD
   addQuotationVisibilityPreset: (preset: QuotationVisibilityPreset) => void;
   updateQuotationVisibilityPreset: (id: string, updates: Partial<QuotationVisibilityPreset>) => void;
@@ -370,6 +371,11 @@ interface AppDataContextType extends AppState {
   // Sites CRUD
   addSite: (site: SiteRecord) => void;
   addQuotationTemplate: (template: QuotationTemplate) => void;
+  updateQuotationTemplate: (id: string, updates: Partial<QuotationTemplate>) => void;
+  deleteQuotationTemplate: (id: string) => void;
+  addSiteChecklistTemplate: (template: SiteChecklistTemplate) => void;
+  updateSiteChecklistTemplate: (id: string, updates: Partial<SiteChecklistTemplate>) => void;
+  deleteSiteChecklistTemplate: (id: string) => void;
   getQuotationTemplateById: (id: string) => QuotationTemplate | undefined;
   getSiteChecklistTemplateById: (id: string) => SiteChecklistTemplate | undefined;
   getSitesByProjectId: (projectId: string) => SiteRecord[];
@@ -462,6 +468,10 @@ interface AppDataContextType extends AppState {
   // Employee Payroll Records
   addEmployeePayrollRecord: (record: EmployeePayrollRecord) => void;
   getPayrollByEmployee: (employeeId: number) => EmployeePayrollRecord[];
+  addEmployeeWalletLedgerEntry: (
+    entry: Omit<EmployeeWalletLedgerEntry, "id" | "createdAt">,
+  ) => { ok: boolean; error?: string };
+  getEmployeeWalletLedger: (employeeId?: number) => EmployeeWalletLedgerEntry[];
 
   // Derived: low stock items
   lowStockItems: InventoryItem[];
@@ -478,6 +488,10 @@ interface AppDataContextType extends AppState {
   deleteINCGiverCompany: (id: string) => void;
   getINCGiverCompanyById: (id: string) => INCGiverCompany | undefined;
 
+  // Bank reconciliation (prototype: persist uploaded statements across modal sessions; B13)
+  bankReconciliationStatements: unknown[];
+  setBankReconciliationStatements: (statements: unknown[]) => void;
+
   // Utility functions
   generateId: (prefix: string) => string;
   resetToDefaults: () => void;
@@ -486,6 +500,11 @@ interface AppDataContextType extends AppState {
 }
 
 const STORAGE_KEY = "mahi_solar_app_data";
+// Bump this whenever a stored shape gains a new required collection. Older payloads will fall
+// back to seed data instead of crashing the app on hydrate. Persisted payloads are written with
+// the matching version key so a refresh after a redeploy does not throw away the demo.
+const STORAGE_VERSION = 2;
+const STORAGE_VERSION_KEY = "mahi_solar_app_data_version";
 const DEFAULT_ACTOR_ROLE = "admin";
 const toProjectLifecycleStatus = (lifecycleStatus: Project["lifecycleStatus"]): ProjectLifecycleStatus => {
   switch (lifecycleStatus) {
@@ -553,7 +572,6 @@ function mergePersistedWithSeed(baseSeed: AppState, parsed: AppState): AppState 
     tools: mergeIdArray(baseSeed.tools, parsed.tools),
     vendorBills: mergeIdArray(baseSeed.vendorBills, parsed.vendorBills),
     vendorPayments: mergeIdArray(baseSeed.vendorPayments, parsed.vendorPayments),
-    inventoryPresets: mergeIdArray(baseSeed.inventoryPresets, parsed.inventoryPresets),
     quotationTemplates: mergeIdArray(baseSeed.quotationTemplates, parsed.quotationTemplates),
     siteChecklistTemplates: mergeIdArray(baseSeed.siteChecklistTemplates, parsed.siteChecklistTemplates),
     servicePresets: mergeIdArray(baseSeed.servicePresets, parsed.servicePresets),
@@ -582,6 +600,10 @@ function mergePersistedWithSeed(baseSeed: AppState, parsed: AppState): AppState 
     employeePayrollRecords: mergeIdArray(
       baseSeed.employeePayrollRecords,
       parsed.employeePayrollRecords,
+    ),
+    employeeWalletLedger: mergeIdArray(
+      baseSeed.employeeWalletLedger ?? [],
+      parsed.employeeWalletLedger ?? [],
     ),
     solarPackagePresets: mergeIdArray(baseSeed.solarPackagePresets, parsed.solarPackagePresets),
     settingsTeamMembers: mergeIdArray(baseSeed.settingsTeamMembers, parsed.settingsTeamMembers),
@@ -659,7 +681,6 @@ function buildAppStateFromSeeds(): AppState {
     tools: dummyTools,
     vendorBills: dummyVendorBills,
     vendorPayments: dummyVendorPayments,
-    inventoryPresets: dummyInventoryPresets,
     quotationTemplates: dummyQuotationTemplates,
     siteChecklistTemplates: dummySiteChecklistTemplates,
     servicePresets: dummyServicePresets,
@@ -678,10 +699,12 @@ function buildAppStateFromSeeds(): AppState {
     accountingReviewQueue: [],
     agentCommissionPayments: [],
     employeePayrollRecords: [],
+    employeeWalletLedger: [],
     solarPackagePresets: structuredClone(DEFAULT_SOLAR_PACKAGE_PRESETS),
     settingsTeamMembers: structuredClone(DEFAULT_SETTINGS_TEAM_MEMBERS),
     vendorshipCompanies: dummyVendorshipCompanies,
     incGiverCompanies: dummyINCGiverCompanies,
+    bankReconciliationStatements: [],
   };
 }
 
@@ -707,6 +730,13 @@ const deserializeState = (json: string): AppState | null => {
 const getInitialState = (): AppState => {
   const baseSeed = buildAppStateFromSeeds();
   try {
+    const storedVersion = Number(localStorage.getItem(STORAGE_VERSION_KEY) ?? "0");
+    if (storedVersion !== STORAGE_VERSION) {
+      // Shape changed since the payload was written; throw it away so the demo doesn't crash.
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
+      return baseSeed;
+    }
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = deserializeState(stored);
@@ -767,10 +797,41 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, serializeState(state));
+      localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
     } catch (e) {
       console.warn("Failed to persist state:", e);
     }
   }, [state]);
+
+  // C3 one-shot reconciler: ensure every existing clientPaymentRecord has a matching Payment row.
+  // Idempotent by composite key (`cpr:<recordId>`) so the second mount is a no-op.
+  useEffect(() => {
+    setState((prev) => {
+      const missing: Payment[] = [];
+      for (const r of prev.clientPaymentRecords) {
+        const compositeKey = `cpr:${r.id}`;
+        const exists = prev.payments.some((p) => p.id === compositeKey || p.reference === compositeKey);
+        if (!exists) {
+          missing.push({
+            id: compositeKey,
+            date: r.date,
+            amount: r.amount,
+            direction: "in",
+            paymentMode: r.paymentMode,
+            counterpartyType: "customer",
+            counterpartyId: r.projectId,
+            counterpartyName: "",
+            projectId: r.projectId,
+            notes: r.notes ?? `Client payment (record ${r.id}) — reconciled on boot`,
+            reference: compositeKey,
+          });
+        }
+      }
+      if (missing.length === 0) return prev;
+      return { ...prev, payments: [...missing, ...prev.payments] };
+    });
+    // Run exactly once on mount.
+  }, []);
   
   // Generate unique IDs
   const generateId = useCallback((prefix: string) => {
@@ -804,7 +865,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     projectId?: string,
   ): AccountingReviewQueueItem | null => {
     if (postingResult.ok) return null;
-    const { reason, event } = postingResult.reviewQueueItem;
+    const { reason, event } = (postingResult as Exclude<PostingResult, { ok: true }>).reviewQueueItem;
     return {
       id: generateId("ARQ"),
       reason,
@@ -855,7 +916,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           },
         });
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
         const projectId = result.result?.projectId;
         setState((prev) => ({
@@ -892,7 +953,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           payload: params,
         });
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
         const projectId = result.result?.projectId;
         setState((prev) => ({
@@ -927,7 +988,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           payload: params,
         });
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
         const projectId = result.result?.projectId;
         setState((prev) => ({
@@ -1033,7 +1094,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           },
         });
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
         setState((prev) => ({
           ...prev,
@@ -1068,7 +1129,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           payload: input,
         });
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
         setState((prev) => ({
           ...prev,
@@ -1126,7 +1187,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           payload: { quotation },
         });
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
         setState((prev) => ({
           ...prev,
@@ -1157,7 +1218,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           payload: { quotationId: id, updates },
         });
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
         setState((prev) => ({
           ...prev,
@@ -1235,7 +1296,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
 
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
 
         const fromRepo = repositories.quotationRepository.getById(id);
@@ -1740,19 +1801,44 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     const auditEntry = createAuditEntry("create", "Income", income.id, income.category);
-    setState(prev => {
-      const updatedProjects = income.projectId
-        ? prev.projects.map(p =>
-            p.id === income.projectId ? { ...p, amountReceived: (p.amountReceived ?? 0) + income.amount } : p
+    setState((prev) => {
+      let incomeToStore: Income = { ...income };
+      let payments = prev.payments;
+      if (incomeToStore.mainCategory === "project" && incomeToStore.projectId) {
+        const pIdx = prev.payments.findIndex(
+          (p) =>
+            p.direction === "in" &&
+            !p.linkedIncomeId &&
+            p.projectId === incomeToStore.projectId &&
+            Math.abs(p.amount - incomeToStore.amount) <= 0.02 &&
+            p.date.slice(0, 10) === incomeToStore.date.slice(0, 10),
+        );
+        if (pIdx >= 0) {
+          const pay = prev.payments[pIdx];
+          incomeToStore = { ...incomeToStore, linkedPaymentId: pay.id };
+          payments = prev.payments.map((row, ix) =>
+            ix === pIdx ? { ...row, linkedIncomeId: incomeToStore.id } : row,
+          );
+        }
+      }
+      const updatedProjects = incomeToStore.projectId
+        ? prev.projects.map((p) =>
+            p.id === incomeToStore.projectId ? { ...p, amountReceived: (p.amountReceived ?? 0) + incomeToStore.amount } : p,
           )
         : prev.projects;
-      return { ...prev, incomes: [income, ...prev.incomes], projects: updatedProjects, auditLogs: [auditEntry, ...prev.auditLogs] };
+      return {
+        ...prev,
+        incomes: [incomeToStore, ...prev.incomes],
+        payments,
+        projects: updatedProjects,
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      };
     });
   }, [canPerformActionOrWarn, createAuditEntry, financeValidationService]);
   
   const updateIncome = useCallback((id: string, updates: Partial<Income>) => {
     if (!canPerformActionOrWarn("finance:update_income")) return;
-    const auditEntry = createAuditEntry("update", "Income", id, updates.description || id);
+    const auditEntry = createAuditEntry("update", "Income", id, updates.notes || id);
     setState(prev => ({
       ...prev,
       incomes: prev.incomes.map(i => i.id === id ? { ...i, ...updates } : i),
@@ -1800,7 +1886,26 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       : null;
 
     const auditEntry = createAuditEntry("create", "Payment", payment.id, payment.counterpartyName || payment.paymentMode);
+    const paymentToStore: Payment = { ...payment };
     setState(prev => {
+      let incomes = prev.incomes;
+      if (paymentToStore.direction === "in" && paymentToStore.projectId) {
+        const incIdx = prev.incomes.findIndex(
+          (i) =>
+            i.mainCategory === "project" &&
+            !i.linkedPaymentId &&
+            i.projectId === paymentToStore.projectId &&
+            Math.abs(i.amount - paymentToStore.amount) <= 0.02 &&
+            i.date.slice(0, 10) === paymentToStore.date.slice(0, 10),
+        );
+        if (incIdx >= 0) {
+          const hit = prev.incomes[incIdx];
+          paymentToStore.linkedIncomeId = hit.id;
+          incomes = prev.incomes.map((row, ix) =>
+            ix === incIdx ? { ...row, linkedPaymentId: paymentToStore.id } : row,
+          );
+        }
+      }
       const reviewProjectId = payment.projectId || (payment.invoiceId ? prev.invoices.find((x) => x.id === payment.invoiceId)?.projectId : undefined);
       const reviewQueueItem = postingResult ? createReviewQueueItem(postingResult, reviewProjectId) : null;
       const applyReceived = (doc: Invoice) =>
@@ -1827,11 +1932,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
       return {
         ...prev,
-        payments: [payment, ...prev.payments],
+        payments: [paymentToStore, ...prev.payments],
         invoices: updatedInvoices,
         saleBills: updatedSaleBills,
         projects: updatedProjects,
         customers: updatedCustomers,
+        incomes,
         accountingVouchers: (postingResult && postingResult.ok) ? [postingResult.voucher, ...prev.accountingVouchers] : prev.accountingVouchers,
         accountingReviewQueue: reviewQueueItem ? [reviewQueueItem, ...prev.accountingReviewQueue] : prev.accountingReviewQueue,
         auditLogs: [auditEntry, ...prev.auditLogs],
@@ -1973,7 +2079,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           : {}),
       });
       if (!postingResult.ok) {
-        const reason = postingResult.reviewQueueItem.reason;
+        const reason = (postingResult as Exclude<PostingResult, { ok: true }>).reviewQueueItem.reason;
         toast({
           title: "Retry still failed",
           description: reason,
@@ -2022,6 +2128,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return true;
       }),
       employeePayrollRecords: (prev.employeePayrollRecords ?? []).filter((r) => r.employeeId !== id),
+      employeeWalletLedger: (prev.employeeWalletLedger ?? []).filter((r) => r.employeeId !== id),
       teams: prev.teams.map((team) => ({
         ...team,
         memberIds: team.memberIds.filter((mid) => mid !== id),
@@ -2175,7 +2282,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   
   const updateLoan = useCallback((id: string, updates: Partial<Loan>) => {
     if (!canPerformActionOrWarn("loan:update")) return;
-    const auditEntry = createAuditEntry("update", "Loan", id, updates.description || id);
+    const auditEntry = createAuditEntry("update", "Loan", id, updates.personName || updates.source || id);
     setState(prev => ({
       ...prev,
       loans: prev.loans.map(l => l.id === id ? { ...l, ...updates } : l),
@@ -2299,26 +2406,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const getServicePresetById = useCallback((id: string) => {
     return state.servicePresets.find(p => p.id === id);
   }, [state.servicePresets]);
-  
-  // ============ INVENTORY PRESETS CRUD ============
-  const addInventoryPreset = useCallback((preset: InventoryPreset) => {
-    setState(prev => ({ ...prev, inventoryPresets: [preset, ...prev.inventoryPresets] }));
-  }, []);
-  
-  const updateInventoryPreset = useCallback((id: string, updates: Partial<InventoryPreset>) => {
-    setState(prev => ({
-      ...prev,
-      inventoryPresets: prev.inventoryPresets.map(p => p.id === id ? { ...p, ...updates } : p),
-    }));
-  }, []);
-  
-  const deleteInventoryPreset = useCallback((id: string) => {
-    setState(prev => ({ ...prev, inventoryPresets: prev.inventoryPresets.filter(p => p.id !== id) }));
-  }, []);
-  
-  const getInventoryPresetById = useCallback((id: string) => {
-    return state.inventoryPresets.find(p => p.id === id);
-  }, [state.inventoryPresets]);
   
   // ============ QUOTATION VISIBILITY PRESETS CRUD ============
   const addQuotationVisibilityPreset = useCallback((preset: QuotationVisibilityPreset) => {
@@ -2458,7 +2545,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           payload: { enquiry },
         });
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
         setState((prev) => ({
           ...prev,
@@ -2518,7 +2605,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
 
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
 
         const updated = repositories.enquiryRepository.getById(id);
@@ -2542,37 +2629,78 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 
   const convertEnquiryToCustomer = useCallback(
-    async (enquiryId: string): Promise<{ ok: boolean; error?: string }> => {
+    async (enquiryId: string): Promise<{ ok: boolean; error?: string; customerId?: string }> => {
       if (!permissionService.canPerformAction(actorRole, "enquiry:create")) {
         return { ok: false, error: "Not allowed" };
       }
-      
+
+      const enquiry = state.enquiries.find((e) => e.id === enquiryId);
+      if (!enquiry) {
+        return { ok: false, error: "Enquiry not found" };
+      }
+
       repositories.enquiryRepository.replaceAll(state.enquiries);
-      
+
       try {
-        const result = await commandBus.execute<ConvertEnquiryPayload, { enquiryId: string }>({
+        const result = await commandBus.execute<{ enquiryId: string }>({
           type: CONVERT_ENQUIRY_COMMAND,
           actorUserId: "prototype-user",
           actorRole,
           payload: { enquiryId },
         });
-        
+
         if (!result.ok) {
-          return { ok: false, error: result.message };
+          return { ok: false, error: (result as { message: string }).message };
         }
-        
-        setState(prev => ({
+
+        // C1/C2: ensure there's a Customer for this enquiry. Look up by phone or email first
+        // so repeat conversions don't create duplicates; only fall through to a fresh create if both fail.
+        const enquiryPhone = (enquiry.customerPhone || "").replace(/\D/g, "");
+        const enquiryEmail = (enquiry.customerEmail || "").trim().toLowerCase();
+        let matchedCustomerId: string | undefined = enquiry.customerId;
+        if (!matchedCustomerId) {
+          const existing = state.customers.find((c) => {
+            const cp = (c.phone || "").replace(/\D/g, "");
+            const ce = (c.email || "").trim().toLowerCase();
+            return (enquiryPhone && cp === enquiryPhone) || (enquiryEmail && ce === enquiryEmail);
+          });
+          if (existing) {
+            matchedCustomerId = existing.id;
+          }
+        }
+
+        let createdCustomer: Customer | null = null;
+        if (!matchedCustomerId) {
+          const newCustomerId = generateId("CUST");
+          createdCustomer = {
+            id: newCustomerId,
+            name: enquiry.customerName,
+            phone: enquiry.customerPhone || "",
+            email: enquiry.customerEmail || "",
+            address: enquiry.customerAddress || "",
+            type: enquiry.customerType,
+            itemsBought: [],
+            totalPurchases: 0,
+            createdAt: new Date().toISOString(),
+          };
+          matchedCustomerId = newCustomerId;
+        }
+
+        setState((prev) => ({
           ...prev,
-          enquiries: prev.enquiries.map(e => e.id === enquiryId ? { ...e, status: "converted" } : e),
+          enquiries: prev.enquiries.map((e) =>
+            e.id === enquiryId ? { ...e, status: "converted", customerId: matchedCustomerId } : e,
+          ),
+          customers: createdCustomer ? [createdCustomer, ...prev.customers] : prev.customers,
           auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
         }));
-        
-        return { ok: true };
+
+        return { ok: true, customerId: matchedCustomerId };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Conversion failed" };
       }
     },
-    [actorRole, commandBus, permissionService, repositories, state.enquiries]
+    [actorRole, commandBus, generateId, permissionService, repositories, state.customers, state.enquiries],
   );
   
   // ============ AGENTS CRUD ============
@@ -2617,6 +2745,41 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const addQuotationTemplate = useCallback((template: QuotationTemplate) => {
     setState(prev => ({ ...prev, quotationTemplates: [template, ...prev.quotationTemplates] }));
+  }, []);
+
+  const updateQuotationTemplate = useCallback((id: string, updates: Partial<QuotationTemplate>) => {
+    setState(prev => ({
+      ...prev,
+      quotationTemplates: prev.quotationTemplates.map(t => t.id === id ? { ...t, ...updates } : t),
+    }));
+  }, []);
+
+  const deleteQuotationTemplate = useCallback((id: string) => {
+    setState(prev => ({
+      ...prev,
+      quotationTemplates: prev.quotationTemplates.filter(t => t.id !== id),
+    }));
+  }, []);
+
+  const addSiteChecklistTemplate = useCallback((template: SiteChecklistTemplate) => {
+    setState(prev => ({
+      ...prev,
+      siteChecklistTemplates: [template, ...(prev.siteChecklistTemplates ?? [])],
+    }));
+  }, []);
+
+  const updateSiteChecklistTemplate = useCallback((id: string, updates: Partial<SiteChecklistTemplate>) => {
+    setState(prev => ({
+      ...prev,
+      siteChecklistTemplates: (prev.siteChecklistTemplates ?? []).map(t => t.id === id ? { ...t, ...updates } : t),
+    }));
+  }, []);
+
+  const deleteSiteChecklistTemplate = useCallback((id: string) => {
+    setState(prev => ({
+      ...prev,
+      siteChecklistTemplates: (prev.siteChecklistTemplates ?? []).filter(t => t.id !== id),
+    }));
   }, []);
 
   const getQuotationTemplateById = useCallback(
@@ -2772,22 +2935,79 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 
   const addClientPaymentRecord = useCallback((record: ClientPaymentRecord) => {
-    setState((prev) => ({
-      ...prev,
-      clientPaymentRecords: [record, ...prev.clientPaymentRecords],
-    }));
+    setState((prev) => {
+      // C3 single write path: also FIFO-apply against the project's open invoices and emit a Payment row.
+      // Composite-key dedupe ensures repeat boot reconcilers don't double-write.
+      const projectInvoices = prev.invoices
+        .filter((inv) => inv.projectId === record.projectId)
+        .sort((a, b) => new Date(a.invoiceDate || a.dueDate || 0).getTime() - new Date(b.invoiceDate || b.dueDate || 0).getTime());
+
+      let remaining = record.amount;
+      const updatedInvoices = prev.invoices.map((inv) => {
+        if (remaining <= 0) return inv;
+        if (inv.projectId !== record.projectId) return inv;
+        const due = (inv.total || 0) - (inv.amountReceived || 0);
+        if (due <= 0) return inv;
+        const pay = Math.min(due, remaining);
+        remaining -= pay;
+        const nextReceived = (inv.amountReceived || 0) + pay;
+        return {
+          ...inv,
+          amountReceived: nextReceived,
+          status: (nextReceived >= (inv.total || 0) ? "paid" : "partial") as Invoice["status"],
+          receivedDate: record.date,
+          receivedIn: record.paymentMode,
+        };
+      });
+
+      const updatedProjects = prev.projects.map((p) =>
+        p.id === record.projectId ? { ...p, amountReceived: (p.amountReceived ?? 0) + record.amount } : p,
+      );
+
+      // Emit a matching Payment row using a composite key so a boot reconciler is idempotent.
+      const compositeKey = `cpr:${record.id}`;
+      const alreadyEmitted = prev.payments.some((p) => p.id === compositeKey || p.reference === compositeKey);
+      const paymentRow: Payment | null = alreadyEmitted
+        ? null
+        : {
+            id: compositeKey,
+            date: record.date,
+            amount: record.amount,
+            direction: "in",
+            paymentMode: record.paymentMode,
+            counterpartyType: "customer",
+            counterpartyId: record.projectId,
+            counterpartyName: projectInvoices[0]?.customerName ?? "",
+            projectId: record.projectId,
+            notes: record.notes ?? `Client payment (record ${record.id})`,
+            reference: compositeKey,
+          };
+
+      return {
+        ...prev,
+        clientPaymentRecords: [record, ...prev.clientPaymentRecords],
+        invoices: updatedInvoices,
+        payments: paymentRow ? [paymentRow, ...prev.payments] : prev.payments,
+        projects: updatedProjects,
+      };
+    });
   }, []);
 
   const updateSite = useCallback((siteNumericId: number, updates: Partial<SiteRecord>) => {
     setState((prev) => {
-      const merged = prev.sites.map((s) => (s.id === siteNumericId ? { ...s, ...updates } : s));
-      const row = merged.find((s) => s.id === siteNumericId);
-      if (row?.checklistItems?.length) {
-        const unknown = findUnknownChecklistInventoryIds(row.checklistItems, prev.inventoryItems);
-        if (unknown.length > 0) {
-          console.warn("[AppData] Site checklist references unknown inventory ids", unknown);
+      const merged = prev.sites.map((s) => {
+        if (s.id !== siteNumericId) return s;
+        const combined = { ...s, ...updates };
+        const stripped = stripOrphanChecklistInventoryRefs(combined.checklistItems, prev.inventoryItems);
+        const next = stripped !== combined.checklistItems ? { ...combined, checklistItems: stripped } : combined;
+        if (next.checklistItems?.length) {
+          const unknown = findUnknownChecklistInventoryIds(next.checklistItems, prev.inventoryItems);
+          if (unknown.length > 0) {
+            console.warn("[AppData] Site checklist references unknown inventory ids", unknown);
+          }
         }
-      }
+        return next;
+      });
       return { ...prev, sites: merged };
     });
   }, []);
@@ -2917,13 +3137,34 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // ============ VENDOR BILLS CRUD ============
   const addVendorBill = useCallback((bill: VendorBill) => {
-    setState(prev => {
-      const updatedVendors = prev.vendors.map(v =>
-        v.id === bill.vendorId ? { ...v, outstandingAmount: (v.outstandingAmount || 0) + bill.total } : v
+    if (!canPerformActionOrWarn("vendor:record_bill")) return;
+    const auditEntry = createAuditEntry("create", "VendorBill", bill.id, bill.billNumber || bill.id);
+    setState((prev) => {
+      const updatedVendors = prev.vendors.map((v) =>
+        v.id === bill.vendorId ? { ...v, outstandingAmount: (v.outstandingAmount || 0) + bill.total } : v,
       );
-      return { ...prev, vendorBills: [bill, ...prev.vendorBills], vendors: updatedVendors };
+      return {
+        ...prev,
+        vendorBills: [bill, ...prev.vendorBills],
+        vendors: updatedVendors,
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      };
     });
-  }, []);
+
+    // C4: also record a PurchaseIn warehouse movement per line item with an inventory link.
+    // Bills without `inventoryItemId` are skipped (e.g. pure-service bills) so we don't fabricate movements.
+    for (const line of bill.items ?? []) {
+      const itemId = line.inventoryItemId;
+      const qty = Number(line.quantity);
+      if (!itemId || !Number.isFinite(qty) || qty <= 0) continue;
+      // Fire-and-forget — the recorder is itself permission-gated and updates inventory atomically.
+      void recordWarehouseInventoryMovement({
+        itemId,
+        movementType: "PurchaseIn",
+        quantity: qty,
+      });
+    }
+  }, [canPerformActionOrWarn, createAuditEntry, recordWarehouseInventoryMovement]);
   
   const updateVendorBill = useCallback((id: string, updates: Partial<VendorBill>) => {
     setState(prev => ({
@@ -3060,7 +3301,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           date,
           employeeId,
           employeeName,
-          createdAt: new Date().toISOString(),
+          createdAt: date.includes("T") ? date : `${date.slice(0, 10)}T12:00:00.000Z`,
         };
         return {
           ...item,
@@ -3088,7 +3329,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           date,
           condition,
           notes,
-          createdAt: new Date().toISOString(),
+          createdAt: date.includes("T") ? date : `${date.slice(0, 10)}T12:00:00.000Z`,
         };
         return {
           ...item,
@@ -3134,7 +3375,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           employeeName,
           notes: trimmed || undefined,
           conditionNotes: trimmed || undefined,
-          createdAt: new Date().toISOString(),
+          createdAt: date.includes("T") ? date : `${date.slice(0, 10)}T12:00:00.000Z`,
         };
         return {
           ...tool,
@@ -3162,7 +3403,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           condition,
           notes,
           conditionNotes: notes?.trim() || undefined,
-          createdAt: new Date().toISOString(),
+          createdAt: date.includes("T") ? date : `${date.slice(0, 10)}T12:00:00.000Z`,
         };
         return {
           ...tool,
@@ -3200,6 +3441,54 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const getPayrollByEmployee = useCallback((employeeId: number) => {
     return (state.employeePayrollRecords ?? []).filter(r => r.employeeId === employeeId);
   }, [state.employeePayrollRecords]);
+
+  const addEmployeeWalletLedgerEntry = useCallback(
+    (entry: Omit<EmployeeWalletLedgerEntry, "id" | "createdAt">): { ok: boolean; error?: string } => {
+      if (actorRole !== "super_admin") {
+        toast({
+          title: "Not permitted",
+          description: "Only a super admin can record employee wallet advances or recoveries.",
+          variant: "destructive",
+        });
+        return { ok: false, error: "forbidden" };
+      }
+      const emp = state.employees.find((e) => e.id === entry.employeeId);
+      if (!emp) return { ok: false, error: "Employee not found" };
+      const amount = Number(entry.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Enter a valid amount" };
+      const row: EmployeeWalletLedgerEntry = {
+        ...entry,
+        amount,
+        id: generateId("EWL"),
+        createdAt: new Date().toISOString(),
+      };
+      const auditRow = createAuditEntry(
+        "create",
+        "employee_wallet_ledger",
+        row.id,
+        emp.name,
+        row.kind,
+        undefined,
+        `${row.kind}: ${amount} on ${row.date}${row.notes ? ` (${row.notes})` : ""}`,
+      );
+      setState((prev) => ({
+        ...prev,
+        employeeWalletLedger: [row, ...(prev.employeeWalletLedger ?? [])],
+        auditLogs: [auditRow, ...prev.auditLogs],
+      }));
+      return { ok: true };
+    },
+    [actorRole, state.employees, generateId, createAuditEntry],
+  );
+
+  const getEmployeeWalletLedger = useCallback(
+    (employeeId?: number) => {
+      const rows = state.employeeWalletLedger ?? [];
+      if (employeeId === undefined) return rows;
+      return rows.filter((r) => r.employeeId === employeeId);
+    },
+    [state.employeeWalletLedger],
+  );
 
   // ============ VENDORSHIP COMPANIES ============
   const addVendorshipCompany = useCallback((company: VendorshipCompany) => {
@@ -3240,6 +3529,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const getINCGiverCompanyById = useCallback((id: string) => {
     return (state.incGiverCompanies ?? []).find(c => c.id === id);
   }, [state.incGiverCompanies]);
+
+  // ============ BANK RECONCILIATION (B13) ============
+  const setBankReconciliationStatements = useCallback((statements: unknown[]) => {
+    setState(prev => ({ ...prev, bankReconciliationStatements: statements }));
+  }, []);
 
   // ============ DERIVED VALUES ============
   const lowStockItems = useMemo(
@@ -3376,12 +3670,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     deleteServicePreset,
     getServicePresetById,
     
-    // Inventory Presets
-    addInventoryPreset,
-    updateInventoryPreset,
-    deleteInventoryPreset,
-    getInventoryPresetById,
-    
     // Quotation Visibility Presets
     addQuotationVisibilityPreset,
     updateQuotationVisibilityPreset,
@@ -3414,6 +3702,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Sites
     addSite,
     addQuotationTemplate,
+    updateQuotationTemplate,
+    deleteQuotationTemplate,
+    addSiteChecklistTemplate,
+    updateSiteChecklistTemplate,
+    deleteSiteChecklistTemplate,
     getQuotationTemplateById,
     getSiteChecklistTemplateById,
     getSitesByProjectId,
@@ -3481,6 +3774,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Employee Payroll Records
     addEmployeePayrollRecord,
     getPayrollByEmployee,
+    addEmployeeWalletLedgerEntry,
+    getEmployeeWalletLedger,
 
     // Derived values
     lowStockItems,
@@ -3496,6 +3791,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     updateINCGiverCompany,
     deleteINCGiverCompany,
     getINCGiverCompanyById,
+
+    // Bank reconciliation (B13)
+    setBankReconciliationStatements,
 
     // Utilities
     generateId,

@@ -9,8 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DIRECT_EXPENSE_CATEGORIES, INDIRECT_EXPENSE_CATEGORIES } from "@/services/finance/chartOfAccounts";
-import { format, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval, subQuarters, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
+import { DIRECT_EXPENSE_CATEGORIES } from "@/services/finance/chartOfAccounts";
+import { startOfMonth, endOfMonth, parseISO, isWithinInterval, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
+import { formatINR } from "@/lib/formatCurrency";
 
 // Expense category to P&L line item mapping
 const EXPENSE_PL_MAP: Record<string, { label: string; categories: string[] }> = {
@@ -64,7 +65,7 @@ const ProfitLoss = () => {
   };
 
   const plData = useMemo(() => {
-    const range = getRange();
+    const _range = getRange();
     const allInvoices = [...invoices, ...saleBills];
     const periodInvoices = allInvoices.filter(i => inRange(i.invoiceDate));
 
@@ -123,12 +124,10 @@ const ProfitLoss = () => {
     };
   }, [invoices, saleBills, expenses, incomes, vendorBills, inventoryItems, period]);
 
-  const fmt = (v: number) => `₹${v.toLocaleString("en-IN")}`;
-
   const LineItem = ({ label, amount, bold = false, indent = false }: { label: string; amount: number; bold?: boolean; indent?: boolean }) => (
     <div className={cn("flex justify-between py-1.5 px-3", indent && "pl-8", bold && "font-semibold border-t border-border")}>
       <span className={cn("text-sm", bold ? "text-foreground" : "text-muted-foreground")}>{label}</span>
-      <span className={cn("text-sm tabular-nums", amount < 0 ? "text-destructive" : "text-foreground", bold && "font-bold")}>{fmt(amount)}</span>
+      <span className={cn("text-sm tabular-nums", amount < 0 ? "text-destructive" : "text-foreground", bold && "font-bold")}>{formatINR(amount)}</span>
     </div>
   );
 
@@ -155,10 +154,10 @@ const ProfitLoss = () => {
             <InlineKpiStrip
               className="w-full min-w-0 sm:max-w-none sm:justify-end"
               items={[
-                { label: "Revenue", value: fmt(plData.revenue.total) },
-                { label: "COGS", value: fmt(plData.cogs) },
-                { label: "Gross profit", value: fmt(plData.grossProfit) },
-                { label: "Net profit", value: fmt(plData.netProfit) },
+                { label: "Revenue", value: formatINR(plData.revenue.total) },
+                { label: "COGS", value: formatINR(plData.cogs) },
+                { label: "Gross profit", value: formatINR(plData.grossProfit) },
+                { label: "Net profit", value: formatINR(plData.netProfit) },
               ]}
             />
           </>
@@ -179,7 +178,7 @@ const ProfitLoss = () => {
                   <ChevronDown className="w-4 h-4" />
                   <span className="font-semibold text-sm text-foreground">Revenue</span>
                 </div>
-                <span className="font-bold text-sm text-primary">{fmt(plData.revenue.total)}</span>
+                <span className="font-bold text-sm text-primary">{formatINR(plData.revenue.total)}</span>
               </div>
             </CollapsibleTrigger>
             <CollapsibleContent>
@@ -194,7 +193,7 @@ const ProfitLoss = () => {
           {/* COGS */}
           <div className="flex justify-between items-center px-4 py-3 bg-muted/50">
             <span className="font-semibold text-sm text-foreground">Cost of Goods Sold (Purchases)</span>
-            <span className="font-bold text-sm text-destructive">({fmt(plData.cogs)})</span>
+            <span className="font-bold text-sm text-destructive">({formatINR(plData.cogs)})</span>
           </div>
           <LineItem label="Gross Profit" amount={plData.grossProfit} bold />
 
@@ -205,9 +204,9 @@ const ProfitLoss = () => {
                 <div className="flex items-center gap-2">
                   <ChevronDown className="w-4 h-4" />
                   <span className="font-semibold text-sm text-foreground">Direct Expenses</span>
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">CoA: Direct Expenses</Badge>
+                  <Badge variant="outline" className="text-2xs px-1.5 py-0">CoA: Direct Expenses</Badge>
                 </div>
-                <span className="font-bold text-sm text-destructive">({fmt(plData.totalDirect)})</span>
+                <span className="font-bold text-sm text-destructive">({formatINR(plData.totalDirect)})</span>
               </div>
             </CollapsibleTrigger>
             <CollapsibleContent>
@@ -225,9 +224,9 @@ const ProfitLoss = () => {
                 <div className="flex items-center gap-2">
                   <ChevronDown className="w-4 h-4" />
                   <span className="font-semibold text-sm text-foreground">Indirect Expenses</span>
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">CoA: Indirect Expenses</Badge>
+                  <Badge variant="outline" className="text-2xs px-1.5 py-0">CoA: Indirect Expenses</Badge>
                 </div>
-                <span className="font-bold text-sm text-destructive">({fmt(plData.totalIndirect)})</span>
+                <span className="font-bold text-sm text-destructive">({formatINR(plData.totalIndirect)})</span>
               </div>
             </CollapsibleTrigger>
             <CollapsibleContent>
@@ -243,7 +242,7 @@ const ProfitLoss = () => {
             plData.netProfit >= 0 ? "bg-primary/5" : "bg-destructive/5")}>
             <span className="font-bold text-base text-foreground">Net Profit / (Loss)</span>
             <span className={cn("font-bold text-lg", plData.netProfit >= 0 ? "text-primary" : "text-destructive")}>
-              {plData.netProfit < 0 ? `(${fmt(Math.abs(plData.netProfit))})` : fmt(plData.netProfit)}
+              {plData.netProfit < 0 ? `(${formatINR(Math.abs(plData.netProfit))})` : formatINR(plData.netProfit)}
             </span>
           </div>
         </CardContent>

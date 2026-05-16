@@ -5,17 +5,16 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Download, 
   Palette, 
   Type, 
-  Square, 
+  _Square, 
   Layout, 
   Layers,
   Sun,
@@ -28,7 +27,6 @@ import { toast } from "@/hooks/use-toast";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { PageShell } from "@/components/layout/PageShell";
-import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
@@ -120,7 +118,7 @@ export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
     try {
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
+      const _pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 15;
       let yPos = margin;
 
@@ -170,7 +168,7 @@ export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
       yPos += 8;
 
       pdf.setFontSize(9);
-      colorTokens.light.slice(0, 10).forEach((color, idx) => {
+      colorTokens.light.slice(0, 10).forEach((color, _idx) => {
         pdf.text(`${color.name}: ${color.hsl} (${color.hex})`, margin + 5, yPos);
         yPos += 6;
       });

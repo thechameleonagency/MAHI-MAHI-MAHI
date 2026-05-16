@@ -13,7 +13,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import {
   INCOME_MAIN_CATEGORIES,
-  INCOME_SCHEMA,
+  _INCOME_SCHEMA,
   getIncomeCategoriesByMainCategory,
   getIncomeSubCategories,
   getIncomeCategoryByValue,

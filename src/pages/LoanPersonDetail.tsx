@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Plus, Phone, User, IndianRupee, Calendar, Building2, FileText, Receipt, Edit, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ArrowLeft, Plus, IndianRupee, Edit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,24 +12,38 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/DateInput";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
+import type { Loan, LoanRepayment } from "@/types/finance";
+import { calculateEMI } from "@/lib/emiCalc";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { formatINR } from "@/lib/formatCurrency";
+import { validateContactPhone } from "@/lib/phoneValidators";
+import { normalizeLoanPersonKey } from "@/lib/loanPerson";
 
 const LoanPersonDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const personName = decodeURIComponent(id || "");
+  // `id` is whatever key the list passed (now `normalizeLoanPersonKey(loan)`); fall back to legacy raw-name match.
+  const personKey = decodeURIComponent(id || "");
+  const personName = personKey;
   
-  const { loans, loanRepayments } = useAppData();
+  const { loans, loanRepayments, addLoan, addLoanRepayment, updateLoan, generateId } = useAppData();
   
-  // Filter loans for this person
-  const personLoans = loans.filter(l => l.source === personName || l.source.includes(personName));
+  // Filter loans for this person — prefer the normalised key but tolerate legacy name-based URLs.
+  const personLoans = loans.filter(l =>
+    normalizeLoanPersonKey(l) === personKey ||
+    l.source === personName ||
+    (l as { personName?: string }).personName === personName ||
+    (l as { borrowerName?: string }).borrowerName === personName
+  );
   const personRepayments = loanRepayments.filter(r => 
     personLoans.some(l => l.id === r.loanId)
   );
@@ -62,12 +76,36 @@ const LoanPersonDetail = () => {
   const [loanTenure, setLoanTenure] = useState("");
   const [loanStartDate, setLoanStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [loanNotes, setLoanNotes] = useState("");
-  
+  const [loanPersonContact, setLoanPersonContact] = useState("");
+
   // Repayment form state
   const [repaymentDate, setRepaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [repaymentPrincipal, setRepaymentPrincipal] = useState("");
   const [repaymentInterest, setRepaymentInterest] = useState("");
   const [repaymentNotes, setRepaymentNotes] = useState("");
+
+  const [isEditLoanOpen, setIsEditLoanOpen] = useState(false);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
+  const [elStatus, setElStatus] = useState<Loan["status"]>("Active");
+  const [elReminderNotes, setElReminderNotes] = useState("");
+
+  const openEditLoan = (loan: Loan) => {
+    setEditingLoan(loan);
+    setElStatus(loan.status);
+    setElReminderNotes(loan.reminderNotes ?? "");
+    setIsEditLoanOpen(true);
+  };
+
+  const saveLoanEdits = () => {
+    if (!editingLoan) return;
+    updateLoan(editingLoan.id, {
+      status: elStatus,
+      reminderNotes: elReminderNotes.trim() || undefined,
+    });
+    toast({ title: "Loan updated", description: `${editingLoan.id} saved.` });
+    setIsEditLoanOpen(false);
+    setEditingLoan(null);
+  };
   
   // Calculate totals
   const totalPrincipal = personLoans.reduce((sum, l) => sum + l.principal, 0);
@@ -79,20 +117,111 @@ const LoanPersonDetail = () => {
   // Extract person name from source (e.g., "Personal - Ramesh Kumar" -> "Ramesh Kumar")
   const displayName = personName.replace(/^(Personal|Person)\s*-\s*/i, '').trim();
   
+  const suggestedEmi = useMemo(() => {
+    const p = Number.parseFloat(loanPrincipal);
+    const r = Number.parseFloat(loanInterestRate);
+    const pp = Number.isFinite(p) ? p : 0;
+    const rr = Number.isFinite(r) ? r : 0;
+    const n = parseInt(loanTenure, 10) || 0;
+    if (pp <= 0 || n <= 0) return 0;
+    return calculateEMI(pp, rr, n);
+  }, [loanPrincipal, loanInterestRate, loanTenure]);
+
+  const handleApplySuggestedEmi = () => {
+    if (suggestedEmi > 0) setLoanEmi(String(suggestedEmi));
+  };
+
   const handleAddLoan = () => {
-    toast({ title: "Loan Added", description: `New loan of ₹${parseInt(loanPrincipal).toLocaleString()} added` });
+    const principal = Number.parseFloat(loanPrincipal);
+    const rate = Number.parseFloat(loanInterestRate);
+    const tenure = parseInt(loanTenure, 10);
+    if (!Number.isFinite(principal) || principal <= 0) {
+      toast({ title: "Invalid principal", description: "Enter a positive loan amount.", variant: "destructive" });
+      return;
+    }
+    if (!Number.isFinite(rate) || rate < 0) {
+      toast({ title: "Invalid rate", description: "Interest rate cannot be negative.", variant: "destructive" });
+      return;
+    }
+    if (!tenure || tenure <= 0) {
+      toast({ title: "Invalid tenure", description: "Tenure must be a positive number of months.", variant: "destructive" });
+      return;
+    }
+    const emiRaw = Number.parseFloat(loanEmi);
+    const emiVal = Number.isFinite(emiRaw) && emiRaw > 0 ? emiRaw : suggestedEmi || calculateEMI(principal, rate, tenure);
+    if (!Number.isFinite(emiVal) || emiVal <= 0) {
+      toast({ title: "Invalid EMI", description: "Enter EMI or use Calculate EMI.", variant: "destructive" });
+      return;
+    }
+    const contactTrim = loanPersonContact.trim();
+    if (contactTrim) {
+      const pc = validateContactPhone(contactTrim);
+      if (!pc.ok) {
+        toast({ title: "Invalid contact phone", description: (pc as { message: string }).message, variant: "destructive" });
+        return;
+      }
+    }
+    const loanId = generateId("LN");
+    const newLoan: Loan = {
+      id: loanId,
+      source: personName,
+      sourceType: "person",
+      personName: displayName || personName,
+      principal,
+      interestRate: rate,
+      paymentType: "emi",
+      emiAmount: Math.round(emiVal),
+      tenure,
+      startDate: loanStartDate,
+      outstanding: principal,
+      status: "Active",
+      reminderNotes: loanNotes.trim() || undefined,
+      personContact: contactTrim || undefined,
+    };
+    addLoan(newLoan);
+    toast({ title: "Loan added", description: `${formatINR(principal)} booked for ${displayName || personName}.` });
     setIsAddLoanOpen(false);
     setLoanPrincipal("");
     setLoanInterestRate("");
     setLoanEmi("");
     setLoanTenure("");
     setLoanNotes("");
+    setLoanPersonContact("");
   };
-  
+
   const handleAddRepayment = () => {
     if (!selectedLoan) return;
-    const total = (parseFloat(repaymentPrincipal) || 0) + (parseFloat(repaymentInterest) || 0);
-    toast({ title: "Repayment Recorded", description: `₹${total.toLocaleString()} repaid for ${selectedLoan.source}` });
+    const ppRaw = Number.parseFloat(repaymentPrincipal);
+    const ipRaw = Number.parseFloat(repaymentInterest);
+    const pp = Number.isFinite(ppRaw) && ppRaw >= 0 ? ppRaw : 0;
+    const ip = Number.isFinite(ipRaw) && ipRaw >= 0 ? ipRaw : 0;
+    const total = pp + ip;
+    if (total <= 0) {
+      toast({ title: "Invalid repayment", description: "Enter principal and/or interest paid.", variant: "destructive" });
+      return;
+    }
+    if (pp > selectedLoan.outstanding + 0.01) {
+      toast({
+        title: "Principal too high",
+        description: `Outstanding principal is ${formatINR(selectedLoan.outstanding)}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    const prevEmis = loanRepayments.filter((r) => r.loanId === selectedLoan.id);
+    const emiNumber = (prevEmis.reduce((m, r) => Math.max(m, r.emiNumber), 0) || 0) + 1;
+    const repayment: LoanRepayment = {
+      id: generateId("LR"),
+      loanId: selectedLoan.id,
+      loanSource: selectedLoan.source,
+      date: repaymentDate,
+      emiNumber,
+      principalPaid: pp,
+      interestPaid: ip,
+      totalPaid: total,
+    };
+    addLoanRepayment(repayment);
+    toast({ title: "Repayment recorded", description: `${formatINR(total)} posted for ${selectedLoan.id}.` });
     setIsRepaymentOpen(false);
     setRepaymentPrincipal("");
     setRepaymentInterest("");
@@ -112,8 +241,8 @@ const LoanPersonDetail = () => {
         <Card className="bg-card">
           <CardContent className="p-8 text-center">
             <p className="text-muted-foreground">No loans found for "{personName}"</p>
-            <Button className="mt-4" onClick={() => navigate("/finance?tab=loans")}>
-              Back to Loans
+            <Button className="mt-4" type="button" variant="outline" onClick={() => navigate(-1)}>
+              Back to loans
             </Button>
           </CardContent>
         </Card>
@@ -135,10 +264,10 @@ const LoanPersonDetail = () => {
           <InlineKpiStrip
             className="w-full justify-start sm:justify-end"
             items={[
-              { label: "Borrowed", value: `₹${totalPrincipal.toLocaleString()}` },
-              { label: "Outstanding", value: `₹${totalOutstanding.toLocaleString()}` },
-              { label: "Repaid", value: `₹${totalRepaid.toLocaleString()}` },
-              { label: "Monthly EMI", value: `₹${totalEmi.toLocaleString()}` },
+              { label: "Borrowed", value: formatINR(totalPrincipal) },
+              { label: "Outstanding", value: formatINR(totalOutstanding) },
+              { label: "Repaid", value: formatINR(totalRepaid) },
+              { label: "Monthly EMI", value: formatINR(totalEmi) },
             ]}
           />
         }
@@ -159,9 +288,11 @@ const LoanPersonDetail = () => {
           <p className="text-xl font-semibold text-foreground">{displayName}</p>
           <div className="mt-1 flex items-center gap-2">
             <Badge variant="outline" className="border-purple-500/30 text-purple-500">Personal Loan</Badge>
-            <Badge className={activeCount > 0 ? "bg-blue-500/10 text-blue-500" : "bg-muted"}>
-              {activeCount} Active Loan{activeCount !== 1 ? "s" : ""}
-            </Badge>
+            <StatusBadge
+              status={activeCount > 0 ? "active" : "inactive"}
+              label={`${activeCount} Active Loan${activeCount !== 1 ? "s" : ""}`}
+              className="text-xs"
+            />
           </div>
         </div>
       </div>
@@ -208,30 +339,34 @@ const LoanPersonDetail = () => {
               {pagedPersonLoans.map((loan) => (
                 <TableRow key={loan.id} className="border-border">
                   <TableCell className="font-medium text-foreground">{loan.id}</TableCell>
-                  <TableCell className="text-foreground">₹{loan.principal.toLocaleString()}</TableCell>
+                  <TableCell className="text-foreground">{formatINR(loan.principal)}</TableCell>
                   <TableCell className="text-muted-foreground">{loan.interestRate}%</TableCell>
-                  <TableCell className="text-primary font-medium">₹{loan.emiAmount.toLocaleString()}</TableCell>
+                  <TableCell className="text-primary font-medium">{formatINR(loan.emiAmount)}</TableCell>
                   <TableCell className="text-muted-foreground">{loan.tenure} months</TableCell>
-                  <TableCell className="text-destructive font-medium">₹{loan.outstanding.toLocaleString()}</TableCell>
+                  <TableCell className="text-destructive font-medium">{formatINR(loan.outstanding)}</TableCell>
                   <TableCell className="text-muted-foreground">{loan.startDate}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={loan.status === "Active" ? "bg-blue-500/10 text-blue-500" : "bg-muted"}>
-                      {loan.status}
-                    </Badge>
+                    <StatusBadge status={loan.status} label={loan.status} className="text-xs" />
                   </TableCell>
                   <TableCell>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      disabled={loan.status !== "Active"}
-                      onClick={() => {
-                        setSelectedLoan(loan);
-                        setIsRepaymentOpen(true);
-                      }}
-                    >
-                      <IndianRupee className="h-3 w-3 mr-1" />
-                      Repay
-                    </Button>
+                    <div className="flex flex-wrap gap-1">
+                      <Button variant="outline" size="sm" onClick={() => openEditLoan(loan)}>
+                        <Edit className="h-3 w-3 mr-1" />
+                        Edit
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        disabled={loan.status !== "Active"}
+                        onClick={() => {
+                          setSelectedLoan(loan);
+                          setIsRepaymentOpen(true);
+                        }}
+                      >
+                        <IndianRupee className="h-3 w-3 mr-1" />
+                        Repay
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -279,9 +414,9 @@ const LoanPersonDetail = () => {
                     <TableCell className="text-muted-foreground">{rep.date}</TableCell>
                     <TableCell className="text-foreground">{rep.loanId}</TableCell>
                     <TableCell className="text-muted-foreground">#{rep.emiNumber}</TableCell>
-                    <TableCell className="text-foreground">₹{rep.principalPaid.toLocaleString()}</TableCell>
-                    <TableCell className="text-muted-foreground">₹{rep.interestPaid.toLocaleString()}</TableCell>
-                    <TableCell className="text-primary font-medium">₹{rep.totalPaid.toLocaleString()}</TableCell>
+                    <TableCell className="text-foreground">{formatINR(rep.principalPaid)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatINR(rep.interestPaid)}</TableCell>
+                    <TableCell className="text-primary font-medium">{formatINR(rep.totalPaid)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -294,7 +429,7 @@ const LoanPersonDetail = () => {
 
       {/* Add Loan Modal */}
       <Sheet open={isAddLoanOpen} onOpenChange={setIsAddLoanOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add New Loan from {displayName}</SheetTitle>
           </SheetHeader>
@@ -322,12 +457,21 @@ const LoanPersonDetail = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>EMI Amount (₹)</Label>
-                <Input 
-                  type="number" 
-                  placeholder="10000" 
-                  value={loanEmi}
-                  onChange={(e) => setLoanEmi(e.target.value)}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="10000"
+                    value={loanEmi}
+                    onChange={(e) => setLoanEmi(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={handleApplySuggestedEmi} disabled={!suggestedEmi}>
+                    Calc EMI
+                  </Button>
+                </div>
+                {suggestedEmi > 0 && (
+                  <p className="text-xs text-muted-foreground">Suggested from principal, rate & tenure: {formatINR(suggestedEmi)}/mo</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Tenure (months)</Label>
@@ -341,10 +485,14 @@ const LoanPersonDetail = () => {
             </div>
             <div className="space-y-2">
               <Label>Start Date</Label>
-              <Input 
-                type="date" 
-                value={loanStartDate}
-                onChange={(e) => setLoanStartDate(e.target.value)}
+              <DateInput value={loanStartDate} onChange={(e) => setLoanStartDate(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Contact phone (optional)</Label>
+              <Input
+                value={loanPersonContact}
+                onChange={(e) => setLoanPersonContact(e.target.value)}
+                placeholder="+91 …"
               />
             </div>
             <div className="space-y-2">
@@ -372,7 +520,7 @@ const LoanPersonDetail = () => {
 
       {/* Add Repayment Modal */}
       <Sheet open={isRepaymentOpen} onOpenChange={setIsRepaymentOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Record Repayment</SheetTitle>
           </SheetHeader>
@@ -383,16 +531,12 @@ const LoanPersonDetail = () => {
                   Loan ID: <span className="font-medium text-foreground">{selectedLoan.id}</span>
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Outstanding: <span className="font-medium text-destructive">₹{selectedLoan.outstanding.toLocaleString()}</span>
+                  Outstanding: <span className="font-medium text-destructive">{formatINR(selectedLoan.outstanding)}</span>
                 </p>
               </div>
               <div className="space-y-2">
                 <Label>Date</Label>
-                <Input 
-                  type="date" 
-                  value={repaymentDate}
-                  onChange={(e) => setRepaymentDate(e.target.value)}
-                />
+                <DateInput value={repaymentDate} onChange={(e) => setRepaymentDate(e.target.value)} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -417,7 +561,14 @@ const LoanPersonDetail = () => {
               <div className="p-3 bg-primary/5 rounded-lg text-center">
                 <p className="text-xs text-muted-foreground">Total Repayment</p>
                 <p className="text-xl font-semibold text-primary">
-                  ₹{((parseFloat(repaymentPrincipal) || 0) + (parseFloat(repaymentInterest) || 0)).toLocaleString()}
+                  {formatINR(
+                    (Number.isFinite(Number.parseFloat(repaymentPrincipal))
+                      ? Math.max(0, Number.parseFloat(repaymentPrincipal))
+                      : 0) +
+                      (Number.isFinite(Number.parseFloat(repaymentInterest))
+                        ? Math.max(0, Number.parseFloat(repaymentInterest))
+                        : 0),
+                  )}
                 </p>
               </div>
               <div className="space-y-2">
@@ -441,6 +592,43 @@ const LoanPersonDetail = () => {
               Record Repayment
             </Button>
           </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={isEditLoanOpen} onOpenChange={(o) => { if (!o) { setEditingLoan(null); } setIsEditLoanOpen(o); }}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Edit loan</SheetTitle>
+          </SheetHeader>
+          {editingLoan && (
+            <div className="mt-4 space-y-4 py-2">
+              <p className="text-sm text-muted-foreground font-mono">{editingLoan.id}</p>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={elStatus} onValueChange={(v) => setElStatus(v as Loan["status"])}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Closed">Closed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Reminder notes</Label>
+                <Textarea value={elReminderNotes} onChange={(e) => setElReminderNotes(e.target.value)} rows={3} placeholder="Optional" />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" className="flex-1" onClick={() => setIsEditLoanOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="flex-1" onClick={saveLoanEdits}>
+                  Save
+                </Button>
+              </div>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
     </PageShell>

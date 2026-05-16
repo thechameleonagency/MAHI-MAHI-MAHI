@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { 
   User, Building2, Briefcase, FileText, Receipt, IndianRupee, 
-  Users, MapPin, Phone, Mail, Calendar, ExternalLink, 
-  ClipboardList, Wallet, Package, Handshake, Store
+  _Users, MapPin, Phone, Mail, Calendar, ExternalLink, 
+  ClipboardList, Wallet, _Package, Handshake, Store
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 
@@ -28,7 +28,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
     getEmployeeById, 
     getPartnerById,
     getQuotationById,
-    getInvoiceById,
+    _getInvoiceById,
     vendors,
     getProjectInvoices,
     getCustomerInvoices,
@@ -38,7 +38,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
     getTransactionsByPartner,
     projects,
     quotations,
-    invoices,
+    _invoices,
   } = useAppData();
 
   const renderProjectInfo = () => {

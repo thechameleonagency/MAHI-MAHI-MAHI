@@ -1,13 +1,17 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { 
-  Plus, Search, Phone, Mail, MapPin, Calendar, User, UserPlus, FileText, 
-  Send, Eye, Edit, Trash2, Check, Clock, AlertCircle, MessageCircle,
-  Building2, IndianRupee, Filter, ChevronDown, Zap
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Plus, Search, Phone, Mail, MapPin, Calendar, _User, UserPlus, FileText,
+  Send, Eye, Edit, _Trash2, Check, Clock, _AlertCircle, MessageCircle,
+  Building2, IndianRupee, Filter, ChevronDown, Zap, Share2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { getPriorityColor } from "@/lib/statusColors";
+import { formatINR } from "@/lib/formatCurrency";
+import { validateContactPhone } from "@/lib/phoneValidators";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
@@ -18,7 +22,6 @@ import { ToastAction } from "@/components/ui/toast";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
@@ -28,10 +31,12 @@ import type { Enquiry } from "@/types/project";
 
 const Enquiries = () => {
   const navigate = useNavigate();
-  const { enquiries, addEnquiry, updateEnquiry, transitionEnquiryStatus, convertEnquiryToCustomer, employees, agents, generateId } = useAppData();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { enquiries, addEnquiry, updateEnquiry, transitionEnquiryStatus, convertEnquiryToCustomer, employees, agents, _generateId, canDo, customers } = useAppData();
   
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  // Default to "open" so already-converted enquiries don't clutter the list (audit B12).
+  const [statusFilter, setStatusFilter] = useState("open");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
 
@@ -46,6 +51,10 @@ const Enquiries = () => {
   const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isScheduleMeetingOpen, setIsScheduleMeetingOpen] = useState(false);
+  const [isMarkLostReasonOpen, setIsMarkLostReasonOpen] = useState(false);
+  const [lostReasonText, setLostReasonText] = useState("");
+  const [isReopenEnquiryOpen, setIsReopenEnquiryOpen] = useState(false);
+  const [reopenReasonText, setReopenReasonText] = useState("");
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
   
   // Form states
@@ -70,8 +79,43 @@ const Enquiries = () => {
   const [meetingNotes, setMeetingNotes] = useState("");
   const [shareMethod, setShareMethod] = useState<"whatsapp" | "email">("whatsapp");
 
+  useEffect(() => {
+    const cid = searchParams.get("fromCustomer");
+    if (!cid) return;
+    const c = customers.find((x) => x.id === cid);
+    if (!c) {
+      toast({ title: "Customer not found", description: "Check the link or pick the customer again.", variant: "destructive" });
+      setSearchParams(
+        (p) => {
+          const n = new URLSearchParams(p);
+          n.delete("fromCustomer");
+          return n;
+        },
+        { replace: true },
+      );
+      return;
+    }
+    setFormData((fd) => ({
+      ...fd,
+      customerName: c.name,
+      customerPhone: c.phone || "",
+      customerEmail: c.email || "",
+      customerAddress: c.address || "",
+      customerType: c.type === "company" ? "company" : "individual",
+    }));
+    setIsAddEnquiryOpen(true);
+    setSearchParams(
+      (p) => {
+        const n = new URLSearchParams(p);
+        n.delete("fromCustomer");
+        return n;
+      },
+      { replace: true },
+    );
+  }, [searchParams, customers, setSearchParams]);
+
   // Get employee list for assignment
-  const assignableEmployees = employees.map(e => ({ id: e.id, name: e.name }));
+  const _assignableEmployees = employees.map(e => ({ id: e.id, name: e.name }));
 
   const resetForm = () => {
     setFormData({
@@ -93,10 +137,16 @@ const Enquiries = () => {
 
   // Filtering
   const filteredEnquiries = enquiries.filter(e => {
-    const matchesSearch = e.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.customerPhone.includes(searchQuery) ||
-      e.id.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || e.status === statusFilter;
+    const matchesSearch = (e.customerName || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (e.customerPhone || "").includes(searchQuery) ||
+      (e.id || "").toLowerCase().includes(searchQuery.toLowerCase());
+    // "open" = anything still in the active pipeline (everything except already-converted / lost).
+    const matchesStatus =
+      statusFilter === "all"
+        ? true
+        : statusFilter === "open"
+          ? e.status !== "converted" && e.status !== "lost"
+          : e.status === statusFilter;
     const matchesPriority = priorityFilter === "all" || e.priority === priorityFilter;
     const matchesAssignee = assigneeFilter === "all" || e.assignedTo === assigneeFilter || 
       (assigneeFilter === "unassigned" && !e.assignedTo);
@@ -113,6 +163,36 @@ const Enquiries = () => {
     setTablePage((p) => Math.min(p, enquiryTotalPages));
   }, [enquiryTotalPages]);
 
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId) return;
+    const found = enquiries.find((e) => e.id === openId);
+    if (!found) {
+      if (enquiries.length > 0) {
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("open");
+            return next;
+          },
+          { replace: true },
+        );
+        toast({ title: "Enquiry not found", description: `No enquiry matches id ${openId}.`, variant: "destructive" });
+      }
+      return;
+    }
+    setSelectedEnquiry(found);
+    setIsViewEnquiryOpen(true);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("open");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [enquiries, searchParams, setSearchParams]);
+
   // Stats
   const stats = {
     total: enquiries.length,
@@ -122,36 +202,33 @@ const Enquiries = () => {
     highPriority: enquiries.filter(e => e.priority === "high" && e.status !== "converted" && e.status !== "lost").length,
   };
 
-  const formatCurrency = (amount: number) => `₹${amount.toLocaleString()}`;
+const formatCurrency = (amount: number) => formatINR(amount);
 
-  const getStatusBadge = (status: Enquiry["status"]) => {
-    const styles: Record<string, string> = {
-      "new": "bg-blue-500/10 text-blue-500 border-0",
-      "contacted": "bg-amber-500/10 text-amber-500 border-0",
-      "meeting-scheduled": "bg-purple-500/10 text-purple-500 border-0",
-      "quotation-sent": "bg-cyan-500/10 text-cyan-500 border-0",
-      "converted": "bg-primary/10 text-primary border-0",
-      "lost": "bg-destructive/10 text-destructive border-0",
-    };
-    const labels: Record<string, string> = {
-      "new": "New",
-      "contacted": "Contacted",
-      "meeting-scheduled": "Meeting Scheduled",
-      "quotation-sent": "Quotation Sent",
-      "converted": "Converted",
-      "lost": "Lost",
-    };
-    return <Badge className={styles[status]}>{labels[status]}</Badge>;
+const formatCapacityInput = (capacity: string) => {
+  const trimmed = capacity.trim();
+  if (!trimmed) return trimmed;
+  const numeric = Number.parseFloat(trimmed);
+  return Number.isFinite(numeric) && String(numeric) === trimmed ? `${trimmed}kW` : trimmed;
+};
+
+  const enquiryStatusLabels: Record<Enquiry["status"], string> = {
+    new: "New",
+    contacted: "Contacted",
+    "meeting-scheduled": "Meeting Scheduled",
+    "quotation-sent": "Quotation Sent",
+    converted: "Converted",
+    lost: "Lost",
   };
 
-  const getPriorityBadge = (priority: Enquiry["priority"]) => {
-    const styles: Record<string, string> = {
-      "low": "bg-muted text-muted-foreground",
-      "medium": "bg-amber-500/10 text-amber-600",
-      "high": "bg-destructive/10 text-destructive",
-    };
-    return <Badge className={styles[priority]}>{priority.charAt(0).toUpperCase() + priority.slice(1)}</Badge>;
-  };
+  const getStatusBadge = (status: Enquiry["status"]) => (
+    <StatusBadge status={status} label={enquiryStatusLabels[status]} />
+  );
+
+  const getPriorityBadge = (priority: Enquiry["priority"]) => (
+    <Badge variant="outline" className={`border-0 capitalize ${getPriorityColor(priority)}`}>
+      {priority.charAt(0).toUpperCase() + priority.slice(1)}
+    </Badge>
+  );
 
   // Handlers
   const handleAddEnquiry = async () => {
@@ -159,14 +236,18 @@ const Enquiries = () => {
       toast({ title: "Error", description: "Name and phone are required", variant: "destructive" });
       return;
     }
-    
+    const phAdd = validateContactPhone(formData.customerPhone);
+    if (!phAdd.ok) {
+      toast({ title: "Invalid phone", description: (phAdd as { message: string }).message, variant: "destructive" });
+      return;
+    }
+
     if (formData.source === "referral" && !formData.agentId) {
       toast({ title: "Error", description: "Please select an agent for the referral", variant: "destructive" });
       return;
     }
 
-    const capacity = formData.systemCapacity;
-    const finalCapacity = (capacity && !isNaN(capacity as any)) ? `${capacity}kW` : capacity;
+    const finalCapacity = formatCapacityInput(formData.systemCapacity);
 
     const newEnquiry: Enquiry = {
       id: `ENQ-${new Date().getFullYear()}-${String(enquiries.length + 1).padStart(3, '0')}`,
@@ -197,14 +278,18 @@ const Enquiries = () => {
       toast({ title: "Error", description: "Name and phone are required", variant: "destructive" });
       return;
     }
+    const phEdit = validateContactPhone(formData.customerPhone);
+    if (!phEdit.ok) {
+      toast({ title: "Invalid phone", description: (phEdit as { message: string }).message, variant: "destructive" });
+      return;
+    }
     
     if (formData.source === "referral" && !formData.agentId) {
       toast({ title: "Error", description: "Please select an agent for the referral", variant: "destructive" });
       return;
     }
 
-    const capacity = formData.systemCapacity;
-    const finalCapacity = (capacity && !isNaN(capacity as any)) ? `${capacity}kW` : capacity;
+    const finalCapacity = formatCapacityInput(formData.systemCapacity);
 
     updateEnquiry(selectedEnquiry.id, {
       customerName: formData.customerName,
@@ -270,7 +355,7 @@ const Enquiries = () => {
       ? (notePersonId === "admin" ? "Admin" : employees.find(e => e.id.toString() === notePersonId)?.name || "Unknown")
       : "";
     
-    const updatedByName = "Admin"; // System locked to logged user, using Admin as default for prototype
+    const updatedByName = (() => { try { const p = JSON.parse(localStorage.getItem("mss.settings.profile") || "{}"); return [p.firstName, p.lastName].filter(Boolean).join(" ") || "Admin"; } catch { return "Admin"; } })();
     
     const newNote = {
       date: new Date().toISOString().split('T')[0],
@@ -290,12 +375,54 @@ const Enquiries = () => {
     toast({ title: "Note Added", description: "Follow-up note has been saved" });
   };
 
-  const handleMarkAsLost = async () => {
+  const handleMarkAsLost = () => {
     if (!selectedEnquiry) return;
-    const result = await transitionEnquiryStatus(selectedEnquiry.id, "lost");
+    if (selectedEnquiry.status === "quotation-sent") {
+      setLostReasonText("");
+      setIsMarkLostReasonOpen(true);
+      return;
+    }
+    void submitMarkAsLost();
+  };
+
+  const submitMarkAsLost = async (reason?: string) => {
+    if (!selectedEnquiry) return;
+    const result = await transitionEnquiryStatus(selectedEnquiry.id, "lost", reason);
     if (result.ok) {
+      if (reason) {
+        updateEnquiry(selectedEnquiry.id, { lostReason: reason, updatedAt: new Date().toISOString().split('T')[0] });
+      }
       toast({ title: "Lead Lost", description: "Enquiry marked as lost" });
+      setIsMarkLostReasonOpen(false);
       setIsViewEnquiryOpen(false);
+    } else {
+      toast({ title: "Could not mark lost", description: result.error || "Invalid transition", variant: "destructive" });
+    }
+  };
+
+  const handleConfirmLostWithReason = () => {
+    const trimmed = lostReasonText.trim();
+    if (!trimmed) {
+      toast({ title: "Reason required", description: "Add a short reason before marking this lead as lost.", variant: "destructive" });
+      return;
+    }
+    void submitMarkAsLost(trimmed);
+  };
+
+  const handleReopenEnquiry = async () => {
+    if (!selectedEnquiry) return;
+    const trimmed = reopenReasonText.trim();
+    if (trimmed.length < 3) {
+      toast({ title: "Reason required", description: "Provide a reason (at least 3 characters) for reopening.", variant: "destructive" });
+      return;
+    }
+    const result = await transitionEnquiryStatus(selectedEnquiry.id, "contacted", trimmed);
+    if (result.ok) {
+      toast({ title: "Enquiry Reopened", description: "Lead has been moved back to Contacted." });
+      setIsReopenEnquiryOpen(false);
+      setReopenReasonText("");
+    } else {
+      toast({ title: "Could not reopen", description: result.error || "Only admins can reopen lost enquiries.", variant: "destructive" });
     }
   };
 
@@ -363,7 +490,7 @@ const Enquiries = () => {
     });
   };
 
-  const handleStatusChange = async (enquiryId: string, newStatus: Enquiry["status"]) => {
+  const _handleStatusChange = async (enquiryId: string, newStatus: Enquiry["status"]) => {
     const result = await transitionEnquiryStatus(enquiryId, newStatus);
     if (!result.ok) {
       toast({ title: "Invalid Transition", description: result.error || "Status change not allowed", variant: "destructive" });
@@ -402,6 +529,7 @@ const Enquiries = () => {
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="open">Open (default)</SelectItem>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="new">New</SelectItem>
                   <SelectItem value="contacted">Contacted</SelectItem>
@@ -485,7 +613,7 @@ const Enquiries = () => {
           </>
         }
       >
-        <Button size="sm" onClick={() => { resetForm(); setIsAddEnquiryOpen(true); }}>
+        <Button size="sm" onClick={() => { resetForm(); setIsAddEnquiryOpen(true); }} disabled={!canDo("enquiry:create")}>
           <Plus className="h-4 w-4 mr-2" />
           Add enquiry
         </Button>
@@ -554,7 +682,7 @@ const Enquiries = () => {
                         {enquiry.agentId ? (agents.find(a => a.id === enquiry.agentId)?.name || "Unknown Agent") : "N/A"}
                       </span>
                       {enquiry.agentId && (
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Agent</span>
+                        <span className="text-2xs text-muted-foreground uppercase tracking-wider font-semibold">Agent</span>
                       )}
                     </div>
                   </TableCell>
@@ -584,17 +712,35 @@ const Enquiries = () => {
       {filteredEnquiries.length === 0 && (
         <div className="text-center py-12">
           <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">No enquiries found</p>
-          <Button className="mt-4" onClick={() => { resetForm(); setIsAddEnquiryOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Your First Enquiry
-          </Button>
+          <p className="text-muted-foreground">
+            {enquiries.length === 0 ? "No enquiries yet." : "No enquiries match the current filters."}
+          </p>
+          {enquiries.length === 0 ? (
+            <Button className="mt-4" onClick={() => { resetForm(); setIsAddEnquiryOpen(true); }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add your first enquiry
+            </Button>
+          ) : (
+            <Button
+              className="mt-4"
+              variant="outline"
+              type="button"
+              onClick={() => {
+                setSearchQuery("");
+                setStatusFilter("all");
+                setPriorityFilter("all");
+                setTablePage(1);
+              }}
+            >
+              Clear filters
+            </Button>
+          )}
         </div>
       )}
 
       {/* Add Enquiry Modal */}
       <Sheet open={isAddEnquiryOpen} onOpenChange={setIsAddEnquiryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add New Enquiry</SheetTitle>
           </SheetHeader>
@@ -701,7 +847,7 @@ const Enquiries = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No agent / direct</SelectItem>
-                  {agents.filter((a) => a.status === "active").map((agent) => (
+                  {agents.filter((a) => (a.status || "").toLowerCase() === "active").map((agent) => (
                     <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -753,25 +899,30 @@ const Enquiries = () => {
 
       {/* View Enquiry Modal */}
       <Sheet open={isViewEnquiryOpen} onOpenChange={setIsViewEnquiryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 {selectedEnquiry?.id}
               </div>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => {
-                  if (selectedEnquiry) {
-                    setIsViewEnquiryOpen(false);
-                    handleOpenEdit(selectedEnquiry);
-                  }
-                }}
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="sm" onClick={() => setIsShareOpen(true)}>
+                  <Share2 className="h-4 w-4 mr-2" />Share
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (selectedEnquiry) {
+                      setIsViewEnquiryOpen(false);
+                      handleOpenEdit(selectedEnquiry);
+                    }
+                  }}
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+              </div>
             </SheetTitle>
           </SheetHeader>
           {selectedEnquiry && (
@@ -788,7 +939,7 @@ const Enquiries = () => {
                       <div>
                         <h3 className="text-lg font-semibold leading-tight">{selectedEnquiry.customerName}</h3>
                         <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="outline" className="text-[10px] uppercase tracking-wider h-5">
+                          <Badge variant="outline" className="text-2xs uppercase tracking-wider h-5">
                             {selectedEnquiry.customerType}
                           </Badge>
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -812,7 +963,7 @@ const Enquiries = () => {
                         <Phone className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Phone</p>
+                        <p className="text-2xs text-muted-foreground uppercase tracking-wider">Phone</p>
                         <p className="text-sm font-medium">{selectedEnquiry.customerPhone}</p>
                       </div>
                     </div>
@@ -822,7 +973,7 @@ const Enquiries = () => {
                         <Mail className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Email</p>
+                        <p className="text-2xs text-muted-foreground uppercase tracking-wider">Email</p>
                         <p className="text-sm font-medium">{selectedEnquiry.customerEmail || "—"}</p>
                       </div>
                     </div>
@@ -832,7 +983,7 @@ const Enquiries = () => {
                         <MapPin className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Address</p>
+                        <p className="text-2xs text-muted-foreground uppercase tracking-wider">Address</p>
                         <p className="text-sm font-medium leading-snug">{selectedEnquiry.customerAddress || "—"}</p>
                       </div>
                     </div>
@@ -845,7 +996,7 @@ const Enquiries = () => {
                         <IndianRupee className="h-4 w-4" />
                       </div>
                       <div>
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Budget Estimate</p>
+                        <p className="text-2xs text-muted-foreground uppercase tracking-wider">Budget Estimate</p>
                         <p className="text-sm font-semibold">{formatCurrency(selectedEnquiry.estimatedBudget)}</p>
                       </div>
                     </div>
@@ -855,17 +1006,17 @@ const Enquiries = () => {
                         <Zap className="h-4 w-4" />
                       </div>
                       <div>
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">System Capacity</p>
+                        <p className="text-2xs text-muted-foreground uppercase tracking-wider">System Capacity</p>
                         <p className="text-sm font-semibold">{selectedEnquiry.systemCapacity || "—"}</p>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className="p-2 rounded-lg bg-blue-500/5 text-blue-500">
+                      <div className="p-2 rounded-lg bg-primary/5 text-primary">
                         <Filter className="h-4 w-4" />
                       </div>
                       <div>
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Source</p>
+                        <p className="text-2xs text-muted-foreground uppercase tracking-wider">Source</p>
                         <p className="text-sm font-medium">
                           {selectedEnquiry.source.charAt(0).toUpperCase() + selectedEnquiry.source.slice(1)}
                           {selectedEnquiry.agentId && (
@@ -901,7 +1052,7 @@ const Enquiries = () => {
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      className="h-7 text-[10px] text-primary"
+                      className="h-7 text-2xs text-primary"
                       onClick={() => setIsAddNoteOpen(true)}
                     >
                       <Plus className="h-3 w-3 mr-1" /> Add Note
@@ -920,7 +1071,7 @@ const Enquiries = () => {
                           <div className="p-3 bg-muted/20 rounded-lg border border-border/40 group-hover:border-border/80 transition-all">
                             <div className="flex items-start justify-between mb-1.6">
                               <p className="text-xs font-medium text-primary/80">{note.updatedBy || "System"}</p>
-                              <time className="text-[10px] text-muted-foreground">{note.date}</time>
+                              <time className="text-2xs text-muted-foreground">{note.date}</time>
                             </div>
                             <p className="text-sm leading-relaxed">{note.note}</p>
                             {note.by && (
@@ -930,7 +1081,7 @@ const Enquiries = () => {
                                     {note.by.charAt(0)}
                                   </AvatarFallback>
                                 </Avatar>
-                                <span className="text-[10px] text-muted-foreground font-medium">Status shared by {note.by}</span>
+                                <span className="text-2xs text-muted-foreground font-medium">Status shared by {note.by}</span>
                               </div>
                             )}
                           </div>
@@ -967,13 +1118,22 @@ const Enquiries = () => {
 
                   <div className="flex items-center gap-2">
                     {selectedEnquiry.status !== "converted" && selectedEnquiry.status !== "lost" && (
-                      <Button 
-                        variant="destructive" 
+                      <Button
+                        variant="destructive"
                         size="sm"
                         onClick={handleMarkAsLost}
                         className="bg-destructive/5 text-destructive hover:bg-destructive hover:text-white border-destructive/20"
                       >
                         Mark as Lost
+                      </Button>
+                    )}
+                    {selectedEnquiry.status === "lost" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setReopenReasonText(""); setIsReopenEnquiryOpen(true); }}
+                      >
+                        Reopen
                       </Button>
                     )}
                     
@@ -1015,6 +1175,63 @@ const Enquiries = () => {
         </SheetContent>
       </Sheet>
 
+      <Sheet open={isMarkLostReasonOpen} onOpenChange={setIsMarkLostReasonOpen}>
+        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+          <SheetHeader>
+            <SheetTitle>Reason for marking lost</SheetTitle>
+            <SheetDescription>
+              After a quotation was sent, record why this enquiry did not convert.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="lost-reason">Reason</Label>
+              <Textarea
+                id="lost-reason"
+                value={lostReasonText}
+                onChange={(e) => setLostReasonText(e.target.value)}
+                placeholder="e.g., Chose another vendor, budget dropped, no response…"
+                rows={4}
+              />
+            </div>
+          </div>
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setIsMarkLostReasonOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmLostWithReason}>
+              Mark as lost
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Reopen Lost Enquiry */}
+      <Sheet open={isReopenEnquiryOpen} onOpenChange={setIsReopenEnquiryOpen}>
+        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+          <SheetHeader>
+            <SheetTitle>Reopen enquiry</SheetTitle>
+            <SheetDescription>Admin/super-admin only. Provide a reason for reopening this lost lead.</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="reopen-reason">Reason</Label>
+              <Textarea
+                id="reopen-reason"
+                value={reopenReasonText}
+                onChange={(e) => setReopenReasonText(e.target.value)}
+                placeholder="e.g., Client re-engaged, new budget approved…"
+                rows={4}
+              />
+            </div>
+          </div>
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setIsReopenEnquiryOpen(false)}>Cancel</Button>
+            <Button onClick={() => void handleReopenEnquiry()}>Reopen</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
       {/* Assign Modal */}
       <Sheet open={isAssignOpen} onOpenChange={setIsAssignOpen}>
         <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
@@ -1045,7 +1262,7 @@ const Enquiries = () => {
 
       {/* Add Note Modal */}
       <Sheet open={isAddNoteOpen} onOpenChange={setIsAddNoteOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add Follow-up Note</SheetTitle>
           </SheetHeader>
@@ -1083,7 +1300,7 @@ const Enquiries = () => {
 
       {/* Schedule Meeting Modal */}
       <Sheet open={isScheduleMeetingOpen} onOpenChange={setIsScheduleMeetingOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Schedule Meeting</SheetTitle>
           </SheetHeader>
@@ -1145,7 +1362,7 @@ const Enquiries = () => {
 
       {/* Edit Enquiry Modal */}
       <Sheet open={isEditEnquiryOpen} onOpenChange={(open) => { setIsEditEnquiryOpen(open); if (!open) resetForm(); }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Edit Enquiry - {selectedEnquiry?.id}</SheetTitle>
           </SheetHeader>
@@ -1252,7 +1469,7 @@ const Enquiries = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No agent / direct</SelectItem>
-                  {agents.filter((a) => a.status === "active").map((agent) => (
+                  {agents.filter((a) => (a.status || "").toLowerCase() === "active").map((agent) => (
                     <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
                   ))}
                 </SelectContent>

@@ -7,8 +7,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Building2, Users, Home, HardHat, Crown, Handshake, Briefcase, Landmark,
   ArrowRight, ArrowDown, ChevronRight, TrendingUp, TrendingDown, Package,
-  FileText, Scale, BookOpen, Wallet, ScrollText, Download, ShieldCheck,
-  BarChart3, Database, Receipt, CreditCard, Layers, MousePointerClick,
+  FileText, Scale, BookOpen, Wallet, ShieldCheck,
+ Database, Receipt, Layers, MousePointerClick, Calendar, ClipboardList, AlertTriangle, GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
@@ -36,54 +36,54 @@ const expenseFlow: FlowNode[] = [
     id: "company",
     label: "Company",
     icon: Building2,
-    color: "text-blue-700 dark:text-blue-400",
-    bgColor: "bg-blue-500/10 border-blue-500/30",
+    color: "text-primary dark:text-primary",
+    bgColor: "bg-primary/10 border-primary/30",
     description: "Vehicle, marketing, taxes, tools",
     children: [
-      { id: "company-vehicle", label: "Company Vehicle", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "company-vehicle", label: "Company Vehicle", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "vehicle-emi", label: "Vehicle EMI", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "vehicle-fuel", label: "Fuel", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "vehicle-maintenance", label: "Maintenance", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "vehicle-insurance", label: "Insurance", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "vehicle-repair", label: "Repair", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "vehicle-toll", label: "Toll", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "vehicle-parking", label: "Parking", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "vehicle-emi", label: "Vehicle EMI", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "vehicle-fuel", label: "Fuel", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "vehicle-maintenance", label: "Maintenance", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "vehicle-insurance", label: "Insurance", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "vehicle-repair", label: "Repair", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "vehicle-toll", label: "Toll", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "vehicle-parking", label: "Parking", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "marketing", label: "Marketing", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "marketing", label: "Marketing", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "instagram-ads", label: "Instagram Ads", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "google-ads", label: "Google Ads", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "agency-subscription", label: "Agency Subscription", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "service-retainer", label: "Service Retainer", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "instagram-ads", label: "Instagram Ads", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "google-ads", label: "Google Ads", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "agency-subscription", label: "Agency Subscription", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "service-retainer", label: "Service Retainer", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "physical-marketing", label: "Physical Marketing", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "physical-marketing", label: "Physical Marketing", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "poster", label: "Posters", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "flyer", label: "Flyers", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "banner", label: "Banners", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "printing", label: "Printing", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "poster", label: "Posters", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "flyer", label: "Flyers", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "banner", label: "Banners", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "printing", label: "Printing", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "ca-payments", label: "CA Payments", icon: ChevronRight, color: "text-blue-600", bgColor: "" },
-      { id: "tax-payments", label: "Tax Payments", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "ca-payments", label: "CA Payments", icon: ChevronRight, color: "text-primary", bgColor: "" },
+      { id: "tax-payments", label: "Tax Payments", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "gst", label: "GST", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "income-tax", label: "Income Tax", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "tds", label: "TDS", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "other-tax", label: "Other Tax", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "gst", label: "GST", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "income-tax", label: "Income Tax", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "tds", label: "TDS", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "other-tax", label: "Other Tax", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "subscriptions", label: "Subscriptions / Software", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "subscriptions", label: "Subscriptions / Software", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "software", label: "Software", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "cloud-hosting", label: "Cloud / Hosting", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "software", label: "Software", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "cloud-hosting", label: "Cloud / Hosting", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "company-tools", label: "Tools & Equipment", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "company-tools", label: "Tools & Equipment", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "tool-purchase", label: "Tool Purchase", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "tool-repair", label: "Tool Repair", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "equipment-rental", label: "Equipment Rental", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "tool-purchase", label: "Tool Purchase", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "tool-repair", label: "Tool Repair", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "equipment-rental", label: "Equipment Rental", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "other-company", label: "Other Company Expense", icon: ChevronRight, color: "text-blue-600", bgColor: "" },
+      { id: "other-company", label: "Other Company Expense", icon: ChevronRight, color: "text-primary", bgColor: "" },
     ],
     feedsInto: ["pl-operating", "expense-audit", "cash-bank"],
   },
@@ -91,48 +91,48 @@ const expenseFlow: FlowNode[] = [
     id: "employee",
     label: "Employee",
     icon: Users,
-    color: "text-blue-700 dark:text-blue-400",
-    bgColor: "bg-blue-500/10 border-blue-500/30",
+    color: "text-primary dark:text-primary",
+    bgColor: "bg-primary/10 border-primary/30",
     description: "Salary, advance, food, transport",
     children: [
-      { id: "salary", label: "Salary", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "salary", label: "Salary", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "monthly-salary", label: "Monthly Salary", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "overtime", label: "Overtime", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "bonus", label: "Bonus", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "monthly-salary", label: "Monthly Salary", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "overtime", label: "Overtime", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "bonus", label: "Bonus", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "advance", label: "Advance", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "advance", label: "Advance", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "salary-advance", label: "Salary Advance", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "expense-advance", label: "Expense Advance", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "salary-advance", label: "Salary Advance", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "expense-advance", label: "Expense Advance", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "employee-food", label: "Food", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "employee-food", label: "Food", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "site-food", label: "Site Food", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "team-meal", label: "Team Meal", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "travel-food", label: "Travel Food", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "site-food", label: "Site Food", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "team-meal", label: "Team Meal", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "travel-food", label: "Travel Food", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "employee-stay", label: "Stay / Accommodation", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "employee-stay", label: "Stay / Accommodation", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "site-stay", label: "Site Stay", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "hotel", label: "Hotel", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "room-rent", label: "Room Rent", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "site-stay", label: "Site Stay", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "hotel", label: "Hotel", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "room-rent", label: "Room Rent", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "employee-medical", label: "Medical / Injury", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "employee-medical", label: "Medical / Injury", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "injury-support", label: "Injury Support", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "treatment", label: "Treatment", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "medicine", label: "Medicine", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "injury-support", label: "Injury Support", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "treatment", label: "Treatment", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "medicine", label: "Medicine", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "employee-tickets", label: "Tickets (Home ↔ Office)", icon: ChevronRight, color: "text-blue-600", bgColor: "" },
-      { id: "employee-transport", label: "Team Transport", icon: ChevronRight, color: "text-blue-600", bgColor: "" },
-      { id: "employee-reimbursement", label: "Reimbursement Payment", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "employee-tickets", label: "Tickets (Home ↔ Office)", icon: ChevronRight, color: "text-primary", bgColor: "" },
+      { id: "employee-transport", label: "Team Transport", icon: ChevronRight, color: "text-primary", bgColor: "" },
+      { id: "employee-reimbursement", label: "Reimbursement Payment", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "reimbursement-fuel", label: "Fuel", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "reimbursement-food", label: "Food", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "reimbursement-transport", label: "Transport", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "reimbursement-fuel", label: "Fuel", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "reimbursement-food", label: "Food", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "reimbursement-transport", label: "Transport", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "multi-employee-payment", label: "Multi-Employee Shared", icon: ChevronRight, color: "text-blue-600", bgColor: "" },
+      { id: "multi-employee-payment", label: "Multi-Employee Shared", icon: ChevronRight, color: "text-primary", bgColor: "" },
     ],
     feedsInto: ["pl-employee", "expense-audit", "cash-bank"],
   },
@@ -253,16 +253,16 @@ const incomeFlow: FlowNode[] = [
     id: "project-income",
     label: "Project Income",
     icon: Briefcase,
-    color: "text-blue-700 dark:text-blue-400",
-    bgColor: "bg-blue-500/10 border-blue-500/30",
+    color: "text-primary dark:text-primary",
+    bgColor: "bg-primary/10 border-primary/30",
     description: "Client payments, advances, bank instalments",
     children: [
-      { id: "client-payment", label: "Client Payment", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "client-payment", label: "Client Payment", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "client-cash", label: "Cash Payment", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "client-advance", label: "Client Advance", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "bank-instalment", label: "Bank Instalment", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "direct-bank-payment", label: "Direct Bank Payment", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "client-cash", label: "Cash Payment", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "client-advance", label: "Client Advance", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "bank-instalment", label: "Bank Instalment", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "direct-bank-payment", label: "Direct Bank Payment", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
     ],
     feedsInto: ["pl-revenue", "gst-sales", "debtors", "cash-bank"],
@@ -271,21 +271,21 @@ const incomeFlow: FlowNode[] = [
     id: "loan-income",
     label: "Loans & Udhar",
     icon: Landmark,
-    color: "text-blue-700 dark:text-blue-400",
-    bgColor: "bg-blue-500/10 border-blue-500/30",
+    color: "text-primary dark:text-primary",
+    bgColor: "bg-primary/10 border-primary/30",
     description: "Bank loans (formal), Udhar (person-to-person)",
     children: [
-      { id: "bank-loan", label: "Bank Loan (Formal)", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "bank-loan", label: "Bank Loan (Formal)", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "bank-loan-received", label: "Loan Received", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "bank-loan-emi-reference", label: "EMI Reference", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "bank-loan-received", label: "Loan Received", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "bank-loan-emi-reference", label: "EMI Reference", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
-      { id: "udhar-borrowing", label: "Udhar / Borrowing", icon: ChevronRight, color: "text-blue-600", bgColor: "bg-blue-500/5 border-blue-500/20",
+      { id: "udhar-borrowing", label: "Udhar / Borrowing", icon: ChevronRight, color: "text-primary", bgColor: "bg-primary/5 border-primary/20",
         children: [
-          { id: "udhar-received", label: "Udhar Received", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "udhar-given", label: "Udhar Given", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "udhar-repayment-received", label: "Repayment Received", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
-          { id: "udhar-repayment-made", label: "Repayment Made", icon: ChevronRight, color: "text-blue-500", bgColor: "" },
+          { id: "udhar-received", label: "Udhar Received", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "udhar-given", label: "Udhar Given", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "udhar-repayment-received", label: "Repayment Received", icon: ChevronRight, color: "text-primary", bgColor: "" },
+          { id: "udhar-repayment-made", label: "Repayment Made", icon: ChevronRight, color: "text-primary", bgColor: "" },
         ]},
     ],
     feedsInto: ["creditors", "cash-bank"],
@@ -346,21 +346,47 @@ const incomeFlow: FlowNode[] = [
 // ============ AUDIT MODULES ============
 
 const auditModules: { id: string; label: string; icon: React.ElementType; color: string; bgColor: string; description: string; inputs: string[] }[] = [
-  { id: "pl-revenue", label: "P&L → Revenue", icon: TrendingUp, color: "text-blue-700", bgColor: "bg-blue-500/10 border-blue-500/30", description: "Sales revenue from invoices & sale bills", inputs: ["Invoices", "Sale Bills", "Client Payments"] },
+  { id: "pl-revenue", label: "P&L → Revenue", icon: TrendingUp, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Sales revenue from invoices & sale bills", inputs: ["Invoices", "Sale Bills", "Client Payments"] },
   { id: "pl-cogs", label: "P&L → COGS", icon: Package, color: "text-orange-700", bgColor: "bg-orange-500/10 border-orange-500/30", description: "Opening Stock + Purchases − Closing Stock", inputs: ["Inventory Items", "Vendor Bills", "Stock Movements"] },
-  { id: "pl-operating", label: "P&L → Operating Exp", icon: Building2, color: "text-blue-700", bgColor: "bg-blue-500/10 border-blue-500/30", description: "Company + Office expenses", inputs: ["Company Expenses", "Office Expenses"] },
-  { id: "pl-employee", label: "P&L → Employee Costs", icon: Users, color: "text-blue-700", bgColor: "bg-blue-500/10 border-blue-500/30", description: "Salaries, advances, reimbursements", inputs: ["Salary", "Advance", "Food", "Stay", "Medical", "Transport"] },
+  { id: "pl-operating", label: "P&L → Operating Exp", icon: Building2, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Company + Office expenses", inputs: ["Company Expenses", "Office Expenses"] },
+  { id: "pl-employee", label: "P&L → Employee Costs", icon: Users, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Salaries, advances, reimbursements", inputs: ["Salary", "Advance", "Food", "Stay", "Medical", "Transport"] },
   { id: "pl-project-costs", label: "P&L → Project Costs", icon: HardHat, color: "text-orange-700", bgColor: "bg-orange-500/10 border-orange-500/30", description: "Commission, transport, outsource work", inputs: ["Commission", "Material Transport", "Machine Rent", "Outsource Work"] },
   { id: "pl-drawings", label: "P&L → Owner Drawings", icon: Crown, color: "text-purple-700", bgColor: "bg-purple-500/10 border-purple-500/30", description: "Owner withdrawals & personal expenses", inputs: ["Withdrawals", "Personal Expenses"] },
   { id: "pl-partner", label: "P&L → Partner", icon: Handshake, color: "text-rose-700", bgColor: "bg-rose-500/10 border-rose-500/30", description: "Partner withdrawals, profit payments", inputs: ["Withdrawals", "Profit Payments", "Investments"] },
-  { id: "gst-sales", label: "GST → Sales Register", icon: BookOpen, color: "text-blue-700", bgColor: "bg-blue-500/10 border-blue-500/30", description: "CGST + SGST + IGST from invoices", inputs: ["Invoice Items (HSN)", "Invoice Services (SAC)"] },
-  { id: "gst-purchase", label: "GST → Purchase Register", icon: BookOpen, color: "text-blue-700", bgColor: "bg-blue-500/10 border-blue-500/30", description: "Input GST from vendor bills", inputs: ["Vendor Bills", "Bill Items"] },
-  { id: "debtors", label: "Debtors (Receivables)", icon: Scale, color: "text-blue-700", bgColor: "bg-blue-500/10 border-blue-500/30", description: "Invoice Total − Amount Received", inputs: ["Unpaid/Partial Invoices"] },
+  { id: "gst-sales", label: "GST → Sales Register", icon: BookOpen, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "CGST + SGST + IGST from invoices", inputs: ["Invoice Items (HSN)", "Invoice Services (SAC)"] },
+  { id: "gst-purchase", label: "GST → Purchase Register", icon: BookOpen, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Input GST from vendor bills", inputs: ["Vendor Bills", "Bill Items"] },
+  { id: "debtors", label: "Debtors (Receivables)", icon: Scale, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Invoice Total − Amount Received", inputs: ["Unpaid/Partial Invoices"] },
   { id: "creditors", label: "Creditors (Payables)", icon: Scale, color: "text-red-700", bgColor: "bg-red-500/10 border-red-500/30", description: "Vendor Bill Total − Amount Paid", inputs: ["Unpaid/Partial Vendor Bills", "Loans Outstanding"] },
   { id: "cash-bank", label: "Cash & Bank Ledger", icon: Wallet, color: "text-amber-700", bgColor: "bg-amber-500/10 border-amber-500/30", description: "Unified transaction ledger", inputs: ["All Incomes", "All Expenses", "All Payments", "Vendor Payments"] },
   { id: "inventory-audit", label: "Inventory Valuation", icon: Package, color: "text-purple-700", bgColor: "bg-purple-500/10 border-purple-500/30", description: "Stock × Buy Price per item", inputs: ["Inventory Items", "Stock Levels", "Purchase History"] },
-  { id: "fixed-assets", label: "Fixed Assets Register", icon: Layers, color: "text-blue-700", bgColor: "bg-blue-500/10 border-blue-500/30", description: "Tools depreciation tracking", inputs: ["Tools", "Purchase Date", "Rate"] },
+  { id: "fixed-assets", label: "Fixed Assets Register", icon: Layers, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Tools depreciation tracking", inputs: ["Tools", "Purchase Date", "Rate"] },
   { id: "expense-audit", label: "Expense Audit", icon: FileText, color: "text-orange-700", bgColor: "bg-orange-500/10 border-orange-500/30", description: "Category-wise drill-down", inputs: ["All 6 Expense Categories", "mainCategory filter"] },
+  { id: "material-reservations", label: "Material Reservations", icon: Package, color: "text-cyan-700", bgColor: "bg-cyan-500/10 border-cyan-500/30", description: "Checklist-driven holds; shortfall pressure", inputs: ["MaterialReservation", "siteChecklist", "ProcurementShortfall"] },
+  { id: "site-visits", label: "Site Visits", icon: HardHat, color: "text-orange-700", bgColor: "bg-orange-500/10 border-orange-500/30", description: "Visit log reconciled to checklist", inputs: ["SiteVisit", "Project.siteChecklist"] },
+  { id: "scheduled-install", label: "Scheduled Installations", icon: Calendar, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Team/employee schedule feed", inputs: ["ScheduledInstallation", "Calendar"] },
+  { id: "change-requests", label: "Project Change Requests", icon: GitBranch, color: "text-violet-700", bgColor: "bg-violet-500/10 border-violet-500/30", description: "Capacity/add-on deltas → draft invoice", inputs: ["ProjectChangeRequest", "executionLineItems", "commercialBaseline"] },
+  { id: "material-damage", label: "Material Damage", icon: AlertTriangle, color: "text-red-700", bgColor: "bg-red-500/10 border-red-500/30", description: "Write-off + inventory movement", inputs: ["MaterialDamage", "InventoryMovement", "P&L damage line"] },
+  { id: "agent-accruals", label: "Agent Commission Accruals", icon: ClipboardList, color: "text-amber-700", bgColor: "bg-amber-500/10 border-amber-500/30", description: "pending → payable → paid lifecycle", inputs: ["AgentCommissionAccrual", "Quotation approved", "Project started"] },
+];
+
+const operationsFlow: FlowNode[] = [
+  {
+    id: "ops-hub",
+    label: "Project Operations Hub",
+    icon: HardHat,
+    color: "text-primary",
+    bgColor: "bg-primary/10 border-primary/30",
+    description: "Post-award execution entities (Phase 1)",
+    children: [
+      { id: "reservations", label: "Material Reservations", icon: Package, color: "text-cyan-600", bgColor: "bg-cyan-500/5 border-cyan-500/20", feedsInto: ["inventory-audit", "pl-cogs"] },
+      { id: "site-visit", label: "Site Visits", icon: HardHat, color: "text-orange-600", bgColor: "bg-orange-500/5 border-orange-500/20", feedsInto: ["pl-project-costs", "expense-audit"] },
+      { id: "schedule", label: "Scheduled Installations", icon: Calendar, color: "text-primary", bgColor: "bg-primary/5 border-primary/20", feedsInto: ["cash-bank"] },
+      { id: "change-req", label: "Change Requests", icon: GitBranch, color: "text-violet-600", bgColor: "bg-violet-500/5 border-violet-500/20", feedsInto: ["pl-revenue", "gst-sales", "debtors"] },
+      { id: "damage", label: "Material Damage", icon: AlertTriangle, color: "text-red-600", bgColor: "bg-red-500/5 border-red-500/20", feedsInto: ["inventory-audit", "pl-cogs"] },
+      { id: "accrual", label: "Agent Commission Accruals", icon: ClipboardList, color: "text-amber-600", bgColor: "bg-amber-500/5 border-amber-500/20", feedsInto: ["pl-project-costs", "expense-audit"] },
+    ],
+    feedsInto: ["inventory-audit", "pl-revenue", "expense-audit"],
+  },
 ];
 
 // ============ TREE NODE COMPONENT ============
@@ -399,7 +425,7 @@ const TreeNode = ({ node, depth = 0 }: { node: FlowNode; depth?: number }) => {
           <span className="text-xs text-muted-foreground ml-auto hidden md:inline">{node.description}</span>
         )}
         {isRoot && node.children && (
-          <Badge variant="outline" className="text-[10px] ml-1 px-1.5 py-0">{node.children.length}</Badge>
+          <Badge variant="outline" className="text-2xs ml-1 px-1.5 py-0">{node.children.length}</Badge>
         )}
       </div>
       {expanded && hasChildren && (
@@ -449,9 +475,9 @@ const AuditDataFlow = () => {
           <div className="flex flex-col items-center gap-3 text-center">
             {/* Layer 1: Operational Sources */}
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Layer 1 — Operational Modules</p>
+              <p className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Layer 1 — Operational Modules</p>
               <div className="flex flex-wrap gap-2 justify-center">
-                {["Invoices & Sale Bills", "Expenses (6 Categories)", "Incomes (5 Categories)", "Vendor Bills", "Inventory", "Tools"].map(s => (
+                {["Invoices & Sale Bills", "Expenses (6 Categories)", "Incomes (5 Categories)", "Vendor Bills", "Inventory", "Tools", "Material Reservations", "Site Visits", "Scheduled Installations", "Change Requests", "Material Damage", "Agent Accruals"].map(s => (
                   <Badge key={s} variant="outline" className="bg-primary/5 border-primary/30 text-primary text-xs px-3 py-1.5">{s}</Badge>
                 ))}
               </div>
@@ -460,10 +486,10 @@ const AuditDataFlow = () => {
 
             {/* Layer 2: Voucher Classification */}
             <div className="border border-dashed border-amber-500/40 rounded-lg p-3 bg-amber-500/5 w-full max-w-2xl">
-              <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2">Layer 2 — Voucher Classification</p>
+              <p className="text-2xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2">Layer 2 — Voucher Classification</p>
               <div className="flex flex-wrap gap-1.5 justify-center">
                 {VOUCHER_TYPES.map(v => (
-                  <Badge key={v.type} variant="outline" className="text-[10px] px-2 py-1 border-amber-500/40 text-amber-700 dark:text-amber-300">{v.label}</Badge>
+                  <Badge key={v.type} variant="outline" className="text-2xs px-2 py-1 border-amber-500/40 text-amber-700 dark:text-amber-300">{v.label}</Badge>
                 ))}
               </div>
             </div>
@@ -480,7 +506,7 @@ const AuditDataFlow = () => {
               </div>
               <div className="flex flex-wrap gap-1.5 justify-center">
                 {["Capital Account", "Current Liabilities", "Current Assets", "Fixed Assets", "Sales Accounts", "Purchase Accounts", "Direct Expenses", "Indirect Expenses"].map(p => (
-                  <Badge key={p} variant="outline" className="text-[10px] px-2 py-1 border-primary/40 text-primary">{p}</Badge>
+                  <Badge key={p} variant="outline" className="text-2xs px-2 py-1 border-primary/40 text-primary">{p}</Badge>
                 ))}
               </div>
             </div>
@@ -488,7 +514,7 @@ const AuditDataFlow = () => {
 
             {/* Layer 4: Financial Reports */}
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Layer 4 — Financial Reports</p>
+              <p className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Layer 4 — Financial Reports</p>
               <div className="flex flex-wrap gap-2 justify-center">
                 {[
                   { label: "Profit & Loss", icon: TrendingUp },
@@ -511,9 +537,10 @@ const AuditDataFlow = () => {
       </Card>
 
       <Tabs defaultValue="expenses" className="space-y-4">
-        <TabsList className="grid grid-cols-4 w-full max-w-xl">
+        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
           <TabsTrigger value="expenses">Expenses</TabsTrigger>
           <TabsTrigger value="incomes">Incomes</TabsTrigger>
+          <TabsTrigger value="operations">Operations</TabsTrigger>
           <TabsTrigger value="vouchers">Voucher Types</TabsTrigger>
           <TabsTrigger value="audit-modules">Audit Modules</TabsTrigger>
         </TabsList>
@@ -536,9 +563,9 @@ const AuditDataFlow = () => {
                       {node.feedsInto && (
                         <div className="ml-6 mt-1 mb-2 flex items-center gap-1.5 flex-wrap">
                           <ArrowRight className="w-3 h-3 text-muted-foreground" />
-                          <span className="text-[10px] text-muted-foreground">Feeds into:</span>
+                          <span className="text-2xs text-muted-foreground">Feeds into:</span>
                           {node.feedsInto.map(f => (
-                            <Badge key={f} variant="outline" className="text-[10px] px-1.5 py-0">{f.replace("pl-", "P&L→").replace("expense-audit", "Expense Audit").replace("cash-bank", "Cash & Bank")}</Badge>
+                            <Badge key={f} variant="outline" className="text-2xs px-1.5 py-0">{f.replace("pl-", "P&L→").replace("expense-audit", "Expense Audit").replace("cash-bank", "Cash & Bank")}</Badge>
                           ))}
                         </div>
                       )}
@@ -568,9 +595,40 @@ const AuditDataFlow = () => {
                       {node.feedsInto && (
                         <div className="ml-6 mt-1 mb-2 flex items-center gap-1.5 flex-wrap">
                           <ArrowRight className="w-3 h-3 text-muted-foreground" />
-                          <span className="text-[10px] text-muted-foreground">Feeds into:</span>
+                          <span className="text-2xs text-muted-foreground">Feeds into:</span>
                           {node.feedsInto.map(f => (
-                            <Badge key={f} variant="outline" className="text-[10px] px-1.5 py-0">{f.replace("pl-", "P&L→").replace("gst-sales", "GST Sales").replace("debtors", "Debtors").replace("creditors", "Creditors").replace("cash-bank", "Cash & Bank")}</Badge>
+                            <Badge key={f} variant="outline" className="text-2xs px-1.5 py-0">{f.replace("pl-", "P&L→").replace("gst-sales", "GST Sales").replace("debtors", "Debtors").replace("creditors", "Creditors").replace("cash-bank", "Cash & Bank")}</Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="operations">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <HardHat className="w-4 h-4 text-primary" />
+                Operations → Audit (reservations, visits, schedule, changes, damage, accruals)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-[50vh]">
+                <div className="space-y-3 pr-4">
+                  {operationsFlow.map((node) => (
+                    <div key={node.id}>
+                      <TreeNode node={node} />
+                      {node.feedsInto && (
+                        <div className="ml-6 mt-1 mb-2 flex items-center gap-1.5 flex-wrap">
+                          <ArrowRight className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-2xs text-muted-foreground">Feeds into:</span>
+                          {node.feedsInto.map((f) => (
+                            <Badge key={f} variant="outline" className="text-2xs px-1.5 py-0">{f}</Badge>
                           ))}
                         </div>
                       )}
@@ -599,29 +657,29 @@ const AuditDataFlow = () => {
                     <p className="text-xs text-muted-foreground mb-3">{v.description}</p>
                     <div className="space-y-2">
                       <div>
-                        <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">Debit →</span>
+                        <span className="text-2xs font-semibold text-primary dark:text-primary">Debit →</span>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {v.debitLedgers.map(l => {
                             const ledger = LEDGER_ACCOUNTS.find(la => la.id === l);
-                            return <Badge key={l} variant="secondary" className="text-[10px] px-1.5 py-0">{ledger?.name || l}</Badge>;
+                            return <Badge key={l} variant="secondary" className="text-2xs px-1.5 py-0">{ledger?.name || l}</Badge>;
                           })}
                         </div>
                       </div>
                       <div>
-                        <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">Credit →</span>
+                        <span className="text-2xs font-semibold text-rose-600 dark:text-rose-400">Credit →</span>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {v.creditLedgers.map(l => {
                             const ledger = LEDGER_ACCOUNTS.find(la => la.id === l);
-                            return <Badge key={l} variant="secondary" className="text-[10px] px-1.5 py-0">{ledger?.name || l}</Badge>;
+                            return <Badge key={l} variant="secondary" className="text-2xs px-1.5 py-0">{ledger?.name || l}</Badge>;
                           })}
                         </div>
                       </div>
                     </div>
                     <div className="mt-3 pt-2 border-t border-border">
-                      <span className="text-[10px] text-muted-foreground">Sources:</span>
+                      <span className="text-2xs text-muted-foreground">Sources:</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {v.operationalSources.map(s => (
-                          <Badge key={s} variant="outline" className="text-[10px] px-1.5 py-0 border-primary/30 text-primary">{s}</Badge>
+                          <Badge key={s} variant="outline" className="text-2xs px-1.5 py-0 border-primary/30 text-primary">{s}</Badge>
                         ))}
                       </div>
                     </div>
@@ -653,7 +711,7 @@ const AuditDataFlow = () => {
                       <p className="text-xs text-muted-foreground mb-2">{mod.description}</p>
                       <div className="flex flex-wrap gap-1">
                         {mod.inputs.map(inp => (
-                          <Badge key={inp} variant="secondary" className="text-[10px] px-1.5 py-0">{inp}</Badge>
+                          <Badge key={inp} variant="secondary" className="text-2xs px-1.5 py-0">{inp}</Badge>
                         ))}
                       </div>
                     </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,20 +15,147 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Download } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import ExportHeader from "@/components/ExportHeader";
-import ExportFooter from "@/components/ExportFooter";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 import { useAppData } from "@/contexts/AppDataContext";
+import { downloadCSV } from "@/lib/csvExport";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import {
+  computePipelineMetrics,
+  computeOperationsMetrics,
+  computeFinanceMetrics,
+  computeInventoryMetrics,
+  computeCustomerMetrics,
+  type AnalyticsDateRange,
+  type MetricRow,
+} from "@/lib/analytics";
+
+function MetricGrid({ rows }: { rows: MetricRow[] }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {rows.map((r) => (
+        <div key={r.label} className="rounded-lg border border-border bg-muted/30 p-3">
+          <p className="text-xs text-muted-foreground">{r.label}</p>
+          <p className="text-lg font-semibold text-foreground tabular-nums">{r.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AnalyticsSection({
+  title,
+  rows,
+  onExport,
+  children,
+}: {
+  title: string;
+  rows: MetricRow[];
+  onExport: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2">
+        <CardTitle className="text-base font-medium">{title}</CardTitle>
+        <Button variant="outline" size="sm" className="h-8" onClick={onExport}>
+          <Download className="mr-1.5 h-3.5 w-3.5" />
+          CSV
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <MetricGrid rows={rows} />
+        {children}
+      </CardContent>
+    </Card>
+  );
+}
 
 const Analytics = () => {
-  const { projects, employees, invoices, saleBills, payments, expenses, inventoryItems, tasks } = useAppData();
+  const {
+    projects,
+    employees,
+    invoices,
+    saleBills,
+    payments,
+    expenses,
+    inventoryItems,
+    tasks,
+    enquiries,
+    quotations,
+    customers,
+    agents,
+    materialDamageRecords,
+    scheduledInstallations,
+    materialReservations,
+    vendorBills,
+    loans,
+  } = useAppData();
   
-  const exportRef = useRef<HTMLDivElement>(null);
+  const _exportRef = useRef<HTMLDivElement>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [analyticsDateRange, setAnalyticsDateRange] = useState<AnalyticsDateRange>("year");
+
+  const analyticsSlices = useMemo(
+    () => ({
+      enquiries,
+      quotations,
+      projects,
+      customers,
+      invoices,
+      payments,
+      expenses,
+      inventoryItems,
+      tasks,
+      agents,
+      materialDamageRecords,
+      scheduledInstallations,
+      materialReservations,
+      vendorBills,
+      loans,
+    }),
+    [
+      enquiries,
+      quotations,
+      projects,
+      customers,
+      invoices,
+      payments,
+      expenses,
+      inventoryItems,
+      tasks,
+      agents,
+      materialDamageRecords,
+      scheduledInstallations,
+      materialReservations,
+      vendorBills,
+      loans,
+    ],
+  );
+
+  const pipelineMetrics = useMemo(
+    () => computePipelineMetrics(analyticsSlices, analyticsDateRange),
+    [analyticsSlices, analyticsDateRange],
+  );
+  const operationsMetrics = useMemo(
+    () => computeOperationsMetrics(analyticsSlices, analyticsDateRange),
+    [analyticsSlices, analyticsDateRange],
+  );
+  const financeMetrics = useMemo(
+    () => computeFinanceMetrics(analyticsSlices, analyticsDateRange),
+    [analyticsSlices, analyticsDateRange],
+  );
+  const inventoryMetrics = useMemo(() => computeInventoryMetrics(analyticsSlices), [analyticsSlices]);
+  const customerMetrics = useMemo(() => computeCustomerMetrics(analyticsSlices), [analyticsSlices]);
+
+  const exportMetricRows = (filename: string, rows: MetricRow[]) => {
+    downloadCSV(
+      filename,
+      rows.map((r) => ({ metric: r.label, value: r.value })),
+      ["metric", "value"],
+    );
+    toast({ title: "Exported", description: filename });
+  };
   
   // Export modal state
   const [includeIncome, setIncludeIncome] = useState(true);
@@ -38,30 +165,47 @@ const Analytics = () => {
   
   // Derive project type data from context
   const projectTypeData = useMemo(() => {
-    const typeCounts: Record<string, number> = { Residential: 0, Commercial: 0, Industrial: 0 };
-    projects.forEach(p => {
-      if (typeCounts[p.projectType] !== undefined) typeCounts[p.projectType]++;
+    const typeCounts: Record<string, number> = {
+      Residential: 0,
+      Commercial: 0,
+      Industrial: 0,
+      Other: 0,
+    };
+    projects.forEach((p) => {
+      const t = p.projectType;
+      if (t === "Residential" || t === "Commercial" || t === "Industrial") {
+        typeCounts[t]++;
+      } else {
+        typeCounts.Other++;
+      }
     });
     const total = projects.length;
     if (total === 0) return [];
-    return [
-      { name: "Residential", value: Math.round((typeCounts.Residential / total) * 100), color: "hsl(var(--primary))" },
-      { name: "Commercial", value: Math.round((typeCounts.Commercial / total) * 100), color: "hsl(var(--chart-2))" },
-      { name: "Industrial", value: Math.round((typeCounts.Industrial / total) * 100), color: "hsl(var(--chart-3))" },
-      { name: "Other", value: Math.round((100 - (typeCounts.Residential + typeCounts.Commercial + typeCounts.Industrial) / total * 100)), color: "hsl(var(--chart-4))" },
-    ].filter(d => d.value > 0);
+    const palette = [
+      "hsl(var(--primary))",
+      "hsl(var(--chart-2))",
+      "hsl(var(--chart-3))",
+      "hsl(var(--chart-4))",
+    ];
+    return (["Residential", "Commercial", "Industrial", "Other"] as const)
+      .map((name, i) => ({
+        name,
+        value: Math.round((typeCounts[name] / total) * 100),
+        color: palette[i],
+      }))
+      .filter((d) => d.value > 0);
   }, [projects]);
   
   // Derive employee performance from context
   const employeePerformance = useMemo(() => {
-    return employees.slice(0, 5).map((emp, idx) => {
+    return employees.slice(0, 5).map((emp, _idx) => {
       const empTasks = tasks.filter(t => t.employeeId === emp.id);
       const completed = empTasks.filter(t => t.status === "done").length;
       const total = empTasks.length;
       const done = completed;
       return {
         id: emp.id,
-        name: emp.name.split(' ').map(n => n.charAt(0)).join('') + emp.name.split(' ').slice(-1)[0]?.charAt(1) || emp.name.slice(0, 7),
+        name: emp.initial || emp.name.split(' ').map((n: string) => n[0]).join('').toUpperCase() || emp.name.slice(0, 4),
         tasks: total,
         completed: done,
         efficiency: Math.round((done / total) * 100),
@@ -74,25 +218,42 @@ const Analytics = () => {
     return projects.slice(0, 10).map(p => ({ id: p.id, name: p.name }));
   }, [projects]);
   
-  // Compute KPIs from context
+  // Compute KPIs from context, filtered by selected date range
   const kpiValues = useMemo(() => {
-    const totalRevenue = 
-      invoices.reduce((s, i) => s + (i.amountReceived || 0), 0) + 
-      (saleBills || []).reduce((s, i) => s + (i.amountReceived || 0), 0) + 
-      payments.filter(p => p.direction === "in").reduce((s, p) => s + p.amount, 0);
+    const now = new Date();
+    const filterByRange = (dateStr: string | undefined) => {
+      if (!dateStr) return true;
+      const d = new Date(dateStr);
+      if (analyticsDateRange === "month") return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      if (analyticsDateRange === "quarter") {
+        const q = Math.floor(now.getMonth() / 3);
+        return d.getFullYear() === now.getFullYear() && Math.floor(d.getMonth() / 3) === q;
+      }
+      if (analyticsDateRange === "year") return d.getFullYear() === now.getFullYear();
+      return true;
+    };
+
+    const filteredInvoices = invoices.filter(i => filterByRange(i.invoiceDate));
+    const filteredSaleBills = (saleBills || []).filter(b => filterByRange(b.invoiceDate));
+    const filteredPayments = payments.filter(p => filterByRange(p.date));
+
+    const totalRevenue =
+      filteredInvoices.reduce((s, i) => s + (i.amountReceived || 0), 0) +
+      filteredSaleBills.reduce((s, i) => s + (i.amountReceived || 0), 0) +
+      filteredPayments.filter(p => p.direction === "in").reduce((s, p) => s + p.amount, 0);
     const activeProjects = projects.filter(p => p.status === "Ongoing").length;
     const totalEmployees = employees.length;
-    const stockValue = inventoryItems.reduce((sum, item) => sum + (item.stock * (item.salePrice || 0)), 0);
-    
+    const stockValue = inventoryItems.reduce((sum, item) => sum + ((item.stock || 0) * (item.salePrice || 0)), 0);
+
     return {
       revenue: totalRevenue || 0,
       activeProjects: activeProjects || 0,
       employees: totalEmployees || 0,
       stockValue: stockValue || 0,
     };
-  }, [invoices, saleBills, payments, projects, employees, inventoryItems]);
+  }, [invoices, saleBills, payments, projects, employees, inventoryItems, analyticsDateRange]);
   
-  const formatCurrency = (value: number) => {
+  const _formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
   };
 
@@ -102,21 +263,103 @@ const Analytics = () => {
     );
   };
 
-  const handleExportRevenue = async () => {
-    toast({ title: "Export Started", description: `Exporting Revenue Report - Income: ${includeIncome}, Expense: ${includeExpense}` });
+  const handleExportRevenue = () => {
+    const rows: Record<string, unknown>[] = [];
+    if (includeIncome) {
+      [...invoices, ...saleBills].forEach((inv) => {
+        rows.push({
+          kind: "invoice",
+          id: inv.id,
+          customer: inv.customerName,
+          total: inv.total,
+          received: inv.amountReceived,
+          status: inv.status,
+        });
+      });
+      payments.forEach((p) => {
+        rows.push({
+          kind: "payment",
+          id: p.id,
+          customer: p.counterpartyName ?? "",
+          total: p.amount,
+          received: p.direction === "in" ? p.amount : 0,
+          status: p.direction,
+        });
+      });
+    }
+    if (includeExpense) {
+      expenses.forEach((e) => {
+        rows.push({
+          kind: "expense",
+          id: e.id,
+          customer: e.description ?? e.category,
+          total: e.amount,
+          received: 0,
+          status: e.mainCategory ?? "",
+        });
+      });
+    }
+    if (rows.length === 0) {
+      toast({ title: "Nothing to export", description: "Enable income and/or expense.", variant: "destructive" });
+      return;
+    }
+    downloadCSV("analytics_revenue_mix.csv", rows, ["kind", "id", "customer", "total", "received", "status"]);
+    toast({ title: "Exported", description: `${rows.length} rows.` });
   };
 
-  const handleExportProjects = async () => {
-    toast({ title: "Export Started", description: `Exporting Projects: ${selectedProjects.map(id => projectsList.find(p => p.id === id)?.name).join(', ')}` });
+  const handleExportProjects = () => {
+    const rows = projects
+      .filter((p) => selectedProjects.includes(p.id))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        status: p.status,
+        type: p.projectType,
+        customerId: p.customerId ?? "",
+      }));
+    if (rows.length === 0) {
+      toast({ title: "Select projects", variant: "destructive" });
+      return;
+    }
+    downloadCSV("analytics_projects.csv", rows, ["id", "name", "status", "type", "customerId"]);
+    toast({ title: "Exported", description: `${rows.length} projects.` });
   };
 
-  const handleExportEmployee = async () => {
-    const emp = employeePerformance.find(e => e.id.toString() === selectedEmployee);
-    toast({ title: "Export Started", description: `Exporting Employee Details: ${emp?.name}` });
+  const handleExportEmployee = () => {
+    const emp = employees.find((e) => String(e.id) === selectedEmployee);
+    if (!emp) {
+      toast({ title: "Select an employee", variant: "destructive" });
+      return;
+    }
+    const empTasks = tasks.filter((t) => t.employeeId === emp.id);
+    downloadCSV(
+      `analytics_employee_${emp.id}.csv`,
+      empTasks.map((t) => ({
+        taskId: t.id,
+        projectId: t.projectId,
+        site: t.siteName,
+        status: t.status,
+        workDate: t.workDate,
+      })),
+      ["taskId", "projectId", "site", "status", "workDate"],
+    );
+    toast({ title: "Exported", description: `${empTasks.length} tasks for ${emp.name}.` });
   };
 
-  const handleExportInventory = async () => {
-    toast({ title: "Export Started", description: 'Exporting Inventory Items' });
+  const handleExportInventory = () => {
+    downloadCSV(
+      "analytics_inventory.csv",
+      inventoryItems.map((i) => ({
+        id: i.id,
+        name: i.name,
+        category: i.category,
+        stock: i.stock,
+        buyPrice: i.buyPrice,
+        salePrice: i.salePrice,
+      })),
+      ["id", "name", "category", "stock", "buyPrice", "salePrice"],
+    );
+    toast({ title: "Exported", description: `${inventoryItems.length} items.` });
   };
 
   return (
@@ -125,7 +368,7 @@ const Analytics = () => {
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Analytics" }]}
         subRow={
           <>
-            <Select defaultValue="year">
+            <Select value={analyticsDateRange} onValueChange={setAnalyticsDateRange}>
               <SelectTrigger className="h-9 w-[130px] border-border bg-muted/50 text-xs">
                 <SelectValue />
               </SelectTrigger>
@@ -133,6 +376,7 @@ const Analytics = () => {
                 <SelectItem value="month">This Month</SelectItem>
                 <SelectItem value="quarter">This Quarter</SelectItem>
                 <SelectItem value="year">This Year</SelectItem>
+                <SelectItem value="all">All Time</SelectItem>
               </SelectContent>
             </Select>
             <InlineKpiStrip
@@ -208,7 +452,7 @@ const Analytics = () => {
                     <p className="text-xs text-muted-foreground">{emp.completed}/{emp.tasks} tasks</p>
                   </div>
                 </div>
-                <Badge variant="outline" className={emp.efficiency >= 90 ? "bg-blue-500/10 text-blue-500 border-blue-500/20" : "bg-amber-500/10 text-amber-500 border-amber-500/20"}>
+                <Badge variant="outline" className={emp.efficiency >= 90 ? "bg-primary/10 text-primary border-primary/20" : "bg-amber-500/10 text-amber-500 border-amber-500/20"}>
                   {emp.efficiency}%
                 </Badge>
               </div>
@@ -217,9 +461,76 @@ const Analytics = () => {
         </Card>
       </div>
 
+      <div className="space-y-6">
+        <AnalyticsSection
+          title="Pipeline & conversion"
+          rows={pipelineMetrics.summaryRows}
+          onExport={() => exportMetricRows("analytics_pipeline.csv", pipelineMetrics.summaryRows)}
+        >
+          {pipelineMetrics.agentLeaderboard.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Agent referral leaderboard</p>
+              <div className="flex flex-wrap gap-2">
+                {pipelineMetrics.agentLeaderboard.map((a) => (
+                  <Badge key={a.agentId} variant="outline">
+                    {a.name}: {a.referrals} ref / {a.won} won ({a.conversionPct}%)
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </AnalyticsSection>
+
+        <AnalyticsSection
+          title="Operations"
+          rows={operationsMetrics.summaryRows}
+          onExport={() => exportMetricRows("analytics_operations.csv", operationsMetrics.summaryRows)}
+        />
+
+        <AnalyticsSection
+          title="Finance"
+          rows={financeMetrics.summaryRows}
+          onExport={() => exportMetricRows("analytics_finance.csv", financeMetrics.summaryRows)}
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-muted-foreground">
+                  <th className="py-2 pr-4">Debtor bucket</th>
+                  <th className="py-2 pr-4">Invoices</th>
+                  <th className="py-2 text-right">Open ₹</th>
+                </tr>
+              </thead>
+              <tbody>
+                {financeMetrics.debtorBuckets.map((b) => (
+                  <tr key={b.bucket} className="border-b border-border/50">
+                    <td className="py-2 pr-4">{b.bucket} days</td>
+                    <td className="py-2 pr-4">{b.count}</td>
+                    <td className="py-2 text-right tabular-nums">₹{b.amount.toLocaleString("en-IN")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </AnalyticsSection>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <AnalyticsSection
+            title="Inventory"
+            rows={inventoryMetrics.summaryRows}
+            onExport={() => exportMetricRows("analytics_inventory_metrics.csv", inventoryMetrics.summaryRows)}
+          />
+          <AnalyticsSection
+            title="Customers"
+            rows={customerMetrics.summaryRows}
+            onExport={() => exportMetricRows("analytics_customers.csv", customerMetrics.summaryRows)}
+          />
+        </div>
+      </div>
+
       {/* Export Modal */}
       <Sheet open={isExportModalOpen} onOpenChange={setIsExportModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Export Report</SheetTitle>
           </SheetHeader>
@@ -302,8 +613,10 @@ const Analytics = () => {
                     <SelectValue placeholder="Select employee" />
                   </SelectTrigger>
                   <SelectContent>
-                    {employeePerformance.map(emp => (
-                      <SelectItem key={emp.id} value={emp.id.toString()}>{emp.name}</SelectItem>
+                    {employees.map((emp) => (
+                      <SelectItem key={emp.id} value={String(emp.id)}>
+                        {emp.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

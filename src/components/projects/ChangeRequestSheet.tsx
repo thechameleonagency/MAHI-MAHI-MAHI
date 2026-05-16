@@ -1,0 +1,217 @@
+import { useMemo, useState } from "react";
+import { Plus, Trash2 } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAppData } from "@/contexts/AppDataContext";
+import { toast } from "@/hooks/use-toast";
+import { resolveChangeRequestDeltaAmount } from "@/lib/changeRequestApproval";
+import type { Project } from "@/types/project";
+import type { ProjectChangeRequestType } from "@/types/operations";
+
+type MaterialLine = { key: string; itemId: string; deltaQty: string };
+
+const emptyMaterialLine = (): MaterialLine => ({
+  key: `m-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  itemId: "",
+  deltaQty: "1",
+});
+
+export function ChangeRequestSheet({
+  open,
+  onOpenChange,
+  project,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  project: Project;
+  onCreated?: () => void;
+}) {
+  const { addProjectChangeRequest, inventoryItems } = useAppData();
+  const [type, setType] = useState<ProjectChangeRequestType>("capacity");
+  const [deltaKw, setDeltaKw] = useState("");
+  const [deltaPanels, setDeltaPanels] = useState("");
+  const [deltaAmount, setDeltaAmount] = useState("");
+  const [notes, setNotes] = useState("");
+  const [materialLines, setMaterialLines] = useState<MaterialLine[]>([]);
+
+  const previewDelta = useMemo(() => {
+    const draft = {
+      id: "preview",
+      projectId: project.id,
+      type,
+      deltaKw: deltaKw ? Number(deltaKw) : undefined,
+      deltaPanels: deltaPanels ? Number(deltaPanels) : undefined,
+      deltaAmount: deltaAmount ? Number(deltaAmount) : undefined,
+      status: "draft" as const,
+      requestedAt: "",
+    };
+    return resolveChangeRequestDeltaAmount(project, draft);
+  }, [project, type, deltaKw, deltaPanels, deltaAmount]);
+
+  const reset = () => {
+    setType("capacity");
+    setDeltaKw("");
+    setDeltaPanels("");
+    setDeltaAmount("");
+    setNotes("");
+    setMaterialLines([]);
+  };
+
+  const handleSubmit = () => {
+    const materialDelta = materialLines
+      .map((l) => ({
+        itemId: Number.parseInt(l.itemId, 10),
+        deltaQty: Number.parseFloat(l.deltaQty) || 0,
+      }))
+      .filter((m) => m.itemId > 0 && m.deltaQty > 0);
+
+    if (type === "capacity" && !deltaKw && !deltaAmount) {
+      toast({ title: "Enter kW delta or amount", variant: "destructive" });
+      return;
+    }
+
+    addProjectChangeRequest({
+      projectId: project.id,
+      type,
+      deltaKw: deltaKw ? Number(deltaKw) : undefined,
+      deltaPanels: deltaPanels ? Number(deltaPanels) : undefined,
+      deltaAmount: deltaAmount ? Number(deltaAmount) : undefined,
+      materialDelta: materialDelta.length ? materialDelta : undefined,
+      notes: notes.trim() || undefined,
+    });
+
+    toast({
+      title: "Change request logged",
+      description: `Draft saved — estimated delta ₹${previewDelta.toLocaleString("en-IN")}`,
+    });
+    reset();
+    onOpenChange(false);
+    onCreated?.();
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full sm:max-w-lg overflow-y-auto custom-scrollbar">
+        <SheetHeader>
+          <SheetTitle>Project change request</SheetTitle>
+          <SheetDescription>
+            Capacity, panel count, add-on work, or material deltas for {project.name}.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Type</Label>
+            <Select value={type} onValueChange={(v) => setType(v as ProjectChangeRequestType)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="capacity">Capacity (kW)</SelectItem>
+                <SelectItem value="panels">Panels</SelectItem>
+                <SelectItem value="addon-work">Add-on work</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {type === "capacity" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Δ kW</Label>
+                <Input type="number" min={0} step="0.1" value={deltaKw} onChange={(e) => setDeltaKw(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Δ amount (₹, optional)</Label>
+                <Input type="number" min={0} value={deltaAmount} onChange={(e) => setDeltaAmount(e.target.value)} />
+              </div>
+            </div>
+          )}
+
+          {type === "panels" && (
+            <div className="space-y-2">
+              <Label>Additional panels</Label>
+              <Input type="number" min={0} value={deltaPanels} onChange={(e) => setDeltaPanels(e.target.value)} />
+            </div>
+          )}
+
+          {type === "addon-work" && (
+            <div className="space-y-2">
+              <Label>Add-on amount (₹)</Label>
+              <Input type="number" min={0} value={deltaAmount} onChange={(e) => setDeltaAmount(e.target.value)} />
+            </div>
+          )}
+
+          <p className="text-sm text-muted-foreground rounded-md border bg-muted/30 px-3 py-2">
+            Estimated commercial delta: <strong>₹{previewDelta.toLocaleString("en-IN")}</strong>
+          </p>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Material delta (optional)</Label>
+              <Button type="button" variant="outline" size="sm" onClick={() => setMaterialLines((p) => [...p, emptyMaterialLine()])}>
+                <Plus className="h-3 w-3 mr-1" /> Line
+              </Button>
+            </div>
+            {materialLines.map((line) => (
+              <div key={line.key} className="flex gap-2 items-end">
+                <Select value={line.itemId} onValueChange={(v) => setMaterialLines((p) => p.map((l) => (l.key === line.key ? { ...l, itemId: v } : l)))}>
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Inventory item" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(inventoryItems ?? []).map((item) => (
+                      <SelectItem key={item.id} value={String(item.id)}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  className="w-20"
+                  type="number"
+                  min={0}
+                  value={line.deltaQty}
+                  onChange={(e) =>
+                    setMaterialLines((p) => p.map((l) => (l.key === line.key ? { ...l, deltaQty: e.target.value } : l)))
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setMaterialLines((p) => p.filter((l) => l.key !== line.key))}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Notes</Label>
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+          </div>
+        </div>
+
+        <SheetFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit}>Save draft request</Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}

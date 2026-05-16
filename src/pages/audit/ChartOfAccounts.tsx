@@ -12,15 +12,17 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { ChevronRight, ChevronDown, Search, Building2, Layers, ShieldCheck } from "lucide-react";
+import { ChevronRight, ChevronDown, Search, Building2, Layers, ShieldCheck, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { downloadCSV } from "@/lib/csvExport";
+import { formatINR } from "@/lib/formatCurrency";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   ACCOUNT_GROUPS, LEDGER_ACCOUNTS, VOUCHER_TYPES,
   getSubGroups, getLedgersByGroup, getAllLedgersUnderGroup,
   type AccountGroup, type Ledger, type AccountNature,
 } from "@/services/finance/chartOfAccounts";
-
-const fmt = (v: number) => `₹${v.toLocaleString("en-IN")}`;
 
 /** Paginated ledger detail grid — rows are pre-rendered string cells */
 function ChartDetailLedgerTable({
@@ -90,9 +92,9 @@ function ChartDetailLedgerTable({
 }
 
 const natureColors: Record<AccountNature, { bg: string; text: string; badge: string }> = {
-  asset: { bg: "bg-blue-500/10", text: "text-blue-700 dark:text-blue-400", badge: "bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30" },
+  asset: { bg: "bg-primary/10", text: "text-primary dark:text-primary", badge: "bg-primary/20 text-primary dark:text-blue-300 border-primary/30" },
   liability: { bg: "bg-rose-500/10", text: "text-rose-700 dark:text-rose-400", badge: "bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/30" },
-  income: { bg: "bg-blue-500/10", text: "text-blue-700 dark:text-blue-400", badge: "bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30" },
+  income: { bg: "bg-primary/10", text: "text-primary dark:text-primary", badge: "bg-primary/20 text-primary dark:text-blue-300 border-primary/30" },
   expense: { bg: "bg-amber-500/10", text: "text-amber-700 dark:text-amber-400", badge: "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30" },
 };
 
@@ -105,7 +107,11 @@ const ChartOfAccounts = () => {
   const toggleGroup = (id: string) => {
     setExpandedGroups(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   };
@@ -119,8 +125,7 @@ const ChartOfAccounts = () => {
     const toolsValue = tools.reduce((s, t) => s + t.purchaseRate, 0);
     const totalSales = allInvoices.reduce((s, i) => s + i.total, 0);
     const totalPurchases = vendorBills.reduce((s, b) => s + b.total, 0);
-    const totalLoans = loans.reduce((s, l) => s + l.principal, 0);
-    const totalRepaid = loanRepayments.reduce((s, r) => s + r.totalPaid, 0);
+    const loanOutstandingTotal = loans.reduce((s, l) => s + l.outstanding, 0);
     const gstCollected = allInvoices.reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
     const gstInput = vendorBills.reduce((s, b) => s + (b.gst || 0), 0);
     const ownerCapital = ownerInvestments.reduce((s, o) => s + o.amount, 0);
@@ -146,9 +151,9 @@ const ChartOfAccounts = () => {
       "material-purchases": totalPurchases,
       "direct-expenses": directExp,
       "indirect-expenses": indirectExp,
-      "loans-liability": totalLoans - totalRepaid,
-      "bank-loan-ledger": loans.filter(l => l.sourceType === "bank").reduce((s, l) => s + l.principal, 0),
-      "personal-borrowing": loans.filter(l => l.sourceType === "person").reduce((s, l) => s + l.principal, 0),
+      "loans-liability": loanOutstandingTotal,
+      "bank-loan-ledger": loans.filter(l => l.sourceType === "bank").reduce((s, l) => s + l.outstanding, 0),
+      "personal-borrowing": loans.filter(l => l.sourceType === "person").reduce((s, l) => s + l.outstanding, 0),
       "duties-taxes": gstCollected - gstInput,
       "gst-payable": gstCollected - gstInput,
       "capital-account": ownerCapital + partnerCapital,
@@ -159,7 +164,7 @@ const ChartOfAccounts = () => {
       "current-assets": receivables + inventoryValue,
       "current-liabilities": payables + (gstCollected - gstInput),
     } as Record<string, number>;
-  }, [invoices, saleBills, vendorBills, inventoryItems, tools, expenses, incomes, loans, loanRepayments, payments, ownerInvestments, partnerTransactions, vendors, customers, vendorPayments, partners]);
+  }, [invoices, saleBills, vendorBills, inventoryItems, tools, expenses, incomes, loans, payments, ownerInvestments, partnerTransactions, vendors, customers, vendorPayments, partners]);
 
   const getBalance = (id: string): number => balances[id] || 0;
 
@@ -174,12 +179,12 @@ const ChartOfAccounts = () => {
       return {
         title: "Sundry Debtors — Customer Ledgers",
         kpis: [
-          { label: "Total Receivable", value: fmt(unpaid.reduce((s, i) => s + (i.total - i.amountReceived), 0)) },
+          { label: "Total Receivable", value: formatINR(unpaid.reduce((s, i) => s + (i.total - i.amountReceived), 0)) },
           { label: "Unpaid Invoices", value: unpaid.length.toString() },
           { label: "Customers", value: new Set(unpaid.map(i => i.customerName)).size.toString() },
         ],
         columns: ["Customer", "Invoice", "Total", "Received", "Outstanding"],
-        rows: unpaid.map(i => [i.customerName, i.invoiceNumber, fmt(i.total), fmt(i.amountReceived), fmt(i.total - i.amountReceived)]),
+        rows: unpaid.map(i => [i.customerName, i.invoiceNumber, formatINR(i.total), formatINR(i.amountReceived), formatINR(i.total - i.amountReceived)]),
       };
     }
 
@@ -188,12 +193,12 @@ const ChartOfAccounts = () => {
       return {
         title: "Sundry Creditors — Vendor Ledgers",
         kpis: [
-          { label: "Total Payable", value: fmt(unpaid.reduce((s, b) => s + (b.total - b.amountPaid), 0)) },
+          { label: "Total Payable", value: formatINR(unpaid.reduce((s, b) => s + (b.total - b.amountPaid), 0)) },
           { label: "Unpaid Bills", value: unpaid.length.toString() },
           { label: "Vendors", value: new Set(unpaid.map(b => b.vendorName)).size.toString() },
         ],
         columns: ["Vendor", "Bill #", "Total", "Paid", "Outstanding"],
-        rows: unpaid.map(b => [b.vendorName, b.billNumber, fmt(b.total), fmt(b.amountPaid), fmt(b.total - b.amountPaid)]),
+        rows: unpaid.map(b => [b.vendorName, b.billNumber, formatINR(b.total), formatINR(b.amountPaid), formatINR(b.total - b.amountPaid)]),
       };
     }
 
@@ -202,11 +207,11 @@ const ChartOfAccounts = () => {
         title: "Stock-in-Hand — Inventory Valuation",
         kpis: [
           { label: "Total Items", value: inventoryItems.length.toString() },
-          { label: "Total Valuation", value: fmt(inventoryItems.reduce((s, i) => s + i.stock * i.buyPrice, 0)) },
+          { label: "Total Valuation", value: formatINR(inventoryItems.reduce((s, i) => s + i.stock * i.buyPrice, 0)) },
           { label: "Low Stock Items", value: inventoryItems.filter(i => i.stock <= i.minStock).length.toString() },
         ],
         columns: ["Item", "Category", "Stock", "Buy Price", "Valuation"],
-        rows: inventoryItems.map(i => [i.name, i.category, i.stock.toString(), fmt(i.buyPrice), fmt(i.stock * i.buyPrice)]),
+        rows: inventoryItems.map(i => [i.name, i.category, i.stock.toString(), formatINR(i.buyPrice), formatINR(i.stock * i.buyPrice)]),
       };
     }
 
@@ -215,10 +220,10 @@ const ChartOfAccounts = () => {
         title: "Fixed Assets — Tools & Equipment",
         kpis: [
           { label: "Total Tools", value: tools.length.toString() },
-          { label: "Total Value", value: fmt(tools.reduce((s, t) => s + t.purchaseRate, 0)) },
+          { label: "Total Value", value: formatINR(tools.reduce((s, t) => s + t.purchaseRate, 0)) },
         ],
         columns: ["Tool", "Category", "Purchase Price", "Purchase Date", "Status"],
-        rows: tools.map(t => [t.name, t.category, fmt(t.purchaseRate), t.purchaseDate, t.status]),
+        rows: tools.map(t => [t.name, t.category, formatINR(t.purchaseRate), t.purchaseDate, t.status]),
       };
     }
 
@@ -227,12 +232,12 @@ const ChartOfAccounts = () => {
       return {
         title: "Sales Accounts — Revenue Ledger",
         kpis: [
-          { label: "Total Revenue", value: fmt(allInv.reduce((s, i) => s + i.total, 0)) },
+          { label: "Total Revenue", value: formatINR(allInv.reduce((s, i) => s + i.total, 0)) },
           { label: "Invoices", value: invoices.length.toString() },
           { label: "Sale Bills", value: saleBills.length.toString() },
         ],
         columns: ["Invoice #", "Customer", "Date", "Total", "Status"],
-        rows: allInv.map(i => [i.invoiceNumber, i.customerName, i.invoiceDate, fmt(i.total), i.status]),
+        rows: allInv.map(i => [i.invoiceNumber, i.customerName, i.invoiceDate, formatINR(i.total), i.status]),
       };
     }
 
@@ -240,11 +245,11 @@ const ChartOfAccounts = () => {
       return {
         title: "Purchase Accounts — Vendor Bills",
         kpis: [
-          { label: "Total Purchases", value: fmt(vendorBills.reduce((s, b) => s + b.total, 0)) },
+          { label: "Total Purchases", value: formatINR(vendorBills.reduce((s, b) => s + b.total, 0)) },
           { label: "Bills", value: vendorBills.length.toString() },
         ],
         columns: ["Bill #", "Vendor", "Date", "Total", "Status"],
-        rows: vendorBills.map(b => [b.billNumber, b.vendorName, b.billDate, fmt(b.total), b.status]),
+        rows: vendorBills.map(b => [b.billNumber, b.vendorName, b.billDate, formatINR(b.total), b.status]),
       };
     }
 
@@ -255,11 +260,11 @@ const ChartOfAccounts = () => {
       return {
         title: id === "direct-expenses" ? "Direct Expenses" : "Indirect Expenses",
         kpis: [
-          { label: "Total", value: fmt(filtered.reduce((s, e) => s + e.amount, 0)) },
+          { label: "Total", value: formatINR(filtered.reduce((s, e) => s + e.amount, 0)) },
           { label: "Entries", value: filtered.length.toString() },
         ],
         columns: ["Date", "Category", "Description", "Amount"],
-        rows: filtered.map(e => [e.date, e.category, e.description || e.category, fmt(e.amount)]),
+        rows: filtered.map(e => [e.date, e.category, e.description || e.category, formatINR(e.amount)]),
       };
     }
 
@@ -267,12 +272,12 @@ const ChartOfAccounts = () => {
       return {
         title: "Loans — Outstanding Balances",
         kpis: [
-          { label: "Total Loans", value: fmt(loans.reduce((s, l) => s + l.principal, 0)) },
-          { label: "Total Repaid", value: fmt(loanRepayments.reduce((s, r) => s + r.totalPaid, 0)) },
+          { label: "Total Loans", value: formatINR(loans.reduce((s, l) => s + l.principal, 0)) },
+          { label: "Total Repaid", value: formatINR(loanRepayments.reduce((s, r) => s + r.totalPaid, 0)) },
           { label: "Active Loans", value: loans.filter(l => l.status === "Active").length.toString() },
         ],
         columns: ["Source", "Type", "Principal", "EMI", "Status"],
-        rows: loans.map(l => [l.source, l.sourceType, fmt(l.principal), l.emiAmount ? fmt(l.emiAmount) : "—", l.status]),
+        rows: loans.map(l => [l.source, l.sourceType, formatINR(l.principal), l.emiAmount ? formatINR(l.emiAmount) : "—", l.status]),
       };
     }
 
@@ -280,16 +285,16 @@ const ChartOfAccounts = () => {
       return {
         title: "Capital Account",
         kpis: [
-          { label: "Owner Capital", value: fmt(ownerInvestments.reduce((s, o) => s + o.amount, 0)) },
-          { label: "Partner Capital", value: fmt(partnerTransactions.filter(t => t.type === "Investment").reduce((s, t) => s + t.amount, 0)) },
+          { label: "Owner Capital", value: formatINR(ownerInvestments.reduce((s, o) => s + o.amount, 0)) },
+          { label: "Partner Capital", value: formatINR(partnerTransactions.filter(t => t.type === "Investment").reduce((s, t) => s + t.amount, 0)) },
           { label: "Partners", value: partners.length.toString() },
         ],
         columns: ["Type", "Name", "Amount", "Date"],
         rows: [
-          ...ownerInvestments.map(o => ["Owner Investment", "MK", fmt(o.amount), o.date]),
+          ...ownerInvestments.map(o => ["Owner Investment", "MK", formatINR(o.amount), o.date]),
           ...partnerTransactions.filter(t => t.type === "Investment").map(t => {
             const p = partners.find(pt => pt.id === t.partnerId);
-            return ["Partner Investment", p?.name || "—", fmt(t.amount), t.date];
+            return ["Partner Investment", p?.name || "—", formatINR(t.amount), t.date];
           }),
         ],
       };
@@ -311,7 +316,7 @@ const ChartOfAccounts = () => {
     if (ledger) {
       return {
         title: ledger.name,
-        kpis: [{ label: "Balance", value: fmt(getBalance(id)) }],
+        kpis: [{ label: "Balance", value: formatINR(getBalance(id)) }],
         columns: ["Property", "Value"],
         rows: [
           ["Group", ACCOUNT_GROUPS.find(g => g.id === ledger.groupId)?.name || "—"],
@@ -323,6 +328,8 @@ const ChartOfAccounts = () => {
     }
 
     return null;
+    // Intentionally exclude `getBalance` — it's recomputed on each render but reads the same dependencies already listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedItem, invoices, saleBills, vendorBills, inventoryItems, tools, expenses, loans, loanRepayments, payments, ownerInvestments, partnerTransactions, partners, balances]);
 
   // Filter groups/ledgers by search
@@ -364,9 +371,9 @@ const ChartOfAccounts = () => {
             <div className="w-3.5 h-3.5 shrink-0" />
           )}
           <span className={cn("text-sm font-medium flex-1", depth === 0 ? colors.text : "text-foreground")}>{group.name}</span>
-          {balance > 0 && <span className="text-xs tabular-nums text-muted-foreground">{fmt(balance)}</span>}
+          {balance > 0 && <span className="text-xs tabular-nums text-muted-foreground">{formatINR(balance)}</span>}
           {depth === 0 && (
-            <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 shrink-0", colors.badge)}>
+            <Badge variant="outline" className={cn("text-2xs px-1.5 py-0 shrink-0", colors.badge)}>
               {group.nature}
             </Badge>
           )}
@@ -417,7 +424,7 @@ const ChartOfAccounts = () => {
       >
         <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 shrink-0" />
         <span className="text-sm text-muted-foreground flex-1">{ledger.name}</span>
-        {balance > 0 && <span className="text-xs tabular-nums text-muted-foreground">{fmt(balance)}</span>}
+        {balance > 0 && <span className="text-xs tabular-nums text-muted-foreground">{formatINR(balance)}</span>}
       </div>
     );
   };
@@ -433,7 +440,27 @@ const ChartOfAccounts = () => {
         subRow={
           <InlineKpiStrip className="w-full min-w-0 flex-wrap justify-start" items={natureStripItems} />
         }
-      />
+      >
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => {
+            const rows = LEDGER_ACCOUNTS.map((l) => ({
+              id: l.id,
+              name: l.name,
+              group: l.groupId,
+              nature: l.nature,
+              balance: getBalance(l.id),
+            }));
+            downloadCSV("chart_of_accounts.csv", rows, ["id", "name", "group", "nature", "balance"]);
+            toast({ title: "Exported", description: `${rows.length} ledgers exported to CSV.` });
+          }}
+        >
+          <Download className="h-3 w-3 mr-1" />
+          Export CSV
+        </Button>
+      </StickyPageHeader>
 
       {/* Two-panel layout */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
@@ -458,19 +485,19 @@ const ChartOfAccounts = () => {
             <ScrollArea className="h-[60vh] px-3 pb-3">
               <div className="space-y-1">
                 {/* Liabilities */}
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-3 pb-1">Liabilities</p>
+                <p className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-3 pb-1">Liabilities</p>
                 {primaryGroups.filter(g => g.nature === "liability").map(g => renderGroupNode(g))}
 
                 {/* Assets */}
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Assets</p>
+                <p className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Assets</p>
                 {primaryGroups.filter(g => g.nature === "asset").map(g => renderGroupNode(g))}
 
                 {/* Income */}
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Income</p>
+                <p className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Income</p>
                 {primaryGroups.filter(g => g.nature === "income").map(g => renderGroupNode(g))}
 
                 {/* Expenses */}
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Expenses</p>
+                <p className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Expenses</p>
                 {primaryGroups.filter(g => g.nature === "expense").map(g => renderGroupNode(g))}
               </div>
             </ScrollArea>
@@ -532,27 +559,27 @@ const ChartOfAccounts = () => {
                 <p className="text-xs text-muted-foreground mb-2">{v.description}</p>
                 <div className="space-y-1">
                   <div className="flex items-start gap-1">
-                    <span className="text-[10px] font-medium text-blue-600 shrink-0">Dr:</span>
+                    <span className="text-2xs font-medium text-primary shrink-0">Dr:</span>
                     <div className="flex flex-wrap gap-1">
                       {v.debitLedgers.slice(0, 3).map(l => {
                         const ledger = LEDGER_ACCOUNTS.find(la => la.id === l);
-                        return <Badge key={l} variant="secondary" className="text-[10px] px-1 py-0">{ledger?.name || l}</Badge>;
+                        return <Badge key={l} variant="secondary" className="text-2xs px-1 py-0">{ledger?.name || l}</Badge>;
                       })}
                     </div>
                   </div>
                   <div className="flex items-start gap-1">
-                    <span className="text-[10px] font-medium text-rose-600 shrink-0">Cr:</span>
+                    <span className="text-2xs font-medium text-rose-600 shrink-0">Cr:</span>
                     <div className="flex flex-wrap gap-1">
                       {v.creditLedgers.slice(0, 3).map(l => {
                         const ledger = LEDGER_ACCOUNTS.find(la => la.id === l);
-                        return <Badge key={l} variant="secondary" className="text-[10px] px-1 py-0">{ledger?.name || l}</Badge>;
+                        return <Badge key={l} variant="secondary" className="text-2xs px-1 py-0">{ledger?.name || l}</Badge>;
                       })}
                     </div>
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {v.operationalSources.map(s => (
-                    <Badge key={s} variant="outline" className="text-[10px] px-1.5 py-0 border-primary/30 text-primary">{s}</Badge>
+                    <Badge key={s} variant="outline" className="text-2xs px-1.5 py-0 border-primary/30 text-primary">{s}</Badge>
                   ))}
                 </div>
               </div>

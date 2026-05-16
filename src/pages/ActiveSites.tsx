@@ -1,11 +1,11 @@
 import { useState, useMemo } from "react";
-import { RefreshCw, MapPin, AlertTriangle, CheckCircle, Clock, Plus, ExternalLink, AlertCircle, User, Users, Circle, CheckCircle2, IndianRupee, FileText, Wrench, Zap, ChevronDown, ChevronRight } from "lucide-react";
+import { RefreshCw, MapPin, AlertTriangle, CheckCircle, Clock, ExternalLink, AlertCircle, User, Users, Circle, CheckCircle2, IndianRupee, FileText, Wrench, Zap, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAppData } from "@/contexts/AppDataContext";
+import { NeedToGetService } from "@/application/services/NeedToGetService";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
@@ -15,13 +15,14 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
 import type { Blockage, ProjectTimelineStatus } from "@/types/blockage";
 import ActiveSitesFilters, { type ActiveSitesFiltersState } from "@/components/activesites/ActiveSitesFilters";
+import { getPriorityColor, getStatusColor } from "@/lib/statusColors";
+import { formatUiDate } from "@/lib/formatUiDate";
 
-// Timeline step labels for mini indicators with icons
+// Timeline step labels
 const TIMELINE_STEPS = [
   { key: "fileLogin", label: "File", icon: FileText },
   { key: "subsidyType", label: "Sub", icon: IndianRupee },
@@ -171,6 +172,7 @@ const calculateOverallProgress = (timeline: ProjectTimelineStatus | null): numbe
 /** Active Sites reads `blockages`, `operationalTickets`, `projectTimelineByProjectId` from AppData (seed: `src/data/activeSitesSeed.ts`). */
 
 const ActiveSites = () => {
+  const navigate = useNavigate();
   const {
     projects,
     employees,
@@ -178,8 +180,23 @@ const ActiveSites = () => {
     operationalTickets,
     projectTimelineByProjectId,
     resolveBlockage,
+    sites,
+    inventoryItems,
+    vendorBills,
   } = useAppData();
-  const [lastRefreshed] = useState(new Date());
+  const [lastRefreshed, setLastRefreshed] = useState(new Date());
+  const [_refreshKey, setRefreshKey] = useState(0);
+
+  const needToGetService = useMemo(() => new NeedToGetService(), []);
+  const procurementShortQtyByProject = useMemo(() => {
+    const rows = needToGetService.buildRows(sites, projects, inventoryItems, vendorBills);
+    const m = new Map<string, number>();
+    for (const r of rows) {
+      if (r.rowKind === "nonMaterial") continue;
+      m.set(r.projectId, (m.get(r.projectId) ?? 0) + r.qtyShort);
+    }
+    return m;
+  }, [needToGetService, sites, projects, inventoryItems, vendorBills]);
   
   // State for expanded step in cards
   const [expandedStep, setExpandedStep] = useState<{projectId: string, step: string} | null>(null);
@@ -187,7 +204,7 @@ const ActiveSites = () => {
   // State for Resolve Modal
   const [isResolveModalOpen, setIsResolveModalOpen] = useState(false);
   const [selectedBlockage, setSelectedBlockage] = useState<Blockage | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [_selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [resolvedBy, setResolvedBy] = useState<string>("");
   const [resolveDate, setResolveDate] = useState(new Date().toISOString().split('T')[0]);
   const [resolveNotes, setResolveNotes] = useState("");
@@ -226,7 +243,7 @@ const ActiveSites = () => {
               {timeline.fileLogin === "pending" ? (
                 <Circle className="w-3 h-3 text-primary fill-primary" />
               ) : (
-                <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                <CheckCircle2 className="w-3 h-3 text-primary" />
               )}
               <span>Pending</span>
             </div>
@@ -240,7 +257,7 @@ const ActiveSites = () => {
                 <div key={step.value} className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
                     {isComplete ? (
-                      <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                      <CheckCircle2 className="w-3 h-3 text-primary" />
                     ) : isCurrent ? (
                       <Circle className="w-3 h-3 text-primary fill-primary" />
                     ) : (
@@ -270,7 +287,7 @@ const ActiveSites = () => {
                   }`}
                 >
                   <p className="font-medium">{opt.label}</p>
-                  <p className="text-[10px]">{opt.amount}</p>
+                  <p className="text-2xs">{opt.amount}</p>
                   {timeline.subsidyType === opt.value && <CheckCircle2 className="w-3 h-3 mx-auto mt-0.5 text-primary" />}
                 </div>
               ))}
@@ -283,9 +300,9 @@ const ActiveSites = () => {
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground mb-2">Bank File / Cash</p>
             {timeline.bankFileType === "cash" ? (
-              <div className="flex items-center gap-2 p-2 bg-blue-500/10 rounded text-xs">
-                <CheckCircle2 className="w-3 h-3 text-blue-500" />
-                <span className="text-blue-500 font-medium">Cash File - Complete</span>
+              <div className="flex items-center gap-2 p-2 bg-primary/10 rounded text-xs">
+                <CheckCircle2 className="w-3 h-3 text-primary" />
+                <span className="text-primary font-medium">Cash File - Complete</span>
               </div>
             ) : timeline.bankFileType === "loan" ? (
               <div className="space-y-1.5">
@@ -297,7 +314,7 @@ const ActiveSites = () => {
                   return (
                     <div key={stage.value} className="flex items-center gap-2 text-xs">
                       {isComplete ? (
-                        <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                        <CheckCircle2 className="w-3 h-3 text-primary" />
                       ) : isCurrent ? (
                         <Circle className="w-3 h-3 text-primary fill-primary" />
                       ) : (
@@ -308,9 +325,9 @@ const ActiveSites = () => {
                   );
                 })}
                 {timeline.loanStatus === "approved" && (
-                  <div className="flex items-center gap-2 p-2 bg-blue-500/10 rounded text-xs mt-2">
-                    <CheckCircle2 className="w-3 h-3 text-blue-500" />
-                    <span className="text-blue-500 font-medium">Loan Approved</span>
+                  <div className="flex items-center gap-2 p-2 bg-primary/10 rounded text-xs mt-2">
+                    <CheckCircle2 className="w-3 h-3 text-primary" />
+                    <span className="text-primary font-medium">Loan Approved</span>
                   </div>
                 )}
                 {timeline.loanStatus === "rejected" && (
@@ -336,7 +353,7 @@ const ActiveSites = () => {
                 return (
                   <div key={item.value} className="flex items-center gap-1.5 text-xs">
                     {isChecked ? (
-                      <CheckCircle2 className="w-3 h-3 text-blue-500 flex-shrink-0" />
+                      <CheckCircle2 className="w-3 h-3 text-primary flex-shrink-0" />
                     ) : (
                       <Circle className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
                     )}
@@ -357,7 +374,7 @@ const ActiveSites = () => {
               return (
                 <div key={item.value} className="flex items-center gap-2 text-xs">
                   {isChecked ? (
-                    <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                    <CheckCircle2 className="w-3 h-3 text-primary" />
                   ) : (
                     <Circle className="w-3 h-3 text-muted-foreground/40" />
                   )}
@@ -366,9 +383,9 @@ const ActiveSites = () => {
               );
             })}
             {timeline.discomSubsidyStatus === "approved" && (
-              <div className="flex items-center gap-2 p-2 bg-blue-500/10 rounded text-xs mt-2">
-                <CheckCircle2 className="w-3 h-3 text-blue-500" />
-                <span className="text-blue-500 font-medium">Subsidy Approved</span>
+              <div className="flex items-center gap-2 p-2 bg-primary/10 rounded text-xs mt-2">
+                <CheckCircle2 className="w-3 h-3 text-primary" />
+                <span className="text-primary font-medium">Subsidy Approved</span>
               </div>
             )}
           </div>
@@ -385,9 +402,9 @@ const ActiveSites = () => {
                   <span className="font-medium">Cash to Mahi</span>
                 </div>
                 {timeline.cashToMahiConfirmed && (
-                  <div className="flex items-center gap-2 p-2 bg-blue-500/10 rounded text-xs">
-                    <CheckCircle2 className="w-3 h-3 text-blue-500" />
-                    <span className="text-blue-500 font-medium">Payment Confirmed</span>
+                  <div className="flex items-center gap-2 p-2 bg-primary/10 rounded text-xs">
+                    <CheckCircle2 className="w-3 h-3 text-primary" />
+                    <span className="text-primary font-medium">Payment Confirmed</span>
                   </div>
                 )}
               </div>
@@ -395,7 +412,7 @@ const ActiveSites = () => {
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2 text-xs">
                   {timeline.firstInstallmentPaid ? (
-                    <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                    <CheckCircle2 className="w-3 h-3 text-primary" />
                   ) : (
                     <Circle className="w-3 h-3 text-muted-foreground/40" />
                   )}
@@ -403,7 +420,7 @@ const ActiveSites = () => {
                 </div>
                 <div className="flex items-center gap-2 text-xs">
                   {timeline.secondInstallmentPaid ? (
-                    <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                    <CheckCircle2 className="w-3 h-3 text-primary" />
                   ) : (
                     <Circle className="w-3 h-3 text-muted-foreground/40" />
                   )}
@@ -518,25 +535,6 @@ const ActiveSites = () => {
     return projectTimelineByProjectId[projectId] || null;
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Ongoing": return "bg-blue-500/20 text-blue-400";
-      case "On Hold": return "bg-yellow-500/20 text-yellow-400";
-      case "Completed": return "bg-blue-500/20 text-blue-400";
-      default: return "bg-muted text-muted-foreground";
-    }
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "urgent": return "bg-red-500/20 text-red-400";
-      case "high": return "bg-orange-500/20 text-orange-400";
-      case "medium": return "bg-yellow-500/20 text-yellow-400";
-      case "low": return "bg-blue-500/20 text-blue-400";
-      default: return "bg-muted text-muted-foreground";
-    }
-  };
-
   const getEmployeeName = (id: number) => {
     return employees.find(e => e.id === id)?.name || `Employee ${id}`;
   };
@@ -632,7 +630,7 @@ const ActiveSites = () => {
                 }`}
               >
                 Ongoing
-                <Badge variant="secondary" className="ml-1.5 text-[10px]">
+                <Badge variant="secondary" className="ml-1.5 text-2xs">
                   {activeProjects.length}
                 </Badge>
               </button>
@@ -646,7 +644,7 @@ const ActiveSites = () => {
                 }`}
               >
                 Tickets
-                <Badge variant="secondary" className="ml-1.5 text-[10px]">
+                <Badge variant="secondary" className="ml-1.5 text-2xs">
                   {completedProjectsWithTickets.length}
                 </Badge>
               </button>
@@ -664,7 +662,7 @@ const ActiveSites = () => {
         }
       >
         <span className="hidden text-xs text-muted-foreground sm:inline">{timeSinceRefresh()}</span>
-        <Button variant="outline" size="sm" className="h-8">
+        <Button variant="outline" size="sm" className="h-8" onClick={() => { setLastRefreshed(new Date()); setRefreshKey(k => k + 1); }}>
           <RefreshCw className="mr-2 h-4 w-4" />
           Refresh
         </Button>
@@ -682,7 +680,7 @@ const ActiveSites = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {activeProjects.map(project => {
           const projectBlockages = getProjectBlockages(project.id);
-          const tickets = getProjectTickets(project.id);
+          const _tickets = getProjectTickets(project.id);
           const hasBlockages = projectBlockages.length > 0;
           const timeline = getProjectTimeline(project.id);
           const overallProgress = calculateOverallProgress(timeline);
@@ -698,7 +696,7 @@ const ActiveSites = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <CardTitle className="text-base font-semibold truncate">{project.name}</CardTitle>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                      <Badge variant="secondary" className="text-2xs px-1.5 py-0 h-4 shrink-0">
                         {project.capacity}
                       </Badge>
                     </div>
@@ -708,10 +706,15 @@ const ActiveSites = () => {
                     <Badge className={`${getStatusColor(project.status)} shrink-0 text-xs px-2`}>
                       {project.status}
                     </Badge>
-                    <Badge variant="outline" className="text-[10px] bg-blue-500/5 text-blue-600 border-blue-500/20">
+                    <Badge variant="outline" className="text-2xs bg-primary/5 text-primary border-primary/20">
                       <ExternalLink className="h-2.5 w-2.5 mr-1" />
                       Detail
                     </Badge>
+                    {(procurementShortQtyByProject.get(project.id) ?? 0) > 0 && (
+                      <Badge variant="outline" className="text-2xs border-amber-500/40 text-amber-800 dark:text-amber-300">
+                        Shortfall {procurementShortQtyByProject.get(project.id)} units
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </CardHeader>
@@ -720,7 +723,7 @@ const ActiveSites = () => {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground font-medium">Overall Progress</span>
-                    <span className={`font-bold ${overallProgress >= 75 ? 'text-blue-500' : overallProgress >= 50 ? 'text-primary' : 'text-muted-foreground'}`}>
+                    <span className={`font-bold ${overallProgress >= 75 ? 'text-primary' : overallProgress >= 50 ? 'text-primary' : 'text-muted-foreground'}`}>
                       {overallProgress}%
                     </span>
                   </div>
@@ -752,7 +755,7 @@ const ActiveSites = () => {
                     />
                     
                     <div className="relative flex justify-between">
-                      {TIMELINE_STEPS.map((step, idx) => {
+                      {TIMELINE_STEPS.map((step, _idx) => {
                         const isComplete = isStepComplete(step.key, timeline);
                         const inProgress = isStepInProgress(step.key, timeline);
                         const isExpanded = expandedStep?.projectId === project.id && expandedStep?.step === step.key;
@@ -782,8 +785,8 @@ const ActiveSites = () => {
                               )}
                             </div>
                             <div className="flex items-center gap-0.5">
-                              <span className={`text-[10px] font-semibold tracking-tight ${
-                                isComplete ? 'text-blue-500' : inProgress ? 'text-primary' : 'text-muted-foreground/70'
+                              <span className={`text-2xs font-semibold tracking-tight ${
+                                isComplete ? 'text-primary' : inProgress ? 'text-primary' : 'text-muted-foreground/70'
                               }`}>
                                 {step.label}
                               </span>
@@ -823,7 +826,7 @@ const ActiveSites = () => {
                         </span>
                       </div>
                       {projectBlockages.length > 2 && (
-                        <Badge variant="outline" className="text-[10px] border-orange-500/30 text-orange-400">
+                        <Badge variant="outline" className="text-2xs border-orange-500/30 text-orange-400">
                           +{projectBlockages.length - 2} more
                         </Badge>
                       )}
@@ -857,8 +860,8 @@ const ActiveSites = () => {
                               </div>
                               
                               <p className="text-xs text-muted-foreground line-clamp-1 mb-2">{blockage.reason}</p>
-                              
-                              <div className="flex items-center justify-between text-[10px]">
+
+                              <div className="flex items-center justify-between text-2xs">
                                 <div className="flex items-center gap-3">
                                   <span className="flex items-center gap-1 text-muted-foreground">
                                     <User className="w-3 h-3" />
@@ -867,11 +870,19 @@ const ActiveSites = () => {
                                   {blockage.resolveByDate && (
                                     <span className="flex items-center gap-1 text-muted-foreground">
                                       <Clock className="w-3 h-3" />
-                                      <span>Due: {format(new Date(blockage.resolveByDate), "dd MMM")}</span>
+                                      <span>Due: {formatUiDate(blockage.resolveByDate, "dd MMM")}</span>
                                     </span>
                                   )}
                                 </div>
-                                <span className="text-muted-foreground/70">{daysSince}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-muted-foreground/70">{daysSince}</span>
+                                  <button
+                                    className={`text-2xs font-medium px-2 py-0.5 rounded ${priorityText} border ${priorityBg} hover:opacity-80`}
+                                    onClick={() => handleOpenResolveModal(project.id, blockage)}
+                                  >
+                                    Resolve
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -883,7 +894,7 @@ const ActiveSites = () => {
 
                 {/* No issues indicator */}
                 {projectBlockages.length === 0 && (
-                  <div className="flex items-center gap-2 text-blue-400 pt-2 border-t">
+                  <div className="flex items-center gap-2 text-primary pt-2 border-t">
                     <CheckCircle className="h-4 w-4" />
                     <span className="text-sm">All clear - No blockages</span>
                   </div>
@@ -938,31 +949,31 @@ const ActiveSites = () => {
               const hasUrgentTickets = projectTickets.some(t => (t.priority as string) === "urgent" || (t.priority as string) === "high");
 
               return (
-                <Card key={project.id} className={`group transition-all duration-200 hover:shadow-lg ${hasUrgentTickets ? "border-blue-500/40" : ""}`}>
+                <Card key={project.id} className={`group transition-all duration-200 hover:shadow-lg ${hasUrgentTickets ? "border-primary/40" : ""}`}>
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <CardTitle className="text-base font-semibold truncate">{project.name}</CardTitle>
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                          <Badge variant="secondary" className="text-2xs px-1.5 py-0 h-4 shrink-0">
                             {project.capacity}
                           </Badge>
                         </div>
                         <p className="text-sm text-muted-foreground truncate">{project.client}</p>
                       </div>
-                      <Badge className="bg-blue-500/20 text-blue-400 shrink-0 text-xs px-2">
+                      <Badge className="bg-primary/20 text-primary shrink-0 text-xs px-2">
                         Completed
                       </Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {/* Active Tickets Count */}
-                    <div className="flex items-center gap-2 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
-                      <div className="p-1.5 rounded-lg bg-blue-500/20">
-                        <Clock className="h-4 w-4 text-blue-400" />
+                    <div className="flex items-center gap-2 p-3 bg-primary/10 rounded-lg border border-primary/20">
+                      <div className="p-1.5 rounded-lg bg-primary/20">
+                        <Clock className="h-4 w-4 text-primary" />
                       </div>
                       <div>
-                        <span className="text-sm font-medium text-blue-400">
+                        <span className="text-sm font-medium text-primary">
                           {projectTickets.length} Active Ticket{projectTickets.length > 1 ? 's' : ''}
                         </span>
                         <p className="text-xs text-muted-foreground">Support issues pending</p>
@@ -983,15 +994,15 @@ const ActiveSites = () => {
                                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                                   (ticket.priority as string) === 'urgent' ? 'bg-red-500' :
                                   (ticket.priority as string) === 'high' ? 'bg-orange-500' :
-                                  (ticket.priority as string) === 'medium' ? 'bg-yellow-500' : 'bg-blue-500'
+                                  (ticket.priority as string) === 'medium' ? 'bg-yellow-500' : 'bg-primary'
                                 }`} />
                                 <p className="text-xs font-medium truncate">{ticket.description}</p>
                               </div>
-                              <Badge className={`${getPriorityColor(ticket.priority)} text-[10px] shrink-0`}>
+                              <Badge className={`${getPriorityColor(ticket.priority)} text-2xs shrink-0`}>
                                 {ticket.priority}
                               </Badge>
                             </div>
-                            <div className="flex items-center justify-between mt-1.5 text-[10px] text-muted-foreground pl-3.5">
+                            <div className="flex items-center justify-between mt-1.5 text-2xs text-muted-foreground pl-3.5">
                               <span className={isOverdue ? 'text-red-400 font-medium' : ''}>
                                 Due: {format(dueDate, "dd MMM yyyy")}
                               </span>
@@ -1025,7 +1036,7 @@ const ActiveSites = () => {
           {completedProjectsWithTickets.length === 0 && (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
-                <CheckCircle className="h-12 w-12 mx-auto mb-4 opacity-50 text-blue-500" />
+                <CheckCircle className="h-12 w-12 mx-auto mb-4 opacity-50 text-primary" />
                 <p className="text-lg font-medium">No Active Tickets</p>
                 <p className="text-sm">All completed projects are running smoothly</p>
               </CardContent>
@@ -1036,7 +1047,7 @@ const ActiveSites = () => {
 
       {/* Resolve Blockage Modal */}
       <Sheet open={isResolveModalOpen} onOpenChange={setIsResolveModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Resolve Blockage</SheetTitle>
             <SheetDescription>

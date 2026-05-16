@@ -23,7 +23,7 @@ import { DEFAULT_TABLE_PAGE_SIZE, listTableViewportMaxHeight } from "@/lib/table
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/businessAlerts";
 
-type LiveAlert = {
+type _LiveAlert = {
   id: string;
   severity: "high" | "medium" | "low";
   title: string;
@@ -62,132 +62,46 @@ const Notifications = () => {
     quotations,
     projects,
     projectTimelineByProjectId,
+    vendorBills,
+    vendors,
   } = useAppData();
 
+  const vendorNamesByNumericId = useMemo(
+    () => new Map(vendors.map((v) => [v.id, v.name] as const)),
+    [vendors],
+  );
+
   const alerts = useMemo(() => {
-    const out: LiveAlert[] = [];
-    const today = new Date();
-
-    invoices.forEach((inv) => {
-      if (inv.status === "paid" || inv.status === "overpaid") return;
-      const due = inv.dueDate ? parseISO(inv.dueDate) : null;
-      if (due && isValid(due) && due < today) {
-        out.push({
-          id: `inv-${inv.id}`,
-          severity: "high",
-          title: `Overdue invoice ${inv.invoiceNumber}`,
-          detail: `${inv.customerName} — ₹${(inv.total - (inv.amountReceived ?? 0)).toLocaleString("en-IN")} outstanding`,
-          href: `/invoices?invoice=${inv.id}`,
-          icon: IndianRupee,
-        });
-      }
+    const rows = deriveBusinessAlertDescriptors({
+      invoices,
+      loans,
+      lowStockItems: lowStockItems ?? [],
+      blockages,
+      quotations,
+      projects,
+      projectTimelineByProjectId,
+      vendorBills,
+      vendorNamesByNumericId,
     });
-
-    loans.forEach((l) => {
-      if (l.status !== "Active" || l.paymentType !== "emi" || !l.dueDate) return;
-      const due = parseISO(l.dueDate);
-      if (!isValid(due)) return;
-      const days = differenceInCalendarDays(due, today);
-      if (days < 0) {
-        out.push({
-          id: `loan-${l.id}-over`,
-          severity: "high",
-          title: `Overdue EMI — ${l.source}`,
-          icon: Calendar,
-          detail: `Due ${l.dueDate} — ₹${l.emiAmount?.toLocaleString("en-IN") ?? ""}`,
-          href: `/loans`,
-        });
-      } else if (days <= 7) {
-        out.push({
-          id: `loan-${l.id}-soon`,
-          severity: "medium",
-          title: `EMI due within 7 days — ${l.source}`,
-          icon: Calendar,
-          detail: `Due ${l.dueDate} — ₹${l.emiAmount?.toLocaleString("en-IN") ?? ""}`,
-          href: `/loans`,
-        });
-      }
-    });
-
-    (lowStockItems ?? []).forEach((item) => {
-      out.push({
-        id: `stock-${item.id}`,
-        severity: "medium",
-        title: `Low stock: ${item.name}`,
-        detail: `${item.stock ?? 0} on hand (min ${item.minStock ?? 0})`,
-        href: `/inventory`,
-        icon: Package,
-      });
-    });
-
-    blockages.forEach((b) => {
-      if (b.status === "resolved") return;
-      const start = b.startDate ? parseISO(b.startDate) : null;
-      const daysOpen = start && isValid(start) ? differenceInCalendarDays(today, start) : 0;
-      if (daysOpen > 14) {
-        const proj = projects.find((p) => p.id === b.projectId);
-        out.push({
-          id: `blk-${b.id}`,
-          severity: "high",
-          title: `Blockage open ${daysOpen}+ days`,
-          detail: `${proj?.name ?? b.projectId}: ${b.reason ?? b.description ?? ""}`,
-          href: `/projects/${b.projectId}`,
-          icon: AlertTriangle,
-        });
-      }
-    });
-
-    quotations.forEach((q) => {
-      if (q.status !== "sent") return;
-      const sent = q.sentAt ?? q.createdAt;
-      const d = sent ? parseISO(sent) : null;
-      if (d && isValid(d) && differenceInCalendarDays(today, d) > 7) {
-        out.push({
-          id: `quo-${q.id}`,
-          severity: "low",
-          title: `Quotation awaiting response`,
-          detail: `${q.clientName} — ${q.quotationNumber ?? q.id}`,
-          href: `/quotations?quotation=${q.id}`,
-          icon: FileText,
-        });
-      }
-    });
-
-    projects.forEach((p) => {
-      const tl = projectTimelineByProjectId[p.id];
-      const approvals = tl?.workStatusApprovals;
-      if (!approvals) return;
-      Object.entries(approvals).forEach(([stageKey, info]) => {
-        if (info?.status === "requested") {
-          out.push({
-            id: `ws-${p.id}-${stageKey}`,
-            severity: "medium",
-            title: `Work status approval requested`,
-            detail: `${p.name} — ${stageKey}`,
-            href: `/projects/${p.id}`,
-            icon: Bell,
-          });
-        }
-        const subs = info?.subItemApprovals;
-        if (subs) {
-          Object.entries(subs).forEach(([subKey, sub]) => {
-            if (sub?.status === "requested") {
-              out.push({
-                id: `ws-${p.id}-${stageKey}-${subKey}`,
-                severity: "medium",
-                title: `Work status sub-item approval`,
-                detail: `${p.name} — ${stageKey} / ${subKey}`,
-                href: `/projects/${p.id}`,
-                icon: Bell,
-              });
-            }
-          });
-        }
-      });
-    });
-
-    return out;
-  }, [invoices, loans, lowStockItems, blockages, quotations, projects, projectTimelineByProjectId]);
+    return rows.map((r) => ({
+      id: r.id,
+      severity: r.severity,
+      title: r.title,
+      detail: r.detail,
+      href: r.href,
+      icon: iconForAlertKind(r.kind),
+    }));
+  }, [
+    invoices,
+    loans,
+    lowStockItems,
+    blockages,
+    quotations,
+    projects,
+    projectTimelineByProjectId,
+    vendorBills,
+    vendorNamesByNumericId,
+  ]);
 
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const visible = alerts.filter((a) => !dismissed.has(a.id));
@@ -279,7 +193,7 @@ const Notifications = () => {
           </CardContent>
         </Card>
         <p className="text-xs text-muted-foreground">
-          Derived from invoices, loans, inventory, blockages, quotations, and work-status approvals. Dismissals are session-only.
+          Derived from invoices, loans, inventory, blockages, vendor bills, quotations, and work-status approvals. Dismissals are session-only.
         </p>
       </div>
     </PageShell>

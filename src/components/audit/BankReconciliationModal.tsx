@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAppData } from "@/contexts/AppDataContext";
 import { Upload, FileText, CheckCircle2, AlertTriangle, Copy, Landmark, X, Search, Download } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, isValid } from "date-fns";
 import { toast } from "sonner";
+import { fileExceedsLimit, MAX_UPLOAD_BYTES } from "@/lib/fileLimits";
+import { formatINR } from "@/lib/formatCurrency";
 
 interface BankTransaction {
   date: string;
@@ -24,7 +26,7 @@ interface BankTransaction {
   rawLine: string;
 }
 
-interface UploadedStatement {
+export interface UploadedStatement {
   id: string;
   fileName: string;
   type: "bank" | "cash";
@@ -104,8 +106,8 @@ const normalizeDate = (dateStr: string): string => {
   if (!dateStr) return "";
   // Try common Indian bank formats: DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD
   const formats = [
-    /^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/, // DD/MM/YYYY or DD-MM-YYYY
-    /^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/, // YYYY-MM-DD
+    /^(\d{2})[/-](\d{2})[/-](\d{4})$/, // DD/MM/YYYY or DD-MM-YYYY
+    /^(\d{4})[/-](\d{2})[/-](\d{2})$/, // YYYY-MM-DD
   ];
   
   const m1 = dateStr.match(formats[0]);
@@ -123,10 +125,37 @@ interface Props {
 }
 
 const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
-  const { expenses, incomes, payments, vendorPayments } = useAppData();
-  const [statements, setStatements] = useState<UploadedStatement[]>([]);
+  const { expenses, incomes, payments, vendorPayments, bankReconciliationStatements, setBankReconciliationStatements } = useAppData();
+  const [statements, setStatements] = useState<UploadedStatement[]>(() => (bankReconciliationStatements ?? []) as UploadedStatement[]);
   const [activeTab, setActiveTab] = useState("upload");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Hydrate from context whenever the modal re-opens so prior uploads survive close/reopen (B13).
+  useEffect(() => {
+    if (open) setStatements((bankReconciliationStatements ?? []) as UploadedStatement[]);
+  }, [open, bankReconciliationStatements]);
+
+  // Persist on close — the modal acts as its own "Save" gesture.
+  const handleOpenChange = useCallback((next: boolean) => {
+    if (!next) setBankReconciliationStatements?.(statements);
+    onOpenChange(next);
+  }, [statements, setBankReconciliationStatements, onOpenChange]);
+
+  /** B2.16: min/max statement dates from uploaded CSVs (prototype “period” for sanity checks). */
+  const statementDateWindow = useMemo(() => {
+    const dates: Date[] = [];
+    for (const stmt of statements) {
+      for (const t of stmt.transactions) {
+        const n = normalizeDate(t.date);
+        if (!n) continue;
+        const d = parseISO(n);
+        if (isValid(d)) dates.push(d);
+      }
+    }
+    if (!dates.length) return null;
+    dates.sort((a, b) => a.getTime() - b.getTime());
+    return { start: dates[0], end: dates[dates.length - 1] };
+  }, [statements]);
 
   // Build ledger entries from all financial data
   const ledgerEntries = useMemo(() => {
@@ -287,7 +316,13 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
     const files = e.target.files;
     if (!files) return;
 
+    const wasEmpty = statements.length === 0;
+
     for (const file of Array.from(files)) {
+      if (fileExceedsLimit(file)) {
+        toast.error(`${file.name}: File exceeds ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit`);
+        continue;
+      }
       if (!file.name.endsWith(".csv")) {
         toast.error(`${file.name}: Only CSV files supported`);
         continue;
@@ -301,10 +336,50 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
         continue;
       }
 
+      const parsedDates = transactions
+        .map((t) => normalizeDate(t.date))
+        .filter(Boolean)
+        .map((d) => parseISO(d!))
+        .filter(isValid);
+      if (parsedDates.length === 0) {
+        toast.warning(`${file.name}: No parsable dates — row matching will be unreliable.`);
+      } else {
+        parsedDates.sort((a, b) => a.getTime() - b.getTime());
+        const minT = parsedDates[0].getTime();
+        const maxT = parsedDates[parsedDates.length - 1].getTime();
+        const dayMs = 1000 * 60 * 60 * 24;
+        const spanDays = (maxT - minT) / dayMs;
+        if (spanDays > 400) {
+          toast.warning(
+            `${file.name}: date range spans about ${Math.round(spanDays)} days — check column mapping and date format.`,
+          );
+        }
+        if (statements.length > 0) {
+          let exMin = Infinity;
+          let exMax = -Infinity;
+          for (const stmt of statements) {
+            for (const t of stmt.transactions) {
+              const n = normalizeDate(t.date);
+              if (!n) continue;
+              const d = parseISO(n);
+              if (!isValid(d)) continue;
+              exMin = Math.min(exMin, d.getTime());
+              exMax = Math.max(exMax, d.getTime());
+            }
+          }
+          if (exMin !== Infinity && maxT < exMin - 365 * dayMs) {
+            toast.warning(`${file.name}: dates are more than a year before prior uploads — confirm period.`);
+          }
+          if (exMax !== -Infinity && minT > exMax + 365 * dayMs) {
+            toast.warning(`${file.name}: dates are more than a year after prior uploads — confirm period.`);
+          }
+        }
+      }
+
       setStatements(prev => [
         ...prev,
         {
-          id: `stmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: `stmt-${Date.now()}-${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 8)}`,
           fileName: file.name,
           type,
           transactions,
@@ -316,10 +391,11 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
     }
 
     e.target.value = "";
-    if (statements.length === 0) {
+    // Switch to results tab after the first successful upload (was empty before this upload)
+    if (wasEmpty) {
       setActiveTab("results");
     }
-  }, [statements.length]);
+  }, [statements]);
 
   const removeStatement = (id: string) => {
     setStatements(prev => prev.filter(s => s.id !== id));
@@ -345,19 +421,19 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
   const getFlagBadge = (flag: FlagType) => {
     switch (flag) {
       case "matched":
-        return <Badge className="bg-blue-500/15 text-blue-700 border-blue-200 text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Matched</Badge>;
+        return <Badge className="bg-primary/15 text-primary border-blue-200 text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Matched</Badge>;
       case "unmatched":
         return <Badge variant="destructive" className="text-xs"><AlertTriangle className="w-3 h-3 mr-1" />Unmatched</Badge>;
       case "duplicate":
         return <Badge className="bg-amber-500/15 text-amber-700 border-amber-200 text-xs"><Copy className="w-3 h-3 mr-1" />Duplicate</Badge>;
       case "bank-charge":
-        return <Badge className="bg-blue-500/15 text-blue-700 border-blue-200 text-xs"><Landmark className="w-3 h-3 mr-1" />Bank Charge</Badge>;
+        return <Badge className="bg-primary/15 text-primary border-blue-200 text-xs"><Landmark className="w-3 h-3 mr-1" />Bank Charge</Badge>;
       case "possible-match":
         return <Badge className="bg-purple-500/15 text-purple-700 border-purple-200 text-xs"><Search className="w-3 h-3 mr-1" />Possible Match</Badge>;
     }
   };
 
-  const fmt = (v: number) => v ? `₹${v.toLocaleString("en-IN")}` : "-";
+  const bankMoney = (v: number) => (v ? formatINR(v) : "-");
 
   const exportResults = () => {
     if (reconciliationResults.length === 0) return;
@@ -387,7 +463,7 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <AppSheetContent layout="document" size="wide" className="gap-4">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2 text-foreground">
@@ -453,6 +529,17 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
               </Card>
             </div>
 
+            {statementDateWindow && (
+              <Card className="border-primary/20 bg-muted/30">
+                <CardContent className="p-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                  <span className="text-muted-foreground">Statement date window (all uploads):</span>
+                  <span className="font-medium text-foreground">
+                    {format(statementDateWindow.start, "dd MMM yyyy")} – {format(statementDateWindow.end, "dd MMM yyyy")}
+                  </span>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Uploaded statements list */}
             {statements.length > 0 && (
               <div className="space-y-2">
@@ -495,11 +582,11 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
             {/* Summary KPIs */}
             <div className="grid grid-cols-5 gap-2">
               {[
-                { label: "Matched", count: flagCounts.matched, color: "text-blue-600" },
+                { label: "Matched", count: flagCounts.matched, color: "text-primary" },
                 { label: "Unmatched", count: flagCounts.unmatched, color: "text-destructive" },
                 { label: "Possible", count: flagCounts["possible-match"], color: "text-purple-600" },
                 { label: "Duplicates", count: flagCounts.duplicate, color: "text-amber-600" },
-                { label: "Bank Charges", count: flagCounts["bank-charge"], color: "text-blue-600" },
+                { label: "Bank Charges", count: flagCounts["bank-charge"], color: "text-primary" },
               ].map(k => (
                 <Card key={k.label}>
                   <CardContent className="p-3 text-center">
@@ -553,7 +640,7 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
                     <TableRow key={i} className={
                       r.flag === "unmatched" ? "bg-destructive/5" :
                       r.flag === "duplicate" ? "bg-amber-500/5" :
-                      r.flag === "bank-charge" ? "bg-blue-500/5" :
+                      r.flag === "bank-charge" ? "bg-primary/5" :
                       r.flag === "possible-match" ? "bg-purple-500/5" :
                       ""
                     }>
@@ -561,8 +648,8 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
                       <TableCell className="max-w-[200px] truncate" title={r.bankTransaction.description}>
                         {r.bankTransaction.description}
                       </TableCell>
-                      <TableCell className="text-right font-mono">{fmt(r.bankTransaction.debit)}</TableCell>
-                      <TableCell className="text-right font-mono">{fmt(r.bankTransaction.credit)}</TableCell>
+                      <TableCell className="text-right font-mono">{bankMoney(r.bankTransaction.debit)}</TableCell>
+                      <TableCell className="text-right font-mono">{bankMoney(r.bankTransaction.credit)}</TableCell>
                       <TableCell>{getFlagBadge(r.flag)}</TableCell>
                       <TableCell >
                         {r.matchedLedgerEntry ? (

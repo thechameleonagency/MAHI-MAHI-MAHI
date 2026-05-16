@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { User, Building2, Shield, Palette, Users, Mail, Phone, MapPin, Globe, Camera, Database, Check, AlertCircle, Sun, Zap, Factory, Edit, Trash2, Plus, GitBranch, RotateCcw, Layout } from "lucide-react";
+import { User, Building2, Shield, Palette, Users, Mail, Phone, MapPin, Globe, Camera, Database, Check, AlertCircle, Sun, Zap, Factory, Edit, Trash2, RotateCcw, Layout } from "lucide-react";
 import { ToastAction } from "@/components/ui/toast";
 import { useAppData } from "@/contexts/AppDataContext";
 import type { SolarPackagePreset, SettingsTeamMember } from "@/types/project";
@@ -210,7 +210,7 @@ const Settings = () => {
     toast({ title: "Preset Deleted", description: `"${presetName}" has been removed` });
   };
 
-  const getCategoryIcon = (category: string) => {
+  const _getCategoryIcon = (category: string) => {
     switch (category) {
       case 'residential': return <Sun className="h-5 w-5 text-amber-500" />;
       case 'commercial': return <Zap className="h-5 w-5 text-primary" />;
@@ -219,7 +219,7 @@ const Settings = () => {
     }
   };
 
-  const formatCurrency = (amount: number) => {
+  const _formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
   };
 
@@ -303,7 +303,7 @@ const Settings = () => {
               { label: "View", value: settingsTabTitle[activeTab] ?? activeTab },
               { label: "Team", value: settingsTeamMembers.length },
               { label: "Active", value: teamActive },
-              { label: "Presets", value: solarPackagePresets.length },
+              { label: "Solar presets", value: solarPackagePresets.length },
             ]}
           />
         }
@@ -459,6 +459,61 @@ const Settings = () => {
                 <div className="flex justify-end">
                   <Button className="bg-primary" onClick={handleSaveCompany}>Save Changes</Button>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-card border-border">
+              <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="text-base font-medium">Solar package quick-picks</CardTitle>
+                  <CardDescription>
+                    Saved in prototype data for quick reference in proposals. Full site checklist + BOM templates are under{" "}
+                    <span className="font-medium text-foreground">Inventory → Templates</span>.
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  <Button type="button" size="sm" variant="outline" className="gap-1" onClick={() => handleAddPreset("residential")}>
+                    <Sun className="h-4 w-4" /> Add residential
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="gap-1" onClick={() => handleAddPreset("commercial")}>
+                    <Zap className="h-4 w-4" /> Add commercial
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="gap-1" onClick={() => handleAddPreset("industrial")}>
+                    <Factory className="h-4 w-4" /> Add industrial
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {solarPackagePresets.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No presets yet. Use the buttons above to add one.</p>
+                ) : (
+                  <div className="rounded-md border divide-y">
+                    {solarPackagePresets.map((p) => (
+                      <div key={p.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 space-y-1">
+                          <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
+                          <p className="text-xs text-muted-foreground capitalize">
+                            {p.category} · {p.capacityKW} kW · {p.panelBrand} {p.panelWattage}W × {p.panelCount} · ₹{p.estimatedCost.toLocaleString("en-IN")}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <Button type="button" size="sm" variant="outline" className="gap-1" onClick={() => handleEditPreset(p)}>
+                            <Edit className="h-4 w-4" /> Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive gap-1"
+                            onClick={() => handleDeletePreset(p.id, p.name)}
+                          >
+                            <Trash2 className="h-4 w-4" /> Delete
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

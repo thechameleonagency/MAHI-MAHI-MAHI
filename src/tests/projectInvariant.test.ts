@@ -10,7 +10,6 @@ const baseProject = (over: Partial<Project>): Project => ({
   projectCategory: "solar",
   ownerType: "solo",
   customerId: "C001",
-  status: "Ongoing",
   progressStage: "w",
   client: "X",
   capacity: "5",

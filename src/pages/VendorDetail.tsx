@@ -1,8 +1,8 @@
-import { useState, useMemo, useEffect } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Phone, Mail, MapPin, Package, IndianRupee, Calendar, Plus, Check, Clock, AlertTriangle, Store, Edit, Trash2, FileText, Receipt, Eye, Upload, X, Download } from "lucide-react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
+import { ArrowLeft, Phone, Mail, MapPin, Package, IndianRupee, Plus, Check, Clock, AlertTriangle, Store, Edit, Trash2, FileText, Receipt, Eye, Upload, Download, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,39 +11,99 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/DateInput";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { formatINR } from "@/lib/formatCurrency";
+import { formatUiDate } from "@/lib/formatUiDate";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 
-import { VendorBill, VendorPayment } from "@/data/inventoryData";
+import { VendorBill } from "@/data/inventoryData";
+import type { VendorBillStatus } from "@/types/inventory";
+
+function billLineSubtotal(bill: VendorBill): number {
+  if (typeof bill.subtotal === "number") return bill.subtotal;
+  return bill.items.reduce((s, i) => s + (i.amount ?? i.quantity * i.rate), 0);
+}
+
+function billLineGst(bill: VendorBill): number {
+  if (typeof bill.gst === "number") return bill.gst;
+  return Math.max(0, bill.total - billLineSubtotal(bill));
+}
 
 const VendorDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { 
     vendors, 
     projects, 
-    expenses, 
+    _expenses, 
     vendorBills: contextVendorBills,
     vendorPayments: contextVendorPayments,
     inventoryItems: contextInventory,
     updateVendorBill,
     addVendorBill,
     addVendorPayment,
+    deleteVendorPayment,
+    updateVendor,
     generateId,
+    canDo,
   } = useAppData();
-  
+
+  const [deletePaymentId, setDeletePaymentId] = useState<string | null>(null);
+
+  const [isEditVendorOpen, setIsEditVendorOpen] = useState(false);
+  const [veName, setVeName] = useState("");
+  const [veContact, setVeContact] = useState("");
+  const [veEmail, setVeEmail] = useState("");
+  const [veAddress, setVeAddress] = useState("");
+  const [veGstin, setVeGstin] = useState("");
+  const [veLinkedProjectId, setVeLinkedProjectId] = useState("");
+
+  const openEditVendor = () => {
+    const numId = parseInt(id || "0", 10);
+    const v = vendors.find((x) => x.id === numId);
+    if (!v) return;
+    setVeName(v.name);
+    setVeContact(v.contact ?? "");
+    setVeEmail(v.email ?? "");
+    setVeAddress(v.address ?? "");
+    setVeGstin(v.gstin ?? "");
+    setVeLinkedProjectId(v.linkedProjectId ?? "");
+    setIsEditVendorOpen(true);
+  };
+
+  const saveVendorProfile = () => {
+    const numId = parseInt(id || "0", 10);
+    if (!Number.isFinite(numId)) return;
+    const name = veName.trim();
+    if (!name) {
+      toast({ title: "Name required", variant: "destructive" });
+      return;
+    }
+    updateVendor(numId, {
+      name,
+      contact: veContact.trim(),
+      email: veEmail.trim(),
+      address: veAddress.trim(),
+      gstin: veGstin.trim() || undefined,
+      linkedProjectId: veLinkedProjectId.trim() || undefined,
+    });
+    toast({ title: "Vendor updated", description: "Profile saved." });
+    setIsEditVendorOpen(false);
+  };
+
   // Payment Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -69,7 +129,8 @@ const VendorDetail = () => {
   const [purchaseNotes, setPurchaseNotes] = useState("");
   const [purchasePaidAmount, setPurchasePaidAmount] = useState("");
   const [purchasePaymentMode, setPurchasePaymentMode] = useState("Bank Transfer");
-  
+  const [purchaseOrderRef, setPurchaseOrderRef] = useState("");
+
   // Purchase Items State
   const [purchaseItems, setPurchaseItems] = useState<{
     description: string;
@@ -81,29 +142,95 @@ const VendorDetail = () => {
   
   // Purchase Type: inventory, tools, other
   const [purchaseType, setPurchaseType] = useState<"inventory" | "tools" | "other">("inventory");
-  const [addToInventory, setAddToInventory] = useState(false);
+  const [_addToInventory, _setAddToInventory] = useState(false);
   
   // Bill Preview Modal State
   const [isBillPreviewOpen, setIsBillPreviewOpen] = useState(false);
   const [selectedBill, setSelectedBill] = useState<VendorBill | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [uploadedDocumentUrl, setUploadedDocumentUrl] = useState<string | null>(null);
-  
-  // Check URL action params
+  const billDocInputRef = useRef<HTMLInputElement>(null);
+
+  const [editBillNumber, setEditBillNumber] = useState("");
+  const [editBillDate, setEditBillDate] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editProjectId, setEditProjectId] = useState("");
+  const [editBillStatus, setEditBillStatus] = useState<VendorBillStatus>("pending");
+  const [editPurchaseOrderRef, setEditPurchaseOrderRef] = useState("");
+
+  // URL action + optional purchase prefill (Need-to-Get → vendor bill)
   useEffect(() => {
-    const action = searchParams.get('action');
-    if (action === 'add-purchase') {
+    const action = searchParams.get("action");
+    if (!action) return;
+
+    if (action === "add-purchase") {
       setIsPurchaseModalOpen(true);
-    } else if (action === 'record-payment') {
+      const invIdRaw = searchParams.get("inventoryItemId");
+      const qtyRaw = searchParams.get("qty");
+      const projectIdParam = searchParams.get("projectId");
+      if (invIdRaw && qtyRaw) {
+        const invId = parseInt(invIdRaw, 10);
+        const qty = Number.parseFloat(qtyRaw);
+        const inv = contextInventory.find((x) => x.id === invId);
+        if (Number.isFinite(invId) && Number.isFinite(qty) && qty > 0) {
+          setPurchaseType("inventory");
+          setPurchaseItems([
+            {
+              description: inv?.name ?? `Item #${invId}`,
+              quantity: qty,
+              rate: inv?.buyPrice ?? 0,
+              isFromInventory: true,
+              inventoryItemId: invId,
+            },
+          ]);
+        }
+      }
+      if (projectIdParam?.trim()) {
+        setPurchaseProject(projectIdParam.trim());
+      }
+    } else if (action === "record-payment") {
       setIsPaymentModalOpen(true);
     }
-  }, [searchParams]);
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("action");
+        next.delete("inventoryItemId");
+        next.delete("qty");
+        next.delete("projectId");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams, contextInventory]);
+
+  useEffect(() => {
+    if (!isPurchaseModalOpen) return;
+    const numId = parseInt(id || "0", 10);
+    const raw = vendors.find((v) => v.id === numId);
+    if (!raw?.linkedProjectId) return;
+    setPurchaseProject((prev) => (prev?.trim() ? prev : raw.linkedProjectId!));
+  }, [isPurchaseModalOpen, id, vendors]);
 
   useEffect(() => {
     setPbPage(1);
     setPdPage(1);
     setVhPage(1);
   }, [id]);
+
+  useEffect(() => {
+    if (!selectedBill || !isEditMode || !isBillPreviewOpen) return;
+    setEditBillNumber(selectedBill.billNumber);
+    const bd = selectedBill.billDate;
+    setEditBillDate(bd.includes("T") ? bd.split("T")[0] : bd.slice(0, 10));
+    const dd = selectedBill.dueDate || "";
+    setEditDueDate(dd ? (dd.includes("T") ? dd.split("T")[0] : dd.slice(0, 10)) : "");
+    setEditNotes(selectedBill.notes ?? "");
+    setEditProjectId(selectedBill.projectId ?? "");
+    setEditBillStatus((selectedBill.status as VendorBillStatus) || "pending");
+    setEditPurchaseOrderRef(selectedBill.purchaseOrderRef ?? "");
+  }, [selectedBill, isEditMode, isBillPreviewOpen]);
 
   // Find vendor from context
   const vendor = useMemo(() => {
@@ -113,17 +240,18 @@ const VendorDetail = () => {
     return null;
   }, [vendors, id]);
 
-  const vendorIdNum = parseInt(id || "0");
+  const vendorIdStr = vendor ? vendor.id : id || "";
+  const vendorIdNum = Number(vendorIdStr);
 
-  // Get vendor bills from context
+  // Get vendor bills from context — compare as strings for safety
   const vendorBills = useMemo(() => {
-    return contextVendorBills.filter(b => b.vendorId === vendorIdNum);
-  }, [contextVendorBills, vendorIdNum]);
+    return contextVendorBills.filter(b => String(b.vendorId) === String(vendorIdStr));
+  }, [contextVendorBills, vendorIdStr]);
 
   // Get payment history from context
   const paymentHistory = useMemo(() => {
-    return contextVendorPayments.filter(p => p.vendorId === vendorIdNum);
-  }, [contextVendorPayments, vendorIdNum]);
+    return contextVendorPayments.filter(p => String(p.vendorId) === String(vendorIdStr));
+  }, [contextVendorPayments, vendorIdStr]);
 
   // Get pending bills sorted by date (FIFO)
   const pendingBills = useMemo(() => 
@@ -157,10 +285,15 @@ const VendorDetail = () => {
     setBillItemsPage(1);
   }, [selectedBill?.id]);
 
+  const payablePendingBills = useMemo(
+    () => pendingBills.filter((b) => b.status !== "draft"),
+    [pendingBills],
+  );
+
   // Calculate totals
-  const totalPending = useMemo(() => 
-    pendingBills.reduce((sum, b) => sum + (b.total - b.amountPaid), 0),
-    [pendingBills]
+  const totalPending = useMemo(
+    () => payablePendingBills.reduce((sum, b) => sum + (b.total - b.amountPaid), 0),
+    [payablePendingBills],
   );
 
   const totalPaid = useMemo(() => 
@@ -175,13 +308,13 @@ const VendorDetail = () => {
 
   // FIFO payment breakdown
   const fifoBreakdown = useMemo(() => {
-    const amount = parseFloat(paymentAmount) || 0;
-    if (amount <= 0 || pendingBills.length === 0) return [];
+    const amount = Number.parseFloat(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0 || payablePendingBills.length === 0) return [];
 
     const breakdown: { bill: VendorBill; payAmount: number }[] = [];
     let remaining = amount;
 
-    for (const bill of pendingBills) {
+    for (const bill of payablePendingBills) {
       if (remaining <= 0) break;
       const due = bill.total - bill.amountPaid;
       const pay = Math.min(due, remaining);
@@ -190,7 +323,7 @@ const VendorDetail = () => {
     }
 
     return breakdown;
-  }, [paymentAmount, pendingBills]);
+  }, [paymentAmount, payablePendingBills]);
 
   // Calculate purchase totals
   const purchaseSubtotal = useMemo(() => 
@@ -201,10 +334,22 @@ const VendorDetail = () => {
   const purchaseGst = useMemo(() => Math.round(purchaseSubtotal * 0.18), [purchaseSubtotal]);
   const purchaseTotal = useMemo(() => purchaseSubtotal + purchaseGst, [purchaseSubtotal, purchaseGst]);
 
+  const purchasePaidParsed = Number.parseFloat(purchasePaidAmount);
+  const hasPurchasePaid =
+    purchasePaidAmount.trim() !== "" && Number.isFinite(purchasePaidParsed) && purchasePaidParsed > 0;
+
   const handleRecordPayment = () => {
-    const amount = parseFloat(paymentAmount);
-    if (!amount || amount <= 0) {
+    const amount = Number.parseFloat(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
       toast({ title: "Invalid amount", variant: "destructive" });
+      return;
+    }
+    if (amount > totalPending + 0.01) {
+      toast({
+        title: "Exceeds outstanding",
+        description: `Total pending across open bills is ${formatINR(totalPending)}.`,
+        variant: "destructive",
+      });
       return;
     }
 
@@ -238,6 +383,41 @@ const VendorDetail = () => {
     setIsPaymentModalOpen(false);
     setPaymentAmount("");
     setPaymentNotes("");
+    setPaymentDate(format(new Date(), "yyyy-MM-dd"));
+  };
+
+  const handleSaveBillEdits = () => {
+    if (!selectedBill) return;
+    const num = editBillNumber.trim();
+    if (!num) {
+      toast({ title: "Bill number required", description: "Enter a bill number.", variant: "destructive" });
+      return;
+    }
+    const proj = editProjectId ? projects.find((p) => p.id === editProjectId) : undefined;
+    updateVendorBill(selectedBill.id, {
+      billNumber: num,
+      billDate: editBillDate,
+      dueDate: editDueDate || undefined,
+      notes: editNotes || undefined,
+      projectId: editProjectId || undefined,
+      projectName: proj?.name,
+      status: editBillStatus,
+      purchaseOrderRef: editPurchaseOrderRef.trim() || undefined,
+    });
+    const next = vendorBills.find((b) => b.id === selectedBill.id);
+    if (next) setSelectedBill(next);
+    setIsEditMode(false);
+    toast({ title: "Bill updated", description: "Changes have been saved." });
+  };
+
+  const onBillDocumentSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedBill) return;
+    const url = URL.createObjectURL(file);
+    updateVendorBill(selectedBill.id, { documentUrl: url, documentFileName: file.name });
+    setSelectedBill({ ...selectedBill, documentUrl: url, documentFileName: file.name });
+    toast({ title: "Document attached", description: file.name });
+    e.target.value = "";
   };
 
   const handleAddPurchaseItem = () => {
@@ -277,12 +457,18 @@ const VendorDetail = () => {
       return;
     }
 
+    if (vendorBills.some(b => String(b.vendorId) === String(vendorIdStr) && b.billNumber === purchaseBillNumber)) {
+      toast({ title: "Duplicate bill number", description: "A bill with this number already exists for this vendor", variant: "destructive" });
+      return;
+    }
+
     if (purchaseItems.some(item => !item.description || item.quantity <= 0 || item.rate <= 0)) {
       toast({ title: "Please fill all item details", variant: "destructive" });
       return;
     }
 
-    const paidAmount = parseFloat(purchasePaidAmount) || 0;
+    const paidRaw = Number.parseFloat(purchasePaidAmount);
+    const paidAmount = Number.isFinite(paidRaw) && paidRaw > 0 ? paidRaw : 0;
     const status: "pending" | "partial" | "paid" = paidAmount >= purchaseTotal ? "paid" : paidAmount > 0 ? "partial" : "pending";
 
     // Build items with proper structure matching VendorBill type
@@ -309,6 +495,7 @@ const VendorDetail = () => {
       projectId: purchaseProject || undefined,
       projectName: purchaseProject ? projects.find(p => p.id.toString() === purchaseProject)?.name : undefined,
       notes: purchaseNotes || undefined,
+      purchaseOrderRef: purchaseOrderRef.trim() || undefined,
     };
 
     addVendorBill(newBill);
@@ -330,7 +517,7 @@ const VendorDetail = () => {
 
     toast({
       title: "Purchase recorded",
-      description: `Bill ${purchaseBillNumber} for ₹${purchaseTotal.toLocaleString()} added`,
+      description: `Bill ${purchaseBillNumber} for ${formatINR(purchaseTotal)} added`,
     });
 
     // Reset form
@@ -341,6 +528,7 @@ const VendorDetail = () => {
     setPurchaseProject("");
     setPurchaseNotes("");
     setPurchasePaidAmount("");
+    setPurchaseOrderRef("");
     setPurchaseItems([{ description: "", quantity: 1, rate: 0, isFromInventory: false }]);
   };
 
@@ -360,14 +548,23 @@ const VendorDetail = () => {
   }
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "paid":
-        return <Badge className="bg-blue-500/20 text-blue-400 border-0"><Check className="w-3 h-3 mr-1" />Paid</Badge>;
-      case "partial":
-        return <Badge className="bg-yellow-500/20 text-yellow-400 border-0"><Clock className="w-3 h-3 mr-1" />Partial</Badge>;
-      default:
-        return <Badge className="bg-orange-500/20 text-orange-400 border-0"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
-    }
+    const s = (status || "pending") as VendorBillStatus;
+    const labels: Record<VendorBillStatus, string> = {
+      draft: "Draft",
+      approved: "Approved",
+      disputed: "Disputed",
+      pending: "Pending",
+      partial: "Partial",
+      paid: "Paid",
+    };
+    return (
+      <span className="inline-flex items-center gap-1">
+        {s === "paid" && <Check className="h-3 w-3 text-muted-foreground" aria-hidden />}
+        {(s === "partial" || s === "pending" || s === "draft") && <Clock className="h-3 w-3 text-muted-foreground" aria-hidden />}
+        {s === "disputed" && <AlertTriangle className="h-3 w-3 text-rose-600" aria-hidden />}
+        <StatusBadge status={s} label={labels[s] ?? s} className="text-xs" />
+      </span>
+    );
   };
 
   return (
@@ -382,7 +579,7 @@ const VendorDetail = () => {
         subRow={
           <>
             <div className="flex min-w-0 max-w-full flex-1 flex-col gap-1.5 text-xs sm:max-w-[55%]">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
+              <div className="inline-flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
                 <a href={`tel:${vendor.contact}`} className="inline-flex items-center gap-1.5 hover:text-foreground">
                   <Phone className="h-3.5 w-3.5 shrink-0" />
                   {vendor.contact}
@@ -393,6 +590,19 @@ const VendorDetail = () => {
                     {vendor.email}
                   </a>
                 )}
+                {(() => {
+                  const lp = vendor.linkedProjectId ? projects.find((p) => p.id === vendor.linkedProjectId) : undefined;
+                  if (!lp) return null;
+                  return (
+                    <span className="inline-flex items-center gap-1 text-foreground">
+                      <Package className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span className="text-2xs uppercase text-muted-foreground">Project</span>
+                      <Link to={`/projects/${lp.id}`} className="font-medium hover:underline">
+                        {lp.name}
+                      </Link>
+                    </span>
+                  );
+                })()}
               </div>
               {vendor.address && (
                 <div className="inline-flex items-start gap-1.5 text-muted-foreground">
@@ -414,10 +624,13 @@ const VendorDetail = () => {
         }
       >
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setIsPurchaseModalOpen(true)}>
+          <Button variant="outline" onClick={openEditVendor}>
+            <Pencil className="h-4 w-4 mr-2" /> Edit vendor
+          </Button>
+          <Button variant="outline" onClick={() => setIsPurchaseModalOpen(true)} disabled={!canDo("vendor:record_bill")}>
             <Plus className="h-4 w-4 mr-2" /> Add Purchase
           </Button>
-          <Button onClick={() => setIsPaymentModalOpen(true)} disabled={pendingBills.length === 0}>
+          <Button onClick={() => setIsPaymentModalOpen(true)} disabled={payablePendingBills.length === 0 || !canDo("vendor:record_payment")}>
             <IndianRupee className="h-4 w-4 mr-2" /> Record Payment
           </Button>
         </div>
@@ -476,6 +689,8 @@ const VendorDetail = () => {
                       <TableHead>Date</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Project</TableHead>
+                      <TableHead className="text-right">Subtotal</TableHead>
+                      <TableHead className="text-right">GST</TableHead>
                       <TableHead className="text-right">Total</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
                       <TableHead className="text-right">Due</TableHead>
@@ -491,11 +706,13 @@ const VendorDetail = () => {
                         setIsEditMode(false);
                       }}>
                         <TableCell className="font-medium">{bill.billNumber}</TableCell>
-                        <TableCell>{format(new Date(bill.billDate), "dd MMM yyyy")}</TableCell>
+                        <TableCell>{formatUiDate(bill.billDate)}</TableCell>
                         <TableCell className="max-w-[200px] truncate">{bill.items.map(i => i.description).join(", ")}</TableCell>
                         <TableCell>{bill.projectName || "-"}</TableCell>
+                        <TableCell className="text-right">₹{billLineSubtotal(bill).toLocaleString("en-IN")}</TableCell>
+                        <TableCell className="text-right">₹{billLineGst(bill).toLocaleString("en-IN")}</TableCell>
                         <TableCell className="text-right">₹{bill.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-right text-blue-400">₹{bill.amountPaid.toLocaleString()}</TableCell>
+                        <TableCell className="text-right text-primary">₹{bill.amountPaid.toLocaleString()}</TableCell>
                         <TableCell className="text-right text-orange-400">₹{(bill.total - bill.amountPaid).toLocaleString()}</TableCell>
                         <TableCell>{getStatusBadge(bill.status)}</TableCell>
                         <TableCell>
@@ -530,7 +747,7 @@ const VendorDetail = () => {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Check className="h-4 w-4 text-blue-400" /> Paid Bills ({paidBills.length})
+                  <Check className="h-4 w-4 text-primary" /> Paid Bills ({paidBills.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -557,16 +774,20 @@ const VendorDetail = () => {
                       <TableHead>Date</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Project</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead className="text-right">Subtotal</TableHead>
+                      <TableHead className="text-right">GST</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {pagedPaidBills.map(bill => (
                       <TableRow key={bill.id}>
                         <TableCell className="font-medium">{bill.billNumber}</TableCell>
-                        <TableCell>{format(new Date(bill.billDate), "dd MMM yyyy")}</TableCell>
+                        <TableCell>{formatUiDate(bill.billDate)}</TableCell>
                         <TableCell>{bill.items.map(i => i.description).join(", ")}</TableCell>
                         <TableCell>{bill.projectName || "-"}</TableCell>
+                        <TableCell className="text-right">₹{billLineSubtotal(bill).toLocaleString("en-IN")}</TableCell>
+                        <TableCell className="text-right">₹{billLineGst(bill).toLocaleString("en-IN")}</TableCell>
                         <TableCell className="text-right">₹{bill.total.toLocaleString()}</TableCell>
                       </TableRow>
                     ))}
@@ -616,6 +837,7 @@ const VendorDetail = () => {
                       <TableHead>Mode</TableHead>
                       <TableHead>Bill #</TableHead>
                       <TableHead>Notes</TableHead>
+                      <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -623,11 +845,23 @@ const VendorDetail = () => {
                       const bill = vendorBills.find(b => b.id === payment.billId);
                       return (
                         <TableRow key={payment.id}>
-                          <TableCell>{format(new Date(payment.date), "dd MMM yyyy")}</TableCell>
-                          <TableCell className="font-medium text-blue-400">₹{payment.amount.toLocaleString()}</TableCell>
+                          <TableCell>{formatUiDate(payment.date)}</TableCell>
+                          <TableCell className="font-medium text-primary">₹{payment.amount.toLocaleString()}</TableCell>
                           <TableCell>{payment.paymentMode}</TableCell>
                           <TableCell>{bill?.billNumber || payment.billNumber || "-"}</TableCell>
                           <TableCell className="text-muted-foreground">{payment.notes || "-"}</TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={() => setDeletePaymentId(payment.id)}
+                              disabled={!canDo("vendor:delete_payment")}
+                              aria-label="Delete payment"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       );
                     })}
@@ -646,7 +880,7 @@ const VendorDetail = () => {
 
       {/* FIFO Payment Modal */}
       <Sheet open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Record Payment to Vendor</SheetTitle>
             <SheetDescription>
@@ -671,11 +905,7 @@ const VendorDetail = () => {
               </div>
               <div className="space-y-2">
                 <Label>Date</Label>
-                <Input
-                  type="date"
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                />
+                <DateInput value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
               </div>
             </div>
 
@@ -711,7 +941,7 @@ const VendorDetail = () => {
                 {fifoBreakdown.map(({ bill, payAmount }) => (
                   <div key={bill.id} className="flex justify-between text-sm">
                     <span>{bill.billNumber}</span>
-                    <span className="text-blue-400">₹{payAmount.toLocaleString()}</span>
+                    <span className="text-primary">₹{payAmount.toLocaleString()}</span>
                   </div>
                 ))}
               </div>
@@ -722,7 +952,7 @@ const VendorDetail = () => {
             <Button variant="outline" onClick={() => setIsPaymentModalOpen(false)}>Cancel</Button>
             <Button 
               onClick={handleRecordPayment} 
-              disabled={!paymentAmount || parseFloat(paymentAmount) <= 0}
+              disabled={!paymentAmount || !(Number.isFinite(Number.parseFloat(paymentAmount)) && Number.parseFloat(paymentAmount) > 0)}
             >
               Record Payment
             </Button>
@@ -732,7 +962,7 @@ const VendorDetail = () => {
 
       {/* Add Purchase Modal */}
       <Sheet open={isPurchaseModalOpen} onOpenChange={setIsPurchaseModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add Purchase Bill</SheetTitle>
             <SheetDescription>
@@ -753,22 +983,14 @@ const VendorDetail = () => {
               </div>
               <div className="space-y-2">
                 <Label>Bill Date *</Label>
-                <Input
-                  type="date"
-                  value={purchaseBillDate}
-                  onChange={(e) => setPurchaseBillDate(e.target.value)}
-                />
+                <DateInput value={purchaseBillDate} onChange={(e) => setPurchaseBillDate(e.target.value)} />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Due Date</Label>
-                <Input
-                  type="date"
-                  value={purchaseDueDate}
-                  onChange={(e) => setPurchaseDueDate(e.target.value)}
-                />
+                <DateInput value={purchaseDueDate} onChange={(e) => setPurchaseDueDate(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Link to Project</Label>
@@ -784,6 +1006,18 @@ const VendorDetail = () => {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>PO / LPO reference (optional)</Label>
+              <Input
+                value={purchaseOrderRef}
+                onChange={(e) => setPurchaseOrderRef(e.target.value)}
+                placeholder="e.g., PO-2026-0142"
+              />
+              <p className="text-xs text-muted-foreground">
+                Prototype: free-text PO / LPO id only. A draft-to-PO workflow waits on a future PO module.
+              </p>
             </div>
 
             {/* Purchase Type */}
@@ -853,7 +1087,10 @@ const VendorDetail = () => {
                       <Input
                         type="number"
                         value={item.rate}
-                        onChange={(e) => handleUpdatePurchaseItem(idx, 'rate', parseFloat(e.target.value) || 0)}
+                        onChange={(e) => {
+                          const n = Number.parseFloat(e.target.value);
+                          handleUpdatePurchaseItem(idx, "rate", Number.isFinite(n) ? n : 0);
+                        }}
                         placeholder="Rate"
                         className="pl-5"
                       />
@@ -924,11 +1161,11 @@ const VendorDetail = () => {
                   </Select>
                 </div>
               </div>
-              {purchasePaidAmount && parseFloat(purchasePaidAmount) > 0 && (
+              {hasPurchasePaid && (
                 <div className="flex justify-between text-sm pt-2 border-t">
                   <span className="text-muted-foreground">Pending After Payment:</span>
-                  <span className={parseFloat(purchasePaidAmount) >= purchaseTotal ? 'text-blue-500' : 'text-amber-500'}>
-                    ₹{Math.max(0, purchaseTotal - (parseFloat(purchasePaidAmount) || 0)).toLocaleString()}
+                  <span className={purchasePaidParsed >= purchaseTotal ? "text-primary" : "text-amber-500"}>
+                    {formatINR(Math.max(0, purchaseTotal - purchasePaidParsed))}
                   </span>
                 </div>
               )}
@@ -949,7 +1186,7 @@ const VendorDetail = () => {
             <Button variant="outline" onClick={() => setIsPurchaseModalOpen(false)}>Cancel</Button>
             <Button 
               onClick={handleAddPurchase} 
-              disabled={!purchaseBillNumber || purchaseItems.some(i => !i.description)}
+              disabled={!canDo("vendor:record_bill") || !purchaseBillNumber || purchaseItems.some(i => !i.description)}
             >
               Add Purchase
             </Button>
@@ -959,7 +1196,7 @@ const VendorDetail = () => {
 
       {/* Bill Preview/Edit Modal */}
       <Sheet open={isBillPreviewOpen} onOpenChange={setIsBillPreviewOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Receipt className="h-5 w-5 text-primary" />
@@ -972,28 +1209,103 @@ const VendorDetail = () => {
           
           {selectedBill && (
             <div className="space-y-4">
-              {/* Bill Header Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <Card className="bg-muted/30">
-                  <CardContent className="p-3">
-                    <p className="text-xs text-muted-foreground">Bill Date</p>
-                    <p className="font-medium">{format(new Date(selectedBill.billDate), "dd MMM yyyy")}</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-muted/30">
-                  <CardContent className="p-3">
-                    <p className="text-xs text-muted-foreground">Status</p>
-                    <div className="mt-1">{getStatusBadge(selectedBill.status)}</div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Project Link */}
-              {selectedBill.projectName && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <FileText className="h-4 w-4" />
-                  Linked to project: <span className="text-foreground font-medium">{selectedBill.projectName}</span>
+              {/* Bill Header / edit form */}
+              {isEditMode ? (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Bill number</Label>
+                    <Input value={editBillNumber} onChange={(e) => setEditBillNumber(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Bill date</Label>
+                    <DateInput value={editBillDate} onChange={(e) => setEditBillDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Due date</Label>
+                    <DateInput value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <Select value={editBillStatus} onValueChange={(v) => setEditBillStatus(v as VendorBillStatus)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="approved">Approved</SelectItem>
+                        <SelectItem value="disputed">Disputed</SelectItem>
+                        <SelectItem value="pending">Pending payment</SelectItem>
+                        <SelectItem value="partial">Partially paid</SelectItem>
+                        <SelectItem value="paid">Paid</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Linked project</Label>
+                    <Select value={editProjectId || "_none"} onValueChange={(v) => setEditProjectId(v === "_none" ? "" : v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="No project" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">No project</SelectItem>
+                        {projects.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>PO / LPO reference</Label>
+                    <Input
+                      value={editPurchaseOrderRef}
+                      onChange={(e) => setEditPurchaseOrderRef(e.target.value)}
+                      placeholder="Optional"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Prototype: free-text PO / LPO id only. A draft-to-PO workflow waits on a future PO module.
+                    </p>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Notes</Label>
+                    <Textarea
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                      rows={3}
+                      placeholder="Optional notes"
+                    />
+                  </div>
                 </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Card className="bg-muted/30">
+                      <CardContent className="p-3">
+                        <p className="text-xs text-muted-foreground">Bill Date</p>
+                        <p className="font-medium">{formatUiDate(selectedBill.billDate)}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-muted/30">
+                      <CardContent className="p-3">
+                        <p className="text-xs text-muted-foreground">Status</p>
+                        <div className="mt-1">{getStatusBadge(selectedBill.status)}</div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {selectedBill.projectName && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <FileText className="h-4 w-4" />
+                      Linked to project: <span className="text-foreground font-medium">{selectedBill.projectName}</span>
+                    </div>
+                  )}
+                  {selectedBill.purchaseOrderRef?.trim() ? (
+                    <div className="text-sm text-muted-foreground">
+                      PO / LPO: <span className="font-medium text-foreground">{selectedBill.purchaseOrderRef}</span>
+                    </div>
+                  ) : null}
+                </>
               )}
 
               {/* Items Table */}
@@ -1040,11 +1352,11 @@ const VendorDetail = () => {
               <div className="bg-muted/30 rounded-lg p-4 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
-                  <span>₹{selectedBill.subtotal.toLocaleString()}</span>
+                  <span>₹{(selectedBill.subtotal ?? selectedBill.total).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">GST</span>
-                  <span>₹{selectedBill.gst.toLocaleString()}</span>
+                  <span>₹{(selectedBill.gst ?? 0).toLocaleString()}</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between font-semibold">
@@ -1053,7 +1365,7 @@ const VendorDetail = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Amount Paid</span>
-                  <span className="text-blue-400">₹{selectedBill.amountPaid.toLocaleString()}</span>
+                  <span className="text-primary">₹{selectedBill.amountPaid.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Pending</span>
@@ -1061,8 +1373,8 @@ const VendorDetail = () => {
                 </div>
               </div>
 
-              {/* Notes */}
-              {selectedBill.notes && (
+              {/* Notes (read-only view) */}
+              {!isEditMode && selectedBill.notes && (
                 <div>
                   <h4 className="text-sm font-medium mb-1">Notes</h4>
                   <p className="text-sm text-muted-foreground">{selectedBill.notes}</p>
@@ -1071,56 +1383,146 @@ const VendorDetail = () => {
 
               {/* Document Upload Section */}
               <div className="border rounded-lg p-4 space-y-3">
-                <div className="flex items-center justify-between">
+                <input
+                  ref={billDocInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,image/*"
+                  onChange={onBillDocumentSelected}
+                />
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <Upload className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">Bill Document</span>
                   </div>
-                  {(selectedBill as any).documentUrl ? (
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="bg-blue-500/10 text-blue-600">
+                  {selectedBill.documentUrl ? (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="outline" className="bg-primary/10 text-primary">
                         <Check className="h-3 w-3 mr-1" />
-                        Uploaded
+                        {selectedBill.documentFileName || "Uploaded"}
                       </Badge>
-                      <Button variant="ghost" size="sm">
-                        <Download className="h-4 w-4 mr-1" />
-                        Download
+                      <Button variant="ghost" size="sm" asChild>
+                        <a href={selectedBill.documentUrl} download={selectedBill.documentFileName || "bill-document"}>
+                          <Download className="h-4 w-4 mr-1" />
+                          Download
+                        </a>
+                      </Button>
+                      <Button variant="outline" size="sm" type="button" onClick={() => billDocInputRef.current?.click()}>
+                        <Upload className="h-4 w-4 mr-1" />
+                        Replace
                       </Button>
                     </div>
                   ) : (
-                    <Button variant="outline" size="sm" onClick={() => {
-                      toast({ title: "Upload feature", description: "Document upload will be simulated" });
-                      // Simulate upload
-                      updateVendorBill(selectedBill.id, { documentUrl: "uploaded-doc.pdf" } as any);
-                      toast({ title: "Document uploaded", description: "Bill document has been attached" });
-                    }}>
+                    <Button variant="outline" size="sm" type="button" onClick={() => billDocInputRef.current?.click()}>
                       <Upload className="h-4 w-4 mr-1" />
                       Upload Document
                     </Button>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Upload the original bill/invoice document (PDF, Image)
+                  Upload the original bill/invoice document (PDF, Image). Files are stored as a local preview URL in this prototype.
                 </p>
               </div>
             </div>
           )}
 
-          <SheetFooter className="flex gap-2">
-            <Button variant="outline" onClick={() => setIsBillPreviewOpen(false)}>Close</Button>
-            {!isEditMode && selectedBill && selectedBill.status !== "paid" && (
-              <Button onClick={() => {
-                setIsBillPreviewOpen(false);
-                setPaymentAmount((selectedBill.total - selectedBill.amountPaid).toString());
-                setIsPaymentModalOpen(true);
-              }}>
-                <IndianRupee className="h-4 w-4 mr-1" />
-                Record Payment
-              </Button>
+          <SheetFooter className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setIsBillPreviewOpen(false)}>
+              Close
+            </Button>
+            {isEditMode && selectedBill ? (
+              <>
+                <Button variant="outline" onClick={() => setIsEditMode(false)}>
+                  Cancel edit
+                </Button>
+                <Button onClick={handleSaveBillEdits}>Save changes</Button>
+              </>
+            ) : (
+              selectedBill &&
+              selectedBill.status !== "paid" &&
+              selectedBill.status !== "draft" && (
+                <Button
+                  onClick={() => {
+                    setIsBillPreviewOpen(false);
+                    setPaymentAmount((selectedBill.total - selectedBill.amountPaid).toString());
+                    setIsPaymentModalOpen(true);
+                  }}
+                  disabled={!canDo("vendor:record_payment")}
+                >
+                  <IndianRupee className="h-4 w-4 mr-1" />
+                  Record Payment
+                </Button>
+              )
             )}
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <Sheet open={isEditVendorOpen} onOpenChange={setIsEditVendorOpen}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Edit vendor</SheetTitle>
+            <SheetDescription>Update contact details used on bills and payments.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={veName} onChange={(e) => setVeName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Contact phone</Label>
+              <Input value={veContact} onChange={(e) => setVeContact(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input value={veEmail} onChange={(e) => setVeEmail(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Address</Label>
+              <Textarea value={veAddress} onChange={(e) => setVeAddress(e.target.value)} rows={2} />
+            </div>
+            <div className="space-y-2">
+              <Label>Primary project (optional)</Label>
+              <Select value={veLinkedProjectId || "_none"} onValueChange={(v) => setVeLinkedProjectId(v === "_none" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="No project" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">No project</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>GSTIN (optional)</Label>
+              <Input value={veGstin} onChange={(e) => setVeGstin(e.target.value)} maxLength={15} />
+            </div>
+          </div>
+          <SheetFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsEditVendorOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={saveVendorProfile}>Save</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <AlertDialog open={!!deletePaymentId} onOpenChange={(open) => { if (!open) setDeletePaymentId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete payment?</AlertDialogTitle>
+            <AlertDialogDescription>This will reverse the payment and restore the outstanding balance on the vendor account.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => { if (deletePaymentId) { deleteVendorPayment(deletePaymentId); setDeletePaymentId(null); } }}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 };

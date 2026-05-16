@@ -4,6 +4,9 @@ export const PROJECT_KINDS = [
   "FIXED_EPC",
   "VENDOR_NETWORK",
   "INC",
+  "INC_GIVEN",
+  "OUTSOURCED_INC",
+  "VENDORSHIP_ONLY",
 ] as const;
 
 export type ProjectKind = (typeof PROJECT_KINDS)[number];
@@ -19,9 +22,9 @@ export type BillingDirection =
 export interface ProjectKindConfig {
   kind: ProjectKind;
   label: string;
-  requiredParties: Array<"customer" | "partner" | "channelPartner" | "vendorOrDiscom" | "externalNetwork">;
+  requiredParties: Array<"customer" | "partner" | "channelPartner" | "vendorOrDiscom" | "externalNetwork" | "incGiverCompany" | "subcontractor">;
   requiredCommercialFields: Array<
-    "contractAmount" | "paymentType" | "internalCostEstimate" | "backendPrice" | "partnerSellPrice" | "commissionRule"
+    "contractAmount" | "paymentType" | "internalCostEstimate" | "backendPrice" | "partnerSellPrice" | "commissionRule" | "vendorshipFeeReceivable"
   >;
   allowedBillingDirections: BillingDirection[];
   visibleTabs: string[];

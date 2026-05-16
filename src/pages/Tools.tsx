@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Wrench, User, MapPin, Check, RotateCcw, ArrowRight, History, Edit, Trash2, AlertCircle } from "lucide-react";
+import { Plus, Search, Wrench, User, MapPin, Check, RotateCcw, ArrowRight, History, Edit, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/DateInput";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,20 +18,12 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { toast } from "@/hooks/use-toast";
-
-const toolCategories = [
-  { value: "power-tool", label: "Power Tool" },
-  { value: "hand-tool", label: "Hand Tool" },
-  { value: "measuring-tool", label: "Measuring Tool" },
-  { value: "safety-equipment", label: "Safety Equipment" },
-  { value: "machinery", label: "Machinery" },
-  { value: "digging-tool", label: "Digging Tool" },
-  { value: "others", label: "Others" },
-];
+import { TOOL_CATEGORY_SELECT_ITEMS } from "@/lib/formCategories";
 
 const Tools = () => {
-  const { tools, employees, projects } = useAppData();
+  const { tools, employees, projects, addTool, updateTool, deleteTool, issueTool, returnTool, _generateId } = useAppData();
   
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -61,9 +54,24 @@ const Tools = () => {
   const [newToolPurchaseDate, setNewToolPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [newToolCondition, setNewToolCondition] = useState("Good");
   
-  // Form states for Return Tool
-  const [returnCondition, setReturnCondition] = useState("Good");
+  // Form states for Issue Tool (A6 — wire missing state)
+  const [issueSiteId, setIssueSiteId] = useState("");
+  const [issuePersonId, setIssuePersonId] = useState("");
+  const [issueDate, setIssueDate] = useState(new Date().toISOString().split("T")[0]);
+  const [issueHandoffNotes, setIssueHandoffNotes] = useState("");
+
+  // Form states for Return Tool (A7 — wire missing state)
+  const [returnToolId, setReturnToolId] = useState("");
+  const [returnCondition, setReturnCondition] = useState<Tool["condition"]>("Good");
   const [returnNotes, setReturnNotes] = useState("");
+
+  // Edit form controlled state (B12 — currently uses defaultValue, no save)
+  const [editToolName, setEditToolName] = useState("");
+  const [editToolCategory, setEditToolCategory] = useState("");
+  const [editToolPurchaseRate, setEditToolPurchaseRate] = useState("");
+  const [editToolPurchaseDate, setEditToolPurchaseDate] = useState("");
+  const [editToolCondition, setEditToolCondition] = useState<Tool["condition"]>("Good");
+  const [editToolConditionNotes, setEditToolConditionNotes] = useState("");
   
   // Get sites from projects
   const sites = projects.map(p => ({ id: p.id, name: p.name }));
@@ -97,7 +105,7 @@ const Tools = () => {
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
-      "In Use": "bg-blue-500/10 text-blue-500 border-0",
+      "In Use": "bg-primary/10 text-primary border-0",
       "Available": "bg-primary/10 text-primary border-0",
       "Under Repair": "bg-amber-500/10 text-amber-500 border-0",
     };
@@ -109,6 +117,7 @@ const Tools = () => {
       "Good": "bg-primary/10 text-primary border-0",
       "Fair": "bg-amber-500/10 text-amber-500 border-0",
       "Poor": "bg-destructive/10 text-destructive border-0",
+      "Damaged": "bg-destructive/15 text-destructive border-0",
     };
     return <Badge className={styles[condition] || ""}>{condition}</Badge>;
   };
@@ -125,24 +134,68 @@ const Tools = () => {
       toast({ title: "Error", description: "Name and category are required", variant: "destructive" });
       return;
     }
+    // B9 — actually persist to context
+    const newTool: import("@/types/project").Tool = {
+      id: Date.now(),
+      name: newToolName,
+      category: newToolCategory,
+      status: "Available",
+      condition: newToolCondition as Tool["condition"],
+      site: "",
+      assignedTo: "-",
+      purchaseRate: parseFloat(newToolPurchaseRate) || 0,
+      purchaseDate: newToolPurchaseDate,
+      lastUpdated: new Date().toISOString().split("T")[0],
+    };
+    addTool(newTool);
     setIsAddToolOpen(false);
     setIsAddToolConfirmOpen(true);
-    // Reset form
     setNewToolName("");
     setNewToolCategory("");
     setNewToolPurchaseRate("");
-    setNewToolPurchaseDate(new Date().toISOString().split('T')[0]);
+    setNewToolPurchaseDate(new Date().toISOString().split("T")[0]);
     setNewToolCondition("Good");
   };
 
   const handleIssueToolSave = () => {
+    if (!selectedToolId || !issueSiteId) {
+      toast({ title: "Error", description: "Select a tool and site", variant: "destructive" });
+      return;
+    }
+    // B10 — actually persist to context
+    const site = sites.find(s => s.id === issueSiteId);
+    const emp = employees.find(e => e.id.toString() === issuePersonId);
+    issueTool(
+      parseInt(selectedToolId),
+      issueSiteId,
+      site?.name ?? issueSiteId,
+      issueDate,
+      issuePersonId || undefined,
+      emp?.name || undefined,
+      issueHandoffNotes || undefined,
+    );
     setIsIssueToolOpen(false);
     setIsIssueToolConfirmOpen(true);
+    setIssueSiteId("");
+    setIssuePersonId("");
+    setIssueHandoffNotes("");
   };
 
   const handleReturnToolSave = () => {
+    if (!returnToolId) {
+      toast({ title: "Error", description: "Select a tool to return", variant: "destructive" });
+      return;
+    }
+    // B11 — actually persist to context
+    returnTool(
+      parseInt(returnToolId),
+      returnCondition,
+      new Date().toISOString().split("T")[0],
+      returnNotes || undefined,
+    );
     setIsReturnToolOpen(false);
     setIsReturnToolConfirmOpen(true);
+    setReturnToolId("");
     setReturnCondition("Good");
     setReturnNotes("");
   };
@@ -316,6 +369,12 @@ const Tools = () => {
                       title="Edit"
                       onClick={() => {
                         setSelectedToolForEdit(tool);
+                        setEditToolName(tool.name);
+                        setEditToolCategory(tool.category);
+                        setEditToolPurchaseRate(tool.purchaseRate.toString());
+                        setEditToolPurchaseDate(tool.purchaseDate);
+                        setEditToolCondition(tool.condition as Tool["condition"]);
+                        setEditToolConditionNotes(tool.conditionNotes ?? "");
                         setIsEditToolOpen(true);
                       }}
                     >
@@ -328,15 +387,18 @@ const Tools = () => {
           </TableBody>
       </DataTableShell>
       {filteredTools.length === 0 && (
-        <div className="text-center py-12">
-          <Wrench className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">No tools found</p>
-        </div>
+        <ListEmptyState
+          icon={Wrench}
+          title="No tools match this view"
+          description="Adjust filters or add a new tool to the register."
+          actionLabel="Add tool"
+          onAction={() => setIsAddToolOpen(true)}
+        />
       )}
 
       {/* Add Tool Modal */}
       <Sheet open={isAddToolOpen} onOpenChange={setIsAddToolOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add New Tool</SheetTitle>
           </SheetHeader>
@@ -356,7 +418,7 @@ const Tools = () => {
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {toolCategories.map((cat) => (
+                  {TOOL_CATEGORY_SELECT_ITEMS.map((cat) => (
                     <SelectItem key={cat.value} value={cat.label}>{cat.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -374,11 +436,7 @@ const Tools = () => {
               </div>
               <div className="space-y-2">
                 <Label>Purchase Date</Label>
-                <Input 
-                  type="date" 
-                  value={newToolPurchaseDate}
-                  onChange={(e) => setNewToolPurchaseDate(e.target.value)}
-                />
+                <DateInput value={newToolPurchaseDate} onChange={(e) => setNewToolPurchaseDate(e.target.value)} />
               </div>
             </div>
             <div className="space-y-2">
@@ -391,6 +449,7 @@ const Tools = () => {
                   <SelectItem value="Good">Good</SelectItem>
                   <SelectItem value="Fair">Fair</SelectItem>
                   <SelectItem value="Poor">Needs Repair</SelectItem>
+                  <SelectItem value="Damaged">Damaged</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -404,7 +463,7 @@ const Tools = () => {
 
       {/* Add Tool Confirmation */}
       <Sheet open={isAddToolConfirmOpen} onOpenChange={setIsAddToolConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" />
@@ -420,7 +479,7 @@ const Tools = () => {
 
       {/* Issue Tool Modal */}
       <Sheet open={isIssueToolOpen} onOpenChange={setIsIssueToolOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Issue Tool to Site</SheetTitle>
           </SheetHeader>
@@ -470,8 +529,8 @@ const Tools = () => {
               </div>
             )}
             <div className="space-y-2">
-              <Label>{issueToolAction === "transfer" ? "Transfer to Site" : "Assign to Site"}</Label>
-              <Select>
+              <Label>{issueToolAction === "transfer" ? "Transfer to Site" : "Assign to Site"} *</Label>
+              <Select value={issueSiteId} onValueChange={setIssueSiteId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Choose site" />
                 </SelectTrigger>
@@ -484,9 +543,9 @@ const Tools = () => {
             </div>
             <div className="space-y-2">
               <Label>Assign to Person</Label>
-              <Select>
+              <Select value={issuePersonId} onValueChange={setIssuePersonId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose person" />
+                  <SelectValue placeholder="Choose person (optional)" />
                 </SelectTrigger>
                 <SelectContent>
                   {employees.map((emp) => (
@@ -494,6 +553,19 @@ const Tools = () => {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Issue date</Label>
+              <DateInput className="w-full" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Handoff / condition notes (optional)</Label>
+              <Textarea
+                placeholder="Condition at issue, accessories included, damage already present…"
+                value={issueHandoffNotes}
+                onChange={(e) => setIssueHandoffNotes(e.target.value)}
+                rows={3}
+              />
             </div>
           </div>
           <SheetFooter>
@@ -505,7 +577,7 @@ const Tools = () => {
 
       {/* Issue Tool Confirmation */}
       <Sheet open={isIssueToolConfirmOpen} onOpenChange={setIsIssueToolConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" />
@@ -521,14 +593,14 @@ const Tools = () => {
 
       {/* Return Tool Modal */}
       <Sheet open={isReturnToolOpen} onOpenChange={setIsReturnToolOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Return Tool to Warehouse</SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Select Tool (Currently In Use)</Label>
-              <Select>
+              <Label>Select Tool (Currently In Use) *</Label>
+              <Select value={returnToolId} onValueChange={setReturnToolId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Choose tool" />
                 </SelectTrigger>
@@ -543,7 +615,7 @@ const Tools = () => {
             </div>
             <div className="space-y-2">
               <Label>Condition on Return</Label>
-              <Select value={returnCondition} onValueChange={setReturnCondition}>
+              <Select value={returnCondition} onValueChange={(v) => setReturnCondition(v as "Good" | "Fair" | "Damaged" | "Poor")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -573,7 +645,7 @@ const Tools = () => {
 
       {/* Return Tool Confirmation */}
       <Sheet open={isReturnToolConfirmOpen} onOpenChange={setIsReturnToolConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" />
@@ -589,7 +661,7 @@ const Tools = () => {
 
       {/* Tool Movement History Modal */}
       <Sheet open={isToolHistoryOpen} onOpenChange={setIsToolHistoryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
@@ -597,59 +669,22 @@ const Tools = () => {
             </SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
-            <div className="p-3 bg-muted/30 rounded-lg flex items-center justify-between">
+            <div className="p-3 bg-muted/30 rounded-lg flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm text-muted-foreground">Current Status</p>
                 <p className="font-medium">{selectedToolForHistory?.status}</p>
+                {selectedToolForHistory?.conditionNotes ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Notes: <span className="text-foreground">{selectedToolForHistory.conditionNotes}</span>
+                  </p>
+                ) : null}
               </div>
               <Badge variant="outline">{selectedToolForHistory?.condition}</Badge>
             </div>
             <div className="space-y-3">
               <h4 className="text-sm font-medium text-muted-foreground">Movement Log</h4>
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                {/* Current location */}
-                <div className="flex items-start gap-3 p-3 bg-primary/5 rounded-lg border border-primary/20">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <Check className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">
-                      {selectedToolForHistory?.status === "Available" 
-                        ? "Returned to Warehouse" 
-                        : `Issued to ${selectedToolForHistory?.site}`}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{selectedToolForHistory?.lastUpdated}</p>
-                    {selectedToolForHistory?.status === "In Use" && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Assigned to: {selectedToolForHistory?.assignedTo}
-                      </p>
-                    )}
-                    <Badge variant="outline" className="mt-1 text-xs">
-                      Condition: {selectedToolForHistory?.condition}
-                    </Badge>
-                  </div>
-                </div>
-                {/* Sample history entries */}
-                <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
-                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">Issued to Site</p>
-                    <p className="text-xs text-muted-foreground">10 Dec 2024</p>
-                    <Badge variant="outline" className="mt-1 text-xs">Condition: Good</Badge>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
-                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                    <RotateCcw className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">Returned to Warehouse</p>
-                    <p className="text-xs text-muted-foreground">05 Dec 2024</p>
-                    <Badge variant="outline" className="mt-1 text-xs">Condition: Good</Badge>
-                  </div>
-                </div>
+                {/* Added to inventory entry */}
                 <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
                   <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
                     <Plus className="h-4 w-4 text-muted-foreground" />
@@ -660,6 +695,27 @@ const Tools = () => {
                     <p className="text-xs text-muted-foreground">Purchase Rate: ₹{selectedToolForHistory?.purchaseRate?.toLocaleString()}</p>
                   </div>
                 </div>
+                {/* Real movement history — B14 fix */}
+                {(selectedToolForHistory?.movementHistory ?? []).length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">No movement recorded yet.</p>
+                )}
+                {(selectedToolForHistory?.movementHistory ?? []).map((rec, idx) => (
+                  <div key={rec.id ?? idx} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
+                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                      {rec.type === "issue" ? <ArrowRight className="h-4 w-4 text-amber-500" /> : <RotateCcw className="h-4 w-4 text-primary" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{rec.type === "issue" ? `Issued to ${rec.siteName ?? "site"}` : "Returned to Warehouse"}</p>
+                      <p className="text-xs text-muted-foreground">{rec.date}{rec.employeeName ? ` • ${rec.employeeName}` : ""}</p>
+                      {rec.condition && <Badge variant="outline" className="mt-1 text-xs">Condition: {rec.condition}</Badge>}
+                      {(rec.conditionNotes ?? rec.notes)?.trim() ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Notes: <span className="text-foreground">{rec.conditionNotes ?? rec.notes}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -671,24 +727,24 @@ const Tools = () => {
 
       {/* Edit Tool Modal */}
       <Sheet open={isEditToolOpen} onOpenChange={setIsEditToolOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Edit Tool</SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Tool Name</Label>
-              <Input defaultValue={selectedToolForEdit?.name} />
+              <Input value={editToolName} onChange={e => setEditToolName(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>Category</Label>
-              <Select defaultValue={selectedToolForEdit?.category?.toLowerCase().replace(" ", "-")}>
+              <Select value={editToolCategory} onValueChange={setEditToolCategory}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {toolCategories.map((cat) => (
-                    <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                  {TOOL_CATEGORY_SELECT_ITEMS.map((cat) => (
+                    <SelectItem key={cat.value} value={cat.label}>{cat.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -696,34 +752,46 @@ const Tools = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Purchase Rate (₹)</Label>
-                <Input type="number" defaultValue={selectedToolForEdit?.purchaseRate} />
+                <Input type="number" value={editToolPurchaseRate} onChange={e => setEditToolPurchaseRate(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Purchase Date</Label>
-                <Input type="date" defaultValue={selectedToolForEdit?.purchaseDate} />
+                <DateInput value={editToolPurchaseDate} onChange={(e) => setEditToolPurchaseDate(e.target.value)} />
               </div>
             </div>
             <div className="space-y-2">
               <Label>Condition</Label>
-              <Select defaultValue={selectedToolForEdit?.condition?.toLowerCase()}>
+              <Select value={editToolCondition} onValueChange={(v) => setEditToolCondition(v as Tool["condition"])}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="good">Good</SelectItem>
-                  <SelectItem value="fair">Fair</SelectItem>
-                  <SelectItem value="poor">Needs Repair</SelectItem>
+                  <SelectItem value="Good">Good</SelectItem>
+                  <SelectItem value="Fair">Fair</SelectItem>
+                  <SelectItem value="Poor">Needs Repair</SelectItem>
+                  <SelectItem value="Damaged">Damaged</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label>Condition notes (on hand)</Label>
+              <Textarea
+                rows={3}
+                placeholder="Wear, repairs, missing parts…"
+                value={editToolConditionNotes}
+                onChange={(e) => setEditToolConditionNotes(e.target.value)}
+              />
+            </div>
             <div className="pt-4 border-t">
-              <Button 
-                variant="destructive" 
-                size="sm" 
+              <Button
+                variant="destructive"
+                size="sm"
                 className="w-full"
                 onClick={() => {
+                  if (!selectedToolForEdit) return;
+                  deleteTool(selectedToolForEdit.id); // B13
                   setIsEditToolOpen(false);
-                  toast({ title: "Tool Deleted", description: `${selectedToolForEdit?.name} has been removed.` });
+                  toast({ title: "Tool Deleted", description: `${selectedToolForEdit.name} has been removed.` });
                 }}
               >
                 <Trash2 className="h-4 w-4 mr-2" />
@@ -733,8 +801,18 @@ const Tools = () => {
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsEditToolOpen(false)}>Cancel</Button>
-            <Button onClick={() => { 
-              setIsEditToolOpen(false); 
+            <Button onClick={() => {
+              if (!selectedToolForEdit) return;
+              updateTool(selectedToolForEdit.id, {
+                name: editToolName,
+                category: editToolCategory,
+                purchaseRate: parseFloat(editToolPurchaseRate) || 0,
+                purchaseDate: editToolPurchaseDate,
+                condition: editToolCondition,
+                conditionNotes: editToolConditionNotes.trim() || undefined,
+                lastUpdated: new Date().toISOString().split("T")[0],
+              });
+              setIsEditToolOpen(false);
               toast({ title: "Tool Updated", description: "Changes saved successfully." });
             }}>Save Changes</Button>
           </SheetFooter>

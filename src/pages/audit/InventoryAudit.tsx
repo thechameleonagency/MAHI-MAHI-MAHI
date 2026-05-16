@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
@@ -7,10 +8,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import { downloadCSV } from "@/lib/csvExport";
+import { toast } from "@/hooks/use-toast";
+import { formatINR, formatINR as fmt } from "@/lib/formatCurrency";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { InventoryItem } from "@/types/project";
 
 type MovementRow = {
@@ -24,14 +32,36 @@ type MovementRow = {
   refId: string;
 };
 
+/** FIFO layer consumption from oldest purchase movements (prototype; matches item name). */
+function fifoStockValueForItem(item: InventoryItem, movements: MovementRow[]): number {
+  const nameKey = item.name.trim().toLowerCase();
+  const purchases = movements
+    .filter((m) => m.type === "Purchase" && m.item.trim().toLowerCase() === nameKey)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  let remaining = item.stock;
+  let value = 0;
+  for (const layer of purchases) {
+    if (remaining <= 0) break;
+    const take = Math.min(remaining, layer.qty);
+    value += take * layer.unitPrice;
+    remaining -= take;
+  }
+  if (remaining > 0) value += remaining * item.buyPrice;
+  return value;
+}
+
 function StockCategoryTable({
   category,
   items,
-  fmt,
+  _fmt,
+  valuation,
+  movements,
 }: {
   category: string;
   items: InventoryItem[];
   fmt: (v: number) => string;
+  valuation: "weighted" | "fifo";
+  movements: MovementRow[];
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -39,7 +69,7 @@ function StockCategoryTable({
 
   useEffect(() => {
     setPage(1);
-  }, [category, items.length]);
+  }, [category, items.length, valuation, movements.length]);
 
   return (
     <div>
@@ -87,9 +117,19 @@ function StockCategoryTable({
               <TableCell className="text-muted-foreground">{item.hsn}</TableCell>
               <TableCell className="text-right">{item.stock}</TableCell>
               <TableCell className="text-muted-foreground">{item.unit}</TableCell>
-              <TableCell className="text-right">{fmt(item.buyPrice)}</TableCell>
-              <TableCell className="text-right font-medium">{fmt(item.stock * item.buyPrice)}</TableCell>
-              <TableCell className="text-right">{fmt(item.stock * item.salePrice)}</TableCell>
+              <TableCell className="text-right">
+                {valuation === "weighted"
+                  ? formatINR(item.buyPrice)
+                  : formatINR(item.stock > 0 ? fifoStockValueForItem(item, movements) / item.stock : item.buyPrice)}
+              </TableCell>
+              <TableCell className="text-right font-medium">
+                {formatINR(
+                  valuation === "weighted"
+                    ? item.stock * item.buyPrice
+                    : fifoStockValueForItem(item, movements),
+                )}
+              </TableCell>
+              <TableCell className="text-right">{formatINR(item.stock * item.salePrice)}</TableCell>
               <TableCell className="text-right">{item.minStock || "-"}</TableCell>
               <TableCell>
                 {item.stock <= (item.minStock || 0) && (
@@ -107,20 +147,13 @@ function StockCategoryTable({
 }
 
 const InventoryAudit = () => {
+  const navigate = useNavigate();
   const { inventoryItems, projects, vendorBills } = useAppData();
   const [valuation, setValuation] = useState<"weighted" | "fifo">("weighted");
+  const [deadStockFloor, setDeadStockFloor] = useState(2);
   const [mainTab, setMainTab] = useState("summary");
   const [movPage, setMovPage] = useState(1);
   const [movSize, setMovSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
-
-  const stats = useMemo(() => {
-    const totalValue = inventoryItems.reduce((s, i) => s + i.stock * i.buyPrice, 0);
-    const totalSaleValue = inventoryItems.reduce((s, i) => s + i.stock * i.salePrice, 0);
-    const totalUnits = inventoryItems.reduce((s, i) => s + i.stock, 0);
-    const lowStock = inventoryItems.filter((i) => i.stock <= (i.minStock || 0)).length;
-    const deadStock = inventoryItems.filter((i) => i.stock > 0 && i.stock <= 2).length;
-    return { totalValue, totalSaleValue, totalUnits, lowStock, deadStock };
-  }, [inventoryItems]);
 
   const grouped = useMemo(() => {
     const groups: Record<string, InventoryItem[]> = {};
@@ -167,6 +200,22 @@ const InventoryAudit = () => {
     return moves.sort((a, b) => b.date.localeCompare(a.date));
   }, [projects, vendorBills]);
 
+  const stats = useMemo(() => {
+    const totalValue =
+      valuation === "weighted"
+        ? inventoryItems.reduce((s, i) => s + i.stock * i.buyPrice, 0)
+        : inventoryItems.reduce((s, i) => s + fifoStockValueForItem(i, movements), 0);
+    const totalSaleValue = inventoryItems.reduce((s, i) => s + i.stock * i.salePrice, 0);
+    const totalUnits = inventoryItems.reduce((s, i) => s + i.stock, 0);
+    const lowStock = inventoryItems.filter((i) => i.stock <= (i.minStock || 0)).length;
+    const deadStock = inventoryItems.filter((i) => {
+      if (i.stock <= 0) return false;
+      const limit = i.minStock > 0 ? i.minStock : deadStockFloor;
+      return i.stock <= limit;
+    }).length;
+    return { totalValue, totalSaleValue, totalUnits, lowStock, deadStock };
+  }, [inventoryItems, movements, valuation, deadStockFloor]);
+
   const { pagedItems: pagedMovements, safePage: safeMovPage } = usePagedSlice(movements, movPage, movSize);
 
   useEffect(() => {
@@ -176,8 +225,6 @@ const InventoryAudit = () => {
   useEffect(() => {
     if (mainTab === "movements") setMovPage(1);
   }, [mainTab]);
-
-  const fmt = (v: number) => `₹${v.toLocaleString("en-IN")}`;
 
   const valuationSubtitle: ReactNode =
     valuation === "weighted" ? "Weighted Avg" : "FIFO";
@@ -191,18 +238,97 @@ const InventoryAudit = () => {
           { label: "Inventory" },
         ]}
         subRow={
-          <InlineKpiStrip
-            className="w-full flex-wrap justify-start"
-            items={[
-              { label: "Stock value", value: fmt(stats.totalValue) },
-              { label: "Sale value", value: fmt(stats.totalSaleValue) },
-              { label: "Units", value: stats.totalUnits.toLocaleString("en-IN") },
-              { label: "Low stock", value: stats.lowStock },
-              { label: "Dead stock", value: stats.deadStock },
-            ]}
-          />
+          <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Dead-stock rule</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Qty ≤</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    className="h-8 w-16 text-xs"
+                    value={deadStockFloor}
+                    onChange={(e) => setDeadStockFloor(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                  />
+                  <span className="text-xs text-muted-foreground">or item min stock if set</span>
+                </div>
+              </div>
+            </div>
+            <InlineKpiStrip
+              className="w-full min-w-0 flex-wrap justify-start lg:justify-end"
+              items={[
+                { label: "Stock value", value: formatINR(stats.totalValue) },
+                { label: "Sale value", value: formatINR(stats.totalSaleValue) },
+                { label: "Units", value: stats.totalUnits.toLocaleString("en-IN") },
+                { label: "Low stock", value: stats.lowStock },
+                { label: "Dead stock", value: stats.deadStock },
+              ]}
+            />
+          </div>
         }
-      />
+      >
+        <div className="flex flex-wrap gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => {
+              if (inventoryItems.length === 0) {
+                toast({ title: "Nothing to export", variant: "destructive" });
+                return;
+              }
+              downloadCSV(
+                "inventory_stock_summary.csv",
+                inventoryItems.map((i) => ({
+                  name: i.name,
+                  category: i.category,
+                  hsn: i.hsn,
+                  stock: i.stock,
+                  unit: i.unit,
+                  buyPrice: i.buyPrice,
+                  salePrice: i.salePrice,
+                  minStock: i.minStock,
+                })),
+                ["name", "category", "hsn", "stock", "unit", "buyPrice", "salePrice", "minStock"],
+              );
+              toast({ title: "Exported", description: "Stock summary CSV." });
+            }}
+          >
+            <Download className="h-3 w-3 mr-1" />
+            Stock CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => {
+              if (movements.length === 0) {
+                toast({ title: "Nothing to export", description: "No movement rows.", variant: "destructive" });
+                return;
+              }
+              downloadCSV(
+                "inventory_movements.csv",
+                movements.map((m) => ({
+                  date: m.date,
+                  item: m.item,
+                  type: m.type,
+                  qty: m.qty,
+                  unitPrice: m.unitPrice,
+                  total: m.total,
+                  ref: m.ref,
+                  refId: m.refId,
+                })),
+                ["date", "item", "type", "qty", "unitPrice", "total", "ref", "refId"],
+              );
+              toast({ title: "Exported", description: "Movement log CSV." });
+            }}
+          >
+            <Download className="h-3 w-3 mr-1" />
+            Movements CSV
+          </Button>
+        </div>
+      </StickyPageHeader>
 
       <Tabs value={mainTab} onValueChange={setMainTab}>
         <TabsList>
@@ -235,7 +361,14 @@ const InventoryAudit = () => {
             </CardHeader>
             <CardContent className="p-0">
               {Object.entries(grouped).map(([category, items]) => (
-                <StockCategoryTable key={category} category={category} items={items} fmt={fmt} />
+                <StockCategoryTable
+                  key={category}
+                  category={category}
+                  items={items}
+                  fmt={fmt}
+                  valuation={valuation}
+                  movements={movements}
+                />
               ))}
             </CardContent>
           </Card>
@@ -293,9 +426,17 @@ const InventoryAudit = () => {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">{m.qty}</TableCell>
-                      <TableCell className="text-right">{fmt(m.unitPrice)}</TableCell>
-                      <TableCell className="text-right font-medium">{fmt(m.total)}</TableCell>
-                      <TableCell className="cursor-pointer text-primary hover:underline">{m.ref}</TableCell>
+                      <TableCell className="text-right">{formatINR(m.unitPrice)}</TableCell>
+                      <TableCell className="text-right font-medium">{formatINR(m.total)}</TableCell>
+                      <TableCell
+                        className="cursor-pointer text-primary hover:underline"
+                        onClick={() => {
+                          if (m.type === "Consumption" && m.refId) navigate(`/projects/${m.refId}`);
+                          else if (m.type === "Purchase" && m.refId) navigate(`/vendors/${m.refId}`);
+                        }}
+                      >
+                        {m.ref}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Edit, User, Phone, Calendar, MapPin, IndianRupee, Briefcase, ChevronDown, ChevronUp, Upload, X, FileText, Filter, Download, Receipt, ClipboardList, Gift, Trash2 } from "lucide-react";
+import { Edit, User, Phone, Calendar, MapPin, IndianRupee, Briefcase, ChevronDown, ChevronUp, Upload, X, FileText, Filter, Download, Receipt, ClipboardList, Gift, Mail, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -10,18 +10,27 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppData } from "@/contexts/AppDataContext";
-import { format, getDaysInMonth, startOfMonth, eachDayOfInterval, isSameDay, parseISO, isBefore, startOfDay } from "date-fns";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { format, getDaysInMonth } from "date-fns";
+import { formatUiDate } from "@/lib/formatUiDate";
 import { toast } from "@/hooks/use-toast";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { formatINR } from "@/lib/formatCurrency";
+import { validateContactPhone } from "@/lib/phoneValidators";
+import { PayrollPolicyService } from "@/application/services/PayrollPolicyService";
+
+// Shared instance — service is stateless, this avoids re-instantiating per render.
+const payrollPolicyService = new PayrollPolicyService();
 
 interface UploadedDoc {
   name: string;
@@ -32,20 +41,27 @@ const months = ["January", "February", "March", "April", "May", "June", "July", 
 const expenseCategories = ["All", "Transport", "Food", "Material", "Medical", "Others"];
 
 const EmployeeProfile = () => {
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   const { id } = useParams();
-  const { 
-    getTasksByEmployee = () => [], 
-    updateTask, 
+  const {
+    getTasksByEmployee = () => [],
+    updateTask,
     employeePaidHolidays = [],
-    employees,
+    _employees,
     getEmployeeById,
+    updateEmployee,
+    updateExpense,
     attendanceRecords,
     holidays,
     getExpensesByEmployee,
     expenses,
     getEmployeePaidHolidaysByMonth,
+    canDo,
+    getEmployeeWalletLedger,
+    addEmployeeWalletLedgerEntry,
   } = useAppData();
+  const { currentRole } = useAppSession();
+  const isSuperAdmin = currentRole === "super_admin";
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [expandedMonths, setExpandedMonths] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState("attendance");
@@ -61,13 +77,41 @@ const EmployeeProfile = () => {
   const [expenseTablePage, setExpenseTablePage] = useState(1);
   const [expenseTablePageSize, setExpenseTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
+  const [walletKind, setWalletKind] = useState<"advance" | "recovery" | "adjustment">("advance");
+  const [walletDate, setWalletDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [walletAmount, setWalletAmount] = useState("");
+  const [walletNotes, setWalletNotes] = useState("");
+
   // Edit profile state
   const [uploadedAadhar, setUploadedAadhar] = useState<UploadedDoc | null>(null);
   const [uploadedPhoto, setUploadedPhoto] = useState<UploadedDoc | null>(null);
   const [uploadedOthers, setUploadedOthers] = useState<UploadedDoc | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editAadhar, setEditAadhar] = useState("");
+  const [editDob, setEditDob] = useState("");
+  const [editSalary, setEditSalary] = useState("");
+  const [editRole, setEditRole] = useState("");
+  const [editJoiningDate, setEditJoiningDate] = useState("");
+  const [editAddress, setEditAddress] = useState("");
 
   const employeeId = parseInt(id || "1");
   const contextEmployee = getEmployeeById(employeeId);
+
+  const walletLedgerRows = useMemo(
+    () =>
+      [...(getEmployeeWalletLedger?.(employeeId) ?? [])].sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+      ),
+    [getEmployeeWalletLedger, employeeId],
+  );
+
+  const walletLedgerNet = useMemo(() => {
+    return walletLedgerRows.reduce((acc, r) => {
+      if (r.kind === "recovery") return acc - r.amount;
+      return acc + r.amount;
+    }, 0);
+  }, [walletLedgerRows]);
   
   // Build employee object from context
   const employee = useMemo(() => {
@@ -102,6 +146,12 @@ const EmployeeProfile = () => {
       project: exp.projectName || "General",
     }));
   }, [getExpensesByEmployee, employeeId]);
+
+  const reimbursementPending = useMemo(() => {
+    return getExpensesByEmployee(employeeId.toString()).filter(
+      (e) => e.reimbursement?.enabled && e.reimbursement.status === "pending",
+    );
+  }, [getExpensesByEmployee, employeeId, expenses]);
 
   const filteredExpenses = useMemo(() => {
     return employeeExpenses.filter((expense) => {
@@ -163,10 +213,23 @@ const EmployeeProfile = () => {
       const presentDays = monthRecords.filter(r => r.status === "present").length + paidLeaves.length;
       const absentDays = monthRecords.filter(r => r.status === "absent").length;
       
-      // Calculate salary earned (present + holidays + paid leaves)
-      const salary = contextEmployee?.salary || 30000;
-      const perDayRate = salary / daysInMonth;
-      const salaryEarned = Math.round((presentDays + holidayCount) * perDayRate);
+      // C5: route monthly proration through PayrollPolicyService so this view agrees with payroll.
+      // Note: legacy `presentDays` already folds in `paidLeaves`, so we don't pass them again.
+      const salary = contextEmployee?.salary || 0;
+      const policyOutput = payrollPolicyService.calculate({
+        monthlySalary: salary,
+        totalWorkingDays: 26,
+        presentDays,
+        paidLeaveDays: 0,
+        unpaidDays: absentDays,
+        companyHolidays: holidayCount,
+        overtimeAmount: 0,
+        bonusAmount: 0,
+        deductionsAmount: 0,
+        salaryAdvances: 0,
+        manualAdjustments: 0,
+      });
+      const salaryEarned = Math.round(policyOutput.grossEarning);
       
       // Get advances (salary advances from expenses)
       const advances = expenses
@@ -175,7 +238,7 @@ const EmployeeProfile = () => {
           e.category === "salary" && 
           e.date.startsWith(monthStr)
         )
-        .map(e => ({ date: format(new Date(e.date), "dd MMM"), amount: e.amount }));
+        .map(e => ({ date: formatUiDate(e.date, "dd MMM"), amount: e.amount }));
       
       const totalAdvances = advances.reduce((sum, a) => sum + a.amount, 0);
       const netPending = salaryEarned - totalAdvances;
@@ -214,7 +277,7 @@ const EmployeeProfile = () => {
   }, [attendanceRecords, employeeId, holidays, expenses, contextEmployee, getEmployeePaidHolidaysByMonth]);
   
   // Get paid leaves by month
-  const getPaidLeavesForMonth = (monthName: string) => {
+  const _getPaidLeavesForMonth = (monthName: string) => {
     const monthMap: Record<string, string> = {
       "January": "01", "February": "02", "March": "03", "April": "04",
       "May": "05", "June": "06", "July": "07", "August": "08",
@@ -228,6 +291,29 @@ const EmployeeProfile = () => {
     setExpandedMonths(prev => 
       prev.includes(month) ? prev.filter(m => m !== month) : [...prev, month]
     );
+  };
+
+  const submitWalletEntry = () => {
+    if (!isSuperAdmin) return;
+    const amt = parseFloat(walletAmount);
+    const res = addEmployeeWalletLedgerEntry({
+      employeeId,
+      date: walletDate,
+      kind: walletKind,
+      amount: amt,
+      notes: walletNotes.trim() || undefined,
+    });
+    if (res.ok) {
+      toast({ title: "Recorded", description: "Wallet entry saved." });
+      setWalletAmount("");
+      setWalletNotes("");
+    } else {
+      toast({
+        title: "Could not save",
+        description: res.error === "forbidden" ? "Super admin only." : res.error ?? "Check amount and date.",
+        variant: "destructive",
+      });
+    }
   };
 
   const openEditProfile = () => {
@@ -266,7 +352,7 @@ const EmployeeProfile = () => {
     return { salaryEarned, advances, pending: salaryEarned - advances };
   };
 
-  const currentMonthData = attendanceData.find(d => d.month === selectedMonth);
+  const _currentMonthData = attendanceData.find(d => d.month === selectedMonth);
   const runningTotals = getRunningTotals(selectedMonth);
   const previousMonthIndex = months.indexOf(selectedMonth) - 1;
   const previousRunningTotals = previousMonthIndex >= 0 ? getRunningTotals(months[previousMonthIndex]) : { salaryEarned: 0, advances: 0, pending: 0 };
@@ -292,7 +378,7 @@ const EmployeeProfile = () => {
           />
         }
       >
-        <Button variant="outline" onClick={openEditProfile}>
+        <Button variant="outline" onClick={openEditProfile} disabled={!canDo("hr:update_employee")}>
           <Edit className="w-4 h-4 mr-2" />
           Edit Profile
         </Button>
@@ -321,6 +407,25 @@ const EmployeeProfile = () => {
                   <p className="text-sm font-medium">{employee.phone}</p>
                 </div>
               </div>
+              {contextEmployee?.email ? (
+                <div className="flex items-center gap-3">
+                  <Mail className="w-4 h-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Email</p>
+                    <a href={`mailto:${contextEmployee.email}`} className="text-sm font-medium text-primary hover:underline">
+                      {contextEmployee.email}
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <Mail className="w-4 h-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Email</p>
+                    <p className="text-sm font-medium text-muted-foreground">—</p>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-3">
                 <User className="w-4 h-4 text-muted-foreground" />
                 <div>
@@ -362,6 +467,45 @@ const EmployeeProfile = () => {
 
         {/* Right Column */}
         <div className="lg:col-span-2 space-y-6">
+          {reimbursementPending.length > 0 && (
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardHeader>
+                <CardTitle className="text-base font-medium">Pending reimbursements</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {reimbursementPending.map((exp) => (
+                  <div key={exp.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-card px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{exp.description || exp.category}</p>
+                      <p className="text-2xs text-muted-foreground">{exp.date}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="font-semibold">{formatINR(exp.reimbursement?.amount ?? exp.amount)}</span>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        type="button"
+                        disabled={!canDo("finance:update_expense")}
+                        onClick={() => {
+                          if (!exp.reimbursement?.enabled) return;
+                          updateExpense(exp.id, {
+                            reimbursement: {
+                              ...exp.reimbursement,
+                              status: "paid",
+                              paidDate: format(new Date(), "yyyy-MM-dd"),
+                            },
+                          });
+                          toast({ title: "Marked reimbursed", description: `${formatINR(exp.reimbursement.amount)} for ${exp.category}.` });
+                        }}
+                      >
+                        Mark reimbursed
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
           {/* Documents Section */}
           <Card className="bg-card">
             <CardHeader>
@@ -439,6 +583,10 @@ const EmployeeProfile = () => {
                       Tasks ({getTasksByEmployee(parseInt(id || "1")).length})
                     </TabsTrigger>
                     <TabsTrigger value="expenses" className="flex-1 sm:flex-none">Expenses</TabsTrigger>
+                    <TabsTrigger value="wallet" className="flex-1 sm:flex-none">
+                      <Wallet className="w-3 h-3 mr-1" />
+                      Wallet
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
@@ -626,11 +774,11 @@ const EmployeeProfile = () => {
               </div>
               
               {/* Paid Leave Summary */}
-              <div className="mt-4 p-4 bg-blue-500/5 rounded-lg border border-blue-500/20">
+              <div className="mt-4 p-4 bg-primary/5 rounded-lg border border-primary/20">
                 <div className="flex items-center gap-2 mb-3">
-                  <Gift className="w-4 h-4 text-blue-600" />
+                  <Gift className="w-4 h-4 text-primary" />
                   <h4 className="font-medium text-sm">Paid Leave Summary 2024</h4>
-                  <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                  <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
                     {employeePaidLeaves.length} taken
                   </Badge>
                 </div>
@@ -640,7 +788,7 @@ const EmployeeProfile = () => {
                       <div key={pl.id} className="flex items-center justify-between p-2 bg-background/50 rounded text-sm">
                         <div className="flex items-center gap-2">
                           <Calendar className="w-3 h-3 text-muted-foreground" />
-                          <span>{format(new Date(pl.date), "dd MMM yyyy")}</span>
+                          <span>{formatUiDate(pl.date)}</span>
                           {pl.notes && <span className="text-muted-foreground">- {pl.notes}</span>}
                         </div>
                         <Badge variant="outline" className="text-xs">{pl.month}</Badge>
@@ -658,18 +806,19 @@ const EmployeeProfile = () => {
                 <>
                   <div className="space-y-3">
                     {getTasksByEmployee(parseInt(id || "1")).length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>No tasks assigned yet</p>
-                      </div>
+                      <ListEmptyState
+                        icon={ClipboardList}
+                        title="No tasks assigned yet"
+                        description="Tasks from the field roster will show here when assigned."
+                      />
                     ) : (
                       getTasksByEmployee(parseInt(id || "1")).map(task => (
                         <div key={task.id} className="p-4 bg-muted/30 rounded-lg space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Badge className={
-                                task.status === "done" ? "bg-blue-500/10 text-blue-500" :
-                                task.status === "started" ? "bg-blue-500/10 text-blue-500" :
+                                task.status === "done" ? "bg-primary/10 text-primary" :
+                                task.status === "started" ? "bg-primary/10 text-primary" :
                                 task.status === "checked" ? "bg-purple-500/10 text-purple-500" :
                                 task.status === "sent" || task.status === "created" ? "bg-amber-500/10 text-amber-500" :
                                 "bg-muted text-muted-foreground"
@@ -699,7 +848,7 @@ const EmployeeProfile = () => {
                           </div>
                           <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                             <span>📍 {task.siteName}</span>
-                            <span>📅 {format(new Date(task.workDate), "dd MMM yyyy")}</span>
+                            <span>📅 {formatUiDate(task.workDate)}</span>
                             {task.dateOffset && task.dateOffset > 0 && (
                               <Badge variant="outline" className="text-xs">T+{task.dateOffset}</Badge>
                             )}
@@ -721,7 +870,7 @@ const EmployeeProfile = () => {
                           {/* Show delay indicator if original date differs */}
                           {task.originalDate && task.originalDate !== task.workDate && (
                             <Badge variant="destructive" className="text-xs">
-                              ⚠️ Delayed from {format(new Date(task.originalDate), "dd MMM")}
+                              ⚠️ Delayed from {formatUiDate(task.originalDate, "dd MMM")}
                             </Badge>
                           )}
                         </div>
@@ -729,6 +878,106 @@ const EmployeeProfile = () => {
                     )}
                   </div>
                 </>
+              )}
+
+              {activeTab === "wallet" && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-muted/30 rounded-lg">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Ledger net (advances + adjustments − recoveries)</p>
+                      <p className={`text-lg font-semibold ${walletLedgerNet >= 0 ? "text-foreground" : "text-primary"}`}>
+                        {formatINR(Math.abs(walletLedgerNet))}
+                        {walletLedgerNet < 0 && <span className="text-sm font-normal text-muted-foreground ml-1">(net recovery)</span>}
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground max-w-md">
+                      Recorded separately from monthly payroll runs. Only a super admin can add entries.
+                    </p>
+                  </div>
+
+                  {isSuperAdmin && (
+                    <div className="p-4 border rounded-lg space-y-3 bg-card">
+                      <h4 className="text-sm font-medium">Add wallet entry</h4>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Kind</Label>
+                          <Select value={walletKind} onValueChange={(v) => setWalletKind(v as typeof walletKind)}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="advance">Advance</SelectItem>
+                              <SelectItem value="recovery">Recovery</SelectItem>
+                              <SelectItem value="adjustment">Adjustment</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Date</Label>
+                          <Input type="date" value={walletDate} onChange={(e) => setWalletDate(e.target.value)} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Amount (₹)</Label>
+                          <Input
+                            inputMode="decimal"
+                            value={walletAmount}
+                            onChange={(e) => setWalletAmount(e.target.value)}
+                            placeholder="0"
+                          />
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label className="text-xs">Notes (optional)</Label>
+                          <Input value={walletNotes} onChange={(e) => setWalletNotes(e.target.value)} placeholder="Reference / remark" />
+                        </div>
+                      </div>
+                      <Button type="button" size="sm" onClick={submitWalletEntry}>
+                        Save entry
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium">Wallet ledger</h4>
+                    <p className="text-xs text-muted-foreground">Chronological advances, recoveries, and adjustments.</p>
+                    <DataTableShell variant="inline" maxHeight="min(420px, 50vh)">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Kind</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead>Notes</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {walletLedgerRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                              No wallet entries yet.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          walletLedgerRows.map((row) => (
+                            <TableRow key={row.id}>
+                              <TableCell className="whitespace-nowrap">{formatDate(row.date)}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="capitalize">
+                                  {row.kind}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {row.kind === "recovery" ? "−" : "+"}
+                                {formatINR(row.amount)}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground text-sm max-w-[240px] truncate">
+                                {row.notes ?? "—"}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </DataTableShell>
+                  </div>
+                </div>
               )}
 
               {activeTab === "expenses" && (
@@ -848,8 +1097,20 @@ const EmployeeProfile = () => {
       </div>
 
       {/* Edit Profile Sheet */}
-      <Sheet open={isEditProfileOpen} onOpenChange={setIsEditProfileOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+      <Sheet open={isEditProfileOpen} onOpenChange={(open) => {
+        if (open && employee) {
+          setEditName(employee.name);
+          setEditPhone(employee.phone);
+          setEditAadhar(employee.aadhar || "");
+          setEditDob(employee.dob || "");
+          setEditSalary(employee.salary?.toString() || "");
+          setEditRole(employee.role);
+          setEditJoiningDate(employee.joiningDate || "");
+          setEditAddress((contextEmployee as any)?.address || "");
+        }
+        setIsEditProfileOpen(open);
+      }}>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Edit Profile</SheetTitle>
           </SheetHeader>
@@ -865,31 +1126,22 @@ const EmployeeProfile = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="fullName">Full Name</Label>
-                  <Input id="fullName" defaultValue={employee.name} />
+                  <Input id="fullName" value={editName} onChange={e => setEditName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone</Label>
-                  <Input id="phone" defaultValue={employee.phone} />
+                  <Input id="phone" value={editPhone} onChange={e => setEditPhone(e.target.value)} />
                 </div>
               </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="address">Current Address</Label>
-                <Input id="address" defaultValue={employee.address} />
-              </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="aadhar">Aadhar Number</Label>
-                  <Input id="aadhar" defaultValue={employee.aadhar} />
+                  <Input id="aadhar" value={editAadhar} onChange={e => setEditAadhar(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="dob">Date of Birth</Label>
-                  <Input id="dob" type="date" defaultValue={employee.dob} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="altPhone">Alternate Number</Label>
-                  <Input id="altPhone" defaultValue={employee.altPhone} />
+                  <Input id="dob" type="date" value={editDob} onChange={e => setEditDob(e.target.value)} />
                 </div>
               </div>
             </div>
@@ -904,26 +1156,31 @@ const EmployeeProfile = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="salary">Salary (Monthly)</Label>
-                  <Input id="salary" defaultValue={employee.salary.toString()} />
+                  <Input id="salary" value={editSalary} onChange={e => setEditSalary(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="role">Role</Label>
-                  <Select defaultValue={employee.role.toLowerCase().replace(" ", "-")}>
+                  <Select value={editRole} onValueChange={setEditRole}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="site-supervisor">Site Supervisor</SelectItem>
-                      <SelectItem value="installer">Installer</SelectItem>
-                      <SelectItem value="electrician">Electrician</SelectItem>
-                      <SelectItem value="helper">Helper</SelectItem>
-                      <SelectItem value="accountant">Accountant</SelectItem>
+                      <SelectItem value="Site Supervisor">Site Supervisor</SelectItem>
+                      <SelectItem value="Installer">Installer</SelectItem>
+                      <SelectItem value="Electrician">Electrician</SelectItem>
+                      <SelectItem value="Helper">Helper</SelectItem>
+                      <SelectItem value="Accountant">Accountant</SelectItem>
+                      <SelectItem value="Manager">Manager</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="joiningDate">Joining Date</Label>
-                  <Input id="joiningDate" type="date" defaultValue={employee.joiningDate} />
+                  <Input id="joiningDate" type="date" value={editJoiningDate} onChange={e => setEditJoiningDate(e.target.value)} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input id="address" value={editAddress} onChange={e => setEditAddress(e.target.value)} placeholder="Employee address" />
                 </div>
               </div>
             </div>
@@ -1013,7 +1270,27 @@ const EmployeeProfile = () => {
 
           <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsEditProfileOpen(false)}>Cancel</Button>
-            <Button className="bg-primary text-primary-foreground" onClick={() => setIsEditProfileOpen(false)}>Save Changes</Button>
+            <Button className="bg-primary text-primary-foreground" onClick={() => {
+              if (!employee) return;
+              const ph = validateContactPhone(editPhone);
+              if (!ph.ok) {
+                toast({ title: "Invalid phone", description: (ph as { message: string }).message, variant: "destructive" });
+                return;
+              }
+              updateEmployee(employee.id, {
+                name: editName.trim(),
+                phone: editPhone,
+                aadhar: editAadhar,
+                dob: editDob,
+                salary: parseFloat(editSalary) || employee.salary || 0,
+                role: editRole || employee.role,
+                joiningDate: editJoiningDate,
+                initial: editName.trim().charAt(0).toUpperCase() || employee.initial,
+                address: editAddress || undefined,
+              } as any);
+              toast({ title: "Profile Updated", description: "Employee profile has been saved." });
+              setIsEditProfileOpen(false);
+            }}>Save Changes</Button>
           </div>
         </SheetContent>
       </Sheet>

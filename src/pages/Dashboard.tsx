@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   IndianRupee,
   Users,
@@ -40,6 +40,7 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type StatCardDef = {
   id: string;
@@ -63,6 +64,7 @@ const Dashboard = () => {
     quotations,
     loans,
     inventoryItems,
+    lowStockItems: contextLowStockItems,
     sites,
     vendorBills,
     enquiries,
@@ -76,6 +78,11 @@ const Dashboard = () => {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [needToGetOpen, setNeedToGetOpen] = useState(false);
   const [isNtgCollapsed, setIsNtgCollapsed] = useState(true);
+  const [kpiShellReady, setKpiShellReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setKpiShellReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
 
   const openPipelineEnquiries = useMemo(
     () => enquiries.filter((e) => e.status !== "converted" && e.status !== "lost"),
@@ -130,19 +137,61 @@ const Dashboard = () => {
       upcomingEmiAmount,
       openOpsBlockagesCount: activeOpsBlockages.length,
     };
-  }, [projects, employees, invoices, quotations, loans, saleBills, activeOpsBlockages.length]);
+  }, [projects, employees, invoices, quotations, loans, saleBills, activeOpsBlockages]);
 
-  const lowStockItems = useMemo(() => {
-    return inventoryItems
-      .filter((item) => item.stock < (item.minStock || 5))
-      .map((item) => ({
+  const lowStockItems = useMemo(
+    () =>
+      contextLowStockItems.map((item) => ({
         id: item.id,
         name: item.name,
         stock: item.stock,
-        min: item.minStock || 5,
+        min: item.minStock ?? 0,
         category: item.category,
-      }));
-  }, [inventoryItems]);
+      })),
+    [contextLowStockItems],
+  );
+
+  const startOfToday = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const endNext7Days = useMemo(() => {
+    const d = new Date(startOfToday);
+    d.setDate(d.getDate() + 7);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }, [startOfToday]);
+
+  const parseLoanEmiDue = useCallback((loan: (typeof loans)[0]) => {
+    const raw = (loan as { nextEmiDate?: string }).nextEmiDate ?? loan.dueDate;
+    if (!raw || isNaN(Date.parse(raw))) return null;
+    return new Date(raw);
+  }, []);
+
+  const activeEmiLoans = useMemo(
+    () => loans.filter((l) => l.status === "Active" && l.paymentType === "emi"),
+    [loans],
+  );
+
+  const emiDueWithin7Days = useMemo(
+    () =>
+      activeEmiLoans.filter((l) => {
+        const d = parseLoanEmiDue(l);
+        return d != null && d >= startOfToday && d <= endNext7Days;
+      }),
+    [activeEmiLoans, startOfToday, endNext7Days, parseLoanEmiDue],
+  );
+
+  const emiOverdue = useMemo(
+    () =>
+      activeEmiLoans.filter((l) => {
+        const d = parseLoanEmiDue(l);
+        return d != null && d < startOfToday;
+      }),
+    [activeEmiLoans, startOfToday, parseLoanEmiDue],
+  );
 
   const groupedLowStockItems = lowStockItems.reduce(
     (acc, item) => {
@@ -194,7 +243,7 @@ const Dashboard = () => {
       iconClass: "bg-violet-600 text-white shadow-sm shadow-violet-600/20",
       hint: "Pipeline excluding won/lost",
       hintTone: openPipelineEnquiries.length > 0 ? "neutral" : "positive",
-      details: openPipelineEnquiries.slice(0, 3).map(e => ({ id: e.id, text: `${e.customerName} - ${e.status}` })),
+      details: openPipelineEnquiries.slice(0, 3).map(e => ({ id: e.id, text: `${e.customerName || "No Name"} - ${e.status}` })),
     },
     {
       id: "quotations",
@@ -205,7 +254,7 @@ const Dashboard = () => {
       iconClass: "bg-sky-600 text-white shadow-sm shadow-sky-600/20",
       hint: "Draft / sent awaiting action",
       hintTone: stats.pendingQuotations.length > 0 ? "negative" : "positive",
-      details: stats.pendingQuotations.slice(0, 3).map(q => ({ id: q.id, text: `₹${(q.total/100000).toFixed(1)}L - ${q.customerName}` })),
+      details: stats.pendingQuotations.slice(0, 3).map(q => ({ id: q.id, text: `₹${(q.totalAmount/100000).toFixed(1)}L - ${q.clientName}` })),
     },
     {
       id: "projects",
@@ -227,7 +276,7 @@ const Dashboard = () => {
       iconClass: "bg-teal-600 text-white shadow-sm shadow-teal-600/20",
       hint: "On ongoing projects",
       hintTone: "neutral",
-      details: sitesOnOngoingProjects.slice(0, 3).map(s => ({ id: s.id, text: s.name })),
+      details: sitesOnOngoingProjects.slice(0, 3).map(s => ({ id: String(s.id), text: s.name })),
     },
     {
       id: "pending",
@@ -260,7 +309,7 @@ const Dashboard = () => {
       iconClass: "bg-destructive text-destructive-foreground shadow-sm",
       hint: "Below threshold",
       hintTone: lowStockItems.length > 0 ? "negative" : "positive",
-      details: lowStockItems.slice(0, 3).map(i => ({ id: i.id, text: `${i.name}: ${i.stock} / ${i.min}` })),
+      details: lowStockItems.slice(0, 3).map(i => ({ id: String(i.id), text: `${i.name}: ${i.stock} / ${i.min}` })),
     },
     {
       id: "emis",
@@ -271,7 +320,12 @@ const Dashboard = () => {
       iconClass: "bg-orange-600 text-white shadow-sm",
       hint: `${stats.activeLoans.length} active loans`,
       hintTone: "neutral",
-      details: stats.activeLoans.slice(0, 3).map(l => ({ id: l.id.toString(), text: `₹${(l.emiAmount/1000).toFixed(0)}k - ${l.nextEmiDate ? new Date(l.nextEmiDate).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}) : 'TBD'} - ${l.borrowerName}` })),
+      details: stats.activeLoans.slice(0, 3).map((l) => {
+        const due = parseLoanEmiDue(l);
+        const dueLabel = due ? due.toLocaleDateString("en-IN", { month: "short", day: "numeric" }) : "TBD";
+        const borrower = l.personName ?? l.source;
+        return { id: l.id.toString(), text: `₹${(l.emiAmount / 1000).toFixed(0)}k · ${dueLabel} · ${borrower}` };
+      }),
     },
     {
       id: "blockages",
@@ -396,52 +450,56 @@ const Dashboard = () => {
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {statsCards.map((card) => {
-              const Icon = card.icon;
-              return (
-                <button
-                  key={card.id}
-                  type="button"
-                  onClick={() => handleCardClick(card.id)}
-                  className="group relative flex flex-col rounded-xl border border-border/70 bg-card p-4 text-left shadow-sm transition-all hover:border-primary/35 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <div className="flex w-full items-start justify-between gap-3">
-                    <div className="flex flex-col gap-1 min-w-0 flex-1">
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground truncate">
-                        {card.title}
-                      </span>
-                      <div className="flex items-baseline gap-2">
-                        <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{card.value}</p>
-                        <p className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-muted/50", hintClass[card.hintTone])}>{card.hint}</p>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <span
-                        className={cn(
-                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition group-hover:scale-[1.05]",
-                          card.iconClass,
-                        )}
-                      >
-                        <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {card.details && card.details.length > 0 && (
-                    <div className="mt-3.5 flex flex-col gap-1.5 border-t border-border/40 pt-3 w-full">
-                      {card.details.map((detail) => (
-                        <div key={detail.id} className="flex items-center text-[10px] text-muted-foreground leading-tight">
-                          <span className="w-1 h-1 rounded-full bg-primary/40 mr-2 shrink-0" />
-                          <span className="truncate opacity-80 group-hover:opacity-100 transition-opacity">{detail.text}</span>
+            {!kpiShellReady
+              ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-xl border border-border/40" />)
+              : statsCards.map((card) => {
+                  const Icon = card.icon;
+                  return (
+                    <button
+                      key={card.id}
+                      type="button"
+                      onClick={() => handleCardClick(card.id)}
+                      className="group relative flex flex-col rounded-xl border border-border/70 bg-card p-4 text-left shadow-sm transition-all hover:border-primary/35 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <div className="flex w-full items-start justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 flex-col gap-1">
+                          <span className="truncate text-xs2 font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                            {card.title}
+                          </span>
+                          <div className="flex items-baseline gap-2">
+                            <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{card.value}</p>
+                            <p className={cn("rounded-full bg-muted/50 px-1.5 py-0.5 text-2xs font-medium", hintClass[card.hintTone])}>
+                              {card.hint}
+                            </p>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  <ArrowUpRight className="absolute top-4 right-14 h-4 w-4 text-muted-foreground/0 transition group-hover:text-muted-foreground/40" />
-                </button>
-              );
-            })}
+                        <div className="flex flex-col items-end gap-2">
+                          <span
+                            className={cn(
+                              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition group-hover:scale-[1.05]",
+                              card.iconClass,
+                            )}
+                          >
+                            <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
+                          </span>
+                        </div>
+                      </div>
+
+                      {card.details && card.details.length > 0 && (
+                        <div className="mt-3.5 flex w-full flex-col gap-1.5 border-t border-border/40 pt-3">
+                          {card.details.map((detail) => (
+                            <div key={detail.id} className="flex items-center text-2xs leading-tight text-muted-foreground">
+                              <span className="mr-2 h-1 w-1 shrink-0 rounded-full bg-primary/40" />
+                              <span className="truncate opacity-80 transition-opacity group-hover:opacity-100">{detail.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <ArrowUpRight className="absolute right-14 top-4 h-4 w-4 text-muted-foreground/0 transition group-hover:text-muted-foreground/40" />
+                    </button>
+                  );
+                })}
           </div>
         </section>
 
@@ -495,7 +553,7 @@ const Dashboard = () => {
             )}
 
             {permissionService.canAccessPath(currentRole, "/inventory/materials") && (
-              <Card className="overflow-hidden rounded-2xl border-border/70 shadow-sm">
+              <Card className="overflow-hidden rounded-xl border-border/70 shadow-sm">
                 <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-4 py-3">
                   <div className="flex items-center gap-2 min-w-0">
                     <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
@@ -560,7 +618,7 @@ const Dashboard = () => {
           </div>
 
           <aside className="space-y-4 lg:col-span-5">
-            <Card className="rounded-2xl border-border/70 shadow-sm">
+            <Card className="rounded-xl border-border/70 shadow-sm">
               <div className="border-b border-border/60 bg-muted/25 px-4 py-3">
                 <h3 className="text-sm font-semibold text-foreground">Pipeline snapshot</h3>
                 <p className="text-xs text-muted-foreground">Sales motion at a glance</p>
@@ -609,18 +667,84 @@ const Dashboard = () => {
             </Card>
 
             {lowStockItems.length > 0 && visibleMetrics.has("lowStockMaterials") && (
-              <Card className="rounded-2xl border-destructive/25 bg-destructive/[0.04] shadow-sm">
+              <Card className="rounded-xl border-destructive/25 bg-destructive/[0.04] shadow-sm">
                 <CardContent className="flex items-start gap-3 p-5 pt-6">
                   <Package className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
                   <div>
                     <p className="text-sm font-medium text-foreground">Inventory attention</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {lowStockItems.length} SKU{lowStockItems.length === 1 ? "" : "s"} below minimum. Restock before sites stall.
+                      {lowStockItems.length} SKU{lowStockItems.length === 1 ? "" : "s"} at or below minimum (same rule as Inventory alerts). Restock before sites stall.
                     </p>
                     <Button size="sm" variant="destructive" className="mt-3" onClick={() => navigate("/inventory/materials")}>
                       Go to inventory
                     </Button>
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {activeEmiLoans.length > 0 && visibleMetrics.has("pendingApprovals") && (
+              <Card className="rounded-xl border-orange-500/25 bg-orange-500/[0.04] shadow-sm">
+                <CardContent className="space-y-3 p-5 pt-6">
+                  <div className="flex items-start gap-3">
+                    <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" aria-hidden />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">Loan EMI watchlist</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Active EMI loans: {activeEmiLoans.length}. Due dates use each loan{"'"}s next due / due date field.
+                      </p>
+                    </div>
+                  </div>
+                  {emiOverdue.length > 0 && (
+                    <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-destructive">Overdue</p>
+                      <ul className="space-y-2">
+                        {emiOverdue.map((l) => {
+                          const due = parseLoanEmiDue(l);
+                          const borrower = l.personName ?? l.source;
+                          return (
+                            <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                              <span className="min-w-0 truncate font-medium">{borrower}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {due ? due.toLocaleDateString("en-IN") : "—"} · ₹{(l.emiAmount || 0).toLocaleString("en-IN")}
+                              </span>
+                              <Button size="sm" variant="outline" className="shrink-0" onClick={() => navigate("/loans")}>
+                                Record payment
+                              </Button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                  {emiDueWithin7Days.length > 0 && (
+                    <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due within 7 days</p>
+                      <ul className="space-y-2">
+                        {emiDueWithin7Days.map((l) => {
+                          const due = parseLoanEmiDue(l);
+                          const borrower = l.personName ?? l.source;
+                          return (
+                            <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                              <span className="min-w-0 truncate font-medium">{borrower}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {due ? due.toLocaleDateString("en-IN") : "—"} · ₹{(l.emiAmount || 0).toLocaleString("en-IN")}
+                              </span>
+                              <Button size="sm" variant="secondary" className="shrink-0" onClick={() => navigate("/loans")}>
+                                Open loans
+                              </Button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                  {emiOverdue.length === 0 && emiDueWithin7Days.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No EMI due in the next 7 days and nothing overdue with a known due date.</p>
+                  )}
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => navigate("/loans")}>
+                    View all loans
+                  </Button>
                 </CardContent>
               </Card>
             )}
@@ -654,7 +778,7 @@ const Dashboard = () => {
             </div>
             <div className="flex justify-between gap-4 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2.5">
               <span className="font-medium">Total collected</span>
-              <span className="font-bold text-primary tabular-nums">₹{stats.totalRevenue.toLocaleString()}</span>
+              <span className="font-bold text-primary tabular-nums">₹{(stats.totalRevenue || 0).toLocaleString()}</span>
             </div>
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToPage("/finance")}>
@@ -776,7 +900,7 @@ const Dashboard = () => {
                 </div>
                 <div className="text-right">
                   <p className="font-semibold text-destructive tabular-nums">
-                    ₹{(invoice.total - (invoice.amountReceived || 0)).toLocaleString()}
+                    ₹{( (invoice.total || 0) - (invoice.amountReceived || 0) ).toLocaleString()}
                   </p>
                   <Badge variant={invoice.status === "pending" ? "destructive" : "secondary"} className="text-xs capitalize">
                     {invoice.status}
@@ -893,11 +1017,11 @@ const Dashboard = () => {
             {stats.activeLoans.map((loan) => (
               <div key={loan.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
                 <div>
-                  <p className="font-medium">{loan.source}</p>
-                  <p className="text-xs text-muted-foreground">Outstanding ₹{loan.outstanding.toLocaleString()}</p>
+                  <p className="font-medium">{loan.personName?.trim() || loan.source || "Unknown"}</p>
+                  <p className="text-xs text-muted-foreground">Outstanding ₹{(loan.outstanding || 0).toLocaleString()}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold tabular-nums">₹{loan.emiAmount.toLocaleString()}</p>
+                  <p className="font-semibold tabular-nums">₹{(loan.emiAmount || 0).toLocaleString()}</p>
                   <p className="text-xs text-muted-foreground">/ month</p>
                 </div>
               </div>
@@ -928,7 +1052,7 @@ const Dashboard = () => {
                   <p className="text-xs text-muted-foreground">{quotation.quotationNumber}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold tabular-nums">₹{quotation.totalAmount.toLocaleString()}</p>
+                  <p className="font-semibold tabular-nums">₹{(quotation.totalAmount || 0).toLocaleString()}</p>
                   <Badge variant="secondary" className="text-xs capitalize">
                     {quotation.status}
                   </Badge>

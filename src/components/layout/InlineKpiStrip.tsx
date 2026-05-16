@@ -22,7 +22,7 @@ export function InlineKpiStrip({ items, className }: { items: InlineKpiItem[]; c
       {items.map((item) => {
         const inner = (
           <>
-            <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-tight">
+            <span className="block text-2xs font-semibold uppercase tracking-wide text-muted-foreground leading-tight">
               {item.label}
             </span>
             <span

@@ -1,5 +1,5 @@
-import { useState, useRef, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { useState, useRef, useMemo, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -11,29 +11,31 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Search, Plus, Download, TrendingUp, TrendingDown, IndianRupee, ArrowUpRight, ArrowDownLeft, Receipt, Upload, Store, Phone, Mail, MapPin, X, Eye, FileText, Printer, Filter, ChevronDown, ChevronUp, Users, Building2, User, ExternalLink, AlertTriangle } from "lucide-react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Plus, Download, TrendingUp, TrendingDown, IndianRupee, ArrowUpRight, ArrowDownLeft, Receipt, X, Printer, Building2, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import ExportHeader from "@/components/ExportHeader";
-import ExportFooter from "@/components/ExportFooter";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { useMasters } from "@/contexts/MastersContext";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { UnifiedExpenseModal } from "@/components/expenses/UnifiedExpenseModal";
 import { UnifiedIncomeModal } from "@/components/income/UnifiedIncomeModal";
 import { toast } from "@/hooks/use-toast";
-import { EntityLink } from "@/components/shared/EntityInfoModal";
-import { Link, useNavigate } from "react-router-dom";
-import { EXPENSE_MAIN_CATEGORIES } from "@/lib/expenseSchema";
+import { useNavigate } from "react-router-dom";
 import { PrototypeFinanceNotice } from "@/components/prototype/PrototypeFinanceNotice";
+import { downloadCSV } from "@/lib/csvExport";
+import { format, isValid, parseISO } from "date-fns";
+import { Skeleton } from "@/components/ui/skeleton";
+import { formatINRCompact } from "@/lib/formatCurrency";
+import { calculateProjectProfit } from "@/domain/partners/derivePartnerEconomics";
+import type { OwnerInvestment } from "@/types/finance";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -65,7 +67,7 @@ interface InvoiceData {
 // Local invoice data removed - Finance page now uses contextInvoices from AppDataContext
 
 const Finance = () => {
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   const { getHsnCodes, getSacCodes, getGstRates, getStateCodes, getBankAccounts } = useMasters();
   const {
     invoices: contextInvoices,
@@ -75,13 +77,25 @@ const Finance = () => {
     employees: contextEmployees,
     projects: contextProjects,
     inventoryItems: contextInventory,
+    vendors: contextVendors,
+    addInvoice,
+    generateId,
+    addOwnerInvestment,
     accountingReviewQueue,
     dismissAccountingReviewItem,
     retryAccountingReviewPosting,
   } = useAppData();
 
+  const { currentRole } = useAppSession();
+  const canRecordExpenseIncome = ["super_admin", "admin"].includes(currentRole ?? "");
+
   const [txnTablePage, setTxnTablePage] = useState(1);
   const [txnTablePageSize, setTxnTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [financeShellReady, setFinanceShellReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setFinanceShellReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
 
   // Derive revenue/expense chart data from context
   const revenueData = useMemo(() => {
@@ -123,17 +137,36 @@ const Finance = () => {
     return result;
   }, [contextPayments, contextInvoices, contextSaleBills, contextExpenses]);
   
-  // Derive transactions from context
+  // Derive transactions from context (keep ISO for sorting / export month filters — L68)
   const transactions = useMemo(() => {
-    const txns: { id: string; date: string; description: string; type: "Credit" | "Debit"; amount: string; category: string; status: string }[] = [];
-    
-    // Add payments as credits
-    contextPayments.forEach(p => {
+    type TxnRow = {
+      id: string;
+      isoDate: string;
+      date: string;
+      description: string;
+      type: "Credit" | "Debit";
+      amount: string;
+      category: string;
+      status: string;
+    };
+    const txns: TxnRow[] = [];
+
+    const toIso = (raw: string | undefined) => {
+      if (!raw?.trim()) return "";
+      const d = parseISO(raw.includes("T") ? raw : `${raw.slice(0, 10)}T12:00:00`);
+      return isValid(d) ? d.toISOString() : "";
+    };
+    const display = (iso: string) =>
+      iso ? format(parseISO(iso), "dd MMM yyyy") : "";
+
+    contextPayments.forEach((p) => {
       if (p.direction === "in") {
+        const iso = toIso(p.date);
         txns.push({
           id: p.id,
-          date: p.date ? new Date(p.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
-          description: `Payment from ${p.counterpartyName || 'Customer'} - ${p.notes || 'Invoice Payment'}`,
+          isoDate: iso,
+          date: display(iso),
+          description: `Payment from ${p.counterpartyName || "Customer"} - ${p.notes || "Invoice Payment"}`,
           type: "Credit",
           amount: `₹${p.amount.toLocaleString()}`,
           category: "Project Income",
@@ -141,12 +174,13 @@ const Finance = () => {
         });
       }
     });
-    
-    // Add expenses as debits
-    contextExpenses.forEach(exp => {
+
+    contextExpenses.forEach((exp) => {
+      const iso = toIso(exp.date);
       txns.push({
         id: exp.id,
-        date: exp.date ? new Date(exp.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
+        isoDate: iso,
+        date: display(iso),
         description: exp.description || `${exp.category} expense`,
         type: "Debit",
         amount: `₹${exp.amount.toLocaleString()}`,
@@ -154,9 +188,12 @@ const Finance = () => {
         status: "Completed",
       });
     });
-    
-    // Sort by date descending
-    return txns.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    return txns.sort((a, b) => {
+      const ta = a.isoDate ? parseISO(a.isoDate).getTime() : 0;
+      const tb = b.isoDate ? parseISO(b.isoDate).getTime() : 0;
+      return tb - ta;
+    });
   }, [contextPayments, contextExpenses]);
 
   const { pagedItems: pagedTransactions, safePage: safeTxnPage } = usePagedSlice(
@@ -178,6 +215,90 @@ const Finance = () => {
       expenses: totalExpenses || 0,
       outstanding: outstanding || 0,
       profit: netProfit || 0,
+    };
+  }, [contextInvoices, contextPayments, contextExpenses]);
+
+  const totalAP = useMemo(
+    () => contextVendors.reduce((s, v) => s + (v.outstandingAmount || 0), 0),
+    [contextVendors],
+  );
+
+  const topProfitProjects = useMemo(() =>
+    contextProjects
+      .map(p => ({ name: p.name, profit: calculateProjectProfit(p) }))
+      .sort((a, b) => b.profit - a.profit)
+      .slice(0, 5),
+  [contextProjects]);
+
+  const profitMargin = kpiValues.revenue > 0
+    ? ((kpiValues.profit / kpiValues.revenue) * 100).toFixed(1)
+    : "0.0";
+
+  /** KPI drill-down rows derived from context (replaces hardcoded demo figures in modals). */
+  const financeKpiBreakdowns = useMemo(() => {
+    const today = new Date();
+    const invoiceReceivedTotal = contextInvoices.reduce((s, i) => s + (i.amountReceived || 0), 0);
+    const paymentsIn = contextPayments.filter((p) => p.direction === "in");
+    const paymentsInTotal = paymentsIn.reduce((s, p) => s + p.amount, 0);
+    const receiptBucket = new Map<string, number>();
+    paymentsIn.forEach((p) => {
+      const label = p.counterpartyName?.trim() || p.counterpartyType || "Other";
+      receiptBucket.set(label, (receiptBucket.get(label) || 0) + p.amount);
+    });
+    const topReceipts = Array.from(receiptBucket.entries())
+      .map(([label, amount]) => ({ label, amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 12);
+
+    const expenseByCategory = new Map<string, number>();
+    contextExpenses.forEach((e) => {
+      const key = e.category || e.mainCategory || "uncategorized";
+      expenseByCategory.set(key, (expenseByCategory.get(key) || 0) + e.amount);
+    });
+    const expenseLines = Array.from(expenseByCategory.entries())
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount);
+
+    const outstandingRows = contextInvoices
+      .map((inv) => {
+        const pending = inv.total - (inv.amountReceived || 0);
+        return { inv, pending };
+      })
+      .filter(({ pending }) => pending > 0.01)
+      .map(({ inv, pending }) => {
+        const due = inv.dueDate ? parseISO(inv.dueDate) : null;
+        const dueOk = due && isValid(due);
+        const overdueDays = dueOk ? Math.floor((today.getTime() - due.getTime()) / 86400000) : 0;
+        const isOverdue = dueOk && overdueDays > 0 && inv.status !== "paid";
+        return {
+          id: inv.id,
+          customerName: inv.customerName,
+          invoiceNumber: inv.invoiceNumber,
+          pending,
+          dueLabel: inv.dueDate ? format(parseISO(inv.dueDate), "dd MMM yyyy") : "—",
+          isOverdue,
+          overdueDays,
+        };
+      })
+      .sort((a, b) => b.pending - a.pending);
+
+    const byCustomer = new Map<string, number>();
+    outstandingRows.forEach((r) => {
+      byCustomer.set(r.customerName, (byCustomer.get(r.customerName) || 0) + r.pending);
+    });
+    let largestDebtor: { name: string; amount: number } | null = null;
+    byCustomer.forEach((amount, name) => {
+      if (!largestDebtor || amount > largestDebtor.amount) largestDebtor = { name, amount };
+    });
+
+    return {
+      invoiceReceivedTotal,
+      paymentsInTotal,
+      topReceipts,
+      expenseLines,
+      outstandingRows,
+      largestDebtor,
+      overdueCount: outstandingRows.filter((r) => r.isOverdue).length,
     };
   }, [contextInvoices, contextPayments, contextExpenses]);
   
@@ -214,23 +335,74 @@ const Finance = () => {
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = useState(false);
   const [isInvoiceDetailOpen, setIsInvoiceDetailOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceData | null>(null);
-  const [invoiceStatuses, setInvoiceStatuses] = useState<Record<string, string>>({});
-  const [invoices, setInvoices] = useState<InvoiceData[]>([]);
+  // B1 fix: derive display invoices from context instead of isolated local state.
+  // Underscore prefix: the surfaced KPI summary derives its own metrics from raw context arrays,
+  // but this mapped list is kept around as the source-of-truth shape for future Finance tables.
+  const _invoices: InvoiceData[] = useMemo(() => [
+    ...contextInvoices.map(inv => ({
+      id: inv.id,
+      client: inv.customerName,
+      clientAddress: inv.customerAddress,
+      clientGstin: inv.customerGstin,
+      clientState: inv.customerState,
+      clientContact: inv.customerContact,
+      project: inv.projectName ?? "",
+      amount: `₹${(inv.total ?? 0).toLocaleString("en-IN")}`,
+      dueDate: inv.dueDate ?? "",
+      invoiceDate: inv.invoiceDate,
+      status: inv.status ?? "pending",
+      type: "invoice" as const,
+      items: inv.items,
+      services: inv.services,
+      subtotal: inv.subtotal,
+      cgst: inv.cgst,
+      sgst: inv.sgst,
+      igst: inv.igst,
+      total: inv.total,
+      paymentTerms: inv.paymentTerms,
+      bankAccount: inv.bankAccount,
+      notes: inv.notes,
+    })),
+    ...contextSaleBills.map(sb => ({
+      id: sb.id,
+      client: sb.customerName,
+      clientAddress: sb.customerAddress,
+      clientGstin: sb.customerGstin,
+      clientState: sb.customerState,
+      clientContact: sb.customerContact,
+      project: sb.projectName ?? "",
+      amount: `₹${(sb.total ?? 0).toLocaleString("en-IN")}`,
+      dueDate: sb.dueDate ?? "",
+      invoiceDate: sb.invoiceDate,
+      status: sb.status ?? "pending",
+      type: "sale-bill" as const,
+      items: sb.items,
+      services: sb.services,
+      subtotal: sb.subtotal,
+      cgst: sb.cgst,
+      sgst: sb.sgst,
+      igst: sb.igst,
+      total: sb.total,
+      paymentTerms: sb.paymentTerms,
+      bankAccount: sb.bankAccount,
+      notes: sb.notes,
+    })),
+  ], [contextInvoices, contextSaleBills]);
   
   // Invoice preview ref
   const invoicePreviewRef = useRef<HTMLDivElement>(null);
   
-  // Expense form state
-  const [expenseCategory, setExpenseCategory] = useState("");
-  const [expenseMonth, setExpenseMonth] = useState("");
-  const [selectedEmployee, setSelectedEmployee] = useState("");
-  const [selectedVendorForPurchase, setSelectedVendorForPurchase] = useState("");
-  
-  // Income form state
-  const [incomeSource, setIncomeSource] = useState("");
-  const [customIncomeSource, setCustomIncomeSource] = useState("");
+  // Expense / income form state lives inside the dedicated modal components now; the residual
+  // useState declarations here were left over from the pre-modal form and are intentionally not
+  // wired up. Kept as underscore-prefixed slots in case the inline forms come back.
+  const [_expenseCategory, _setExpenseCategory] = useState("");
+  const [_expenseMonth, _setExpenseMonth] = useState("");
+  const [_selectedEmployee, _setSelectedEmployee] = useState("");
+  const [_selectedVendorForPurchase, _setSelectedVendorForPurchase] = useState("");
+  const [_incomeSource, _setIncomeSource] = useState("");
+  const [_customIncomeSource, _setCustomIncomeSource] = useState("");
   
   // Invoice form state
   const [invoiceType, setInvoiceType] = useState<"invoice" | "sale-bill">("invoice");
@@ -250,11 +422,13 @@ const Finance = () => {
   const [paymentTerms, setPaymentTerms] = useState("");
   const [selectedBankAccount, setSelectedBankAccount] = useState("");
   const [invoiceNotes, setInvoiceNotes] = useState("");
-  
+
+  useEffect(() => { setInvoiceServices([]); setInvoiceItems([]); }, [invoiceType]);
+
   // Export modal state
   const [selectedExportMonths, setSelectedExportMonths] = useState<string[]>([]);
   const [selectedExportProject, setSelectedExportProject] = useState("");
-  const [exportVendorInclude, setExportVendorInclude] = useState(false);
+  const [_exportVendorInclude, _setExportVendorInclude] = useState(false);
   const [exportInvoiceInclude, setExportInvoiceInclude] = useState(false);
   const [exportInvoiceFilter, setExportInvoiceFilter] = useState("all");
   const [selectedExpenseCategories, setSelectedExpenseCategories] = useState<string[]>([]);
@@ -267,14 +441,21 @@ const Finance = () => {
   const [isOutstandingDetailOpen, setIsOutstandingDetailOpen] = useState(false);
   const [isProfitDetailOpen, setIsProfitDetailOpen] = useState(false);
 
+  const [isOwnerInvestmentOpen, setIsOwnerInvestmentOpen] = useState(false);
+  const [oiAmount, setOiAmount] = useState("");
+  const [oiDate, setOiDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [oiType, setOiType] = useState<OwnerInvestment["type"]>("investment");
+  const [oiProjectId, setOiProjectId] = useState("_none");
+  const [oiNotes, setOiNotes] = useState("");
+
   // Company state (for IGST calculation)
   const companyState = "08"; // Rajasthan
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
-      "Completed": "bg-blue-500/10 text-blue-500 border-blue-500/20",
+      "Completed": "bg-primary/10 text-primary border-primary/20",
       "Pending": "bg-amber-500/10 text-amber-500 border-amber-500/20",
-      "Paid": "bg-blue-500/10 text-blue-500 border-blue-500/20",
+      "Paid": "bg-primary/10 text-primary border-primary/20",
       "Overdue": "bg-red-500/10 text-red-500 border-red-500/20",
     };
     return <Badge variant="outline" className={styles[status] || ""}>{status}</Badge>;
@@ -284,15 +465,40 @@ const Finance = () => {
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
   };
 
-  const handleInvoiceStatusChange = (invoiceId: string, newStatus: string) => {
-    setInvoiceStatuses(prev => ({ ...prev, [invoiceId]: newStatus }));
+  const resetOwnerInvestmentForm = () => {
+    setOiAmount("");
+    setOiDate(format(new Date(), "yyyy-MM-dd"));
+    setOiType("investment");
+    setOiProjectId("_none");
+    setOiNotes("");
   };
 
-  const getInvoiceStatus = (invoice: InvoiceData) => {
-    return invoiceStatuses[invoice.id] || invoice.status;
+  const handleSaveOwnerInvestment = () => {
+    const amt = Number.parseFloat(oiAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      toast({ title: "Invalid amount", description: "Enter a positive amount.", variant: "destructive" });
+      return;
+    }
+    const projId = oiProjectId === "_none" ? undefined : oiProjectId;
+    const proj = projId ? contextProjects.find((p) => p.id === projId) : undefined;
+    addOwnerInvestment({
+      id: generateId("OW-"),
+      date: oiDate,
+      amount: amt,
+      type: oiType,
+      projectId: projId,
+      projectName: proj?.name,
+      notes: oiNotes.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    });
+    toast({ title: oiType === "investment" ? "Capital recorded" : "Withdrawal recorded", description: `${formatCurrency(amt)} on ${oiDate}.` });
+    resetOwnerInvestmentForm();
+    setIsOwnerInvestmentOpen(false);
   };
 
-  const handleInvoiceClick = (invoice: InvoiceData) => {
+  const getInvoiceStatus = (invoice: InvoiceData) => invoice.status;
+
+  const _handleInvoiceClick = (invoice: InvoiceData) => {
     setSelectedInvoice(invoice);
     setIsInvoiceDetailOpen(true);
   };
@@ -314,7 +520,7 @@ const Finance = () => {
     }, 0);
   };
 
-  const isSiteRelatedCategory = (cat: string) => {
+  const _isSiteRelatedCategory = (cat: string) => {
     return ["labour", "transport", "material", "commission"].includes(cat);
   };
 
@@ -322,11 +528,11 @@ const Finance = () => {
   const calculateInvoiceTotals = () => {
     const isIGST = buyerState && buyerState !== companyState;
     
-    let servicesTotal = invoiceServices.reduce((sum, s) => sum + s.rate, 0);
-    let servicesTax = invoiceServices.reduce((sum, s) => sum + (s.rate * s.gstRate / 100), 0);
+    const servicesTotal = invoiceServices.reduce((sum, s) => sum + s.rate, 0);
+    const servicesTax = invoiceServices.reduce((sum, s) => sum + (s.rate * s.gstRate / 100), 0);
     
-    let itemsTotal = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate), 0);
-    let itemsTax = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate * i.gstRate / 100), 0);
+    const itemsTotal = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate), 0);
+    const itemsTax = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate * i.gstRate / 100), 0);
     
     const subtotal = servicesTotal + itemsTotal;
     const totalTax = servicesTax + itemsTax;
@@ -413,28 +619,39 @@ const Finance = () => {
 
   const handleCreateInvoice = () => {
     const totals = calculateInvoiceTotals();
-    const newInvoice: InvoiceData = {
-      id: `INV-2024-${String(invoices.length + 90).padStart(3, '0')}`,
-      client: buyerName || projects.find(p => p.id.toString() === invoiceSite)?.client || "",
-      clientAddress: buyerAddress,
-      clientGstin: buyerGstin,
-      clientState: buyerState,
-      clientContact: buyerContact,
-      project: projects.find(p => p.id.toString() === invoiceSite)?.name || "",
-      amount: formatCurrency(totals.total),
-      dueDate: dueDate,
-      invoiceDate: invoiceDate,
-      status: "Pending",
+    const linkedProject = contextProjects.find(p => p.id === invoiceSite);
+    const invoiceNum = invoiceType === "invoice"
+      ? `INV-${new Date().getFullYear()}-${String(contextInvoices.length + 1).padStart(3, "0")}`
+      : `SB-${new Date().getFullYear()}-${String(contextSaleBills.length + 1).padStart(3, "0")}`;
+
+    // B1 fix: create proper Invoice object and persist to context
+    const newInvoice = {
+      id: generateId(invoiceType === "invoice" ? "INV" : "SB"),
+      invoiceNumber: invoiceNum,
       type: invoiceType,
+      customerId: linkedProject?.customerId ?? "",
+      customerName: buyerName || linkedProject?.client || "",
+      customerAddress: buyerAddress,
+      customerGstin: buyerGstin,
+      customerState: buyerState,
+      customerContact: buyerContact,
+      projectId: invoiceSite || undefined,
+      projectName: linkedProject?.name,
+      billingScope: invoiceSite ? "project" as const : "company_overhead" as const,
       items: invoiceItems,
       services: invoiceServices,
       ...totals,
+      status: "pending" as const,
+      dueDate: dueDate,
+      invoiceDate: invoiceDate,
       paymentTerms,
       bankAccount: selectedBankAccount,
-      notes: invoiceNotes
+      notes: invoiceNotes,
+      createdAt: new Date().toISOString().split("T")[0],
     };
-    
-    setInvoices([newInvoice, ...invoices]);
+
+    addInvoice({ ...newInvoice, amountReceived: 0 });
+    toast({ title: "Invoice saved", description: `${invoiceNum} added to books.` });
     setIsNewInvoiceOpen(false);
     resetInvoiceForm();
   };
@@ -442,34 +659,45 @@ const Finance = () => {
   const invoiceTotals = calculateInvoiceTotals();
 
   const financeSubRow = useMemo(
-    () => (
-      <InlineKpiStrip
-        className="w-full flex-wrap justify-start"
-        items={[
-          {
-            label: "Revenue",
-            value: `₹${(kpiValues.revenue / 100000).toFixed(1)}L`,
-            onClick: () => setIsRevenueDetailOpen(true),
-          },
-          {
-            label: "Expenses",
-            value: `₹${(kpiValues.expenses / 100000).toFixed(1)}L`,
-            onClick: () => setIsExpenseDetailOpen(true),
-          },
-          {
-            label: "Outstanding",
-            value: `₹${(kpiValues.outstanding / 100000).toFixed(1)}L`,
-            onClick: () => setIsOutstandingDetailOpen(true),
-          },
-          {
-            label: "Net profit",
-            value: `₹${(kpiValues.profit / 100000).toFixed(1)}L`,
-            onClick: () => setIsProfitDetailOpen(true),
-          },
-        ]}
-      />
-    ),
-    [kpiValues],
+    () =>
+      !financeShellReady ? (
+        <div className="flex w-full flex-wrap gap-2">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-9 min-w-[120px] flex-1 rounded-md border border-border/40" />
+          ))}
+        </div>
+      ) : (
+        <InlineKpiStrip
+          className="w-full flex-wrap justify-start"
+          items={[
+            {
+              label: "Revenue",
+              value: formatINRCompact(kpiValues.revenue),
+              onClick: () => setIsRevenueDetailOpen(true),
+            },
+            {
+              label: "Expenses",
+              value: formatINRCompact(kpiValues.expenses),
+              onClick: () => setIsExpenseDetailOpen(true),
+            },
+            {
+              label: "Outstanding",
+              value: formatINRCompact(kpiValues.outstanding),
+              onClick: () => setIsOutstandingDetailOpen(true),
+            },
+            {
+              label: "Net profit",
+              value: formatINRCompact(kpiValues.profit),
+              onClick: () => setIsProfitDetailOpen(true),
+            },
+            {
+              label: "Accounts Payable",
+              value: formatINRCompact(totalAP),
+            },
+          ]}
+        />
+      ),
+    [financeShellReady, kpiValues, totalAP],
   );
 
   return (
@@ -478,14 +706,24 @@ const Finance = () => {
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Finance" }]}
         subRow={financeSubRow}
       >
-        <Button variant="outline" size="sm" className="text-destructive border-destructive/30" onClick={() => setIsAddExpenseOpen(true)}>
-          <ArrowDownLeft className="mr-1 h-4 w-4" />
-          Expense
-        </Button>
-        <Button variant="outline" size="sm" className="border-blue-600/30 text-blue-600" onClick={() => setIsAddIncomeOpen(true)}>
-          <ArrowUpRight className="mr-1 h-4 w-4" />
-          Income
-        </Button>
+        {canRecordExpenseIncome && (
+          <Button variant="outline" size="sm" className="text-destructive border-destructive/30" onClick={() => setIsAddExpenseOpen(true)}>
+            <ArrowDownLeft className="mr-1 h-4 w-4" />
+            Expense
+          </Button>
+        )}
+        {canRecordExpenseIncome && (
+          <Button variant="outline" size="sm" className="border-primary/30 text-primary" onClick={() => setIsAddIncomeOpen(true)}>
+            <ArrowUpRight className="mr-1 h-4 w-4" />
+            Income
+          </Button>
+        )}
+        {canRecordExpenseIncome && (
+          <Button variant="outline" size="sm" onClick={() => setIsOwnerInvestmentOpen(true)}>
+            <Building2 className="mr-1 h-4 w-4" />
+            Owner capital
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={() => setIsExportModalOpen(true)}>
           <Download className="mr-1 h-4 w-4" />
           Export
@@ -607,7 +845,7 @@ const Finance = () => {
                     <TableRow key={txn.id} className="border-border">
                       <TableCell className="text-muted-foreground">{txn.date}</TableCell>
                       <TableCell className="text-foreground">{txn.description}</TableCell>
-                      <TableCell className={`text-right font-medium ${txn.type === "Credit" ? "text-blue-500" : "text-red-500"}`}>
+                      <TableCell className={`text-right font-medium ${txn.type === "Credit" ? "text-primary" : "text-red-500"}`}>
                         {txn.type === "Credit" ? "+" : "-"}{txn.amount}
                       </TableCell>
                       <TableCell>{getStatusBadge(txn.status)}</TableCell>
@@ -631,9 +869,65 @@ const Finance = () => {
         onClose={() => setIsAddIncomeOpen(false)}
       />
 
+      <Sheet open={isOwnerInvestmentOpen} onOpenChange={(o) => { if (!o) resetOwnerInvestmentForm(); setIsOwnerInvestmentOpen(o); }}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Owner capital movement</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Select value={oiType} onValueChange={(v) => setOiType(v as OwnerInvestment["type"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="investment">Capital investment</SelectItem>
+                  <SelectItem value="withdrawal">Withdrawal / draw</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Amount (₹)</Label>
+              <Input type="number" min={0} step={0.01} value={oiAmount} onChange={(e) => setOiAmount(e.target.value)} placeholder="0" />
+            </div>
+            <div className="space-y-2">
+              <Label>Date</Label>
+              <Input type="date" value={oiDate} onChange={(e) => setOiDate(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Link to project (optional)</Label>
+              <Select value={oiProjectId} onValueChange={setOiProjectId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="General / unallocated" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">General (no project)</SelectItem>
+                  {contextProjects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Notes (optional)</Label>
+              <Textarea value={oiNotes} onChange={(e) => setOiNotes(e.target.value)} rows={2} />
+            </div>
+          </div>
+          <SheetFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { resetOwnerInvestmentForm(); setIsOwnerInvestmentOpen(false); }}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveOwnerInvestment}>Save</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
       {/* Enhanced New Invoice Modal */}
       <Sheet open={isNewInvoiceOpen} onOpenChange={setIsNewInvoiceOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Create New Invoice</SheetTitle>
           </SheetHeader>
@@ -750,11 +1044,11 @@ const Finance = () => {
                             </div>
                             <div className="col-span-2">
                               <Label className="text-xs">Rate (₹)</Label>
-                              <Input type="number" value={service.rate} onChange={(e) => updateService(idx, 'rate', parseFloat(e.target.value) || 0)} />
+                              <Input type="number" value={service.rate} onChange={(e) => { const n = Number.parseFloat(e.target.value); updateService(idx, "rate", Number.isFinite(n) ? n : 0); }} />
                             </div>
                             <div className="col-span-2">
                               <Label className="text-xs">GST %</Label>
-                              <Select value={service.gstRate.toString()} onValueChange={(v) => updateService(idx, 'gstRate', parseFloat(v))}>
+                              <Select value={service.gstRate.toString()} onValueChange={(v) => { const n = Number.parseFloat(v); updateService(idx, "gstRate", Number.isFinite(n) ? n : 0); }}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   {getGstRates().map(r => (
@@ -841,11 +1135,11 @@ const Finance = () => {
                             </div>
                             <div className="col-span-2">
                               <Label className="text-xs">Rate (₹)</Label>
-                              <Input type="number" value={item.rate} onChange={(e) => updateItem(idx, 'rate', parseFloat(e.target.value) || 0)} />
+                              <Input type="number" value={item.rate} onChange={(e) => { const n = Number.parseFloat(e.target.value); updateItem(idx, "rate", Number.isFinite(n) ? n : 0); }} />
                             </div>
                             <div className="col-span-2">
                               <Label className="text-xs">GST %</Label>
-                              <Select value={item.gstRate.toString()} onValueChange={(v) => updateItem(idx, 'gstRate', parseFloat(v))}>
+                              <Select value={item.gstRate.toString()} onValueChange={(v) => { const n = Number.parseFloat(v); updateItem(idx, "gstRate", Number.isFinite(n) ? n : 0); }}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   {getGstRates().map(r => (
@@ -1067,14 +1361,6 @@ const Finance = () => {
           <div className="flex justify-between gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => { setIsNewInvoiceOpen(false); resetInvoiceForm(); }}>Cancel</Button>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => {
-                handleCreateInvoice();
-                setSelectedInvoice(invoices[0]);
-                setIsPreviewOpen(true);
-              }}>
-                <Eye className="h-4 w-4 mr-2" />
-                Preview
-              </Button>
               <Button className="bg-primary text-primary-foreground" onClick={handleCreateInvoice}>
                 Create {invoiceType === "invoice" ? "Invoice" : "Sale Bill"}
               </Button>
@@ -1085,7 +1371,7 @@ const Finance = () => {
 
       {/* Invoice Detail Modal */}
       <Sheet open={isInvoiceDetailOpen} onOpenChange={setIsInvoiceDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Invoice Details</SheetTitle>
           </SheetHeader>
@@ -1203,7 +1489,7 @@ const Finance = () => {
 
       {/* Export Modal */}
       <Sheet open={isExportModalOpen} onOpenChange={setIsExportModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Export Reports</SheetTitle>
           </SheetHeader>
@@ -1213,7 +1499,16 @@ const Finance = () => {
               <CardHeader className="py-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-medium">Transactions</CardTitle>
-                  <Button size="sm" disabled={selectedExportMonths.length === 0}>
+                  <Button size="sm" disabled={selectedExportMonths.length === 0} onClick={() => {
+                    const rows = transactions.filter((t) => {
+                      if (!t.isoDate) return false;
+                      const d = parseISO(t.isoDate);
+                      if (!isValid(d)) return false;
+                      const abbr = format(d, "MMM");
+                      return selectedExportMonths.includes(abbr);
+                    });
+                    downloadCSV("transactions", rows, ["date", "description", "type", "amount", "category", "status"]);
+                  }}>
                     <Download className="h-3 w-3 mr-1" />
                     Export
                   </Button>
@@ -1241,7 +1536,12 @@ const Finance = () => {
               <CardHeader className="py-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-medium">Projects</CardTitle>
-                  <Button size="sm" disabled={!selectedExportProject}>
+                  <Button size="sm" disabled={!selectedExportProject} onClick={() => {
+                    const proj = contextProjects.find(p => p.id === selectedExportProject);
+                    if (!proj) return;
+                    const rows = [{ name: proj.name, client: proj.client, status: proj.status, contractAmount: proj.contractAmount, startDate: proj.startDate, endDate: proj.endDate }];
+                    downloadCSV(`project_${proj.name}`, rows, ["name", "client", "status", "contractAmount", "startDate", "endDate"]);
+                  }}>
                     <Download className="h-3 w-3 mr-1" />
                     Export
                   </Button>
@@ -1282,7 +1582,10 @@ const Finance = () => {
               <CardHeader className="py-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-medium">Vendors</CardTitle>
-                  <Button size="sm">
+                  <Button size="sm" onClick={() => {
+                    const rows = contextVendors.map(v => ({ name: v.name, category: v.category?.join(", ") ?? "", contact: v.contact, email: v.email, outstanding: v.outstandingAmount }));
+                    downloadCSV("vendors", rows, ["name", "category", "contact", "email", "outstanding"]);
+                  }}>
                     <Download className="h-3 w-3 mr-1" />
                     Export
                   </Button>
@@ -1298,7 +1601,12 @@ const Finance = () => {
               <CardHeader className="py-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-medium">Expenses by Category</CardTitle>
-                  <Button size="sm" disabled={selectedExpenseCategories.length === 0}>
+                  <Button size="sm" disabled={selectedExpenseCategories.length === 0} onClick={() => {
+                    const rows = contextExpenses
+                      .filter(e => selectedExpenseCategories.includes(e.category))
+                      .map(e => ({ date: e.date, category: e.category, description: e.description, amount: e.amount, project: e.projectId ?? "" }));
+                    downloadCSV("expenses", rows, ["date", "category", "description", "amount", "project"]);
+                  }}>
                     <Download className="h-3 w-3 mr-1" />
                     Export
                   </Button>
@@ -1328,7 +1636,28 @@ const Finance = () => {
               <CardHeader className="py-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-medium">Employee History</CardTitle>
-                  <Button size="sm" disabled={selectedExportEmployees.length === 0}>
+                  <Button size="sm" disabled={selectedExportEmployees.length === 0} onClick={() => {
+                    const monthMatch = (dateStr: string) => {
+                      if (employeeExportType !== "monthly" || selectedExportMonths.length === 0) return true;
+                      if (!dateStr?.trim()) return false;
+                      const d = parseISO(dateStr.includes("T") ? dateStr : `${dateStr.slice(0, 10)}T12:00:00`);
+                      if (!isValid(d)) return false;
+                      const m = format(d, "MMM");
+                      return selectedExportMonths.includes(m);
+                    };
+                    const rows = contextExpenses
+                      .filter(e => e.employeeId && selectedExportEmployees.includes(Number(e.employeeId)))
+                      .filter(e => monthMatch(e.date))
+                      .map(e => {
+                        const emp = contextEmployees.find(em => em.id === Number(e.employeeId));
+                        return { employee: emp?.name ?? e.employeeId, date: e.date, category: e.category, description: e.description, amount: e.amount };
+                      });
+                    if (rows.length === 0) {
+                      toast({ title: "Nothing to export", description: "No rows match the selected employees / months.", variant: "destructive" });
+                      return;
+                    }
+                    downloadCSV("employee_history", rows, ["employee", "date", "category", "description", "amount"]);
+                  }}>
                     <Download className="h-3 w-3 mr-1" />
                     Export
                   </Button>
@@ -1395,40 +1724,56 @@ const Finance = () => {
 
       {/* Revenue Detail Modal */}
       <Sheet open={isRevenueDetailOpen} onOpenChange={setIsRevenueDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <TrendingUp className="h-4 w-4 text-blue-500" />
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <TrendingUp className="h-4 w-4 text-primary" />
               </div>
               Total Revenue Details
             </SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
-            <div className="p-4 bg-blue-500/10 rounded-lg">
-              <p className="text-sm text-muted-foreground">Total Revenue (FY 2024-25)</p>
-              <p className="text-3xl font-bold text-blue-500">₹62,40,000</p>
+            <div className="p-4 bg-primary/10 rounded-lg">
+              <p className="text-sm text-muted-foreground">Total Revenue (All Time)</p>
+              <p className="text-3xl font-bold text-primary">{formatCurrency(kpiValues.revenue)}</p>
             </div>
             <div className="space-y-3">
               <h4 className="font-medium text-sm text-muted-foreground">Revenue Breakdown</h4>
+              <p className="text-xs text-muted-foreground">
+                Total matches KPI: invoice <span className="font-medium">amount received</span> plus all{" "}
+                <span className="font-medium">incoming payments</span> (components may overlap if the same receipt was booked twice).
+              </p>
               <div className="space-y-2">
                 <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Project Income</span>
-                  <span className="font-semibold">₹48,50,000</span>
+                  <span className="text-sm">Invoices — amount received</span>
+                  <span className="font-semibold">{formatCurrency(financeKpiBreakdowns.invoiceReceivedTotal)}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">AMC Income</span>
-                  <span className="font-semibold">₹8,40,000</span>
+                  <span className="text-sm">Payment ledger — credits in</span>
+                  <span className="font-semibold">{formatCurrency(financeKpiBreakdowns.paymentsInTotal)}</span>
                 </div>
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Service Charges</span>
-                  <span className="font-semibold">₹3,20,000</span>
-                </div>
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Government Subsidy</span>
-                  <span className="font-semibold">₹2,30,000</span>
-                </div>
+                {financeKpiBreakdowns.topReceipts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-2">No incoming payments in ledger yet.</p>
+                ) : (
+                  financeKpiBreakdowns.topReceipts.map((row) => (
+                    <div key={row.label} className="flex justify-between p-3 bg-muted/30 rounded-lg">
+                      <span className="text-sm truncate pr-2" title={row.label}>
+                        {row.label}
+                      </span>
+                      <span className="font-semibold shrink-0">{formatCurrency(row.amount)}</span>
+                    </div>
+                  ))
+                )}
               </div>
+              {financeKpiBreakdowns.largestDebtor && (
+                <div className="p-3 rounded-lg border border-border/80 bg-card text-sm">
+                  <span className="text-muted-foreground">Largest outstanding customer (unpaid invoices): </span>
+                  <span className="font-medium">{financeKpiBreakdowns.largestDebtor.name}</span>
+                  <span className="text-muted-foreground"> — </span>
+                  <span className="font-semibold text-amber-600">{formatCurrency(financeKpiBreakdowns.largestDebtor.amount)}</span>
+                </div>
+              )}
             </div>
             <div className="space-y-3">
               <h4 className="font-medium text-sm text-muted-foreground">Monthly Trend</h4>
@@ -1450,7 +1795,7 @@ const Finance = () => {
 
       {/* Expense Detail Modal */}
       <Sheet open={isExpenseDetailOpen} onOpenChange={setIsExpenseDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center">
@@ -1461,32 +1806,22 @@ const Finance = () => {
           </SheetHeader>
           <div className="space-y-4">
             <div className="p-4 bg-red-500/10 rounded-lg">
-              <p className="text-sm text-muted-foreground">Total Expenses (FY 2024-25)</p>
-              <p className="text-3xl font-bold text-red-500">₹34,20,000</p>
+              <p className="text-sm text-muted-foreground">Total Expenses (All Time)</p>
+              <p className="text-3xl font-bold text-red-500">{formatCurrency(kpiValues.expenses)}</p>
             </div>
             <div className="space-y-3">
               <h4 className="font-medium text-sm text-muted-foreground">Expense Breakdown</h4>
-              <div className="space-y-2">
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Material Cost</span>
-                  <span className="font-semibold">₹18,50,000</span>
-                </div>
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Labour & Payroll</span>
-                  <span className="font-semibold">₹8,40,000</span>
-                </div>
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Transport</span>
-                  <span className="font-semibold">₹3,20,000</span>
-                </div>
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Equipment & Tools</span>
-                  <span className="font-semibold">₹2,10,000</span>
-                </div>
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Overheads</span>
-                  <span className="font-semibold">₹2,00,000</span>
-                </div>
+              <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+                {financeKpiBreakdowns.expenseLines.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-2">No expenses recorded.</p>
+                ) : (
+                  financeKpiBreakdowns.expenseLines.map((row) => (
+                    <div key={row.name} className="flex justify-between p-3 bg-muted/30 rounded-lg">
+                      <span className="text-sm capitalize truncate pr-2">{row.name}</span>
+                      <span className="font-semibold shrink-0">{formatCurrency(row.amount)}</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -1498,7 +1833,7 @@ const Finance = () => {
 
       {/* Outstanding Detail Modal */}
       <Sheet open={isOutstandingDetailOpen} onOpenChange={setIsOutstandingDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
@@ -1510,44 +1845,40 @@ const Finance = () => {
           <div className="space-y-4">
             <div className="p-4 bg-amber-500/10 rounded-lg">
               <p className="text-sm text-muted-foreground">Total Outstanding</p>
-              <p className="text-3xl font-bold text-amber-500">₹18,60,000</p>
+              <p className="text-3xl font-bold text-amber-500">{formatCurrency(kpiValues.outstanding)}</p>
             </div>
             <div className="space-y-3">
-              <h4 className="font-medium text-sm text-muted-foreground">Outstanding by Client</h4>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center p-3 bg-muted/30 rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">Sunrise Towers</p>
-                    <p className="text-xs text-muted-foreground">Due: 25 Dec 2024</p>
-                  </div>
-                  <span className="font-semibold text-amber-500">₹4,50,000</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-muted/30 rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">Green Valley</p>
-                    <p className="text-xs text-destructive">Overdue: 5 days</p>
-                  </div>
-                  <span className="font-semibold text-destructive">₹1,80,000</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-muted/30 rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">Metro Heights</p>
-                    <p className="text-xs text-muted-foreground">Due: 30 Dec 2024</p>
-                  </div>
-                  <span className="font-semibold text-amber-500">₹6,20,000</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-muted/30 rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">Sharma Residency</p>
-                    <p className="text-xs text-muted-foreground">Due: 05 Jan 2025</p>
-                  </div>
-                  <span className="font-semibold text-amber-500">₹6,10,000</span>
-                </div>
+              <h4 className="font-medium text-sm text-muted-foreground">Outstanding by invoice</h4>
+              <div className="space-y-2 max-h-[42vh] overflow-y-auto">
+                {financeKpiBreakdowns.outstandingRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-2">No outstanding invoice balances.</p>
+                ) : (
+                  financeKpiBreakdowns.outstandingRows.map((row) => (
+                    <div key={row.id} className="flex justify-between items-center p-3 bg-muted/30 rounded-lg gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{row.customerName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {row.invoiceNumber} · Due {row.dueLabel}
+                          {row.isOverdue ? (
+                            <span className="text-destructive"> · Overdue {row.overdueDays}d</span>
+                          ) : null}
+                        </p>
+                      </div>
+                      <span className={`font-semibold shrink-0 ${row.isOverdue ? "text-destructive" : "text-amber-500"}`}>
+                        {formatCurrency(row.pending)}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
-            <div className="p-3 bg-destructive/10 rounded-lg">
-              <p className="text-xs text-destructive font-medium">⚠ 1 payment is overdue</p>
-            </div>
+            {financeKpiBreakdowns.overdueCount > 0 && (
+              <div className="p-3 bg-destructive/10 rounded-lg">
+                <p className="text-xs text-destructive font-medium">
+                  {financeKpiBreakdowns.overdueCount} invoice{financeKpiBreakdowns.overdueCount === 1 ? "" : "s"} past due date
+                </p>
+              </div>
+            )}
           </div>
           <div className="flex justify-end pt-4 border-t">
             <Button variant="outline" onClick={() => setIsOutstandingDetailOpen(false)}>Close</Button>
@@ -1557,7 +1888,7 @@ const Finance = () => {
 
       {/* Net Profit Detail Modal */}
       <Sheet open={isProfitDetailOpen} onOpenChange={setIsProfitDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -1568,45 +1899,43 @@ const Finance = () => {
           </SheetHeader>
           <div className="space-y-4">
             <div className="p-4 bg-primary/10 rounded-lg">
-              <p className="text-sm text-muted-foreground">Net Profit (FY 2024-25)</p>
-              <p className="text-3xl font-bold text-primary">₹28,20,000</p>
+              <p className="text-sm text-muted-foreground">Net Profit (All Time)</p>
+              <p className={`text-3xl font-bold ${kpiValues.profit >= 0 ? "text-primary" : "text-destructive"}`}>{formatCurrency(kpiValues.profit)}</p>
             </div>
             <div className="space-y-3">
               <h4 className="font-medium text-sm text-muted-foreground">Profit Calculation</h4>
               <div className="space-y-2">
-                <div className="flex justify-between p-3 bg-blue-500/10 rounded-lg">
+                <div className="flex justify-between p-3 bg-primary/10 rounded-lg">
                   <span className="text-sm">Total Revenue</span>
-                  <span className="font-semibold text-blue-500">+ ₹62,40,000</span>
+                  <span className="font-semibold text-primary">+ {formatCurrency(kpiValues.revenue)}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-red-500/10 rounded-lg">
                   <span className="text-sm">Total Expenses</span>
-                  <span className="font-semibold text-red-500">- ₹34,20,000</span>
+                  <span className="font-semibold text-red-500">- {formatCurrency(kpiValues.expenses)}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-primary/10 rounded-lg border border-primary/20">
                   <span className="text-sm font-medium">Net Profit</span>
-                  <span className="font-bold text-primary">₹28,20,000</span>
+                  <span className={`font-bold ${kpiValues.profit >= 0 ? "text-primary" : "text-destructive"}`}>{formatCurrency(kpiValues.profit)}</span>
                 </div>
               </div>
             </div>
             <div className="space-y-3">
-              <h4 className="font-medium text-sm text-muted-foreground">Profit by Project</h4>
+              <h4 className="font-medium text-sm text-muted-foreground">Profit by Project (Top 5)</h4>
               <div className="space-y-2">
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Sharma Residency</span>
-                  <span className="font-semibold text-primary">₹85,000</span>
-                </div>
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Apex Industries</span>
-                  <span className="font-semibold text-primary">₹3,20,000</span>
-                </div>
-                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Tech Park</span>
-                  <span className="font-semibold text-primary">₹2,80,000</span>
-                </div>
+                {topProfitProjects.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">No project data available.</p>
+                ) : topProfitProjects.map((p, i) => (
+                  <div key={i} className="flex justify-between p-3 bg-muted/30 rounded-lg">
+                    <span className="text-sm">{p.name}</span>
+                    <span className={`font-semibold ${p.profit >= 0 ? "text-primary" : "text-destructive"}`}>
+                      {p.profit >= 0 ? "+" : ""}₹{Math.abs(Math.round(p.profit)).toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="p-3 bg-muted/30 rounded-lg">
-              <p className="text-sm text-muted-foreground">Profit Margin: <span className="font-semibold text-primary">45.2%</span></p>
+              <p className="text-sm text-muted-foreground">Profit Margin: <span className="font-semibold text-primary">{profitMargin}%</span></p>
             </div>
           </div>
           <div className="flex justify-end pt-4 border-t">

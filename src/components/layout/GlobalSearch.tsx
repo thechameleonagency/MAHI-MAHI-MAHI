@@ -25,6 +25,9 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useNavigate } from "react-router-dom";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useFoundation } from "@/app/providers/FoundationProvider";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { normalizeLoanPersonKey } from "@/lib/loanPerson";
 import { cn } from "@/lib/utils";
 
 type SearchResult = {
@@ -82,6 +85,8 @@ const GlobalSearch = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { permissionService } = useFoundation();
+  const { currentRole } = useAppSession();
   const {
     projects,
     customers,
@@ -269,14 +274,15 @@ const GlobalSearch = () => {
     });
 
     loans.forEach((loan) => {
-      const hay = `${loan.source} ${loan.personName ?? ""}`.toLowerCase();
+      const personKey = normalizeLoanPersonKey(loan);
+      const hay = `${loan.source} ${loan.personName ?? ""} ${personKey}`.toLowerCase();
       if (hay.includes(searchQuery)) {
         searchResults.push({
           id: loan.id,
-          name: loan.source,
+          name: loan.personName?.trim() || loan.source,
           type: "loan",
-          subtitle: loan.personName,
-          path: `/loans/person/${encodeURIComponent(loan.source)}`,
+          subtitle: loan.sourceType ? `${loan.sourceType} · ${loan.source}` : loan.source,
+          path: `/loans/person/${encodeURIComponent(personKey)}`,
         });
       }
     });
@@ -346,10 +352,17 @@ const GlobalSearch = () => {
       }
     });
 
-    setResults(searchResults.slice(0, 20));
+    const allowed = searchResults.filter((r) => {
+      const base = r.path.split("?")[0].split("#")[0];
+      return permissionService.canAccessPath(currentRole, base);
+    });
+
+    setResults(allowed.slice(0, 20));
     setSelectedIndex(0);
   }, [
     query,
+    currentRole,
+    permissionService,
     projects,
     customers,
     employees,

@@ -19,6 +19,10 @@ export type PayrollOutput = {
 };
 
 export class PayrollPolicyService {
+  /**
+   * Prorates a **fixed monthly salary** by effective paid days vs working days in the month.
+   * This is not a separate “daily rate” product field — it is calendar proration of the monthly contract.
+   */
   calculate(input: PayrollInput): PayrollOutput {
     const paidDays = Math.max(0, input.presentDays + input.paidLeaveDays + input.companyHolidays);
     const effectiveDays = Math.min(input.totalWorkingDays, paidDays);

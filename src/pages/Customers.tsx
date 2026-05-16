@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, Edit, Eye, Users, Building2, Phone, Mail, MapPin, IndianRupee, ExternalLink } from "lucide-react";
+import { Plus, Search, Edit, Users, Building2, Mail, MapPin, ExternalLink, UserPlus } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,6 +15,7 @@ import { toast } from "@/hooks/use-toast";
 import type { Customer } from "@/types/finance";
 import { useAppData } from "@/contexts/AppDataContext";
 import { formatINR } from "@/lib/formatCurrency";
+import { validateContactPhone } from "@/lib/phoneValidators";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
@@ -83,6 +85,12 @@ const Customers = () => {
       return;
     }
 
+    const phCheck = validateContactPhone(customerPhone);
+    if (!phCheck.ok) {
+      toast({ title: "Invalid phone", description: (phCheck as { message: string }).message, variant: "destructive" });
+      return;
+    }
+
     if (customerType === "company") {
       const gstError = validateGstin(customerGstin);
       if (gstError) {
@@ -114,6 +122,12 @@ const Customers = () => {
   const handleEditCustomer = () => {
     if (!selectedCustomer || !customerName || !customerPhone) {
       toast({ title: "Error", description: "Name and phone are required", variant: "destructive" });
+      return;
+    }
+
+    const phEdit = validateContactPhone(customerPhone);
+    if (!phEdit.ok) {
+      toast({ title: "Invalid phone", description: (phEdit as { message: string }).message, variant: "destructive" });
       return;
     }
 
@@ -272,6 +286,7 @@ const Customers = () => {
           const pendingAmount = allBills.reduce((sum, inv) => sum + (inv.total - inv.amountReceived), 0);
           const totalReceived = allBills.reduce((sum, inv) => sum + inv.amountReceived, 0);
           const activeProjectsCount = projects.filter(p => p.client === customer.name && p.status === "Ongoing").length;
+          const isLead = (customer.itemsBought?.length ?? 0) === 0 && (customer.totalPurchases ?? 0) === 0;
           
           return (
             <Card key={customer.id} className="bg-card hover:shadow-md transition-shadow">
@@ -281,7 +296,12 @@ const Customers = () => {
                   <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
                     {customer.type === "company" ? "Company" : "Individual"}
                   </span>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    {isLead && (
+                      <Badge variant="outline" className="text-2xs border-dashed">
+                        Lead
+                      </Badge>
+                    )}
                     {activeProjectsCount > 0 && (
                       <Badge variant="secondary" className="bg-primary/10 text-primary border-0 text-2xs h-5 px-1.5 uppercase font-bold">
                         {activeProjectsCount} Active Job{activeProjectsCount > 1 ? 's' : ''}
@@ -391,6 +411,7 @@ const Customers = () => {
                       </div>
                     </div>
                   ) : (
+                    <div className="flex flex-col gap-2">
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" className="flex-1" onClick={() => openEditCustomer(customer)}>
                         <Edit className="h-3 w-3 mr-1" /> Edit
@@ -402,6 +423,19 @@ const Customers = () => {
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                       </Button>
                     </div>
+                    {isLead && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="w-full text-xs"
+                        type="button"
+                        onClick={() => navigate(`/enquiries?fromCustomer=${encodeURIComponent(customer.id)}`)}
+                      >
+                        <UserPlus className="h-3 w-3 mr-1" />
+                        Start enquiry from lead
+                      </Button>
+                    )}
+                    </div>
                   )}
                 </div>
               </CardContent>
@@ -411,30 +445,23 @@ const Customers = () => {
       </div>
 
       {filteredCustomers.length === 0 && (
-        <div className="text-center py-12">
-          <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">
-            {customers.length === 0 ? "No customers yet." : "No customers match the current search or type filter."}
-          </p>
-          {customers.length === 0 ? (
-            <Button className="mt-4" onClick={() => { resetCustomerForm(); setIsAddCustomerOpen(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add your first customer
-            </Button>
-          ) : (
-            <Button
-              className="mt-4"
-              variant="outline"
-              type="button"
-              onClick={() => {
-                setSearchQuery("");
-                setTypeFilter("all");
-              }}
-            >
-              Clear filters
-            </Button>
-          )}
-        </div>
+        customers.length === 0 ? (
+          <ListEmptyState
+            icon={Users}
+            title="No customers yet"
+            description="Add your first customer to start tracking deals and invoices."
+            actionLabel="Add your first customer"
+            onAction={() => { resetCustomerForm(); setIsAddCustomerOpen(true); }}
+          />
+        ) : (
+          <ListEmptyState
+            icon={Users}
+            title="No customers match"
+            description="Try clearing search or type filter."
+            actionLabel="Clear filters"
+            onAction={() => { setSearchQuery(""); setTypeFilter("all"); }}
+          />
+        )
       )}
 
       {/* Add Customer Sheet */}

@@ -11,8 +11,17 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Download } from "lucide-react";
+import { downloadCSV } from "@/lib/csvExport";
+import { formatINR } from "@/lib/formatCurrency";
+import { toast } from "@/hooks/use-toast";
+
 const CashBankLedger = () => {
   const { payments, expenses, incomes, vendorPayments, loanRepayments } = useAppData();
+  const [openingBalance, setOpeningBalance] = useState(0);
   const [accountFilter, setAccountFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -79,7 +88,7 @@ const CashBankLedger = () => {
     vendorPayments.forEach(vp => {
       entries.push({
         date: vp.date, description: `Vendor payment: ${vp.vendorName || "Vendor"}`,
-        account: normalizeMode(vp.paymentMode || vp.mode), debit: 0, credit: vp.amount,
+        account: normalizeMode(vp.paymentMode), debit: 0, credit: vp.amount,
         reference: vp.billNumber || vp.id, type: "vendor_payment",
       });
     });
@@ -106,13 +115,13 @@ const CashBankLedger = () => {
   // Running balance
   const entriesWithBalance = useMemo(() => {
     const sorted = [...ledgerEntries].reverse();
-    let balance = 0;
+    let balance = openingBalance;
     const result = sorted.map(e => {
       balance += e.debit - e.credit;
       return { ...e, balance };
     });
     return result.reverse();
-  }, [ledgerEntries]);
+  }, [ledgerEntries, openingBalance]);
 
   useEffect(() => {
     setPage(1);
@@ -125,8 +134,6 @@ const CashBankLedger = () => {
     const totalCredit = ledgerEntries.reduce((s, e) => s + e.credit, 0);
     return { totalDebit, totalCredit, net: totalDebit - totalCredit };
   }, [ledgerEntries]);
-
-  const fmt = (v: number) => `₹${v.toLocaleString("en-IN")}`;
 
   return (
     <PageShell className="space-y-6">
@@ -150,17 +157,55 @@ const CashBankLedger = () => {
                 <SelectItem value="Cheque">Cheque</SelectItem>
               </SelectContent>
             </Select>
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Opening balance</Label>
+              <Input
+                type="number"
+                className="h-8 w-28 text-xs"
+                value={Number.isFinite(openingBalance) ? openingBalance : 0}
+                onChange={(e) => setOpeningBalance(parseFloat(e.target.value) || 0)}
+              />
+            </div>
             <InlineKpiStrip
               className="w-full min-w-0 sm:justify-end"
               items={[
-                { label: "Debit (inflow)", value: fmt(totals.totalDebit) },
-                { label: "Credit (outflow)", value: fmt(totals.totalCredit) },
-                { label: "Net", value: fmt(totals.net) },
+                { label: "Debit (inflow)", value: formatINR(totals.totalDebit) },
+                { label: "Credit (outflow)", value: formatINR(totals.totalCredit) },
+                { label: "Net", value: formatINR(totals.net) },
               ]}
             />
           </>
         }
-      />
+      >
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => {
+            if (entriesWithBalance.length === 0) {
+              toast({ title: "Nothing to export", description: "No ledger rows for the current filter.", variant: "destructive" });
+              return;
+            }
+            downloadCSV(
+              `cash_bank_ledger_${accountFilter}.csv`,
+              entriesWithBalance.map((e) => ({
+                date: e.date,
+                description: e.description,
+                account: e.account,
+                debit: e.debit,
+                credit: e.credit,
+                balance: e.balance,
+                type: e.type,
+                reference: e.reference,
+              })),
+              ["date", "description", "account", "debit", "credit", "balance", "type", "reference"],
+            );
+          }}
+        >
+          <Download className="h-3 w-3 mr-1" />
+          Export CSV
+        </Button>
+      </StickyPageHeader>
 
       <Card>
         <CardHeader className="pb-2">
@@ -212,12 +257,12 @@ const CashBankLedger = () => {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    {e.debit > 0 ? <span className="font-medium text-primary">{fmt(e.debit)}</span> : "-"}
+                    {e.debit > 0 ? <span className="font-medium text-primary">{formatINR(e.debit)}</span> : "-"}
                   </TableCell>
                   <TableCell className="text-right">
-                    {e.credit > 0 ? <span className="font-medium text-destructive">{fmt(e.credit)}</span> : "-"}
+                    {e.credit > 0 ? <span className="font-medium text-destructive">{formatINR(e.credit)}</span> : "-"}
                   </TableCell>
-                  <TableCell className="text-right font-medium">{fmt(e.balance)}</TableCell>
+                  <TableCell className="text-right font-medium">{formatINR(e.balance)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

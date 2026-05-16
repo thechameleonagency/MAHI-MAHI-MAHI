@@ -14,13 +14,10 @@ import {
 import { ROLE_LABELS, USER_ROLES, type UserRole } from "@/domain/entities/identity";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useFoundation } from "@/app/providers/FoundationProvider";
+import { toast } from "@/hooks/use-toast";
 import GlobalSearch from "./GlobalSearch";
 import { usePageHeaderSticky } from "@/contexts/PageHeaderStickyContext";
-import {
-  dummyLeaveRequests,
-  dummyExpenseRequests,
-  dummyBlockageResolutionRequests,
-} from "@/data/notificationsData";
+import { useDerivedAlertCount } from "@/hooks/useDerivedAlertCount";
 
 type TopHeaderProps = {
   onOpenSidebar: () => void;
@@ -30,13 +27,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
   const { currentRole, setCurrentRole } = useAppSession();
   const { permissionService } = useFoundation();
   const navigate = useNavigate();
-
-  const pendingLeave = dummyLeaveRequests.filter((r) => r.status === "pending").length;
-  const pendingExpense = dummyExpenseRequests.filter((r) => r.status === "pending").length;
-  const pendingBlockage = dummyBlockageResolutionRequests.filter(
-    (r) => r.status === "pending_verification"
-  ).length;
-  const notificationCount = pendingLeave + pendingExpense + pendingBlockage;
+  const notificationCount = useDerivedAlertCount();
 
   const can = (a: Parameters<typeof permissionService.canPerformAction>[1]) =>
     permissionService.canPerformAction(currentRole, a);
@@ -59,12 +50,12 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           <Menu className="h-5 w-5" />
         </Button>
         
-        {breadcrumbs && breadcrumbs.length > 0 && (
+        {breadcrumbs && breadcrumbs.filter((b) => b.label?.trim()).length > 0 && (
           <nav
             className="text-sm text-muted-foreground flex min-w-0 flex-1 flex-wrap items-center gap-1 mr-4"
             aria-label="Breadcrumb"
           >
-            {breadcrumbs.map((b, i) => (
+            {breadcrumbs.filter((b) => b.label?.trim()).map((b, i) => (
               <span key={`${b.label}-${i}`} className="inline-flex items-center gap-1.5 whitespace-nowrap">
                 {i > 0 && <span className="text-muted-foreground/40">/</span>}
                 {b.to ? (
@@ -168,7 +159,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
             <Link to="/notifications" aria-label="Notifications">
               <Bell className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
               {notificationCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-destructive px-0.5 text-[10px] font-medium text-destructive-foreground">
+                <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-destructive px-0.5 text-2xs font-medium text-destructive-foreground">
                   {notificationCount > 99 ? "99+" : notificationCount}
                 </span>
               )}
@@ -190,7 +181,17 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           </Button>
         )}
 
-        <Select value={currentRole} onValueChange={(role) => setCurrentRole(role as UserRole)}>
+        <Select
+          value={currentRole}
+          onValueChange={(role) => {
+            const next = role as UserRole;
+            setCurrentRole(next);
+            toast({
+              title: "Role updated",
+              description: `Navigation and actions now follow ${ROLE_LABELS[next]} permissions.`,
+            });
+          }}
+        >
           <SelectTrigger className="h-8 w-[min(140px,30vw)] text-xs sm:h-9 sm:w-[min(160px,28vw)] sm:text-sm">
             <SelectValue placeholder="Role" />
           </SelectTrigger>
