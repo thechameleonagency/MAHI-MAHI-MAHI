@@ -24,6 +24,7 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { formatINR } from "@/lib/formatCurrency";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import { normalizeLoanPersonKey } from "@/lib/loanPerson";
@@ -35,7 +36,7 @@ const LoanPersonDetail = () => {
   const personKey = decodeURIComponent(id || "");
   const personName = personKey;
   
-  const { loans, loanRepayments, addLoan, addLoanRepayment, updateLoan, generateId } = useAppData();
+  const { loans, loanRepayments, addLoan, addLoanRepayment, updateLoan, generateId, projects } = useAppData();
   
   // Filter loans for this person — prefer the normalised key but tolerate legacy name-based URLs.
   const personLoans = loans.filter(l =>
@@ -113,6 +114,7 @@ const LoanPersonDetail = () => {
   const totalRepaid = totalPrincipal - totalOutstanding;
   const totalEmi = personLoans.reduce((sum, l) => sum + l.emiAmount, 0);
   const activeCount = personLoans.filter(l => l.status === "Active").length;
+  const allLoansClosed = personLoans.length > 0 && personLoans.every((l) => l.status === "Closed");
   
   // Extract person name from source (e.g., "Personal - Ramesh Kumar" -> "Ramesh Kumar")
   const displayName = personName.replace(/^(Personal|Person)\s*-\s*/i, '').trim();
@@ -233,8 +235,8 @@ const LoanPersonDetail = () => {
     return (
       <div className="space-y-6 px-2 md:px-0">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-            <ArrowLeft className="h-5 w-5" />
+          <Button variant="ghost" size="icon" aria-label="Back" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-5 w-5" aria-hidden />
           </Button>
           <p className="text-xl font-semibold text-foreground">Loan source not found</p>
         </div>
@@ -278,16 +280,30 @@ const LoanPersonDetail = () => {
         </Button>
       </StickyPageHeader>
 
+      {allLoansClosed && (
+        <LifecycleTerminalBanner
+          variant="completed"
+          title="All loans closed"
+          description={
+            <span>
+              Every loan for {displayName} is fully repaid or marked closed. Repayment history stays on this page — add a new loan if borrowing resumes.
+            </span>
+          }
+          primaryActionLabel="Add loan"
+          onPrimaryAction={() => setIsAddLoanOpen(true)}
+        />
+      )}
+
       <div className="flex items-center gap-3">
-        <Avatar className="h-12 w-12 border-2 border-purple-500/20">
-          <AvatarFallback className="bg-purple-500/10 text-lg font-semibold text-purple-500">
+        <Avatar className="h-12 w-12 border-2 border-accent/20">
+          <AvatarFallback className="bg-accent/10 text-lg font-semibold text-accent-foreground">
             {displayName.charAt(0)}
           </AvatarFallback>
         </Avatar>
         <div>
           <p className="text-xl font-semibold text-foreground">{displayName}</p>
           <div className="mt-1 flex items-center gap-2">
-            <Badge variant="outline" className="border-purple-500/30 text-purple-500">Personal Loan</Badge>
+            <Badge variant="outline" className="border-accent/30 text-accent-foreground">Personal Loan</Badge>
             <StatusBadge
               status={activeCount > 0 ? "active" : "inactive"}
               label={`${activeCount} Active Loan${activeCount !== 1 ? "s" : ""}`}
@@ -331,12 +347,15 @@ const LoanPersonDetail = () => {
                 <TableHead >Tenure</TableHead>
                 <TableHead >Outstanding</TableHead>
                 <TableHead >Start Date</TableHead>
+                <TableHead >Funded project</TableHead>
                 <TableHead >Status</TableHead>
                 <TableHead >Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pagedPersonLoans.map((loan) => (
+              {pagedPersonLoans.map((loan) => {
+                const fundedProject = projects.find((p) => p.fundingLoanId === loan.id);
+                return (
                 <TableRow key={loan.id} className="border-border">
                   <TableCell className="font-medium text-foreground">{loan.id}</TableCell>
                   <TableCell className="text-foreground">{formatINR(loan.principal)}</TableCell>
@@ -345,6 +364,20 @@ const LoanPersonDetail = () => {
                   <TableCell className="text-muted-foreground">{loan.tenure} months</TableCell>
                   <TableCell className="text-destructive font-medium">{formatINR(loan.outstanding)}</TableCell>
                   <TableCell className="text-muted-foreground">{loan.startDate}</TableCell>
+                  <TableCell>
+                    {fundedProject ? (
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs"
+                        onClick={() => navigate(`/projects/${fundedProject.id}`)}
+                      >
+                        {fundedProject.name}
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={loan.status} label={loan.status} className="text-xs" />
                   </TableCell>
@@ -369,7 +402,8 @@ const LoanPersonDetail = () => {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </DataTableShell>
         </CardContent>

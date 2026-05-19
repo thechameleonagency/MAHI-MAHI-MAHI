@@ -26,11 +26,11 @@ describe("Project commands", () => {
     localStorage.clear();
   });
 
-  it("creates project only from confirmed quotation", async () => {
+  it("creates project only from approved/converted quotation", async () => {
     const confirmedQuotation: Quotation = {
       id: "Q-CNF",
       quotationNumber: "Q-CNF",
-      status: "confirmed",
+      status: "approved",
       quotationType: "solar",
       clientName: "Client 1",
       clientPhone: "999",
@@ -70,7 +70,7 @@ describe("Project commands", () => {
     const confirmedQuotation: Quotation = {
       id: "Q-RICH",
       quotationNumber: "Q-RICH",
-      status: "confirmed",
+      status: "approved",
       quotationType: "solar",
       clientName: "Client 1",
       clientPhone: "999",
@@ -132,7 +132,9 @@ describe("Project commands", () => {
 
     expect(result.ok).toBe(true);
     expect(repositories.projectRepository.getById("P-RICH-1")?.name).toBe("Rich Name");
-    expect(repositories.quotationRepository.getById("Q-RICH")?.isConverted).toBe(true);
+    const q = repositories.quotationRepository.getById("Q-RICH");
+    expect(q?.linkedProjectId).toBe("P-RICH-1");
+    expect(q?.status).toBe("converted_to_project");
   });
 
   it("rejects SOLO_EPC intake without quotation", async () => {
@@ -140,7 +142,7 @@ describe("Project commands", () => {
     const repositories = setupRepositories({
       id: "Q-X",
       quotationNumber: "Q-X",
-      status: "confirmed",
+      status: "approved",
       quotationType: "solar",
       clientName: "C",
       clientPhone: "1",

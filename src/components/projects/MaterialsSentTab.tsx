@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Package, Check, AlertTriangle, ArrowUp, ArrowDown, Plus, Send, Truck, Calendar, CheckCircle2, Wrench, ChevronDown, ChevronRight, User, RotateCcw } from "lucide-react";
+import { Package, Check, AlertTriangle, ArrowUp, ArrowDown, Plus, Send, Truck, Calendar, CheckCircle2, Wrench, ChevronDown, ChevronRight, User, RotateCcw, ShieldAlert } from "lucide-react";
+import { MaterialDamageSheet } from "@/components/projects/MaterialDamageSheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,8 @@ import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { useAppData } from "@/contexts/AppDataContext";
-import type { ExecutionLineItem } from "@/types/project";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import type { ExecutionLineItem, ProjectSiteChecklistItem } from "@/types/project";
 
 interface MaterialIssue {
   date: string;
@@ -70,6 +72,11 @@ interface MaterialsSentTabProps {
   materials: MaterialItem[];
   presetItems: PresetItem[];
   inventoryItems: InventoryItem[];
+  /** Per-project site checklist (planned items, qty issued, etc.). Seeded from quotation BOM. */
+  siteChecklist?: ProjectSiteChecklistItem[];
+  /** Super-admin only: lets the user mutate the per-project site checklist. */
+  isSuperAdmin?: boolean;
+  onUpdateSiteChecklist?: (next: ProjectSiteChecklistItem[]) => void;
   /** When present, show quoted vs issued variance from commercial baseline / execution rows. */
   executionLineItems?: ExecutionLineItem[];
   toolsAssigned?: ToolAssigned[];
@@ -80,17 +87,17 @@ interface MaterialsSentTabProps {
     meta?: { movementGroupId?: string },
   ) => void | Promise<void>;
   onReturnMaterial?: (
-    itemId: number,
+    itemId: string,
     quantity: number,
     meta?: MaterialMovementCallMeta,
   ) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
   onScrapMaterial?: (
-    itemId: number,
+    itemId: string,
     quantity: number,
     meta?: MaterialMovementCallMeta,
   ) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
   onConsumeMaterial?: (
-    itemId: number,
+    itemId: string,
     quantity: number,
     meta?: MaterialMovementCallMeta,
   ) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
@@ -123,10 +130,13 @@ function findExecutionLineForMaterial(
 
 export default function MaterialsSentTab({
   projectName,
-  projectId: _projectId,
+  projectId,
   materials,
   presetItems,
-  _inventoryItems,
+  inventoryItems: _inventoryItems,
+  siteChecklist = [],
+  isSuperAdmin = false,
+  onUpdateSiteChecklist,
   executionLineItems,
   toolsAssigned = [],
   onIssueMaterials,
@@ -134,7 +144,15 @@ export default function MaterialsSentTab({
   onScrapMaterial,
   onConsumeMaterial,
 }: MaterialsSentTabProps) {
-  const { employees, addTask, generateId, sites, inventoryItems: globalInventoryItems } = useAppData();
+  const { employees, addTask, generateId, sites, inventoryItems: globalInventoryItems, getDamageByItem, siteChecklistTemplates = [] } = useAppData();
+  const { currentRole } = useAppSession();
+  const [damageSheet, setDamageSheet] = useState<{ itemId: string; itemName: string; unitPrice: number } | null>(null);
+  const [isAddChecklistItemOpen, setIsAddChecklistItemOpen] = useState(false);
+  const [newChecklistName, setNewChecklistName] = useState("");
+  const [newChecklistUnit, setNewChecklistUnit] = useState("pcs");
+  const [newChecklistQty, setNewChecklistQty] = useState("");
+  const [isAttachTemplateOpen, setIsAttachTemplateOpen] = useState(false);
+  const [attachTemplateId, setAttachTemplateId] = useState<string>("");
 
   const issueMovementGroupIdRef = useRef<string | null>(null);
   const sendMoreMovementGroupIdRef = useRef<string | null>(null);
@@ -314,7 +332,7 @@ export default function MaterialsSentTab({
       : undefined;
     
     const taskInfo = assignTaskWithIssue && taskAssignee
-      ? { assigneeId: parseInt(taskAssignee), notes: taskNotes }
+      ? { assigneeId: taskAssignee, notes: taskNotes }
       : undefined;
 
     await onIssueMaterials?.(itemsToIssue, expenses, taskInfo, {
@@ -347,7 +365,7 @@ export default function MaterialsSentTab({
       
       addTask({
         id: generateId("TASK"),
-        employeeId: parseInt(taskAssignee),
+        employeeId: taskAssignee,
         projectId: _projectId || "",
         siteId: site.id.toString(),
         siteName: projectName,
@@ -485,9 +503,9 @@ export default function MaterialsSentTab({
       case "match":
         return <Badge className="bg-primary/10 text-primary border-0 flex items-center gap-1"><Check className="w-3 h-3" /> Match</Badge>;
       case "over":
-        return <Badge className="bg-red-500/10 text-red-600 border-0 flex items-center gap-1"><ArrowUp className="w-3 h-3" /> +{difference} Over</Badge>;
+        return <Badge className="bg-destructive/10 text-destructive border-0 flex items-center gap-1"><ArrowUp className="w-3 h-3" /> +{difference} Over</Badge>;
       case "under":
-        return <Badge className="bg-amber-500/10 text-amber-600 border-0 flex items-center gap-1"><ArrowDown className="w-3 h-3" /> {difference} Under</Badge>;
+        return <Badge className="bg-warning/10 text-warning border-0 flex items-center gap-1"><ArrowDown className="w-3 h-3" /> {difference} Under</Badge>;
       default:
         return <Badge variant="outline" className="text-xs">Not in Preset</Badge>;
     }
@@ -501,6 +519,148 @@ export default function MaterialsSentTab({
 
   return (
     <div className="space-y-6">
+      {/* Site Checklist — planned vs sent comparison driven by per-project checklist */}
+      <Card>
+        <CardHeader className="py-4 border-b flex flex-row items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Package className="h-4 w-4 text-primary" />
+            Site Checklist
+            <Badge variant="outline" className="ml-1 font-normal text-2xs">
+              {siteChecklist.length} item{siteChecklist.length === 1 ? "" : "s"}
+            </Badge>
+          </CardTitle>
+          {isSuperAdmin && onUpdateSiteChecklist && (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setAttachTemplateId("");
+                  setIsAttachTemplateOpen(true);
+                }}
+                disabled={siteChecklistTemplates.length === 0}
+                title={siteChecklistTemplates.length === 0 ? "No templates available" : undefined}
+              >
+                Attach template
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setNewChecklistName("");
+                  setNewChecklistUnit("pcs");
+                  setNewChecklistQty("");
+                  setIsAddChecklistItemOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4 mr-1" /> Add item
+              </Button>
+            </div>
+          )}
+        </CardHeader>
+        <CardContent className="p-0">
+          {siteChecklist.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              No site checklist attached to this project yet. The checklist seeds from the linked quotation's BOM when the project is created.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-muted/30">
+                <tr>
+                  <th className="px-4 py-2 text-left text-2xs uppercase tracking-wide text-muted-foreground">Item</th>
+                  <th className="px-4 py-2 text-left text-2xs uppercase tracking-wide text-muted-foreground">Source</th>
+                  <th className="px-4 py-2 text-right text-2xs uppercase tracking-wide text-muted-foreground">Planned</th>
+                  <th className="px-4 py-2 text-right text-2xs uppercase tracking-wide text-muted-foreground">Sent</th>
+                  <th className="px-4 py-2 text-right text-2xs uppercase tracking-wide text-muted-foreground">Delta</th>
+                  <th className="px-4 py-2 text-right text-2xs uppercase tracking-wide text-muted-foreground">Returned</th>
+                  <th className="px-4 py-2 text-right text-2xs uppercase tracking-wide text-muted-foreground">Consumed</th>
+                  <th className="px-4 py-2 text-left text-2xs uppercase tracking-wide text-muted-foreground">Status</th>
+                  {isSuperAdmin && onUpdateSiteChecklist && <th className="w-10"></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {siteChecklist.map((item) => {
+                  const status =
+                    item.qtySent >= item.qtyPlanned
+                      ? "Fully sent"
+                      : item.qtySent > 0
+                        ? "Partially sent"
+                        : "Pending";
+                  const statusTone =
+                    item.qtySent >= item.qtyPlanned
+                      ? "border-success/30 bg-success/10 text-success"
+                      : item.qtySent > 0
+                        ? "border-warning/30 bg-warning/10 text-warning"
+                        : "border-border bg-muted text-muted-foreground";
+                  // Resolve source: explicit `source` first, then legacy markers, default "quotation".
+                  const resolvedSource: "quotation" | "template" | "manual" =
+                    item.source
+                      ?? (item.addedByOverride ? "manual" : item.sourceTemplateId ? "template" : "quotation");
+                  const delta = item.qtyPlanned - item.qtySent;
+                  const deltaChip =
+                    delta === 0
+                      ? { label: "OK", className: "bg-success/10 text-success border-success/30" }
+                      : delta > 0
+                        ? { label: `Short ${delta}`, className: "bg-warning/10 text-warning border-warning/30" }
+                        : { label: `Over ${-delta}`, className: "bg-destructive/10 text-destructive border-destructive/30" };
+                  return (
+                    <tr key={item.id} className="border-t hover:bg-muted/20">
+                      <td className="px-4 py-2">
+                        <p className="font-medium">{item.name}</p>
+                        <p className="text-2xs text-muted-foreground">
+                          {item.unit}
+                          {item.category ? ` · ${item.category}` : ""}
+                        </p>
+                      </td>
+                      <td className="px-4 py-2">
+                        {resolvedSource === "quotation" && (
+                          <Badge variant="outline" className="text-2xs bg-primary/10 text-primary border-primary/30">Quot</Badge>
+                        )}
+                        {resolvedSource === "template" && (
+                          <Badge variant="outline" className="text-2xs bg-accent/30 text-accent-foreground border-accent/40">
+                            {item.sourceTemplateName ? `Tmpl · ${item.sourceTemplateName}` : "Template"}
+                          </Badge>
+                        )}
+                        {resolvedSource === "manual" && (
+                          <Badge variant="outline" className="text-2xs bg-warning/10 text-warning border-warning/30">
+                            {item.addedByEmployeeName
+                              ? `Manual · ${item.addedByEmployeeName}`
+                              : `Manual · ${currentRole.replace("_", " ")}`}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">{item.qtyPlanned}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{item.qtySent}</td>
+                      <td className="px-4 py-2 text-right">
+                        <Badge variant="outline" className={`text-2xs ${deltaChip.className}`}>{deltaChip.label}</Badge>
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">{item.qtyReturned}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{item.qtyConsumed}</td>
+                      <td className="px-4 py-2">
+                        <Badge variant="outline" className={`text-2xs ${statusTone}`}>{status}</Badge>
+                      </td>
+                      {isSuperAdmin && onUpdateSiteChecklist && (
+                        <td className="px-2 py-2 text-right">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-destructive"
+                            title="Remove from checklist"
+                            onClick={() => onUpdateSiteChecklist(siteChecklist.filter((i) => i.id !== item.id))}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5 rotate-180" />
+                          </Button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -571,9 +731,14 @@ export default function MaterialsSentTab({
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-4">
                                   <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
+                                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                                       <h3 className="font-semibold text-base">{material.name}</h3>
                                       {getStatusBadge(status, difference)}
+                                      {getDamageByItem(material.id).length > 0 && (
+                                        <Badge variant="outline" className="text-2xs border-accent/40 text-accent-foreground">
+                                          Damage {getDamageByItem(material.id).length}
+                                        </Badge>
+                                      )}
                                     </div>
                                     
                                     {preset && (
@@ -588,7 +753,7 @@ export default function MaterialsSentTab({
                                       return (
                                         <p
                                           className={`text-xs mb-2 ${
-                                            vsBoq === 0 ? "text-muted-foreground" : vsBoq > 0 ? "text-amber-800" : "text-sky-800"
+                                            vsBoq === 0 ? "text-muted-foreground" : vsBoq > 0 ? "text-warning" : "text-primary"
                                           }`}
                                         >
                                           BOQ {ex.quantity} {ex.unit} • Ledger issued {ex.issuedQty} • On-site sent {material.totalQuantitySent}
@@ -638,6 +803,22 @@ export default function MaterialsSentTab({
                                     <Button variant="outline" size="sm" onClick={() => handleOpenScrap(material)}>
                                       <AlertTriangle className="w-3 h-3 mr-1" /> Scrap
                                     </Button>
+                                    {projectId && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="border-accent/30 text-accent-foreground"
+                                        onClick={() =>
+                                          setDamageSheet({
+                                            itemId: material.id,
+                                            itemName: material.name,
+                                            unitPrice: material.unitPrice,
+                                          })
+                                        }
+                                      >
+                                        <ShieldAlert className="w-3 h-3 mr-1" /> Report damage
+                                      </Button>
+                                    )}
                                     <Button variant="ghost" size="sm" onClick={() => handleSelectItem(material.id, !isSelected)}>
                                       {isSelected ? "Remove from Issue List" : "Add to Issue List"}
                                     </Button>
@@ -724,7 +905,7 @@ export default function MaterialsSentTab({
                             className={
                               tool.status === "Returned"
                                 ? "border-primary/30 bg-primary/10 text-primary"
-                                : "border-amber-500/30 bg-amber-500/10 text-amber-600"
+                                : "border-warning/30 bg-warning/10 text-warning"
                             }
                           >
                             {tool.status || "In Use"}
@@ -947,6 +1128,181 @@ export default function MaterialsSentTab({
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsConsumeModalOpen(false)}>Cancel</Button>
             <Button onClick={handleConfirmConsume} disabled={!consumeQuantity || parseFloat(consumeQuantity) <= 0}>Record</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {projectId && damageSheet && (
+        <MaterialDamageSheet
+          open={Boolean(damageSheet)}
+          onOpenChange={(open) => !open && setDamageSheet(null)}
+          projectId={projectId}
+          projectName={projectName}
+          itemId={damageSheet.itemId}
+          itemName={damageSheet.itemName}
+          defaultUnitCost={damageSheet.unitPrice}
+          onReported={() => setDamageSheet(null)}
+        />
+      )}
+
+      <Sheet open={isAddChecklistItemOpen} onOpenChange={setIsAddChecklistItemOpen}>
+        <SheetContent className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Add custom checklist item</SheetTitle>
+            <SheetDescription>Adds an item to this project's site checklist only — does not affect the master inventory.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Item name</Label>
+              <Input
+                value={newChecklistName}
+                onChange={(e) => setNewChecklistName(e.target.value)}
+                placeholder="e.g. extra fasteners"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Unit</Label>
+              <Select value={newChecklistUnit} onValueChange={setNewChecklistUnit}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pcs">pcs</SelectItem>
+                  <SelectItem value="m">m</SelectItem>
+                  <SelectItem value="foot">foot</SelectItem>
+                  <SelectItem value="kg">kg</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Planned quantity</Label>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                value={newChecklistQty}
+                onChange={(e) => setNewChecklistQty(e.target.value)}
+                placeholder="e.g. 50"
+              />
+            </div>
+          </div>
+          <SheetFooter className="mt-6 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsAddChecklistItemOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (!onUpdateSiteChecklist) return;
+                const name = newChecklistName.trim();
+                const qty = Number(newChecklistQty);
+                if (!name || !Number.isFinite(qty) || qty <= 0) return;
+                const actorLabel = currentRole.replace("_", " ");
+                const newItem: ProjectSiteChecklistItem = {
+                  id: `cl-${Date.now()}`,
+                  name,
+                  unit: newChecklistUnit,
+                  qtyPlanned: qty,
+                  qtySent: 0,
+                  qtyReturned: 0,
+                  qtyConsumed: 0,
+                  addedByOverride: true,
+                  source: "manual",
+                  addedByEmployeeName: actorLabel,
+                  addedAt: new Date().toISOString(),
+                };
+                onUpdateSiteChecklist([...siteChecklist, newItem]);
+                setIsAddChecklistItemOpen(false);
+              }}
+            >
+              Add item
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={isAttachTemplateOpen} onOpenChange={setIsAttachTemplateOpen}>
+        <SheetContent className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Attach site checklist template</SheetTitle>
+            <SheetDescription>
+              Appends items from the selected template. Existing rows are kept; duplicate items (by name + unit) bump <span className="font-medium">qtyPlanned</span> to the higher of the two.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Template</Label>
+              <Select value={attachTemplateId || "__none__"} onValueChange={(v) => setAttachTemplateId(v === "__none__" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pick a template" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Pick a template</SelectItem>
+                  {siteChecklistTemplates.map((tpl) => (
+                    <SelectItem key={tpl.id} value={tpl.id}>
+                      {tpl.name} · {tpl.segment}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {attachTemplateId && (() => {
+              const tpl = siteChecklistTemplates.find((t) => t.id === attachTemplateId);
+              if (!tpl) return null;
+              return (
+                <div className="rounded-md border bg-muted/30 p-3 text-xs">
+                  <p className="font-medium mb-2">{tpl.items.length} item{tpl.items.length === 1 ? "" : "s"} in this template</p>
+                  <ul className="space-y-1 max-h-40 overflow-auto">
+                    {tpl.items.map((it) => (
+                      <li key={`${it.inventoryItemId}-${it.name}`} className="flex justify-between">
+                        <span>{it.name}</span>
+                        <span className="text-muted-foreground">{it.quantity} {it.unit}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()}
+          </div>
+          <SheetFooter className="mt-6 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsAttachTemplateOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!attachTemplateId}
+              onClick={() => {
+                if (!onUpdateSiteChecklist || !attachTemplateId) return;
+                const tpl = siteChecklistTemplates.find((t) => t.id === attachTemplateId);
+                if (!tpl) return;
+                const now = new Date().toISOString();
+                const actorLabel = currentRole.replace("_", " ");
+                const merged: ProjectSiteChecklistItem[] = [...siteChecklist];
+                tpl.items.forEach((it, idx) => {
+                  const dupIdx = merged.findIndex(
+                    (x) => x.name.toLowerCase() === it.name.toLowerCase() && x.unit === it.unit,
+                  );
+                  if (dupIdx >= 0) {
+                    merged[dupIdx] = {
+                      ...merged[dupIdx],
+                      qtyPlanned: Math.max(merged[dupIdx].qtyPlanned, it.quantity),
+                    };
+                  } else {
+                    merged.push({
+                      id: `cl-${Date.now()}-${idx}`,
+                      name: it.name,
+                      unit: it.unit,
+                      qtyPlanned: it.quantity,
+                      qtySent: 0,
+                      qtyReturned: 0,
+                      qtyConsumed: 0,
+                      source: "template",
+                      sourceTemplateId: tpl.id,
+                      sourceTemplateName: tpl.name,
+                      addedByEmployeeName: actorLabel,
+                      addedAt: now,
+                    });
+                  }
+                });
+                onUpdateSiteChecklist(merged);
+                setIsAttachTemplateOpen(false);
+              }}
+            >
+              Attach
+            </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>

@@ -5,7 +5,8 @@ import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, FileText, TrendingUp, Package, Scale, BookOpen, Wallet, HardDrive, IndianRupee, FileSpreadsheet } from "lucide-react";
+import { Download, FileText, TrendingUp, Package, Scale, BookOpen, Wallet, HardDrive, IndianRupee, FileSpreadsheet, Database } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { toast } from "@/hooks/use-toast";
 import {
   buildCashBankEntries,
@@ -232,6 +233,13 @@ const AuditReports = () => {
   ];
 
   const salesDocCount = invoices.length + saleBills.length;
+  const hasAuditData =
+    salesDocCount > 0 ||
+    vendorBills.length > 0 ||
+    expenses.length > 0 ||
+    payments.length > 0 ||
+    inventoryItems.length > 0 ||
+    tools.length > 0;
 
   return (
     <PageShell className="space-y-6">
@@ -254,6 +262,13 @@ const AuditReports = () => {
         }
       />
 
+      {!hasAuditData ? (
+        <ListEmptyState
+          icon={Database}
+          title="No audit data yet"
+          description="Add invoices, expenses, vendor bills, or payments to generate CSV reports."
+        />
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {reports.map(report => (
           <Card key={report.title} className="hover:shadow-md transition-shadow">
@@ -284,6 +299,7 @@ const AuditReports = () => {
           </Card>
         ))}
       </div>
+      )}
     </PageShell>
   );
 };

@@ -25,10 +25,11 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { DateInput } from "@/components/ui/DateInput";
 import { toast } from "@/hooks/use-toast";
-import { EntityLink } from "@/components/shared/EntityInfoModal";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { PayrollPolicyService } from "@/application/services/PayrollPolicyService";
 import { formatINR } from "@/lib/formatCurrency";
 import { formatUiDate } from "@/lib/formatUiDate";
+import { useCan } from "@/hooks/useCan";
 
 const Attendance = () => {
   const payrollPolicyService = new PayrollPolicyService();
@@ -39,9 +40,13 @@ const Attendance = () => {
     addAttendanceRecord,
     teams, projects,
     generateId,
-    canDo,
     addExpense,
   } = useAppData();
+  const canCreateAttendance = useCan("attendance", "create");
+  const canEditAttendance = useCan("attendance", "edit");
+  const canDeleteAttendance = useCan("attendance", "delete");
+  const canMarkHoliday = useCan("holiday", "create");
+  const canCreateExpense = useCan("expense", "create");
   
   // B3.23: Day grid + actions use `selectedDate` (yyyy-MM-dd). Month KPIs (paid-leave quota, payroll summary)
   // use the **calendar month of that selected date**, not "today", so changing the picker shifts which month the stats describe.
@@ -162,7 +167,7 @@ const Attendance = () => {
   }, [markedHolidays.length]);
 
   // Helper function to check if employee has relationships on a date
-  const hasEmployeeRelationshipsOnDate = (employeeId: number, date: string): { hasRelationship: boolean; details: string[] } => {
+  const hasEmployeeRelationshipsOnDate = (employeeId: string, date: string): { hasRelationship: boolean; details: string[] } => {
     const details: string[] = [];
     
     // Check tasks
@@ -277,7 +282,7 @@ const Attendance = () => {
   };
 
   const postPayrollSummaryAsExpense = (emp: (typeof employeesWithAttendance)[0]) => {
-    if (!canDo("finance:record_expense_income")) {
+    if (!canCreateExpense) {
       toast({ title: "Not permitted", description: "Your role cannot record expenses.", variant: "destructive" });
       return;
     }
@@ -517,13 +522,13 @@ const Attendance = () => {
   };
 
   // Check if employee has paid leave remaining this month
-  const hasPaidLeaveRemaining = (employeeId: number) => {
+  const hasPaidLeaveRemaining = (employeeId: string) => {
     const currentMonth = format(selectedDate, 'yyyy-MM');
     return !hasEmployeePaidHolidayInMonth(employeeId, currentMonth);
   };
 
   // Get paid leave info for this month
-  const getPaidLeaveInfo = (employeeId: number) => {
+  const getPaidLeaveInfo = (employeeId: string) => {
     const currentMonth = format(selectedDate, 'yyyy-MM');
     const paidLeaves = getEmployeePaidHolidaysByMonth(employeeId, currentMonth);
     return paidLeaves;
@@ -655,7 +660,7 @@ const Attendance = () => {
               variant="outline"
               className="shrink-0 border-primary text-primary"
               onClick={() => setIsMarkHolidayOpen(true)}
-              disabled={!canDo("hr:mark_holiday")}
+              disabled={!canMarkHoliday}
             >
               <Plus className="mr-2 h-4 w-4" />
               Holiday
@@ -737,7 +742,7 @@ const Attendance = () => {
                     {monthlyData.lastMonthPending !== 0 && (
                       <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Last Month Pending:</span>
-                        <span className={`font-medium ${monthlyData.lastMonthPending > 0 ? 'text-amber-600' : 'text-primary'}`}>
+                        <span className={`font-medium ${monthlyData.lastMonthPending > 0 ? 'text-warning' : 'text-primary'}`}>
                           {monthlyData.lastMonthPending > 0 ? '+' : ''}₹{(monthlyData.lastMonthPending || 0).toLocaleString()}
                         </span>
                       </div>
@@ -766,7 +771,7 @@ const Attendance = () => {
                         1/1 Available
                       </Badge>
                     ) : (
-                      <Badge variant="outline" className="text-2xs bg-amber-500/10 text-amber-600 border-amber-500/20">
+                      <Badge variant="outline" className="text-2xs bg-warning/10 text-warning border-warning/20">
                         <Gift className="w-3 h-3 mr-1" />
                         {paidLeaves.length} Used ({paidLeaves.map(pl => formatUiDate(pl.date, "dd")).join(', ')})
                       </Badge>
@@ -782,14 +787,17 @@ const Attendance = () => {
                           {workedSites.map(id => sites.find(s => s.projectId === id)?.name || id).join(", ")}
                         </span>
                       </div>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+                      {canEditAttendance && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Edit sites for ${emp.name}`}
                         className="h-6 w-6"
                         onClick={() => handleEditSites(emp)}
                       >
-                        <Pencil className="w-3 h-3" />
+                        <Pencil className="w-3 h-3" aria-hidden />
                       </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -814,6 +822,7 @@ const Attendance = () => {
                             variant="default" 
                             size="sm" 
                             className="flex-1 bg-destructive text-destructive-foreground text-xs md:text-sm cursor-pointer hover:bg-destructive/90"
+                            disabled={!canEditAttendance}
                             onClick={() => handleEditAbsent(emp)}
                           >
                             <Check className="w-3 h-3 mr-1" />
@@ -830,7 +839,7 @@ const Attendance = () => {
                     <Button 
                       variant="default" 
                       size="sm" 
-                      className="flex-1 bg-amber-500 text-white text-xs md:text-sm"
+                      className="flex-1 bg-warning text-white text-xs md:text-sm"
                       disabled
                     >
                       <Gift className="w-3 h-3 mr-1" />
@@ -842,6 +851,7 @@ const Attendance = () => {
                         variant="outline" 
                         size="sm" 
                         className="flex-1 border-primary text-primary hover:bg-primary hover:text-primary-foreground text-xs md:text-sm"
+                        disabled={!canCreateAttendance}
                         onClick={() => handleMarkPresent(emp)}
                       >
                         Present
@@ -850,6 +860,7 @@ const Attendance = () => {
                         variant="outline" 
                         size="sm" 
                         className="flex-1 border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground text-xs md:text-sm"
+                        disabled={!canCreateAttendance}
                         onClick={() => handleMarkAbsent(emp)}
                       >
                         Absent
@@ -904,14 +915,14 @@ const Attendance = () => {
                   
                   <Label 
                     className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                      attendanceType === "paid_leave" ? "border-amber-500 bg-amber-500/5" : "border-border hover:border-amber-500/50"
+                      attendanceType === "paid_leave" ? "border-warning bg-warning/5" : "border-border hover:border-warning/50"
                     }`}
                   >
                     <RadioGroupItem value="paid_leave" className="mt-1" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <p className="font-medium">Mark Paid Leave</p>
-                        <Gift className="w-4 h-4 text-amber-500" />
+                        <Gift className="w-4 h-4 text-warning" />
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {hasPaidLeaveRemaining(selectedEmployeeForSite?.id || 0) 
@@ -919,7 +930,7 @@ const Attendance = () => {
                           : `Already used ${getPaidLeaveInfo(selectedEmployeeForSite?.id || 0).length} this month (will add extra)`}
                       </p>
                       {!hasPaidLeaveRemaining(selectedEmployeeForSite?.id || 0) && (
-                        <div className="flex items-center gap-1 mt-1 text-xs text-amber-600">
+                        <div className="flex items-center gap-1 mt-1 text-xs text-warning">
                           <AlertTriangle className="w-3 h-3" />
                           Extra paid leave will require confirmation
                         </div>
@@ -955,7 +966,7 @@ const Attendance = () => {
           <div className="flex justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsSiteSelectionOpen(false)}>Cancel</Button>
             <Button 
-              className={attendanceType === "paid_leave" ? "bg-amber-500 hover:bg-amber-600 text-white" : "bg-primary text-primary-foreground"}
+              className={attendanceType === "paid_leave" ? "bg-warning hover:bg-warning text-white" : "bg-primary text-primary-foreground"}
               onClick={handleConfirmSiteSelection}
               disabled={attendanceType === "present" && selectedSites.length === 0}
             >
@@ -969,7 +980,7 @@ const Attendance = () => {
       <Sheet open={isExtraPaidLeaveConfirmOpen} onOpenChange={setIsExtraPaidLeaveConfirmOpen}>
         <AppSheetContent size="sm" layout="form">
           <SheetHeader>
-            <SheetTitle className="flex items-center gap-2 text-amber-600">
+            <SheetTitle className="flex items-center gap-2 text-warning">
               <AlertTriangle className="w-5 h-5" />
               Additional Paid Leave
             </SheetTitle>
@@ -990,7 +1001,7 @@ const Attendance = () => {
               Cancel
             </Button>
             <Button 
-              className="bg-amber-500 hover:bg-amber-600 text-white"
+              className="bg-warning hover:bg-warning text-white"
               onClick={handleConfirmExtraPaidLeave}
             >
               Add Extra Paid Leave
@@ -1007,11 +1018,11 @@ const Attendance = () => {
               confirmationData?.status === "present" 
                 ? "bg-primary/10" 
                 : confirmationData?.status === "paid_leave"
-                  ? "bg-amber-500/10"
+                  ? "bg-warning/10"
                   : "bg-destructive/10"
             }`}>
               {confirmationData?.status === "paid_leave" ? (
-                <Gift className="w-8 h-8 text-amber-500" />
+                <Gift className="w-8 h-8 text-warning" />
               ) : (
                 <Check className={`w-8 h-8 ${
                   confirmationData?.status === "present" 
@@ -1037,7 +1048,7 @@ const Attendance = () => {
                     confirmationData?.status === "present" 
                       ? "bg-primary/10 text-primary" 
                       : confirmationData?.status === "paid_leave"
-                        ? "bg-amber-500/10 text-amber-600"
+                        ? "bg-warning/10 text-warning"
                         : "bg-destructive/10 text-destructive"
                   } border-0`}>
                     {confirmationData?.status === "present" ? "Present" : confirmationData?.status === "paid_leave" ? "Paid Leave" : "Absent"}
@@ -1050,7 +1061,7 @@ const Attendance = () => {
                   </div>
                 )}
                 {confirmationData?.status === "paid_leave" && (
-                  <div className="text-xs text-amber-600 pt-2 border-t mt-2">
+                  <div className="text-xs text-warning pt-2 border-t mt-2">
                     This counts as paid leave for {confirmationData?.date ? format(confirmationData.date, 'MMMM yyyy') : ''}
                   </div>
                 )}
@@ -1086,12 +1097,12 @@ const Attendance = () => {
             </div>
 
             {absentHasRelationship.hasRelationship ? (
-              <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <div className="p-4 bg-warning/10 border border-warning/20 rounded-lg">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5" />
+                  <AlertTriangle className="w-5 h-5 text-warning mt-0.5" />
                   <div>
-                    <p className="text-sm font-medium text-amber-800">Cannot change to Absent</p>
-                    <p className="text-xs text-amber-700 mt-1">
+                    <p className="text-sm font-medium text-warning">Cannot change to Absent</p>
+                    <p className="text-xs text-warning mt-1">
                       Employee has existing records: {absentHasRelationship.details.join(", ")}
                     </p>
                     <p className="text-xs text-muted-foreground mt-2">

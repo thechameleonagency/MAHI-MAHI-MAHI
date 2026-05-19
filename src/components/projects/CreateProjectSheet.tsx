@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Briefcase, User, Users, _Wrench, IndianRupee, Zap, ChevronRight, Check,
+  Briefcase, User, Users, IndianRupee, Zap, ChevronRight, Check,
   ShieldCheck, AlertTriangle, Building2, HardHat,
   UsersRound,
 } from "lucide-react";
@@ -14,15 +14,23 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import type { Project, ProjectScopeConfig } from "@/types/project";
 import type { ProjectIntakePayload } from "@/application/services/ProjectKindService";
-import type { ProjectKind } from "@/domain/projectTypes/types";
+import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
+import {
+  loadCreateDraft,
+  type ProjectDraftFromCustomer,
+  type ProjectDraftFromQuotation,
+} from "@/lib/createFromContext";
 
-interface CreateProjectModalProps {
+interface CreateProjectSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set (e.g. from `/projects?createFrom=quo:<id>`), pre-select quotation and merge project draft. */
+  prefillQuotationId?: string;
+  prefillCustomerDraft?: ProjectDraftFromCustomer;
 }
 
 type LeadPath = "MSS_DIRECT" | "PARTNER" | "INC_GIVEN" | "OUTSOURCED_INC";
@@ -34,17 +42,19 @@ const parsePositiveAmount = (value: string): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 };
 
-export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalProps) => {
+export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, prefillCustomerDraft }: CreateProjectSheetProps) => {
   const navigate = useNavigate();
   const {
     partners,
     customers,
     vendorshipCompanies,
     incGiverCompanies,
+    projects,
     getProjectEligibleQuotations,
     createProjectIntake,
     addCustomer,
     addExpense,
+    updateProject,
     generateId,
     convertEnquiryToCustomer,
     loans,
@@ -74,6 +84,16 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
   const [commissionRatePct, setCommissionRatePct] = useState("");
   const [incScopeChoice, setIncScopeChoice] = useState<"" | "labour" | "labour_and_materials">("");
   const [selectedSubcontractorId, setSelectedSubcontractorId] = useState("");
+
+  // Outsourced INC sub-flow: when picked, default to "attach to existing project" mode (the
+  // user-confirmed model from the plan). "new" still creates a fresh outsourced project for
+  // back-compat with anyone who needs that path. State only meaningful when leadPath === "OUTSOURCED_INC".
+  const [outsourceMode, setOutsourceMode] = useState<"existing" | "new">("existing");
+  const [outsourceTargetProjectId, setOutsourceTargetProjectId] = useState("");
+  const [outsourceRateBasis, setOutsourceRateBasis] = useState<"per_kw" | "per_sqft" | "fixed">("fixed");
+  const [outsourceRateValue, setOutsourceRateValue] = useState("");
+  const [outsourceQuantity, setOutsourceQuantity] = useState("");
+  const [outsourceNotes, setOutsourceNotes] = useState("");
 
   const [vendorshipChoice, setVendorshipChoice] = useState<VendorshipChoice>("OUR_CODE");
   const [vendorshipCompanyId, setVendorshipCompanyId] = useState("");
@@ -133,6 +153,12 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
     setCommissionRatePct("");
     setIncScopeChoice("");
     setSelectedSubcontractorId("");
+    setOutsourceMode("existing");
+    setOutsourceTargetProjectId("");
+    setOutsourceRateBasis("fixed");
+    setOutsourceRateValue("");
+    setOutsourceQuantity("");
+    setOutsourceNotes("");
     setVendorshipChoice("OUR_CODE");
     setVendorshipCompanyId("");
     setVendorshipFeeAmount("");
@@ -235,7 +261,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
           return;
         }
         const newCustId = generateId("C");
-        addCustomer({
+        const added = addCustomer({
           id: newCustId,
           name: newCustomerName,
           phone: newCustomerPhone,
@@ -246,6 +272,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
           totalPurchases: 0,
           createdAt: new Date().toISOString(),
         });
+        if (!added) return;
         activeCustomerId = newCustId;
       }
 
@@ -324,6 +351,11 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
         toast({ title: "Missing fields", description: "Capacity and contract amount are required.", variant: "destructive" });
         return;
       }
+      if (!partnerCustomerName.trim()) {
+        toast({ title: "Customer name required", description: "Enter the end-customer name for this partner project.", variant: "destructive" });
+        return;
+      }
+
       if (partnerEconomicsType === "profit_share") {
         const ps = Number.parseFloat(profitSharePercent);
         if (!Number.isFinite(ps) || ps < 0 || ps > 100) {
@@ -342,8 +374,21 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
       finalProjectName = partnerProjectName || `${partner?.name || "Partner"} – ${partnerCapacity}kW`;
       finalCapacity = partnerCapacity;
       finalContractAmount = parsePositiveAmount(partnerContractAmount);
-      finalClientName = partnerCustomerName || "TBD";
-      finalCustomerId = `tbd-${generateId("CUST")}`;
+      const partnerCustId = generateId("C");
+      const partnerCustAdded = addCustomer({
+        id: partnerCustId,
+        name: partnerCustomerName.trim(),
+        phone: "",
+        email: "",
+        address: "",
+        type: "individual",
+        itemsBought: [],
+        totalPurchases: 0,
+        createdAt: new Date().toISOString(),
+      });
+      if (!partnerCustAdded) return;
+      finalClientName = partnerCustomerName.trim();
+      finalCustomerId = partnerCustId;
       finalProjectType = partnerProjectType;
 
       projectKind = partner?.type === "Fixed-Rate" ? "FIXED_EPC" : "PARTNER_EPC";
@@ -461,11 +506,48 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
         ? partners.find((p) => p.id === selectedSubcontractorId)
         : undefined;
 
+    // Derive the new 3-value project taxonomy from the legacy kind so the canonical resolver
+     // (resolveProjectCapabilities) sees consistent data. normalizeProject also backfills, but
+     // we set them explicitly here so the persisted record never relies on the legacy fallback.
+    const legacyTypeMap = LEGACY_KIND_TO_TYPE[projectKind];
+    const derivedProjectMode = legacyTypeMap.projectType;
+    const derivedVendorshipOwner: Project["vendorshipOwner"] = (() => {
+      if (leadPath === "MSS_DIRECT") return vendorshipChoice === "THIRD_PARTY" ? "partner" : "MSS";
+      if (leadPath === "INC_GIVEN") return "none";
+      if (leadPath === "OUTSOURCED_INC") return "MSS";
+      return legacyTypeMap.vendorshipOwner;
+    })();
+    const derivedExecutionScope: Project["executionScope"] = legacyTypeMap.executionScope;
+    const derivedPartnerRole = legacyTypeMap.partnerRole;
+
+    // Per user's confirmed model: Outsourced INC attaches outsource info to an existing project,
+    // not a new entity. The current sheet still creates a new project (legacy flow); we attach
+    // the outsource block onto the new project so the Progress Report variant and Materials Sent
+    // visibility react correctly. The "select an existing open project + attach" affordance is
+    // tracked separately; for now the new project records the outsource relationship to itself.
+    const derivedOutsource: Project["outsource"] =
+      leadPath === "OUTSOURCED_INC" && subPartner
+        ? {
+            partyId: subPartner.id,
+            partyName: subPartner.name,
+            rateBasis: "fixed",
+            rateValue: finalContractAmount,
+            total: finalContractAmount,
+            attachedAt: new Date().toISOString(),
+          }
+        : null;
+
     const projectData: Project = {
       id: projectId,
       name: finalProjectName,
       projectKind,
       projectKindConfigSnapshot: projectKindConfigSnapshot(projectKind),
+      // New taxonomy fields (live alongside legacy projectKind during migration).
+      projectMode: derivedProjectMode,
+      vendorshipOwner: derivedVendorshipOwner,
+      executionScope: derivedExecutionScope,
+      partnerRole: derivedPartnerRole,
+      outsource: derivedOutsource,
       type: projectKind === "INC_GIVEN" ? "INC" : "EPC",
       projectType: finalProjectType,
       projectCategory: "solar",
@@ -539,6 +621,43 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
 
   useEffect(() => {
     if (!open) return;
+    if (prefillCustomerDraft) {
+      setLeadPath("MSS_DIRECT");
+      setCustomerMode("select");
+      setSelectedCustomerId(prefillCustomerDraft.customerId);
+      setProjectName(`${prefillCustomerDraft.customerName} – Project`);
+      setNewCustomerName(prefillCustomerDraft.customerName);
+      setNewCustomerPhone(prefillCustomerDraft.customerPhone);
+      setNewCustomerEmail(prefillCustomerDraft.customerEmail);
+      setNewCustomerAddress(prefillCustomerDraft.customerAddress);
+      return;
+    }
+    if (prefillQuotationId) {
+      setLeadPath("MSS_DIRECT");
+      handleQuotationSelect(prefillQuotationId);
+      const draft = loadCreateDraft<ProjectDraftFromQuotation>("project-create-draft");
+      if (draft?.quotationId === prefillQuotationId) {
+        if (draft.capacityText) setCapacity(draft.capacityText);
+        else if (draft.capacityKw) setCapacity(String(draft.capacityKw));
+        if (draft.contractAmount) setContractAmount(String(draft.contractAmount));
+        if (draft.agentId) setSelectedAgentId(draft.agentId);
+        if (draft.paymentType) setPaymentTypeMss(draft.paymentType);
+        if (draft.customerId) {
+          setCustomerMode("select");
+          setSelectedCustomerId(draft.customerId);
+        } else if (draft.customerName) {
+          setCustomerMode("add");
+          setNewCustomerName(draft.customerName);
+          setNewCustomerPhone(draft.customerPhone);
+          if (draft.customerEmail) setNewCustomerEmail(draft.customerEmail);
+          setNewCustomerAddress(draft.customerAddress);
+        }
+        if (draft.customerName && !projectName) {
+          setProjectName(`${draft.customerName} – ${draft.capacityKw || draft.capacityText || ""}kW`);
+        }
+      }
+      return;
+    }
     const d = loadFormDraft<{
       v: number;
       leadPath?: LeadPath | null;
@@ -557,7 +676,8 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
     if (d.selectedCustomerId != null) setSelectedCustomerId(d.selectedCustomerId);
     if (d.partnerContractAmount != null) setPartnerContractAmount(d.partnerContractAmount);
     if (d.selectedPartnerId != null) setSelectedPartnerId(d.selectedPartnerId);
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleQuotationSelect is stable enough for prefill
+  }, [open, prefillQuotationId, prefillCustomerDraft]);
 
   return (
     <Sheet
@@ -637,8 +757,178 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
             </div>
           </div>
 
+          {/* ── Outsourced INC: pick an existing open project + attach outsource info ── */}
+          {leadPath === "OUTSOURCED_INC" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="rounded-xl border bg-warning dark:bg-warning/5 border-warning dark:border-warning/20 p-4">
+                <h3 className="text-sm font-semibold mb-2">How is this outsourcing recorded?</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {[
+                    { key: "existing" as const, title: "Attach to existing project (Recommended)", sub: "Pick an open project and record outsource details on it. No new project is created." },
+                    { key: "new" as const, title: "Create a fresh outsourced project", sub: "Spin up a new project entity that tracks subcontractor work end-to-end." },
+                  ].map(({ key, title, sub }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setOutsourceMode(key)}
+                      className={`p-3 rounded-lg border text-left text-sm transition ${
+                        outsourceMode === key ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                      }`}
+                    >
+                      <p className="font-medium">{title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {outsourceMode === "existing" && (
+                <div className="space-y-4 rounded-xl border p-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Select an open project to outsource</h3>
+                  <Select value={outsourceTargetProjectId} onValueChange={setOutsourceTargetProjectId}>
+                    <SelectTrigger><SelectValue placeholder="Choose project…" /></SelectTrigger>
+                    <SelectContent className="max-h-[60vh]">
+                      {projects
+                        .filter((p) => p.lifecycleStatus !== "Completed")
+                        .map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.id} — {p.name} — {p.capacity || "no capacity"} — {p.client}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+
+                  {outsourceTargetProjectId && (() => {
+                    const target = projects.find((p) => p.id === outsourceTargetProjectId);
+                    if (!target) return null;
+                    return (
+                      <div className="grid grid-cols-2 gap-3 text-xs rounded-lg bg-muted/30 p-3">
+                        <div><span className="text-muted-foreground block">Client</span><span className="font-medium">{target.client}</span></div>
+                        <div><span className="text-muted-foreground block">Capacity</span><span className="font-medium">{target.capacity || "—"}</span></div>
+                        <div><span className="text-muted-foreground block">Location</span><span className="font-medium">{target.location || "—"}</span></div>
+                        <div><span className="text-muted-foreground block">Contract</span><span className="font-medium">₹{(target.contractAmount || 0).toLocaleString("en-IN")}</span></div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase text-muted-foreground">Outsource to (subcontractor)</Label>
+                    <Select value={selectedSubcontractorId} onValueChange={setSelectedSubcontractorId}>
+                      <SelectTrigger><SelectValue placeholder="Choose subcontractor…" /></SelectTrigger>
+                      <SelectContent>
+                        {partners.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase text-muted-foreground">Rate basis</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {(["per_kw", "per_sqft", "fixed"] as const).map((basis) => (
+                        <button
+                          key={basis}
+                          type="button"
+                          onClick={() => setOutsourceRateBasis(basis)}
+                          className={`px-3 py-1.5 rounded-md border text-xs transition ${
+                            outsourceRateBasis === basis ? "border-primary bg-primary/5 text-primary" : "border-border"
+                          }`}
+                        >
+                          {basis === "per_kw" ? "Per kW" : basis === "per_sqft" ? "Per sqft" : "Fixed total"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs uppercase text-muted-foreground">
+                        {outsourceRateBasis === "fixed" ? "Total amount" : outsourceRateBasis === "per_kw" ? "Rate per kW" : "Rate per sqft"}
+                      </Label>
+                      <Input
+                        type="number"
+                        value={outsourceRateValue}
+                        onChange={(e) => setOutsourceRateValue(e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                    {outsourceRateBasis !== "fixed" && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs uppercase text-muted-foreground">
+                          Quantity ({outsourceRateBasis === "per_kw" ? "kW" : "sqft"})
+                        </Label>
+                        <Input
+                          type="number"
+                          value={outsourceQuantity}
+                          onChange={(e) => setOutsourceQuantity(e.target.value)}
+                          placeholder="0"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs uppercase text-muted-foreground">Notes (optional)</Label>
+                    <Input
+                      value={outsourceNotes}
+                      onChange={(e) => setOutsourceNotes(e.target.value)}
+                      placeholder="Scope, deadline, payment terms…"
+                    />
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <Button
+                      onClick={() => {
+                        const target = projects.find((p) => p.id === outsourceTargetProjectId);
+                        if (!target) {
+                          toast({ title: "Pick a project", description: "Select an open project to attach outsource info to.", variant: "destructive" });
+                          return;
+                        }
+                        if (!selectedSubcontractorId) {
+                          toast({ title: "Pick a subcontractor", description: "Select who the work is outsourced to.", variant: "destructive" });
+                          return;
+                        }
+                        const rate = parsePositiveAmount(outsourceRateValue);
+                        if (rate <= 0) {
+                          toast({ title: "Enter a rate", description: "Rate must be positive.", variant: "destructive" });
+                          return;
+                        }
+                        const qty = outsourceRateBasis === "fixed" ? 1 : parsePositiveAmount(outsourceQuantity || (outsourceRateBasis === "per_kw" ? target.capacity?.replace(/[^\d.]/g, "") || "0" : "0"));
+                        const total = outsourceRateBasis === "fixed" ? rate : rate * qty;
+                        const subPartner = partners.find((p) => p.id === selectedSubcontractorId);
+                        updateProject(target.id, {
+                          outsource: {
+                            partyId: selectedSubcontractorId,
+                            partyName: subPartner?.name,
+                            rateBasis: outsourceRateBasis,
+                            rateValue: rate,
+                            quantity: outsourceRateBasis === "fixed" ? undefined : qty,
+                            total,
+                            notes: outsourceNotes.trim() || undefined,
+                            attachedAt: new Date().toISOString(),
+                          },
+                        } as Partial<Project>);
+                        toast({
+                          title: `Outsourced to ${subPartner?.name || selectedSubcontractorId}`,
+                          description: `Attached to project ${target.id}.`,
+                        });
+                        onOpenChange(false);
+                        resetForm();
+                        navigate(`/projects/${target.id}`);
+                      }}
+                      disabled={!outsourceTargetProjectId || !selectedSubcontractorId}
+                    >
+                      Attach outsource to project
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Path A: Direct Client / Outsourced INC ── */}
-          {(leadPath === "MSS_DIRECT" || leadPath === "OUTSOURCED_INC") && (
+          {(leadPath === "MSS_DIRECT" || (leadPath === "OUTSOURCED_INC" && outsourceMode === "new")) && (
             <div className="space-y-6 animate-in fade-in duration-200">
 
               {/* Quotation attachment */}
@@ -667,7 +957,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
                     ))}
                   </div>
                   {selectedQuotationId && (
-                    <p className="text-xs text-green-600 font-medium">✓ Quotation attached — details auto-filled below. Verify and edit as needed.</p>
+                    <p className="text-xs text-success font-medium">✓ Quotation attached — details auto-filled below. Verify and edit as needed.</p>
                   )}
                 </div>
               )}
@@ -708,7 +998,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
                           onChange={e => setNewCustomerName(e.target.value)}
                         />
                         {selectedQuotationId && newCustomerName && (
-                          <div className="flex items-center gap-1 mt-1 text-xs text-amber-600">
+                          <div className="flex items-center gap-1 mt-1 text-xs text-warning">
                             <AlertTriangle className="h-3 w-3" />
                             Verify this name matches the approved quotation exactly.
                           </div>
@@ -870,7 +1160,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
                 </div>
 
                 {vendorshipChoice === "THIRD_PARTY" && (
-                  <div className="space-y-3 p-4 border rounded-xl bg-amber-500/5 border-amber-500/20 animate-in fade-in duration-200">
+                  <div className="space-y-3 p-4 border rounded-xl bg-warning/5 border-warning/20 animate-in fade-in duration-200">
                     <div className="space-y-1.5">
                       <Label>Select Vendorship Code Company <span className="text-destructive">*</span></Label>
                       <Select value={vendorshipCompanyId} onValueChange={setVendorshipCompanyId}>
@@ -940,15 +1230,15 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
                     ))}
                   </div>
                   {selectedQuotationId && (
-                    <p className="text-xs text-green-600 font-medium">✓ Quotation attached — details auto-filled below.</p>
+                    <p className="text-xs text-success font-medium">✓ Quotation attached — details auto-filled below.</p>
                   )}
                 </div>
               )}
 
               {/* Customer (optional) */}
               <div className="space-y-1.5">
-                <Label>Customer Name <span className="text-xs text-muted-foreground">(can be TBD)</span></Label>
-                <Input placeholder="Customer name or leave blank if unknown" value={partnerCustomerName} onChange={e => setPartnerCustomerName(e.target.value)} />
+                <Label>Customer Name <span className="text-destructive">*</span></Label>
+                <Input placeholder="End-customer name" value={partnerCustomerName} onChange={e => setPartnerCustomerName(e.target.value)} />
               </div>
 
               {/* Project details */}
@@ -1050,7 +1340,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
                     ))}
                   </div>
                   {partnerGstInvoice === "no" && (
-                    <p className="text-xs text-amber-600 bg-amber-500/10 rounded-lg px-3 py-2">9% will be deducted from the partner's share as GST offset before payment.</p>
+                    <p className="text-xs text-warning bg-warning/10 rounded-lg px-3 py-2">9% will be deducted from the partner's share as GST offset before payment.</p>
                   )}
                 </div>
               </div>
@@ -1084,7 +1374,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
                 )}
 
                 {partnerVendorshipChoice === "THIRD_PARTY" && (
-                  <div className="space-y-3 p-4 border rounded-xl bg-amber-500/5 border-amber-500/20 animate-in fade-in duration-200">
+                  <div className="space-y-3 p-4 border rounded-xl bg-warning/5 border-warning/20 animate-in fade-in duration-200">
                     <div className="space-y-1.5">
                       <Label>Vendorship Code Company</Label>
                       <Select value={partnerThirdPartyCompanyId} onValueChange={setPartnerThirdPartyCompanyId}>
@@ -1129,7 +1419,7 @@ export const CreateProjectModal = ({ open, onOpenChange }: CreateProjectModalPro
                       </div>
                     ))}
                   </div>
-                  {selectedQuotationId && <p className="text-xs text-green-600 font-medium">✓ Quotation attached.</p>}
+                  {selectedQuotationId && <p className="text-xs text-success font-medium">✓ Quotation attached.</p>}
                 </div>
               )}
 

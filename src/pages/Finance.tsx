@@ -21,21 +21,24 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { useMasters } from "@/contexts/MastersContext";
 import { useAppData } from "@/contexts/AppDataContext";
-import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { useCan } from "@/hooks/useCan";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
+import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
-import { UnifiedExpenseModal } from "@/components/expenses/UnifiedExpenseModal";
-import { UnifiedIncomeModal } from "@/components/income/UnifiedIncomeModal";
+import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
+import { UnifiedIncomeSheet } from "@/components/income/UnifiedIncomeSheet";
 import { toast } from "@/hooks/use-toast";
-import { useNavigate } from "react-router-dom";
-import { PrototypeFinanceNotice } from "@/components/prototype/PrototypeFinanceNotice";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { getRevenueCash, getOutstandingReceivables } from "@/domain/finance/financialSemantics";
 import { downloadCSV } from "@/lib/csvExport";
 import { format, isValid, parseISO } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatINRCompact } from "@/lib/formatCurrency";
+import { formatINR, formatINRCompact } from "@/lib/formatCurrency";
 import { calculateProjectProfit } from "@/domain/partners/derivePartnerEconomics";
 import type { OwnerInvestment } from "@/types/finance";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -68,6 +71,7 @@ interface InvoiceData {
 
 const Finance = () => {
   const _navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { getHsnCodes, getSacCodes, getGstRates, getStateCodes, getBankAccounts } = useMasters();
   const {
     invoices: contextInvoices,
@@ -86,11 +90,35 @@ const Finance = () => {
     retryAccountingReviewPosting,
   } = useAppData();
 
-  const { currentRole } = useAppSession();
-  const canRecordExpenseIncome = ["super_admin", "admin"].includes(currentRole ?? "");
+  const canCreateExpense = useCan("expense", "create");
+  const canCreateIncome = useCan("income", "create");
 
   const [txnTablePage, setTxnTablePage] = useState(1);
   const [txnTablePageSize, setTxnTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+
+  // M4: page-level date-range filter — persisted via URL (?from=&to=).
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get("from") ?? "");
+  const [dateTo, setDateTo] = useState(() => searchParams.get("to") ?? "");
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (dateFrom) next.set("from", dateFrom);
+        else next.delete("from");
+        if (dateTo) next.set("to", dateTo);
+        else next.delete("to");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [dateFrom, dateTo, setSearchParams]);
+  const inDateRange = (iso: string | undefined | null): boolean => {
+    if (!iso) return true;
+    if (dateFrom && iso < dateFrom) return false;
+    if (dateTo && iso > dateTo) return false;
+    return true;
+  };
+
   const [financeShellReady, setFinanceShellReady] = useState(false);
   useEffect(() => {
     const id = window.requestAnimationFrame(() => setFinanceShellReady(true));
@@ -148,6 +176,10 @@ const Finance = () => {
       amount: string;
       category: string;
       status: string;
+      customerId?: string;
+      customerName?: string;
+      projectId?: string;
+      projectName?: string;
     };
     const txns: TxnRow[] = [];
 
@@ -160,32 +192,48 @@ const Finance = () => {
       iso ? format(parseISO(iso), "dd MMM yyyy") : "";
 
     contextPayments.forEach((p) => {
-      if (p.direction === "in") {
+      if (p.direction === "in" && inDateRange(p.date)) {
         const iso = toIso(p.date);
+        const customerId =
+          p.customerId ?? (p.counterpartyType === "customer" ? p.counterpartyId : undefined);
+        const customerName =
+          p.counterpartyType === "customer" ? p.counterpartyName || "Customer" : undefined;
         txns.push({
           id: p.id,
           isoDate: iso,
           date: display(iso),
-          description: `Payment from ${p.counterpartyName || "Customer"} - ${p.notes || "Invoice Payment"}`,
+          description: `Payment from ${p.counterpartyName || "Customer"}${p.notes ? ` - ${p.notes}` : ""}`,
           type: "Credit",
-          amount: `₹${p.amount.toLocaleString()}`,
+          amount: formatINR(p.amount),
           category: "Project Income",
           status: "Completed",
+          customerId,
+          customerName,
+          projectId: p.projectId,
+          projectName: p.projectName,
         });
       }
     });
 
     contextExpenses.forEach((exp) => {
+      if (!inDateRange(exp.date)) return;
       const iso = toIso(exp.date);
+      const linkedProject = exp.projectId
+        ? contextProjects.find((proj) => proj.id === exp.projectId)
+        : undefined;
       txns.push({
         id: exp.id,
         isoDate: iso,
         date: display(iso),
         description: exp.description || `${exp.category} expense`,
         type: "Debit",
-        amount: `₹${exp.amount.toLocaleString()}`,
+        amount: formatINR(exp.amount),
         category: exp.category,
         status: "Completed",
+        customerId: linkedProject?.customerId,
+        customerName: linkedProject?.client,
+        projectId: exp.projectId,
+        projectName: exp.projectName ?? linkedProject?.name,
       });
     });
 
@@ -194,7 +242,8 @@ const Finance = () => {
       const tb = b.isoDate ? parseISO(b.isoDate).getTime() : 0;
       return tb - ta;
     });
-  }, [contextPayments, contextExpenses]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextPayments, contextExpenses, contextProjects, dateFrom, dateTo]);
 
   const { pagedItems: pagedTransactions, safePage: safeTxnPage } = usePagedSlice(
     transactions,
@@ -204,10 +253,9 @@ const Finance = () => {
 
   // Compute KPI values from context
   const kpiValues = useMemo(() => {
-    const totalRevenue = contextInvoices.reduce((sum, inv) => sum + (inv.amountReceived || 0), 0) + 
-                         contextPayments.filter(p => p.direction === "in").reduce((sum, p) => sum + p.amount, 0);
+    const totalRevenue = getRevenueCash(contextPayments);
     const totalExpenses = contextExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-    const outstanding = contextInvoices.reduce((sum, inv) => sum + (inv.total - (inv.amountReceived || 0)), 0);
+    const outstanding = getOutstandingReceivables(contextInvoices, contextPayments);
     const netProfit = totalRevenue - totalExpenses;
     
     return {
@@ -349,7 +397,7 @@ const Finance = () => {
       clientState: inv.customerState,
       clientContact: inv.customerContact,
       project: inv.projectName ?? "",
-      amount: `₹${(inv.total ?? 0).toLocaleString("en-IN")}`,
+      amount: formatINR((inv.total ?? 0)),
       dueDate: inv.dueDate ?? "",
       invoiceDate: inv.invoiceDate,
       status: inv.status ?? "pending",
@@ -373,7 +421,7 @@ const Finance = () => {
       clientState: sb.customerState,
       clientContact: sb.customerContact,
       project: sb.projectName ?? "",
-      amount: `₹${(sb.total ?? 0).toLocaleString("en-IN")}`,
+      amount: formatINR((sb.total ?? 0)),
       dueDate: sb.dueDate ?? "",
       invoiceDate: sb.invoiceDate,
       status: sb.status ?? "pending",
@@ -454,15 +502,11 @@ const Finance = () => {
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       "Completed": "bg-primary/10 text-primary border-primary/20",
-      "Pending": "bg-amber-500/10 text-amber-500 border-amber-500/20",
+      "Pending": "bg-warning/10 text-warning border-warning/20",
       "Paid": "bg-primary/10 text-primary border-primary/20",
-      "Overdue": "bg-red-500/10 text-red-500 border-red-500/20",
+      "Overdue": "bg-destructive/10 text-destructive border-destructive/20",
     };
     return <Badge variant="outline" className={styles[status] || ""}>{status}</Badge>;
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
   };
 
   const resetOwnerInvestmentForm = () => {
@@ -491,7 +535,7 @@ const Finance = () => {
       notes: oiNotes.trim() || undefined,
       createdAt: new Date().toISOString(),
     });
-    toast({ title: oiType === "investment" ? "Capital recorded" : "Withdrawal recorded", description: `${formatCurrency(amt)} on ${oiDate}.` });
+    toast({ title: oiType === "investment" ? "Capital recorded" : "Withdrawal recorded", description: `${formatINR(amt)} on ${oiDate}.` });
     resetOwnerInvestmentForm();
     setIsOwnerInvestmentOpen(false);
   };
@@ -503,7 +547,7 @@ const Finance = () => {
     setIsInvoiceDetailOpen(true);
   };
 
-  const handleInventoryItemToggle = (itemId: number, checked: boolean) => {
+  const handleInventoryItemToggle = (itemId: string, checked: boolean) => {
     if (checked) {
       setSelectedInventoryItems(prev => ({ ...prev, [itemId]: 1 }));
     } else {
@@ -515,8 +559,8 @@ const Finance = () => {
 
   const getSaleBillTotal = () => {
     return Object.entries(selectedInventoryItems).reduce((sum, [itemId, qty]) => {
-      const item = inventoryItems.find(i => i.id === parseInt(itemId));
-      return sum + (item ? item.price * qty : 0);
+      const item = inventoryItems.find((i) => String(i.id) === String(itemId));
+      return sum + (item ? (item.salePrice ?? item.buyPrice ?? 0) * qty : 0);
     }, 0);
   };
 
@@ -667,37 +711,65 @@ const Finance = () => {
           ))}
         </div>
       ) : (
-        <InlineKpiStrip
-          className="w-full flex-wrap justify-start"
-          items={[
-            {
-              label: "Revenue",
-              value: formatINRCompact(kpiValues.revenue),
-              onClick: () => setIsRevenueDetailOpen(true),
-            },
-            {
-              label: "Expenses",
-              value: formatINRCompact(kpiValues.expenses),
-              onClick: () => setIsExpenseDetailOpen(true),
-            },
-            {
-              label: "Outstanding",
-              value: formatINRCompact(kpiValues.outstanding),
-              onClick: () => setIsOutstandingDetailOpen(true),
-            },
-            {
-              label: "Net profit",
-              value: formatINRCompact(kpiValues.profit),
-              onClick: () => setIsProfitDetailOpen(true),
-            },
-            {
-              label: "Accounts Payable",
-              value: formatINRCompact(totalAP),
-            },
-          ]}
-        />
+        <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Label htmlFor="finance-date-from" className="text-2xs uppercase tracking-wider text-muted-foreground">From</Label>
+            <Input
+              id="finance-date-from"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-8 w-[140px] text-xs"
+            />
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Label htmlFor="finance-date-to" className="text-2xs uppercase tracking-wider text-muted-foreground">To</Label>
+            <Input
+              id="finance-date-to"
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-8 w-[140px] text-xs"
+            />
+          </div>
+          {(dateFrom || dateTo) && (
+            <Button variant="ghost" size="sm" className="h-8 shrink-0 text-xs" onClick={() => { setDateFrom(""); setDateTo(""); }}>
+              Clear
+            </Button>
+          )}
+          <InlineKpiStrip
+            singleRow
+            className="min-w-0 flex-1"
+            items={[
+              {
+                label: "Revenue",
+                value: formatINRCompact(kpiValues.revenue),
+                onClick: () => setIsRevenueDetailOpen(true),
+              },
+              {
+                label: "Expenses",
+                value: formatINRCompact(kpiValues.expenses),
+                onClick: () => setIsExpenseDetailOpen(true),
+              },
+              {
+                label: "Outstanding",
+                value: formatINRCompact(kpiValues.outstanding),
+                onClick: () => setIsOutstandingDetailOpen(true),
+              },
+              {
+                label: "Net profit",
+                value: formatINRCompact(kpiValues.profit),
+                onClick: () => setIsProfitDetailOpen(true),
+              },
+              {
+                label: "Accounts Payable",
+                value: formatINRCompact(totalAP),
+              },
+            ]}
+          />
+        </div>
       ),
-    [financeShellReady, kpiValues, totalAP],
+    [financeShellReady, kpiValues, totalAP, dateFrom, dateTo],
   );
 
   return (
@@ -706,36 +778,48 @@ const Finance = () => {
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Finance" }]}
         subRow={financeSubRow}
       >
-        {canRecordExpenseIncome && (
-          <Button variant="outline" size="sm" className="text-destructive border-destructive/30" onClick={() => setIsAddExpenseOpen(true)}>
-            <ArrowDownLeft className="mr-1 h-4 w-4" />
-            Expense
-          </Button>
-        )}
-        {canRecordExpenseIncome && (
-          <Button variant="outline" size="sm" className="border-primary/30 text-primary" onClick={() => setIsAddIncomeOpen(true)}>
-            <ArrowUpRight className="mr-1 h-4 w-4" />
-            Income
-          </Button>
-        )}
-        {canRecordExpenseIncome && (
-          <Button variant="outline" size="sm" onClick={() => setIsOwnerInvestmentOpen(true)}>
-            <Building2 className="mr-1 h-4 w-4" />
-            Owner capital
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-destructive border-destructive/30"
+          disabled={!canCreateExpense}
+          onClick={() => setIsAddExpenseOpen(true)}
+        >
+          <ArrowDownLeft className="mr-1 h-4 w-4" />
+          Expense
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-primary/30 text-primary"
+          disabled={!canCreateIncome}
+          onClick={() => setIsAddIncomeOpen(true)}
+        >
+          <ArrowUpRight className="mr-1 h-4 w-4" />
+          Income
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!canCreateIncome}
+          onClick={() => setIsOwnerInvestmentOpen(true)}
+        >
+          <Building2 className="mr-1 h-4 w-4" />
+          Owner capital
+        </Button>
         <Button variant="outline" size="sm" onClick={() => setIsExportModalOpen(true)}>
           <Download className="mr-1 h-4 w-4" />
           Export
         </Button>
       </StickyPageHeader>
 
-      <PrototypeFinanceNotice />
+      {/* Date filter moved into the header subRow (UI 9) — single-row layout adapts KPIs to filter context. */}
+
 
       {accountingReviewQueue.length > 0 && (
-        <Card className="bg-amber-500/5 border-amber-500/30">
+        <Card className="bg-warning/5 border-warning/30">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2 text-amber-700 dark:text-amber-400">
+            <CardTitle className="text-base flex items-center gap-2 text-warning">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               Accounting review queue
             </CardTitle>
@@ -755,7 +839,7 @@ const Finance = () => {
                       {item.eventType} · {item.sourceDocumentId}
                     </span>
                     <span className="text-muted-foreground text-xs sm:text-sm">
-                      {item.reason} — ₹{item.amount.toLocaleString("en-IN")}
+                      {item.reason} — {formatINR(item.amount)}
                     </span>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-1.5 sm:justify-end">
@@ -802,7 +886,7 @@ const Finance = () => {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(v) => `${v/100000}L`} />
-                  <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} formatter={(value: number) => formatCurrency(value)} />
+                  <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} formatter={(value: number) => formatINR(value)} />
                   <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="expenses" fill="hsl(var(--muted-foreground))" radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -841,11 +925,52 @@ const Finance = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {pagedTransactions.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="p-0 border-0">
+                        <ListEmptyState
+                          icon={IndianRupee}
+                          title="No transactions yet"
+                          description="Record income or expenses to see financial activity here."
+                          actionLabel={canCreateExpense ? "Add expense" : canCreateIncome ? "Add income" : undefined}
+                          onAction={
+                            canCreateExpense
+                              ? () => setIsAddExpenseOpen(true)
+                              : canCreateIncome
+                                ? () => setIsAddIncomeOpen(true)
+                                : undefined
+                          }
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
                   {pagedTransactions.map((txn) => (
                     <TableRow key={txn.id} className="border-border">
                       <TableCell className="text-muted-foreground">{txn.date}</TableCell>
-                      <TableCell className="text-foreground">{txn.description}</TableCell>
-                      <TableCell className={`text-right font-medium ${txn.type === "Credit" ? "text-primary" : "text-red-500"}`}>
+                      <TableCell className="text-foreground">
+                        <div className="space-y-0.5">
+                          {(txn.customerId && txn.customerName) || (txn.projectId && txn.projectName) ? (
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                              {txn.customerId && txn.customerName ? (
+                                <EntityLink
+                                  entityType="customer"
+                                  entityId={txn.customerId}
+                                  name={txn.customerName}
+                                />
+                              ) : null}
+                              {txn.projectId && txn.projectName ? (
+                                <EntityLink
+                                  entityType="project"
+                                  entityId={txn.projectId}
+                                  name={txn.projectName}
+                                />
+                              ) : null}
+                            </div>
+                          ) : null}
+                          <p className="text-sm">{txn.description}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell className={`text-right font-medium ${txn.type === "Credit" ? "text-primary" : "text-destructive"}`}>
                         {txn.type === "Credit" ? "+" : "-"}{txn.amount}
                       </TableCell>
                       <TableCell>{getStatusBadge(txn.status)}</TableCell>
@@ -858,13 +983,13 @@ const Finance = () => {
               </div>
 
       {/* Unified Expense Modal */}
-      <UnifiedExpenseModal
+      <UnifiedExpenseSheet
         isOpen={isAddExpenseOpen}
         onClose={() => setIsAddExpenseOpen(false)}
       />
 
       {/* Unified Income Modal */}
-      <UnifiedIncomeModal
+      <UnifiedIncomeSheet
         isOpen={isAddIncomeOpen}
         onClose={() => setIsAddIncomeOpen(false)}
       />
@@ -887,6 +1012,11 @@ const Finance = () => {
                 </SelectContent>
               </Select>
             </div>
+            {/* W3 — accounting-transparency chip resolving against incomeToAccountMapping / expenseToAccountMapping. */}
+            <MappingPostingChip
+              kind={oiType === "investment" ? "income" : "expense"}
+              mappingKey={oiType === "investment" ? "owner:contribution" : "owner:drawing"}
+            />
             <div className="space-y-2">
               <Label>Amount (₹)</Label>
               <Input type="number" min={0} step={0.01} value={oiAmount} onChange={(e) => setOiAmount(e.target.value)} placeholder="0" />
@@ -1059,7 +1189,7 @@ const Finance = () => {
                             </div>
                             <div className="col-span-1 text-right">
                               <Label className="text-xs">Amount</Label>
-                              <p className="h-9 flex items-center justify-end text-sm font-medium">₹{(service.rate * (1 + service.gstRate/100)).toLocaleString()}</p>
+                              <p className="h-9 flex items-center justify-end text-sm font-medium">{formatINR((service.rate * (1 + service.gstRate/100)))}</p>
                             </div>
                             <div className="col-span-1">
                               <Button variant="ghost" size="sm" onClick={() => removeServiceRow(idx)}>
@@ -1150,7 +1280,7 @@ const Finance = () => {
                             </div>
                             <div className="col-span-1 text-right">
                               <Label className="text-xs">Amount</Label>
-                              <p className="h-9 flex items-center justify-end text-sm font-medium">₹{(item.quantity * item.rate * (1 + item.gstRate/100)).toLocaleString()}</p>
+                              <p className="h-9 flex items-center justify-end text-sm font-medium">{formatINR((item.quantity * item.rate * (1 + item.gstRate/100)))}</p>
                             </div>
                             <div className="col-span-1">
                               <Button variant="ghost" size="sm" onClick={() => removeItemRow(idx)}>
@@ -1171,28 +1301,28 @@ const Finance = () => {
                       <div className="w-64 space-y-2">
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Subtotal:</span>
-                          <span>₹{invoiceTotals.subtotal.toLocaleString()}</span>
+                          <span>{formatINR(invoiceTotals.subtotal)}</span>
                         </div>
                         {invoiceTotals.igst > 0 ? (
                           <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">IGST:</span>
-                            <span>₹{invoiceTotals.igst.toLocaleString()}</span>
+                            <span>{formatINR(invoiceTotals.igst)}</span>
                           </div>
                         ) : (
                           <>
                             <div className="flex justify-between text-sm">
                               <span className="text-muted-foreground">CGST:</span>
-                              <span>₹{invoiceTotals.cgst.toLocaleString()}</span>
+                              <span>{formatINR(invoiceTotals.cgst)}</span>
                             </div>
                             <div className="flex justify-between text-sm">
                               <span className="text-muted-foreground">SGST:</span>
-                              <span>₹{invoiceTotals.sgst.toLocaleString()}</span>
+                              <span>{formatINR(invoiceTotals.sgst)}</span>
                             </div>
                           </>
                         )}
                         <div className="flex justify-between text-lg font-semibold border-t pt-2">
                           <span>Total:</span>
-                          <span>₹{invoiceTotals.total.toLocaleString()}</span>
+                          <span>{formatINR(invoiceTotals.total)}</span>
                         </div>
                       </div>
                     </div>
@@ -1292,7 +1422,7 @@ const Finance = () => {
                             />
                             <div>
                               <p className="text-sm font-medium">{item.name}</p>
-                              <p className="text-xs text-muted-foreground">HSN: {item.hsn} | Stock: {item.quantity} | ₹{item.price.toLocaleString()}/unit</p>
+                              <p className="text-xs text-muted-foreground">HSN: {item.hsn} | Stock: {item.quantity} | {formatINR(item.price)}/unit</p>
                             </div>
                           </div>
                           {item.id in selectedInventoryItems && (
@@ -1322,15 +1452,15 @@ const Finance = () => {
                       <div className="w-64 space-y-2">
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Subtotal:</span>
-                          <span>₹{getSaleBillTotal().toLocaleString()}</span>
+                          <span>{formatINR(getSaleBillTotal())}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">GST (18%):</span>
-                          <span>₹{Math.round(getSaleBillTotal() * 0.18).toLocaleString()}</span>
+                          <span>{formatINR(Math.round(getSaleBillTotal() * 0.18))}</span>
                         </div>
                         <div className="flex justify-between text-lg font-semibold border-t pt-2">
                           <span>Total:</span>
-                          <span>₹{Math.round(getSaleBillTotal() * 1.18).toLocaleString()}</span>
+                          <span>{formatINR(Math.round(getSaleBillTotal() * 1.18))}</span>
                         </div>
                       </div>
                     </div>
@@ -1375,6 +1505,7 @@ const Finance = () => {
           <SheetHeader>
             <SheetTitle>Invoice Details</SheetTitle>
           </SheetHeader>
+          {/* bg-white + text-black justified: PDF export preview must render fixed colors regardless of theme */}
           {selectedInvoice && (
             <div ref={invoicePreviewRef} className="bg-white text-black" style={{ padding: '64px 24px 200px 24px', fontSize: '12px' }}>
               <ExportHeader 
@@ -1424,9 +1555,9 @@ const Finance = () => {
                           <TableCell>{item.description}</TableCell>
                           <TableCell>{item.hsn}</TableCell>
                           <TableCell className="text-right">{item.quantity}</TableCell>
-                          <TableCell className="text-right">₹{item.rate.toLocaleString()}</TableCell>
+                          <TableCell className="text-right">{formatINR(item.rate)}</TableCell>
                           <TableCell className="text-right">{item.gstRate}%</TableCell>
-                          <TableCell className="text-right">₹{(item.quantity * item.rate * (1 + item.gstRate/100)).toLocaleString()}</TableCell>
+                          <TableCell className="text-right">{formatINR((item.quantity * item.rate * (1 + item.gstRate/100)))}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1438,22 +1569,22 @@ const Finance = () => {
                 <div className="w-64 space-y-2 border-t pt-4">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Subtotal:</span>
-                    <span>₹{selectedInvoice.subtotal?.toLocaleString() || 0}</span>
+                    <span>{formatINR(selectedInvoice.subtotal ?? 0)}</span>
                   </div>
                   {selectedInvoice.igst && selectedInvoice.igst > 0 ? (
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">IGST:</span>
-                      <span>₹{selectedInvoice.igst.toLocaleString()}</span>
+                      <span>{formatINR(selectedInvoice.igst)}</span>
                     </div>
                   ) : (
                     <>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">CGST:</span>
-                        <span>₹{selectedInvoice.cgst?.toLocaleString() || 0}</span>
+                        <span>{formatINR(selectedInvoice.cgst ?? 0)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">SGST:</span>
-                        <span>₹{selectedInvoice.sgst?.toLocaleString() || 0}</span>
+                        <span>{formatINR(selectedInvoice.sgst ?? 0)}</span>
                       </div>
                     </>
                   )}
@@ -1736,7 +1867,7 @@ const Finance = () => {
           <div className="space-y-4">
             <div className="p-4 bg-primary/10 rounded-lg">
               <p className="text-sm text-muted-foreground">Total Revenue (All Time)</p>
-              <p className="text-3xl font-bold text-primary">{formatCurrency(kpiValues.revenue)}</p>
+              <p className="text-3xl font-bold text-primary">{formatINR(kpiValues.revenue)}</p>
             </div>
             <div className="space-y-3">
               <h4 className="font-medium text-sm text-muted-foreground">Revenue Breakdown</h4>
@@ -1747,11 +1878,11 @@ const Finance = () => {
               <div className="space-y-2">
                 <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
                   <span className="text-sm">Invoices — amount received</span>
-                  <span className="font-semibold">{formatCurrency(financeKpiBreakdowns.invoiceReceivedTotal)}</span>
+                  <span className="font-semibold">{formatINR(financeKpiBreakdowns.invoiceReceivedTotal)}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
                   <span className="text-sm">Payment ledger — credits in</span>
-                  <span className="font-semibold">{formatCurrency(financeKpiBreakdowns.paymentsInTotal)}</span>
+                  <span className="font-semibold">{formatINR(financeKpiBreakdowns.paymentsInTotal)}</span>
                 </div>
                 {financeKpiBreakdowns.topReceipts.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-2">No incoming payments in ledger yet.</p>
@@ -1761,7 +1892,7 @@ const Finance = () => {
                       <span className="text-sm truncate pr-2" title={row.label}>
                         {row.label}
                       </span>
-                      <span className="font-semibold shrink-0">{formatCurrency(row.amount)}</span>
+                      <span className="font-semibold shrink-0">{formatINR(row.amount)}</span>
                     </div>
                   ))
                 )}
@@ -1771,7 +1902,7 @@ const Finance = () => {
                   <span className="text-muted-foreground">Largest outstanding customer (unpaid invoices): </span>
                   <span className="font-medium">{financeKpiBreakdowns.largestDebtor.name}</span>
                   <span className="text-muted-foreground"> — </span>
-                  <span className="font-semibold text-amber-600">{formatCurrency(financeKpiBreakdowns.largestDebtor.amount)}</span>
+                  <span className="font-semibold text-warning">{formatINR(financeKpiBreakdowns.largestDebtor.amount)}</span>
                 </div>
               )}
             </div>
@@ -1798,16 +1929,16 @@ const Finance = () => {
         <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center">
-                <TrendingDown className="h-4 w-4 text-red-500" />
+              <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
+                <TrendingDown className="h-4 w-4 text-destructive" />
               </div>
               Total Expenses Details
             </SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
-            <div className="p-4 bg-red-500/10 rounded-lg">
+            <div className="p-4 bg-destructive/10 rounded-lg">
               <p className="text-sm text-muted-foreground">Total Expenses (All Time)</p>
-              <p className="text-3xl font-bold text-red-500">{formatCurrency(kpiValues.expenses)}</p>
+              <p className="text-3xl font-bold text-destructive">{formatINR(kpiValues.expenses)}</p>
             </div>
             <div className="space-y-3">
               <h4 className="font-medium text-sm text-muted-foreground">Expense Breakdown</h4>
@@ -1818,7 +1949,7 @@ const Finance = () => {
                   financeKpiBreakdowns.expenseLines.map((row) => (
                     <div key={row.name} className="flex justify-between p-3 bg-muted/30 rounded-lg">
                       <span className="text-sm capitalize truncate pr-2">{row.name}</span>
-                      <span className="font-semibold shrink-0">{formatCurrency(row.amount)}</span>
+                      <span className="font-semibold shrink-0">{formatINR(row.amount)}</span>
                     </div>
                   ))
                 )}
@@ -1836,16 +1967,16 @@ const Finance = () => {
         <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                <Receipt className="h-4 w-4 text-amber-500" />
+              <div className="h-8 w-8 rounded-lg bg-warning/10 flex items-center justify-center">
+                <Receipt className="h-4 w-4 text-warning" />
               </div>
               Outstanding Amount Details
             </SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
-            <div className="p-4 bg-amber-500/10 rounded-lg">
+            <div className="p-4 bg-warning/10 rounded-lg">
               <p className="text-sm text-muted-foreground">Total Outstanding</p>
-              <p className="text-3xl font-bold text-amber-500">{formatCurrency(kpiValues.outstanding)}</p>
+              <p className="text-3xl font-bold text-warning">{formatINR(kpiValues.outstanding)}</p>
             </div>
             <div className="space-y-3">
               <h4 className="font-medium text-sm text-muted-foreground">Outstanding by invoice</h4>
@@ -1864,8 +1995,8 @@ const Finance = () => {
                           ) : null}
                         </p>
                       </div>
-                      <span className={`font-semibold shrink-0 ${row.isOverdue ? "text-destructive" : "text-amber-500"}`}>
-                        {formatCurrency(row.pending)}
+                      <span className={`font-semibold shrink-0 ${row.isOverdue ? "text-destructive" : "text-warning"}`}>
+                        {formatINR(row.pending)}
                       </span>
                     </div>
                   ))
@@ -1900,22 +2031,22 @@ const Finance = () => {
           <div className="space-y-4">
             <div className="p-4 bg-primary/10 rounded-lg">
               <p className="text-sm text-muted-foreground">Net Profit (All Time)</p>
-              <p className={`text-3xl font-bold ${kpiValues.profit >= 0 ? "text-primary" : "text-destructive"}`}>{formatCurrency(kpiValues.profit)}</p>
+              <p className={`text-3xl font-bold ${kpiValues.profit >= 0 ? "text-primary" : "text-destructive"}`}>{formatINR(kpiValues.profit)}</p>
             </div>
             <div className="space-y-3">
               <h4 className="font-medium text-sm text-muted-foreground">Profit Calculation</h4>
               <div className="space-y-2">
                 <div className="flex justify-between p-3 bg-primary/10 rounded-lg">
                   <span className="text-sm">Total Revenue</span>
-                  <span className="font-semibold text-primary">+ {formatCurrency(kpiValues.revenue)}</span>
+                  <span className="font-semibold text-primary">+ {formatINR(kpiValues.revenue)}</span>
                 </div>
-                <div className="flex justify-between p-3 bg-red-500/10 rounded-lg">
+                <div className="flex justify-between p-3 bg-destructive/10 rounded-lg">
                   <span className="text-sm">Total Expenses</span>
-                  <span className="font-semibold text-red-500">- {formatCurrency(kpiValues.expenses)}</span>
+                  <span className="font-semibold text-destructive">- {formatINR(kpiValues.expenses)}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-primary/10 rounded-lg border border-primary/20">
                   <span className="text-sm font-medium">Net Profit</span>
-                  <span className={`font-bold ${kpiValues.profit >= 0 ? "text-primary" : "text-destructive"}`}>{formatCurrency(kpiValues.profit)}</span>
+                  <span className={`font-bold ${kpiValues.profit >= 0 ? "text-primary" : "text-destructive"}`}>{formatINR(kpiValues.profit)}</span>
                 </div>
               </div>
             </div>
@@ -1928,7 +2059,7 @@ const Finance = () => {
                   <div key={i} className="flex justify-between p-3 bg-muted/30 rounded-lg">
                     <span className="text-sm">{p.name}</span>
                     <span className={`font-semibold ${p.profit >= 0 ? "text-primary" : "text-destructive"}`}>
-                      {p.profit >= 0 ? "+" : ""}₹{Math.abs(Math.round(p.profit)).toLocaleString("en-IN")}
+                      {p.profit >= 0 ? "+" : ""}{formatINR(Math.abs(Math.round(p.profit)))}
                     </span>
                   </div>
                 ))}

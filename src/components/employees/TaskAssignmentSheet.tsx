@@ -16,7 +16,7 @@ import { formatUiDate } from "@/lib/formatUiDate";
 import type { Task, SiteRecord } from "@/types/project";
 import { WORK_STATUS_STAGES } from "@/types/blockage";
 
-interface TaskAssignmentModalProps {
+interface TaskAssignmentSheetProps {
   isOpen: boolean;
   onClose: () => void;
   /** When set, site list is limited to this project and new tasks use this project id. */
@@ -39,7 +39,7 @@ interface SelectedWorkItem {
   dateOffset: number; 
 }
 
-export function TaskAssignmentModal({
+export function TaskAssignmentSheet({
   isOpen,
   onClose,
   projectId,
@@ -49,7 +49,7 @@ export function TaskAssignmentModal({
   employeeName,
   teamId,
   teamName,
-}: TaskAssignmentModalProps) {
+}: TaskAssignmentSheetProps) {
   const { sites, employees, teams, projects, addTask, generateId } = useAppData();
   
   // Selection Logic
@@ -104,11 +104,11 @@ export function TaskAssignmentModal({
   };
   
   const isStageSelected = (stageKey: string) => {
-    return selectedWorkItems.some(w => w.stageKey === stageKey && w.subItems.length === 0);
+    return selectedWorkItems.some(w => w.stageKey === stageKey && (w.subItems?.length ?? 0) === 0);
   };
   
   const isSubItemSelected = (stageKey: string, subItemKey: string) => {
-    return selectedWorkItems.some(w => w.stageKey === stageKey && w.subItems.includes(subItemKey));
+    return selectedWorkItems.some(w => w.stageKey === stageKey && (w.subItems?.includes(subItemKey) ?? false));
   };
   
   const toggleWholeStage = (stage: typeof WORK_STATUS_STAGES[0], checked: boolean) => {
@@ -242,7 +242,7 @@ export function TaskAssignmentModal({
       
       const task: Task = {
         id: generateId("TASK"),
-        employeeId: assignmentType === "individual" ? parseInt(selectedTargetId) : undefined,
+        employeeId: assignmentType === "individual" ? selectedTargetId : undefined,
         teamId: assignmentType === "team" ? selectedTargetId : undefined,
         projectId: projectId || (site as SiteRecord | undefined)?.projectId || "manual-assignment",
         siteId: selectedSite,
@@ -451,7 +451,7 @@ export function TaskAssignmentModal({
                                 />
                                 <span className="text-xs">{subItem.label}</span>
                                 {subItem.photoRequired && (
-                                  <Badge variant="outline" className="text-[8px] px-1 py-0 border-amber-200 bg-amber-50 text-amber-700">PHOTO</Badge>
+                                  <Badge variant="outline" className="text-2xs px-1 py-0 border-warning bg-warning text-warning">PHOTO</Badge>
                                 )}
                               </div>
                             ))}

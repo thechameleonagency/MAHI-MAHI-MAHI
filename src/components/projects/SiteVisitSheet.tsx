@@ -80,18 +80,16 @@ export function SiteVisitSheet({
   };
 
   const handleInventoryPick = (key: string, itemIdStr: string) => {
-    const itemId = Number.parseInt(itemIdStr, 10);
-    const item = (inventoryItems ?? []).find((i) => i.id === itemId);
+    const item = (inventoryItems ?? []).find((i) => String(i.id) === String(itemIdStr));
     updateLine(key, {
-      inventoryItemId: item?.id,
+      inventoryItemId: item?.id != null ? String(item.id) : undefined,
       name: item?.name ?? "",
       unit: item?.unit ?? "pcs",
     });
   };
 
   const handleSubmit = () => {
-    const installerId = Number.parseInt(visitedBy, 10);
-    if (!Number.isFinite(installerId) || installerId <= 0) {
+    if (!visitedBy?.trim()) {
       toast({ title: "Select installer", variant: "destructive" });
       return;
     }
@@ -122,7 +120,7 @@ export function SiteVisitSheet({
 
     const visitId = addSiteVisit({
       projectId: project.id,
-      visitedBy: installerId,
+      visitedBy: visitedBy.trim(),
       visitDate,
       items,
       blockers: blockers.trim() || undefined,

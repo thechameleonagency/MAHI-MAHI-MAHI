@@ -1,15 +1,16 @@
 import { format, subDays } from "date-fns";
 import type { VendorBill } from "@/data/inventoryData";
 import type { InventoryItem, Project, SiteRecord } from "@/types/project";
+import type { MaterialReservation } from "@/types/operations";
 
 export type NeedToGetRowKind = "material" | "nonMaterial";
 
 export type NeedToGetRow = {
   projectId: string;
   projectName: string;
-  siteId: number;
+  siteId: string;
   siteName: string;
-  materialId: number;
+  materialId: string;
   materialName: string;
   qtyShort: number;
   needByDate: string;
@@ -18,14 +19,8 @@ export type NeedToGetRow = {
   rowKind?: NeedToGetRowKind;
 };
 
-function checklistNonMaterialRowId(siteId: number, lineId: string): number {
-  const s = `${siteId}:${lineId}`;
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-  }
-  if (h >= 0) h = (-h - 1) | 0;
-  return h === 0 ? -1 : h;
+function checklistNonMaterialRowId(siteId: string, lineId: string): string {
+  return `nm:${siteId}:${lineId}`;
 }
 
 /** How the Need-to-Get table groups and merges lines (see `aggregateNeedToGetRows`). */
@@ -170,14 +165,15 @@ export function aggregateNeedToGetRows(
 export function buildLastPurchaseRateByMaterial(
   vendorBills: VendorBill[],
   inventoryItems: InventoryItem[],
-): Map<number, number> {
-  const map = new Map<number, number>();
+): Map<string, number> {
+  const map = new Map<string, number>();
   const sorted = [...vendorBills].sort((a, b) => b.billDate.localeCompare(a.billDate));
   for (const bill of sorted) {
-    for (const line of bill.items) {
+    for (const line of bill.items ?? []) {
       if (line.inventoryItemId != null) {
-        if (!map.has(line.inventoryItemId)) {
-          map.set(line.inventoryItemId, line.rate);
+        const key = String(line.inventoryItemId);
+        if (!map.has(key)) {
+          map.set(key, line.rate);
         }
         continue;
       }
@@ -188,14 +184,15 @@ export function buildLastPurchaseRateByMaterial(
           label.includes(i.name.toLowerCase().slice(0, 5)) ||
           i.name.toLowerCase().includes(label.slice(0, 4)),
       );
-      if (inv && !map.has(inv.id)) {
-        map.set(inv.id, line.rate);
+      if (inv && !map.has(String(inv.id))) {
+        map.set(String(inv.id), line.rate);
       }
     }
   }
   for (const item of inventoryItems) {
-    if (!map.has(item.id)) {
-      map.set(item.id, item.buyPrice);
+    const key = String(item.id);
+    if (!map.has(key)) {
+      map.set(key, item.buyPrice);
     }
   }
   return map;
@@ -228,11 +225,25 @@ export class NeedToGetService {
     projects: Project[],
     inventoryItems: InventoryItem[],
     vendorBills: VendorBill[],
+    materialReservations: MaterialReservation[] = [],
   ): NeedToGetRow[] {
     const lastRate = buildLastPurchaseRateByMaterial(vendorBills, inventoryItems);
     const projectById = new Map(projects.map((p) => [p.id, p]));
-    const stock = new Map(inventoryItems.map((i) => [i.id, i.stock]));
+    const stock = new Map(inventoryItems.map((i) => [String(i.id), i.stock]));
     const rows: NeedToGetRow[] = [];
+
+    const activeReservations = materialReservations.filter((r) => !r.releasedAt);
+    const effectiveStockFor = (itemId: string, requestingProjectId: string): number => {
+      const base = stock.get(itemId) ?? 0;
+      const reserved = activeReservations
+        .filter(
+          (r) =>
+            String(r.itemId) === itemId &&
+            (r.projectId === undefined || r.projectId !== requestingProjectId),
+        )
+        .reduce((s, r) => s + r.qty, 0);
+      return Math.max(0, base - reserved);
+    };
 
     for (const site of sites) {
       if (site.status && site.status !== "active") {
@@ -254,18 +265,18 @@ export class NeedToGetService {
         if (!line.requiresMaterial || line.inventoryItemId == null || line.requiredQuantity == null) {
           continue;
         }
-        const id = line.inventoryItemId;
-        const current = stock.get(id) ?? 0;
+        const id = String(line.inventoryItemId);
+        const current = effectiveStockFor(id, site.projectId || "");
         const required = line.requiredQuantity;
         const shortfall = Math.max(0, required - current);
         if (shortfall <= 0) {
           continue;
         }
-        const inv = inventoryItems.find((i) => i.id === id);
+        const inv = inventoryItems.find((i) => String(i.id) === id);
         rows.push({
           projectId: site.projectId || "",
           projectName: site.projectName || proj?.name || "—",
-          siteId: site.id,
+          siteId: String(site.id),
           siteName: site.name,
           materialId: id,
           materialName: line.materialName || inv?.name || "Material",
@@ -281,11 +292,11 @@ export class NeedToGetService {
         if (line.status === "dispatched") continue;
         const label = line.materialName?.trim();
         if (!label) continue;
-        const synId = checklistNonMaterialRowId(site.id, line.id);
+        const synId = checklistNonMaterialRowId(String(site.id), line.id);
         rows.push({
           projectId: site.projectId || "",
           projectName: site.projectName || proj?.name || "—",
-          siteId: site.id,
+          siteId: String(site.id),
           siteName: site.name,
           materialId: synId,
           materialName: label,
@@ -297,7 +308,6 @@ export class NeedToGetService {
       }
     }
 
-    /** BOQ execution variance — quoted vs issued (when execution lines exist). */
     for (const project of projects) {
       const lines = project.executionLineItems ?? [];
       const siteForProject = sites.find((s) => s.projectId === project.id && (!s.status || s.status === "active"));
@@ -305,12 +315,12 @@ export class NeedToGetService {
         if (line.inventoryItemId == null) continue;
         const shortfall = Math.max(0, line.quantity - line.issuedQty);
         if (shortfall <= 0) continue;
-        const id = line.inventoryItemId;
-        const inv = inventoryItems.find((i) => i.id === id);
+        const id = String(line.inventoryItemId);
+        const inv = inventoryItems.find((i) => String(i.id) === id);
         rows.push({
           projectId: project.id,
           projectName: project.name,
-          siteId: typeof siteForProject?.id === "number" ? siteForProject.id : 0,
+          siteId: siteForProject ? String(siteForProject.id) : "",
           siteName: siteForProject?.name ?? "BOQ / site",
           materialId: id,
           materialName: line.description || inv?.name || "Material",

@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useAppData } from "@/contexts/AppDataContext";
 import { Upload, FileText, CheckCircle2, AlertTriangle, Copy, Landmark, X, Search, Download } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
-import { toast } from "sonner";
+import { toast } from "@/hooks/use-toast";
 import { fileExceedsLimit, MAX_UPLOAD_BYTES } from "@/lib/fileLimits";
 import { formatINR } from "@/lib/formatCurrency";
 
@@ -124,7 +124,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
+const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
   const { expenses, incomes, payments, vendorPayments, bankReconciliationStatements, setBankReconciliationStatements } = useAppData();
   const [statements, setStatements] = useState<UploadedStatement[]>(() => (bankReconciliationStatements ?? []) as UploadedStatement[]);
   const [activeTab, setActiveTab] = useState("upload");
@@ -320,11 +320,11 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
 
     for (const file of Array.from(files)) {
       if (fileExceedsLimit(file)) {
-        toast.error(`${file.name}: File exceeds ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit`);
+        toast({ title: `${file.name}: File exceeds ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit`, variant: "destructive" });
         continue;
       }
       if (!file.name.endsWith(".csv")) {
-        toast.error(`${file.name}: Only CSV files supported`);
+        toast({ title: `${file.name}: Only CSV files supported`, variant: "destructive" });
         continue;
       }
 
@@ -332,7 +332,7 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
       const transactions = parseCSV(content);
 
       if (transactions.length === 0) {
-        toast.error(`${file.name}: No transactions found. Check CSV format.`);
+        toast({ title: `${file.name}: No transactions found. Check CSV format.`, variant: "destructive" });
         continue;
       }
 
@@ -342,7 +342,7 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
         .map((d) => parseISO(d!))
         .filter(isValid);
       if (parsedDates.length === 0) {
-        toast.warning(`${file.name}: No parsable dates — row matching will be unreliable.`);
+        toast({ title: `${file.name}: No parsable dates — row matching will be unreliable.` });
       } else {
         parsedDates.sort((a, b) => a.getTime() - b.getTime());
         const minT = parsedDates[0].getTime();
@@ -350,9 +350,9 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
         const dayMs = 1000 * 60 * 60 * 24;
         const spanDays = (maxT - minT) / dayMs;
         if (spanDays > 400) {
-          toast.warning(
-            `${file.name}: date range spans about ${Math.round(spanDays)} days — check column mapping and date format.`,
-          );
+          toast({
+            title: `${file.name}: date range spans about ${Math.round(spanDays)} days — check column mapping and date format.`,
+          });
         }
         if (statements.length > 0) {
           let exMin = Infinity;
@@ -368,10 +368,10 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
             }
           }
           if (exMin !== Infinity && maxT < exMin - 365 * dayMs) {
-            toast.warning(`${file.name}: dates are more than a year before prior uploads — confirm period.`);
+            toast({ title: `${file.name}: dates are more than a year before prior uploads — confirm period.` });
           }
           if (exMax !== -Infinity && minT > exMax + 365 * dayMs) {
-            toast.warning(`${file.name}: dates are more than a year after prior uploads — confirm period.`);
+            toast({ title: `${file.name}: dates are more than a year after prior uploads — confirm period.` });
           }
         }
       }
@@ -387,7 +387,7 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
         },
       ]);
 
-      toast.success(`${file.name}: ${transactions.length} transactions imported`);
+      toast({ title: `${file.name}: ${transactions.length} transactions imported` });
     }
 
     e.target.value = "";
@@ -421,15 +421,15 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
   const getFlagBadge = (flag: FlagType) => {
     switch (flag) {
       case "matched":
-        return <Badge className="bg-primary/15 text-primary border-blue-200 text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Matched</Badge>;
+        return <Badge className="bg-primary/15 text-primary border-primary text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Matched</Badge>;
       case "unmatched":
         return <Badge variant="destructive" className="text-xs"><AlertTriangle className="w-3 h-3 mr-1" />Unmatched</Badge>;
       case "duplicate":
-        return <Badge className="bg-amber-500/15 text-amber-700 border-amber-200 text-xs"><Copy className="w-3 h-3 mr-1" />Duplicate</Badge>;
+        return <Badge className="bg-warning/15 text-warning border-warning text-xs"><Copy className="w-3 h-3 mr-1" />Duplicate</Badge>;
       case "bank-charge":
-        return <Badge className="bg-primary/15 text-primary border-blue-200 text-xs"><Landmark className="w-3 h-3 mr-1" />Bank Charge</Badge>;
+        return <Badge className="bg-primary/15 text-primary border-primary/30 text-xs"><Landmark className="w-3 h-3 mr-1" />Bank Charge</Badge>;
       case "possible-match":
-        return <Badge className="bg-purple-500/15 text-purple-700 border-purple-200 text-xs"><Search className="w-3 h-3 mr-1" />Possible Match</Badge>;
+        return <Badge className="bg-accent/30 text-accent-foreground border-accent text-xs"><Search className="w-3 h-3 mr-1" />Possible Match</Badge>;
     }
   };
 
@@ -459,7 +459,7 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
     a.download = `reconciliation-report-${format(new Date(), "yyyy-MM-dd")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Report exported");
+    toast({ title: "Report exported" });
   };
 
   return (
@@ -553,8 +553,8 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
                         <p className="text-xs text-muted-foreground">{s.transactions.length} transactions • {s.type === "bank" ? "Bank" : "Cash"}</p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => removeStatement(s.id)}>
-                      <X className="w-4 h-4" />
+                    <Button variant="ghost" size="icon" aria-label="Remove statement" onClick={() => removeStatement(s.id)}>
+                      <X className="w-4 h-4" aria-hidden />
                     </Button>
                   </div>
                 ))}
@@ -584,8 +584,8 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
               {[
                 { label: "Matched", count: flagCounts.matched, color: "text-primary" },
                 { label: "Unmatched", count: flagCounts.unmatched, color: "text-destructive" },
-                { label: "Possible", count: flagCounts["possible-match"], color: "text-purple-600" },
-                { label: "Duplicates", count: flagCounts.duplicate, color: "text-amber-600" },
+                { label: "Possible", count: flagCounts["possible-match"], color: "text-accent-foreground" },
+                { label: "Duplicates", count: flagCounts.duplicate, color: "text-warning" },
                 { label: "Bank Charges", count: flagCounts["bank-charge"], color: "text-primary" },
               ].map(k => (
                 <Card key={k.label}>
@@ -639,9 +639,9 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
                   {filteredResults.map((r, i) => (
                     <TableRow key={i} className={
                       r.flag === "unmatched" ? "bg-destructive/5" :
-                      r.flag === "duplicate" ? "bg-amber-500/5" :
+                      r.flag === "duplicate" ? "bg-warning/5" :
                       r.flag === "bank-charge" ? "bg-primary/5" :
-                      r.flag === "possible-match" ? "bg-purple-500/5" :
+                      r.flag === "possible-match" ? "bg-accent/30" :
                       ""
                     }>
                       <TableCell className="font-mono">{r.bankTransaction.date}</TableCell>
@@ -676,4 +676,4 @@ const BankReconciliationModal = ({ open, onOpenChange }: Props) => {
   );
 };
 
-export default BankReconciliationModal;
+export default BankReconciliationSheet;

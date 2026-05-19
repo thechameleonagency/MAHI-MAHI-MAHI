@@ -7,6 +7,7 @@ import { ProjectKindService, type ProjectIntakePayload } from "@/application/ser
 import { commercialBaselineFromIntake, commercialBaselineFromQuotation } from "@/domain/project/commercialBaseline";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import type { Project } from "@/types/project";
+import { isQuotationConverted } from "@/lib/quotationSelectors";
 
 type CreateProjectFromQuotationPayload = {
   quotationId: string;
@@ -55,7 +56,7 @@ export const registerProjectCommands = (
     if (quotation.status !== "confirmed" && quotation.status !== "approved") {
       return { ok: false, errorCode: "QUOTATION_NOT_CONFIRMED", message: "Project can only be created from an approved or confirmed quotation" };
     }
-    if (quotation.isConverted) {
+    if (isQuotationConverted(quotation)) {
       return { ok: false, errorCode: "QUOTATION_ALREADY_CONVERTED", message: "This quotation is already converted to a project" };
     }
     if (quotation.status === "approved") {
@@ -82,7 +83,11 @@ export const registerProjectCommands = (
         commercialBaseline: p.commercialBaseline ?? baseline,
         executionLineItems: p.executionLineItems?.length ? p.executionLineItems : executionLineItems,
       });
-      repositories.quotationRepository.update(quotation.id, { isConverted: true, convertedToProjectId: p.id });
+      repositories.quotationRepository.update(quotation.id, {
+        status: "converted_to_project",
+        linkedProjectId: p.id,
+        convertedAt: new Date().toISOString().split("T")[0],
+      });
       auditService.write(command, {
         action: "create",
         entityType: "Project",
@@ -128,7 +133,11 @@ export const registerProjectCommands = (
       executionLineItems,
     });
 
-    repositories.quotationRepository.update(quotation.id, { isConverted: true, convertedToProjectId: projectId });
+    repositories.quotationRepository.update(quotation.id, {
+      status: "converted_to_project",
+      linkedProjectId: projectId,
+      convertedAt: new Date().toISOString().split("T")[0],
+    });
     auditService.write(command, {
       action: "create",
       entityType: "Project",
@@ -202,7 +211,7 @@ export const registerProjectCommands = (
     if (quotation.status !== "confirmed" && quotation.status !== "approved") {
       return { ok: false, errorCode: "QUOTATION_NOT_CONFIRMED", message: "Project can only be created from an approved or confirmed quotation" };
     }
-    if (quotation.isConverted) {
+    if (isQuotationConverted(quotation)) {
       return { ok: false, errorCode: "QUOTATION_ALREADY_CONVERTED", message: "This quotation is already converted to a project" };
     }
     if (quotation.status === "approved") {
@@ -227,7 +236,11 @@ export const registerProjectCommands = (
       executionLineItems: project.executionLineItems?.length ? project.executionLineItems : executionLineItems,
     };
     repositories.projectRepository.add(withQuote);
-    repositories.quotationRepository.update(quotation.id, { isConverted: true, convertedToProjectId: project.id });
+    repositories.quotationRepository.update(quotation.id, {
+      status: "converted_to_project",
+      linkedProjectId: project.id,
+      convertedAt: new Date().toISOString().split("T")[0],
+    });
     auditService.write(command, {
       action: "create",
       entityType: "Project",

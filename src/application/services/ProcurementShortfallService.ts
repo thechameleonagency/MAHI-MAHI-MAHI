@@ -1,22 +1,25 @@
 import { format } from "date-fns";
 import type { InventoryItem, Project, Quotation } from "@/types/project";
 import type { SiteChecklistTemplate } from "@/types/templates";
+import type { MaterialReservation } from "@/types/operations";
 
 export type ProcurementShortfall = {
   projectId: string;
   projectName: string;
-  itemId: number;
+  itemId: string;
   itemName: string;
   requiredQty: number;
   issuedQty: number;
   availableStock: number;
+  /** Reservations held by other projects + manual reservations (consume effective availability). */
+  reservedForOthers: number;
   shortfallQty: number;
   needByDate: string;
   lastPurchaseRate: number;
 };
 
 type RequirementSeed = {
-  inventoryItemId: number;
+  inventoryItemId: string;
   name: string;
   quantity: number;
 };
@@ -31,11 +34,14 @@ type BuildShortfallsInput = {
    * the Templates merge but kept as a function-typed input for backward compat.
    */
   getSiteChecklistTemplateById: (templateId: string) => SiteChecklistTemplate | undefined;
+  /** Active (un-released) material reservations across all projects + manual rows. */
+  materialReservations?: MaterialReservation[];
 };
 
 export class ProcurementShortfallService {
   buildShortfalls(input: BuildShortfallsInput): ProcurementShortfall[] {
     const rows: ProcurementShortfall[] = [];
+    const activeReservations = (input.materialReservations ?? []).filter((r) => !r.releasedAt);
 
     input.projects.forEach((project) => {
       const requiredItems = this.getRequiredItems(project, input.getProjectQuotation, input.getSiteChecklistTemplateById);
@@ -44,15 +50,30 @@ export class ProcurementShortfallService {
       }
 
       requiredItems.forEach((required) => {
-        const inventoryItem = input.inventoryItems.find((item) => item.id === required.inventoryItemId);
+        const inventoryItem = input.inventoryItems.find(
+          (item) => String(item.id) === String(required.inventoryItemId),
+        );
         if (!inventoryItem) {
           return;
         }
 
         const issuedQty =
           project.materialsSent
-            ?.filter((entry) => entry.itemId === required.inventoryItemId)
+            ?.filter((entry) => String(entry.itemId) === String(required.inventoryItemId))
             .reduce((sum, entry) => sum + entry.quantity, 0) || 0;
+
+        // Reservations belonging to other projects + manual (no projectId) count against this
+        // project's effective availability. Reservations *for this* project do not reduce its
+        // own pool (it is already committed there).
+        const reservedForOthers = activeReservations
+          .filter(
+            (r) =>
+              String(r.itemId) === String(required.inventoryItemId) &&
+              (r.projectId === undefined || r.projectId !== project.id),
+          )
+          .reduce((sum, r) => sum + r.qty, 0);
+
+        const effectiveAvailable = Math.max(0, inventoryItem.stock - reservedForOthers);
         const shortfallQty = Math.max(0, required.quantity - issuedQty);
         if (shortfallQty <= 0) {
           return;
@@ -65,7 +86,8 @@ export class ProcurementShortfallService {
           itemName: required.name || inventoryItem.name,
           requiredQty: required.quantity,
           issuedQty,
-          availableStock: inventoryItem.stock,
+          availableStock: effectiveAvailable,
+          reservedForOthers,
           shortfallQty,
           needByDate: this.resolveNeedByDate(project.startDate),
           lastPurchaseRate: inventoryItem.buyPrice,

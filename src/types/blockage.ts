@@ -214,6 +214,9 @@ export interface Blockage {
   assignedToName?: string;
   assignedAt?: string;
   startDate?: string;
+  /** Optional link to a Task that addresses this blockage. */
+  linkedTaskId?: string;
+  resolutionNote?: string;
 }
 
 export interface Ticket {
@@ -223,7 +226,7 @@ export interface Ticket {
   customTaskType?: string;
   description: string;
   howToDo?: string;
-  assignedTo: number[]; // employee IDs
+  assignedTo: string[]; // employee IDs
   assignToSuperAdmin?: boolean;
   dueDate: string;
   dueTime?: string;

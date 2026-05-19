@@ -21,6 +21,9 @@ import type { Blockage, ProjectTimelineStatus } from "@/types/blockage";
 import ActiveSitesFilters, { type ActiveSitesFiltersState } from "@/components/activesites/ActiveSitesFilters";
 import { getPriorityColor, getStatusColor } from "@/lib/statusColors";
 import { formatUiDate } from "@/lib/formatUiDate";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getProjectIdleAging, getBlockageUpdatedAging } from "@/lib/agingHelpers";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 // Timeline step labels
 const TIMELINE_STEPS = [
@@ -180,9 +183,11 @@ const ActiveSites = () => {
     operationalTickets,
     projectTimelineByProjectId,
     resolveBlockage,
+    updateBlockage,
     sites,
     inventoryItems,
     vendorBills,
+    tasks,
   } = useAppData();
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
   const [_refreshKey, setRefreshKey] = useState(0);
@@ -208,6 +213,10 @@ const ActiveSites = () => {
   const [resolvedBy, setResolvedBy] = useState<string>("");
   const [resolveDate, setResolveDate] = useState(new Date().toISOString().split('T')[0]);
   const [resolveNotes, setResolveNotes] = useState("");
+
+  // Link-task-to-blockage sheet state
+  const [linkTaskTarget, setLinkTaskTarget] = useState<{ blockageId: string; projectId: string } | null>(null);
+  const [linkTaskValue, setLinkTaskValue] = useState<string>("");
 
   // State for filters
   const [filters, setFilters] = useState<ActiveSitesFiltersState>({
@@ -440,15 +449,19 @@ const ActiveSites = () => {
 
   // Get active/ongoing projects with filtering
   const activeProjects = useMemo(() => {
-    let filtered = projects.filter(p => p.status === "Ongoing");
+    let filtered = projects.filter((p) => {
+      if (p.lifecycleStatus === "Completed") return false;
+      if (p.status === "Completed" || p.status === "Closed") return false;
+      return p.status === "Ongoing" || p.lifecycleStatus === "Active" || p.lifecycleStatus === "On Hold";
+    });
     
     // Apply search filter
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       filtered = filtered.filter(p => 
         p.name.toLowerCase().includes(searchLower) ||
-        p.client.toLowerCase().includes(searchLower) ||
-        p.location.toLowerCase().includes(searchLower)
+        (p.client ?? "").toLowerCase().includes(searchLower) ||
+        (p.location ?? "").toLowerCase().includes(searchLower)
       );
     }
     
@@ -535,8 +548,8 @@ const ActiveSites = () => {
     return projectTimelineByProjectId[projectId] || null;
   };
 
-  const getEmployeeName = (id: number) => {
-    return employees.find(e => e.id === id)?.name || `Employee ${id}`;
+  const getEmployeeName = (id: string) => {
+    return employees.find((e) => String(e.id) === String(id))?.name || `Employee ${id}`;
   };
 
   const timeSinceRefresh = () => {
@@ -577,7 +590,7 @@ const ActiveSites = () => {
           ? "Self"
           : resolvedBy === "super-admin"
             ? "Super Admin"
-            : getEmployeeName(parseInt(resolvedBy, 10)),
+            : getEmployeeName(resolvedBy),
       notesAppend: resolveNotes || undefined,
     });
 
@@ -688,14 +701,15 @@ const ActiveSites = () => {
           return (
             <Card 
               key={project.id} 
-              className={`group cursor-pointer transition-all duration-200 hover:shadow-lg ${hasBlockages ? "border-orange-500/40 shadow-orange-500/5" : "hover:border-primary/30"}`}
+              className={`group cursor-pointer transition-all duration-200 hover:shadow-lg ${hasBlockages ? "border-warning/40 shadow-warning/5" : "hover:border-primary/30"}`}
               onClick={() => navigate(`/projects/${project.id}`)}
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <CardTitle className="text-base font-semibold truncate">{project.name}</CardTitle>
+                      <AgingChip signal={getProjectIdleAging(project)} />
                       <Badge variant="secondary" className="text-2xs px-1.5 py-0 h-4 shrink-0">
                         {project.capacity}
                       </Badge>
@@ -706,12 +720,8 @@ const ActiveSites = () => {
                     <Badge className={`${getStatusColor(project.status)} shrink-0 text-xs px-2`}>
                       {project.status}
                     </Badge>
-                    <Badge variant="outline" className="text-2xs bg-primary/5 text-primary border-primary/20">
-                      <ExternalLink className="h-2.5 w-2.5 mr-1" />
-                      Detail
-                    </Badge>
                     {(procurementShortQtyByProject.get(project.id) ?? 0) > 0 && (
-                      <Badge variant="outline" className="text-2xs border-amber-500/40 text-amber-800 dark:text-amber-300">
+                      <Badge variant="outline" className="text-2xs border-warning/40 text-warning">
                         Shortfall {procurementShortQtyByProject.get(project.id)} units
                       </Badge>
                     )}
@@ -815,18 +825,18 @@ const ActiveSites = () => {
 
                 {/* Enhanced Blockages Display - Refined UI */}
                 {projectBlockages.length > 0 && (
-                  <div className="space-y-3 pt-3 border-t border-orange-500/20">
+                  <div className="space-y-3 pt-3 border-t border-warning/20">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="p-1.5 rounded-lg bg-orange-500/20">
-                          <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />
+                        <div className="p-1.5 rounded-lg bg-warning/20">
+                          <AlertTriangle className="h-3.5 w-3.5 text-warning" />
                         </div>
-                        <span className="text-sm font-semibold text-orange-500">
+                        <span className="text-sm font-semibold text-warning">
                           {projectBlockages.length} Blockage{projectBlockages.length > 1 ? 's' : ''}
                         </span>
                       </div>
                       {projectBlockages.length > 2 && (
-                        <Badge variant="outline" className="text-2xs border-orange-500/30 text-orange-400">
+                        <Badge variant="outline" className="text-2xs border-warning/30 text-warning">
                           +{projectBlockages.length - 2} more
                         </Badge>
                       )}
@@ -838,9 +848,9 @@ const ActiveSites = () => {
                           : 'Unknown';
                         const isDelayed = blockage.projectStage === 'delayed';
                         const isOnHold = blockage.projectStage === 'on-hold';
-                        const priorityColor = isDelayed ? 'bg-red-500' : isOnHold ? 'bg-yellow-500' : 'bg-orange-500';
-                        const priorityBg = isDelayed ? 'bg-red-500/10 border-red-500/30' : isOnHold ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-orange-500/10 border-orange-500/30';
-                        const priorityText = isDelayed ? 'text-red-400' : isOnHold ? 'text-yellow-400' : 'text-orange-400';
+                        const priorityColor = isDelayed ? 'bg-destructive' : isOnHold ? 'bg-warning' : 'bg-warning';
+                        const priorityBg = isDelayed ? 'bg-destructive/10 border-destructive/30' : isOnHold ? 'bg-warning/10 border-warning/30' : 'bg-warning/10 border-warning/30';
+                        const priorityText = isDelayed ? 'text-destructive' : isOnHold ? 'text-warning' : 'text-warning';
                         
                         return (
                           <div key={blockage.id} className={`relative overflow-hidden rounded-xl border ${priorityBg}`}>
@@ -849,11 +859,14 @@ const ActiveSites = () => {
                             
                             <div className="p-3 pl-4">
                               <div className="flex items-start justify-between gap-2 mb-1.5">
-                                <p className={`font-semibold text-sm ${priorityText} line-clamp-1`}>{blockage.title}</p>
-                                <Badge variant="secondary" className={`text-[9px] shrink-0 px-1.5 py-0 h-4 ${
-                                  isDelayed ? 'bg-red-500/20 text-red-400' : 
-                                  isOnHold ? 'bg-yellow-500/20 text-yellow-400' : 
-                                  'bg-orange-500/20 text-orange-400'
+                                <p className={`font-semibold text-sm ${priorityText} line-clamp-1 flex items-center gap-1.5 flex-wrap`}>
+                                  {blockage.title}
+                                  <AgingChip signal={getBlockageUpdatedAging(blockage)} />
+                                </p>
+                                <Badge variant="secondary" className={`text-2xs shrink-0 px-1.5 py-0 h-4 ${
+                                  isDelayed ? 'bg-destructive/20 text-destructive' : 
+                                  isOnHold ? 'bg-warning/20 text-warning' : 
+                                  'bg-warning/20 text-warning'
                                 }`}>
                                   {isDelayed ? 'HIGH' : isOnHold ? 'MEDIUM' : 'NORMAL'}
                                 </Badge>
@@ -877,6 +890,17 @@ const ActiveSites = () => {
                                 <div className="flex items-center gap-2">
                                   <span className="text-muted-foreground/70">{daysSince}</span>
                                   <button
+                                    type="button"
+                                    className="text-2xs font-medium px-2 py-0.5 rounded border bg-muted/40 text-muted-foreground hover:bg-muted"
+                                    onClick={() => {
+                                      setLinkTaskTarget({ blockageId: blockage.id, projectId: project.id });
+                                      setLinkTaskValue(blockage.linkedTaskId ?? "");
+                                    }}
+                                  >
+                                    Link task
+                                  </button>
+                                  <button
+                                    type="button"
                                     className={`text-2xs font-medium px-2 py-0.5 rounded ${priorityText} border ${priorityBg} hover:opacity-80`}
                                     onClick={() => handleOpenResolveModal(project.id, blockage)}
                                   >
@@ -912,7 +936,7 @@ const ActiveSites = () => {
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      className="text-orange-400 border-orange-400/50 hover:bg-orange-500/10"
+                      className="text-warning border-warning/50 hover:bg-warning/10"
                       onClick={() => handleOpenResolveModal(project.id, projectBlockages[0])}
                     >
                       <AlertCircle className="h-4 w-4 mr-1" />
@@ -928,13 +952,11 @@ const ActiveSites = () => {
 
       {/* Empty State for Ongoing */}
       {activeProjects.length === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <MapPin className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p className="text-lg font-medium">No Ongoing Sites</p>
-            <p className="text-sm">All projects are completed or on hold</p>
-          </CardContent>
-        </Card>
+        <ListEmptyState
+          icon={MapPin}
+          title="No ongoing sites"
+          description="Active projects with in-progress work will appear here."
+        />
       )}
         </>
       )}
@@ -992,9 +1014,9 @@ const ActiveSites = () => {
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex items-center gap-2 min-w-0">
                                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                  (ticket.priority as string) === 'urgent' ? 'bg-red-500' :
-                                  (ticket.priority as string) === 'high' ? 'bg-orange-500' :
-                                  (ticket.priority as string) === 'medium' ? 'bg-yellow-500' : 'bg-primary'
+                                  (ticket.priority as string) === 'urgent' ? 'bg-destructive' :
+                                  (ticket.priority as string) === 'high' ? 'bg-warning' :
+                                  (ticket.priority as string) === 'medium' ? 'bg-warning' : 'bg-primary'
                                 }`} />
                                 <p className="text-xs font-medium truncate">{ticket.description}</p>
                               </div>
@@ -1003,7 +1025,7 @@ const ActiveSites = () => {
                               </Badge>
                             </div>
                             <div className="flex items-center justify-between mt-1.5 text-2xs text-muted-foreground pl-3.5">
-                              <span className={isOverdue ? 'text-red-400 font-medium' : ''}>
+                              <span className={isOverdue ? 'text-destructive font-medium' : ''}>
                                 Due: {format(dueDate, "dd MMM yyyy")}
                               </span>
                             </div>
@@ -1034,13 +1056,11 @@ const ActiveSites = () => {
 
           {/* Empty State for Active Tickets */}
           {completedProjectsWithTickets.length === 0 && (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                <CheckCircle className="h-12 w-12 mx-auto mb-4 opacity-50 text-primary" />
-                <p className="text-lg font-medium">No Active Tickets</p>
-                <p className="text-sm">All completed projects are running smoothly</p>
-              </CardContent>
-            </Card>
+            <ListEmptyState
+              icon={CheckCircle}
+              title="No active tickets"
+              description="Completed projects with open support tickets will appear here."
+            />
           )}
         </>
       )}
@@ -1058,8 +1078,8 @@ const ActiveSites = () => {
           {selectedBlockage && (
             <div className="space-y-4 py-4">
               {/* Blockage Info */}
-              <div className="p-3 bg-orange-500/10 rounded-lg border border-orange-500/20">
-                <p className="font-medium text-orange-400">{selectedBlockage.title}</p>
+              <div className="p-3 bg-warning/10 rounded-lg border border-warning/20">
+                <p className="font-medium text-warning">{selectedBlockage.title}</p>
                 <p className="text-sm text-muted-foreground mt-1">{selectedBlockage.reason}</p>
                 {selectedBlockage.howToSolve && (
                   <p className="text-sm text-muted-foreground mt-2">
@@ -1127,6 +1147,57 @@ const ActiveSites = () => {
             <Button onClick={handleResolveBlockage}>
               <CheckCircle className="h-4 w-4 mr-2" />
               Mark as Resolved
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet
+        open={!!linkTaskTarget}
+        onOpenChange={(open) => { if (!open) { setLinkTaskTarget(null); setLinkTaskValue(""); } }}
+      >
+        <SheetContent className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Link blockage to task</SheetTitle>
+            <SheetDescription>Pick a task from this project to associate with the blockage.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            {(() => {
+              if (!linkTaskTarget) return null;
+              const projectTasks = tasks.filter((t) => t.projectId === linkTaskTarget.projectId);
+              if (projectTasks.length === 0) {
+                return <p className="text-sm text-muted-foreground">No tasks exist on this project yet.</p>;
+              }
+              return (
+                <div className="space-y-2">
+                  <Label>Task</Label>
+                  <Select value={linkTaskValue} onValueChange={setLinkTaskValue}>
+                    <SelectTrigger><SelectValue placeholder="Select task" /></SelectTrigger>
+                    <SelectContent>
+                      {projectTasks.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>
+                          #{t.id} — {t.workType} · {t.workDate}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            })()}
+          </div>
+          <SheetFooter className="mt-6 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setLinkTaskTarget(null); setLinkTaskValue(""); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!linkTaskTarget) return;
+                updateBlockage(linkTaskTarget.blockageId, { linkedTaskId: linkTaskValue || undefined });
+                setLinkTaskTarget(null);
+                setLinkTaskValue("");
+              }}
+            >
+              Link task
             </Button>
           </SheetFooter>
         </SheetContent>

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { ArrowLeft, Printer, Send, Download, Plus, Trash2, Check, Phone, Mail, Edit, FileText, Eye, UserCheck, X, Save, CheckCircle, Briefcase, MessageCircle, Calendar, Clock, MapPin, Share2, AlertTriangle, ChevronDown, Zap, CreditCard, Package, Columns2 } from "lucide-react";
+import { ArrowLeft, Printer, Send, Download, Plus, Trash2, Check, Phone, Mail, Edit, FileText, Eye, UserCheck, X, Save, CheckCircle, Briefcase, MessageCircle, Calendar, Clock, MapPin, Share2, AlertTriangle, ChevronDown, Zap, CreditCard, Package, Columns2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,12 +13,30 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
+import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
+import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { QuotationStaticSectionsBlock } from "@/components/quotations/QuotationStaticSectionsBlock";
+import {
+  buildCustomerToQuotationDraft,
+  buildEnquiryToQuotationDraft,
+  buildQuotationCloneDraft,
+  buildQuotationToProjectDraft,
+  loadCreateDraft,
+  parseCreateFromParam,
+  saveCreateDraft,
+  type QuotationCloneDraft,
+  type QuotationDraftFromCustomer,
+  type QuotationDraftFromEnquiry,
+} from "@/lib/createFromContext";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useNavigate, useLocation } from "react-router-dom";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAppData } from "@/contexts/AppDataContext";
+import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
 import { useMasters } from "@/contexts/MastersContext";
 import { ProjectKindService, type ProjectIntakePayload } from "@/application/services/ProjectKindService";
 import { projectKindConfigs } from "@/domain/projectTypes/config";
@@ -27,7 +45,7 @@ import type { ProjectKind } from "@/domain/projectTypes/types";
 import { companyInfo } from "@/components/ExportHeader";
 import type { Quotation } from "@/types/project";
 import type { Project } from "@/types/project";
-import { EntityLink } from "@/components/shared/EntityInfoModal";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
 // AlertDialog removed
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar, DEFAULT_TABLE_PAGE_SIZE } from "@/components/data-table/TablePaginationBar";
@@ -36,6 +54,10 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatINR, formatCapacityKW } from "@/lib/formatCurrency";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getQuotationNoResponseAging } from "@/lib/agingHelpers";
+import { useCan } from "@/hooks/useCan";
 
 interface QuotationMaterial {
   id: number;
@@ -98,32 +120,36 @@ const Quotations = () => {
   const quotationRef = useRef<HTMLDivElement>(null);
   const { 
     quotations: savedQuotations, 
-    _customers,
-    _addCustomer,
+    enquiries,
+    customers: _customers,
+    addCustomer: _addCustomer,
     addQuotation, 
     updateQuotation, 
     transitionQuotationStatus,
-    _reviseQuotation,
+    reviseQuotation,
+    withdrawQuotation,
     deleteQuotation,
-    _createProjectFromConfirmedQuotation,
+    createProjectFromConfirmedQuotation: _createProjectFromConfirmedQuotation,
     createProjectIntake,
     generateId,
     partners,
     agents,
     quotationVisibilityPresets = [],
     addQuotationVisibilityPreset,
-    _deleteQuotationVisibilityPreset,
-    siteChecklistTemplates = [],
+    deleteQuotationVisibilityPreset: _deleteQuotationVisibilityPreset,
     quotationTemplates = [],
     addQuotationTemplate,
     inventoryItems = [],
-    canDo,
   } = useAppData();
+  const canCreateQuotation = useCan("quotation", "create");
+  const canEditQuotation = useCan("quotation", "edit");
+  const canDeleteQuotation = useCan("quotation", "delete");
   
   // State for Create Project in edit/create view
   
   // View state: list, create, edit (solar-only quotations)
   const [currentView, setCurrentView] = useState<"list" | "create" | "edit">("list");
+  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
   const [activeTab, setActiveTab] = useState("create");
   const [editingQuotationId, setEditingQuotationId] = useState<string | null>(null);
   
@@ -161,7 +187,7 @@ const Quotations = () => {
   // Quotation state
   const [quotationNumber, setQuotationNumber] = useState(`Q-2024-${String(savedQuotations.length + 1).padStart(3, '0')}`);
   const [quotationDate] = useState(new Date().toISOString().split('T')[0]);
-  const [status, setStatus] = useState<"draft" | "sent" | "approved" | "confirmed" | "rejected">("draft");
+  const [status, setStatus] = useState<"draft" | "sent" | "approved" | "rejected" | "converted_to_project">("draft");
   const [referenceClientName, setReferenceClientName] = useState("");
   
   // Modal states
@@ -200,7 +226,7 @@ const Quotations = () => {
   
   // Status filter for list view
   const [statusFilter, setStatusFilter] = useState<
-    "all" | "draft" | "sent" | "approved" | "confirmed" | "rejected" | "converted"
+    "all" | "draft" | "sent" | "approved" | "rejected" | "withdrawn" | "converted_to_project"
   >("all");
   const [listSearchQuery, setListSearchQuery] = useState("");
 
@@ -324,11 +350,10 @@ const Quotations = () => {
   
   // Modals
   const [isAddMaterialOpen, setIsAddMaterialOpen] = useState(false);
-  const [isSendConfirmOpen, setIsSendConfirmOpen] = useState(false);
   const [isSaveTemplateOpen, setIsSaveTemplateOpen] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [templateName, setTemplateName] = useState("");
-  const [quotationBoilerplateKey, setQuotationBoilerplateKey] = useState(0);
+  const [selectedQuotationTemplateId, setSelectedQuotationTemplateId] = useState<string | null>(null);
 
   // Visibility preset
   const [isSaveVisibilityPresetOpen, setIsSaveVisibilityPresetOpen] = useState(false);
@@ -380,8 +405,142 @@ const Quotations = () => {
     setEnquiryId(null);
   };
 
+  const applyCustomerQuotationDraft = (draft: QuotationDraftFromCustomer) => {
+    setClientName(draft.customerName);
+    setClientPhone(draft.customerPhone);
+    if (draft.customerEmail) setClientEmail(draft.customerEmail);
+    if (draft.customerAddress) {
+      setSystemConfigNotes(`Address: ${draft.customerAddress}`);
+    }
+    setCustomerId(draft.customerId);
+  };
+
+  const applyQuotationCloneDraft = (draft: QuotationCloneDraft) => {
+    setClientName(draft.clientName);
+    setClientPhone(draft.clientPhone);
+    if (draft.clientEmail) setClientEmail(draft.clientEmail);
+    if (draft.clientAddress) setSystemConfigNotes(`Address: ${draft.clientAddress}`);
+    if (draft.customerId) setCustomerId(draft.customerId);
+    if (draft.agentId) setAgentId(draft.agentId);
+    if (draft.enquiryId) setEnquiryId(draft.enquiryId);
+    if (draft.systemCategory) setSystemCategory(draft.systemCategory);
+    if (draft.systemCapacity) setSystemCapacity(draft.systemCapacity);
+    if (draft.systemConfigNotes) setSystemConfigNotes(draft.systemConfigNotes);
+    if (draft.paymentType) setPaymentType(draft.paymentType);
+    setStatus("draft");
+  };
+
+  const handleCloneQuotation = (quotation: Quotation) => {
+    resetForm();
+    setEditingQuotationId(null);
+    const draft = buildQuotationCloneDraft(quotation);
+    saveCreateDraft("quotation-create-draft", draft);
+    applyQuotationCloneDraft(draft);
+    setCurrentView("create");
+    setIsViewQuotationOpen(false);
+    setLastConfirm({ variant: "success", title: "Quotation cloned", description: draft.banner });
+  };
+
+  const handleReviseQuotation = async (quotation: Quotation) => {
+    const result = await reviseQuotation(quotation.id);
+    if (!result.ok) {
+      setLastConfirm({
+        variant: "error",
+        title: "Cannot revise",
+        description: result.error || "Quotation is not revisable in its current status.",
+      });
+      return;
+    }
+    setIsViewQuotationOpen(false);
+    setLastConfirm({
+      variant: "success",
+      title: "Revision created",
+      description: `New draft revision opened from ${quotation.quotationNumber}.`,
+    });
+    if (result.revisedQuotationId) {
+      setEditingQuotationId(result.revisedQuotationId);
+      setCurrentView("edit");
+      setActiveTab("create");
+    }
+  };
+
+  const [withdrawDialogQuotation, setWithdrawDialogQuotation] = useState<Quotation | null>(null);
+  const [withdrawReason, setWithdrawReason] = useState("");
+
+  const handleWithdrawQuotation = async () => {
+    if (!withdrawDialogQuotation) return;
+    const result = await withdrawQuotation(withdrawDialogQuotation.id, withdrawReason);
+    if (!result.ok) {
+      setLastConfirm({
+        variant: "error",
+        title: "Cannot withdraw",
+        description: result.error || "Withdrawal is not allowed for this quotation.",
+      });
+      return;
+    }
+    setLastConfirm({
+      variant: "warning",
+      title: "Quotation withdrawn",
+      description: `${withdrawDialogQuotation.quotationNumber} marked withdrawn.`,
+    });
+    setWithdrawDialogQuotation(null);
+    setWithdrawReason("");
+    setIsViewQuotationOpen(false);
+  };
+
+  const applyEnquiryQuotationDraft = (draft: QuotationDraftFromEnquiry) => {
+    setClientName(draft.customerName);
+    setClientPhone(draft.customerPhone);
+    if (draft.customerEmail) setClientEmail(draft.customerEmail);
+    if (draft.customerAddress) {
+      setSystemConfigNotes(`Address (from enquiry): ${draft.customerAddress}`);
+    }
+    if (draft.capacityHintKw > 0) setSystemCapacity(String(draft.capacityHintKw));
+    if (draft.agentId) setAgentId(draft.agentId);
+    setEnquiryId(draft.sourceEnquiryId);
+    if (draft.notes) setSystemConfigNotes((prev) => (prev ? `${prev}\n${draft.notes}` : draft.notes ?? ""));
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    const createFrom = parseCreateFromParam(params.get("createFrom"));
+
+    if (createFrom?.kind === "customer") {
+      resetForm();
+      setEditingQuotationId(null);
+      setCurrentView("create");
+      const stored = loadCreateDraft<QuotationDraftFromCustomer>("quotation-create-draft");
+      const cust = _customers.find((c) => c.id === createFrom.id);
+      if (stored?.customerId === createFrom.id) {
+        applyCustomerQuotationDraft(stored);
+      } else if (cust) {
+        const built = buildCustomerToQuotationDraft(cust);
+        saveCreateDraft("quotation-create-draft", built);
+        applyCustomerQuotationDraft(built);
+      }
+      navigate("/quotations", { replace: true });
+      return;
+    }
+
+    if (createFrom?.kind === "enq") {
+      resetForm();
+      setEditingQuotationId(null);
+      setCurrentView("create");
+
+      const stored = loadCreateDraft<QuotationDraftFromEnquiry>("quotation-create-draft");
+      const enquiry = enquiries.find((e) => e.id === createFrom.id);
+      if (stored?.sourceEnquiryId === createFrom.id) {
+        applyEnquiryQuotationDraft(stored);
+      } else if (enquiry) {
+        const built = buildEnquiryToQuotationDraft(enquiry);
+        saveCreateDraft("quotation-create-draft", built);
+        applyEnquiryQuotationDraft(built);
+      }
+
+      navigate("/quotations", { replace: true });
+      return;
+    }
+
     if (!params.has("create")) return;
     resetForm();
     setEditingQuotationId(null);
@@ -407,11 +566,13 @@ const Quotations = () => {
       if (cid) setCustomerId(cid);
       const eid = params.get("enquiryId");
       if (eid) setEnquiryId(eid);
+      const email = params.get("email");
+      if (email) setClientEmail(decodeURIComponent(email));
     }
 
     navigate("/quotations", { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: run when search signals create/enquiry once
-  }, [location.search, navigate]);
+  }, [location.search, navigate, enquiries, _customers]);
 
   // Open save amounts confirmation modal
   const _handleOpenSaveAmounts = (quotation: Quotation) => {
@@ -433,10 +594,10 @@ const Quotations = () => {
       totalAmount: Number(saveAmountFinal || saveAmountTemp) || 0,
     });
     if (!ur.ok) {
-      toast({ title: "Could not save amounts", description: ur.error ?? "Command failed", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Could not save amounts", description: ur.error ?? "Command failed" });
       return;
     }
-    toast({ title: "Amounts Saved", description: "Quotation amounts have been updated" });
+    setLastConfirm({ variant: "success", title: "Amounts saved", description: "Quotation amounts have been updated." });
     setIsSaveAmountsOpen(false);
     setSaveAmountsQuotationId(null);
   };
@@ -449,7 +610,7 @@ const Quotations = () => {
       sent: all.filter((q) => q.status === "sent").length,
       approved: all.filter((q) => q.status === "approved").length,
       rejected: all.filter((q) => q.status === "rejected").length,
-      converted: all.filter((q) => q.isConverted).length,
+      converted: all.filter((q) => isQuotationConverted(q)).length,
     };
   }, [savedQuotations]);
 
@@ -465,7 +626,7 @@ const Quotations = () => {
       }
     }
     if (statusFilter === "all") return true;
-    if (statusFilter === "converted") return q.isConverted;
+    if (statusFilter === "converted") return isQuotationConverted(q);
     return q.status === statusFilter;
   });
   const listTotalPages = Math.max(1, Math.ceil(displayedQuotations.length / listPageSize) || 1);
@@ -600,14 +761,14 @@ const Quotations = () => {
       clientCity,
       clientState,
       systemCategory: systemCategory as "residential" | "commercial" | "industrial",
-      systemCapacity,
+      // Strip any trailing "kW"/"kWp" so persisted value is the bare number; display helpers re-append the unit.
+      systemCapacity: systemCapacity.replace(/\s*k\s*w\s*p?\s*$/i, "").trim(),
       paymentType: paymentType,
       clientAgreedAmount: effectivePrice,
       bankDocumentationAmount: paymentType === "loan" ? (bankDocumentationAmount || effectivePrice) : undefined,
       temporaryAmount: effectivePrice,
       finalAmount: effectivePrice,
       totalAmount: effectivePrice,
-      isConverted: false,
       customerId: customerId || undefined,
       enquiryId: enquiryId || undefined,
       agentId: agentId || undefined,
@@ -617,17 +778,17 @@ const Quotations = () => {
     if (editingQuotationId) {
       const ur = await updateQuotation(editingQuotationId, quotationData);
       if (!ur.ok) {
-        toast({ title: "Could not update quotation", description: ur.error ?? "Command failed", variant: "destructive" });
+        setLastConfirm({ variant: "error", title: "Could not update quotation", description: ur.error ?? "Command failed" });
         return;
       }
-      toast({ title: "Quotation Updated", description: `${quotationNumber} has been updated` });
+      setLastConfirm({ variant: "success", title: "Quotation updated", description: `${quotationNumber} has been updated` });
     } else {
       const r = await addQuotation({ ...quotationData, id: generateId("Q") });
       if (!r.ok) {
-        toast({ title: "Could not save quotation", description: r.error ?? "Command failed", variant: "destructive" });
+        setLastConfirm({ variant: "error", title: "Could not save quotation", description: r.error ?? "Command failed" });
         return;
       }
-      toast({ title: "Quotation Saved", description: `${quotationNumber} has been saved as draft` });
+      setLastConfirm({ variant: "success", title: "Quotation saved", description: `${quotationNumber} has been saved as draft` });
     }
 
     setCurrentView("list");
@@ -732,23 +893,6 @@ const Quotations = () => {
     setIsExportingPdf(false);
   };
 
-  const handleSendToClient = async () => {
-    const currentQuotation = savedQuotations.find(q => q.quotationNumber === quotationNumber);
-    if (currentQuotation) {
-      const result = await transitionQuotationStatus(currentQuotation.id, "sent");
-      if (!result.ok) {
-        toast({ title: "Cannot Send Quotation", description: result.error || "Validation failed", variant: "destructive" });
-        return;
-      }
-    }
-    setStatus("sent");
-    setIsSendConfirmOpen(false);
-    toast({
-      title: "Quotation Sent",
-      description: `Quotation sent to ${clientName}`
-    });
-  };
-
   // Handle Share to Client
   const handleOpenShareModal = () => {
     // Pre-fill with client details
@@ -812,6 +956,18 @@ const Quotations = () => {
     setShareVisitNotes("");
   };
 
+  const handleMarkAsSent = async (quotationId: string) => {
+    const result = await transitionQuotationStatus(quotationId, "sent");
+    if (!result.ok) {
+      toast({ title: "Cannot send quotation", description: result.error || "Status change not allowed", variant: "destructive" });
+      return;
+    }
+    if (editingQuotationId === quotationId) {
+      setStatus("sent");
+    }
+    toast({ title: "Quotation Sent", description: "Quotation has been marked as sent" });
+  };
+
   const handleMarkAsRejected = async (quotationId: string) => {
     const result = await transitionQuotationStatus(quotationId, "rejected");
     if (!result.ok) {
@@ -830,37 +986,30 @@ const Quotations = () => {
     if (editingQuotationId === quotationId) {
       setStatus("approved");
     }
+    const quotation = savedQuotations.find((q) => q.id === quotationId);
+    const canCreateProject =
+      quotation && !quotationLinkedProjectId(quotation);
+    if (canCreateProject) {
+      const customer = quotation.customerId
+        ? _customers.find((c) => c.id === quotation.customerId)
+        : undefined;
+      const draft = buildQuotationToProjectDraft(quotation, customer);
+      saveCreateDraft("project-create-draft", draft);
+      toast({
+        title: "Quotation approved",
+        description: "Create a project when you are ready.",
+        action: (
+          <ToastAction
+            altText="Create project now"
+            onClick={() => navigate(`/projects?createFrom=quo:${quotationId}`)}
+          >
+            Create project now
+          </ToastAction>
+        ),
+      });
+      return;
+    }
     toast({ title: "Status Updated", description: "Quotation marked as approved" });
-  };
-
-  const handleConvertToClient = async (quotationId: string) => {
-    const quotation = savedQuotations.find(q => q.id === quotationId);
-    if (!quotation) return;
-
-    if (quotation.status !== "approved") {
-      const approvedResult = await transitionQuotationStatus(quotationId, "approved");
-      if (!approvedResult.ok) {
-        toast({ title: "Invalid Transition", description: approvedResult.error || "Could not approve quotation", variant: "destructive" });
-        return;
-      }
-    }
-
-    const confirmResult = await transitionQuotationStatus(quotationId, "confirmed");
-    if (!confirmResult.ok) {
-      toast({ title: "Confirmation Required", description: confirmResult.error || "Could not confirm quotation", variant: "destructive" });
-      return;
-    }
-
-    const ur = await updateQuotation(quotationId, {
-      isConverted: true,
-      approvedAt: new Date().toISOString().split("T")[0],
-      confirmedAt: new Date().toISOString().split("T")[0],
-    });
-    if (!ur.ok) {
-      toast({ title: "Could not update quotation", description: ur.error ?? "Command failed", variant: "destructive" });
-      return;
-    }
-    toast({ title: "Client Converted", description: "Lead has been converted to client" });
   };
 
   const _handleDeleteQuotation = (quotation: Quotation) => {
@@ -868,10 +1017,11 @@ const Quotations = () => {
     const relatedEntities: {type: string; id: string; name: string}[] = [];
     
     // Check if converted to project
-    if (quotation.convertedToProjectId) {
+    const linkedPid = quotationLinkedProjectId(quotation);
+    if (linkedPid) {
       relatedEntities.push({
         type: "project",
-        id: quotation.convertedToProjectId,
+        id: linkedPid,
         name: `Project from ${quotation.quotationNumber}`
       });
     }
@@ -946,10 +1096,10 @@ const Quotations = () => {
 
   const confirmCreateProject = async () => {
     if (!selectedQuotationForProject) return;
-    if (selectedQuotationForProject.status !== "confirmed") {
+    if (selectedQuotationForProject.status !== "approved") {
       toast({
-        title: "Confirmed Quotation Required",
-        description: "Projects can only be created from confirmed quotations.",
+        title: "Approved Quotation Required",
+        description: "Projects can only be created from approved quotations.",
         variant: "destructive",
       });
       return;
@@ -988,11 +1138,20 @@ const Quotations = () => {
 
     const pRow = qPartnerIdForProject ? partners.find((p) => p.id === qPartnerIdForProject) : undefined;
 
+    if (!selectedQuotationForProject.customerId) {
+      toast({
+        title: "Customer required",
+        description: "Link this quotation to a customer before creating a project.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const intakePayload: ProjectIntakePayload = {
       kind: projectKind,
       parties: {
         customer: selectedQuotationForProject.clientName || "Unknown Customer",
-        vendorOrDiscom: projectKind === "SOLO_EPC" ? "TBD_VENDOR_DISCOM" : undefined,
+        vendorOrDiscom: projectKind === "SOLO_EPC" ? undefined : undefined,
         partner: projectKind === "PARTNER_EPC" || projectKind === "FIXED_EPC" || projectKind === "VENDOR_NETWORK" ? pRow?.name || qPartnerIdForProject : undefined,
         channelPartner: projectKind === "VENDOR_NETWORK" ? pRow?.name || qChannel || qPartnerIdForProject : undefined,
         externalNetwork: projectKind === "VENDOR_NETWORK" ? qExternal || pRow?.name || qPartnerIdForProject : undefined,
@@ -1021,12 +1180,12 @@ const Quotations = () => {
     const newProjectId = generateId("P");
     const newProject: Project = {
       id: newProjectId,
-      customerId: selectedQuotationForProject.customerId || "C-unknown",
+      customerId: selectedQuotationForProject.customerId,
       lifecycleStatus: "Active",
       executionPhase: "execution",
       projectKind,
       projectKindConfigSnapshot: snap,
-      name: `${selectedQuotationForProject.clientName} ${selectedQuotationForProject.systemCapacity}kW`,
+      name: `${selectedQuotationForProject.clientName} ${formatCapacityKW(selectedQuotationForProject.systemCapacity)}`,
       type: projectKind === "INC" ? "INC" : "EPC",
       projectType:
         selectedQuotationForProject.systemCategory === "residential"
@@ -1045,7 +1204,7 @@ const Quotations = () => {
       clientAddress: selectedQuotationForProject.clientAddress || `${selectedQuotationForProject.clientCity}, ${selectedQuotationForProject.clientState}`,
       clientPhone: selectedQuotationForProject.clientPhone,
       clientEmail: selectedQuotationForProject.clientEmail,
-      capacity: `${selectedQuotationForProject.systemCapacity} kW`,
+      capacity: formatCapacityKW(selectedQuotationForProject.systemCapacity),
       location: `${selectedQuotationForProject.clientCity}, ${selectedQuotationForProject.clientState}`,
       onSite: 0,
       assignees: [],
@@ -1124,9 +1283,13 @@ const Quotations = () => {
     }
     const navigateId = created.projectId ?? newProjectId;
 
-    // Link quotation → project (D9)
+    // Link quotation → project + flip status to converted_to_project (single source of truth)
     if (navigateId) {
-      await updateQuotation(selectedQuotationForProject.id, { convertedToProjectId: navigateId } as any);
+      await updateQuotation(selectedQuotationForProject.id, {
+        linkedProjectId: navigateId,
+        convertedAt: new Date().toISOString().split("T")[0],
+      });
+      await transitionQuotationStatus(selectedQuotationForProject.id, "converted_to_project");
     }
 
     toast({
@@ -1149,10 +1312,10 @@ const Quotations = () => {
   const handleEditQuotation = async (quotation: Quotation) => {
     // Direct update logic as per user requirement
     // We skip the revision logic to avoid creating duplicates
-    if (quotation.status === "approved" || quotation.status === "confirmed") {
+    if (quotation.status === "approved" || quotation.status === "converted_to_project") {
       toast({
         title: "Quotation Locked",
-        description: "Approved/confirmed quotations are locked for data integrity. Use Super Admin override to edit.",
+        description: "Approved quotations are locked for data integrity. Use Super Admin override to edit.",
         variant: "destructive",
       });
       return;
@@ -1181,12 +1344,25 @@ const Quotations = () => {
 
   const getStatusColor = (s: string) => {
     switch (s) {
-      case "draft": return "bg-amber-500/10 text-amber-600";
-      case "sent": return "bg-blue-500/10 text-blue-600";
+      case "draft": return "bg-warning/10 text-warning";
+      case "sent": return "bg-primary/10 text-primary";
       case "approved": return "bg-primary/10 text-primary";
-      case "confirmed": return "bg-blue-500/10 text-blue-600";
+      case "converted_to_project": return "bg-success/10 text-success";
       case "rejected": return "bg-destructive/10 text-destructive";
+      case "withdrawn": return "bg-zinc-500/10 text-zinc-600";
       default: return "bg-muted text-muted-foreground";
+    }
+  };
+
+  const formatQuotationStatus = (s: string) => {
+    switch (s) {
+      case "draft": return "Draft";
+      case "sent": return "Sent";
+      case "approved": return "Approved";
+      case "rejected": return "Rejected";
+      case "withdrawn": return "Withdrawn";
+      case "converted_to_project": return "Converted to project";
+      default: return s;
     }
   };
 
@@ -1227,9 +1403,9 @@ const Quotations = () => {
                     <SelectItem value="draft">Draft</SelectItem>
                     <SelectItem value="sent">Sent</SelectItem>
                     <SelectItem value="approved">Approved</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
                     <SelectItem value="rejected">Rejected</SelectItem>
-                    <SelectItem value="converted">Converted</SelectItem>
+                    <SelectItem value="withdrawn">Withdrawn</SelectItem>
+                    <SelectItem value="converted_to_project">Converted to project</SelectItem>
                   </SelectContent>
                 </Select>
                 <DropdownMenu>
@@ -1335,12 +1511,21 @@ const Quotations = () => {
               setEditingQuotationId(null);
               setCurrentView("create");
             }}
-            disabled={!canDo("quotation:create")}
+            disabled={!canCreateQuotation}
           >
             <Plus className="w-4 h-4 mr-2" />
             New quotation
           </Button>
         </StickyPageHeader>
+
+        {lastConfirm && (
+          <InlineConfirmBanner
+            variant={lastConfirm.variant}
+            title={lastConfirm.title}
+            description={lastConfirm.description}
+            onDismiss={() => setLastConfirm(null)}
+          />
+        )}
 
         <DataTableShell
           maxHeight={listTableViewportMaxHeight(listPageSize)}
@@ -1381,23 +1566,22 @@ const Quotations = () => {
               ))
             ) : pagedQuotations.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={quoteListColSpan} className="text-center py-12 text-muted-foreground">
-                  <div className="flex flex-col items-center gap-2">
-                    <p>No quotations found.</p>
-                    <Button
-                      size="sm"
-                      type="button"
-                      disabled={!canDo("quotation:create")}
-                      onClick={() => {
-                        resetForm();
-                        setEditingQuotationId(null);
-                        setCurrentView("create");
-                      }}
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      New quotation
-                    </Button>
-                  </div>
+                <TableCell colSpan={quoteListColSpan} className="py-0">
+                  <ListEmptyState
+                    icon={FileText}
+                    title="No quotations found"
+                    description={
+                      displayedQuotations.length === 0 && listSearchQuery
+                        ? `No quotations match "${listSearchQuery}". Clear the search or change filters to see all rows.`
+                        : "Create a quotation to start tracking proposals for customers."
+                    }
+                    actionLabel={canCreateQuotation ? "New quotation" : undefined}
+                    onAction={canCreateQuotation ? () => {
+                      resetForm();
+                      setEditingQuotationId(null);
+                      setCurrentView("create");
+                    } : undefined}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
@@ -1412,7 +1596,10 @@ const Quotations = () => {
               >
                 {quoteListColVis.number && (
                 <TableCell className="font-medium text-primary">
-                  {quotation.quotationNumber}
+                  <div className="flex items-center gap-2">
+                    <span>{quotation.quotationNumber}</span>
+                    <AgingChip signal={getQuotationNoResponseAging(quotation)} />
+                  </div>
                 </TableCell>
                 )}
                 {quoteListColVis.client && (
@@ -1430,13 +1617,13 @@ const Quotations = () => {
                 {quoteListColVis.system && (
                 <TableCell>
                   <Badge variant="outline" className="capitalize">
-                    {quotation.systemCategory} {quotation.systemCapacity}kW
+                    {quotation.systemCategory} {formatCapacityKW(quotation.systemCapacity)}
                   </Badge>
                 </TableCell>
                 )}
                 {quoteListColVis.amount && (
                 <TableCell className="font-medium text-primary">
-                  ₹{quotation.totalAmount.toLocaleString()}
+                  {formatINR(quotation.totalAmount)}
                 </TableCell>
                 )}
                 {quoteListColVis.date && (
@@ -1448,8 +1635,8 @@ const Quotations = () => {
                     <Badge className={`${getStatusColor(quotation.status)} border-0 capitalize`}>
                       {quotation.status}
                     </Badge>
-                    {quotation.convertedToProjectId && (
-                      <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+                    {quotationLinkedProjectId(quotation) && (
+                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
                         Project
                       </Badge>
                     )}
@@ -1460,7 +1647,8 @@ const Quotations = () => {
                   <ChevronDown className="h-4 w-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
                 </TableCell>
               </TableRow>
-            )))}
+            ))
+            )}
           </TableBody>
         </DataTableShell>
 
@@ -1476,6 +1664,7 @@ const Quotations = () => {
                     </Badge>
                   )}
                 </div>
+                {canEditQuotation && (
                 <Button 
                   variant="ghost" 
                   size="sm" 
@@ -1490,8 +1679,25 @@ const Quotations = () => {
                   <Edit className="h-4 w-4 mr-2" />
                   Edit
                 </Button>
+                )}
               </SheetTitle>
             </SheetHeader>
+
+            {selectedQuotation && (selectedQuotation.status === "withdrawn" || selectedQuotation.status === "rejected") && (
+              <div className="mt-4">
+                <LifecycleTerminalBanner
+                  variant={selectedQuotation.status === "withdrawn" ? "withdrawn" : "rejected"}
+                  title={`Quotation ${selectedQuotation.status}`}
+                  description={
+                    selectedQuotation.status === "withdrawn"
+                      ? "This quotation has been withdrawn. It cannot be revised — clone it to start a new draft for re-quoting."
+                      : "Customer rejected this quotation. Clone it to revise pricing and re-quote."
+                  }
+                  primaryActionLabel="Clone & re-quote"
+                  onPrimaryAction={() => handleCloneQuotation(selectedQuotation)}
+                />
+              </div>
+            )}
 
             {selectedQuotation && (
               <div className="flex flex-col h-full">
@@ -1507,7 +1713,7 @@ const Quotations = () => {
                       <div>
                         <h3 className="text-lg font-semibold leading-tight">{selectedQuotation.clientName}</h3>
                         <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="outline" className="text-[10px] uppercase tracking-wider h-5">
+                          <Badge variant="outline" className="text-2xs uppercase tracking-wider h-5">
                             {selectedQuotation.systemCategory}
                           </Badge>
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -1518,8 +1724,8 @@ const Quotations = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-tighter">Effective Amount</p>
-                      <p className="text-lg font-bold text-primary">₹{selectedQuotation.totalAmount.toLocaleString()}</p>
+                      <p className="text-2xs text-muted-foreground mb-1 uppercase tracking-tighter">Effective Amount</p>
+                      <p className="text-lg font-bold text-primary">{formatINR(selectedQuotation.totalAmount)}</p>
                     </div>
                   </div>
 
@@ -1531,7 +1737,7 @@ const Quotations = () => {
                           <Phone className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Phone</p>
+                          <p className="text-2xs text-muted-foreground uppercase tracking-wider">Phone</p>
                           <p className="text-sm font-medium">{selectedQuotation.clientPhone}</p>
                         </div>
                       </div>
@@ -1541,7 +1747,7 @@ const Quotations = () => {
                           <Mail className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Email</p>
+                          <p className="text-2xs text-muted-foreground uppercase tracking-wider">Email</p>
                           <p className="text-sm font-medium">{selectedQuotation.clientEmail || "—"}</p>
                         </div>
                       </div>
@@ -1551,7 +1757,7 @@ const Quotations = () => {
                           <MapPin className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Address</p>
+                          <p className="text-2xs text-muted-foreground uppercase tracking-wider">Address</p>
                           <p className="text-sm font-medium leading-snug">
                             {selectedQuotation.clientAddress || `${selectedQuotation.clientCity}, ${selectedQuotation.clientState}`}
                           </p>
@@ -1562,32 +1768,32 @@ const Quotations = () => {
                     {/* Operational Details */}
                     <div className="space-y-4">
                       <div className="flex items-center gap-2">
-                        <div className="p-2 rounded-lg bg-amber-500/5 text-amber-500">
+                        <div className="p-2 rounded-lg bg-warning/5 text-warning">
                           <Zap className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">System Capacity</p>
-                          <p className="text-sm font-semibold">{selectedQuotation.systemCapacity} kW</p>
+                          <p className="text-2xs text-muted-foreground uppercase tracking-wider">System Capacity</p>
+                          <p className="text-sm font-semibold">{formatCapacityKW(selectedQuotation.systemCapacity)}</p>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <div className="p-2 rounded-lg bg-blue-500/5 text-blue-500">
+                        <div className="p-2 rounded-lg bg-primary/5 text-primary">
                           <CreditCard className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Payment Type</p>
+                          <p className="text-2xs text-muted-foreground uppercase tracking-wider">Payment Type</p>
                           <p className="text-sm font-semibold capitalize">{selectedQuotation.paymentType || "TBD"}</p>
                         </div>
                       </div>
 
                       {selectedQuotation.agentId && (
                         <div className="flex items-center gap-2">
-                          <div className="p-2 rounded-lg bg-purple-500/5 text-purple-500">
+                          <div className="p-2 rounded-lg bg-accent/5 text-accent-foreground">
                             <UserCheck className="h-4 w-4" />
                           </div>
                           <div>
-                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Referred By</p>
+                            <p className="text-2xs text-muted-foreground uppercase tracking-wider">Referred By</p>
                             <p className="text-sm font-medium">
                               {agents.find(a => a.id === selectedQuotation.agentId)?.name || "Agent"}
                             </p>
@@ -1607,54 +1813,120 @@ const Quotations = () => {
                       <Table>
                         <TableHeader className="bg-muted/50">
                           <TableRow>
-                            <TableHead className="text-[10px] uppercase font-bold py-2">Line Item</TableHead>
-                            <TableHead className="text-right text-[10px] uppercase font-bold py-2">Total</TableHead>
+                            <TableHead className="text-2xs uppercase font-bold py-2">Item</TableHead>
+                            <TableHead className="text-right text-2xs uppercase font-bold py-2">Qty</TableHead>
+                            <TableHead className="text-right text-2xs uppercase font-bold py-2">Rate</TableHead>
+                            <TableHead className="text-right text-2xs uppercase font-bold py-2">Amount</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          <TableRow className="hover:bg-transparent">
-                            <TableCell className="text-xs py-3 font-medium">Solar Panels & Inverter System</TableCell>
-                            <TableCell className="text-right text-xs py-3">Included</TableCell>
-                          </TableRow>
-                          <TableRow className="hover:bg-transparent border-t">
-                            <TableCell colSpan={2} className="text-center text-[10px] text-muted-foreground py-2 italic bg-muted/10">
-                              Open edit mode for full itemized list and commercial breakdown.
-                            </TableCell>
-                          </TableRow>
+                          {(() => {
+                            const items: Array<{ name: string; qty: number; unit?: string; rate: number; amount: number }> = [];
+                            (selectedQuotation.presetSnapshot ?? []).forEach((m) => {
+                              const qty = m.quantity || 0;
+                              const rate = m.rate || 0;
+                              items.push({
+                                name: [m.itemName, m.size, m.description].filter(Boolean).join(" — "),
+                                qty,
+                                unit: m.unit,
+                                rate,
+                                amount: qty * rate,
+                              });
+                            });
+                            (selectedQuotation.customItems ?? []).forEach((c) => {
+                              items.push({
+                                name: c.title + (c.description ? ` — ${c.description}` : ""),
+                                qty: c.quantity,
+                                unit: c.unit,
+                                rate: c.rate,
+                                amount: c.amount,
+                              });
+                            });
+                            if (items.length === 0) {
+                              return (
+                                <TableRow className="hover:bg-transparent">
+                                  <TableCell colSpan={4} className="text-center text-2xs text-muted-foreground py-3 italic bg-muted/10">
+                                    No line items captured on this quotation yet.
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            }
+                            const subtotal = items.reduce((sum, i) => sum + i.amount, 0);
+                            return (
+                              <>
+                                {items.map((i, idx) => (
+                                  <TableRow key={idx} className="hover:bg-transparent">
+                                    <TableCell className="text-xs py-2">{i.name}</TableCell>
+                                    <TableCell className="text-right text-xs py-2 tabular-nums">{i.qty}{i.unit ? ` ${i.unit}` : ""}</TableCell>
+                                    <TableCell className="text-right text-xs py-2 tabular-nums">{formatINR(i.rate)}</TableCell>
+                                    <TableCell className="text-right text-xs py-2 tabular-nums">{formatINR(i.amount)}</TableCell>
+                                  </TableRow>
+                                ))}
+                                <TableRow className="hover:bg-transparent border-t bg-muted/20">
+                                  <TableCell colSpan={3} className="text-xs py-2 font-semibold text-right">Subtotal</TableCell>
+                                  <TableCell className="text-right text-xs py-2 font-semibold tabular-nums">{formatINR(subtotal)}</TableCell>
+                                </TableRow>
+                                <TableRow className="hover:bg-transparent">
+                                  <TableCell colSpan={3} className="text-xs py-2 font-semibold text-right">Total (incl. taxes)</TableCell>
+                                  <TableCell className="text-right text-xs py-2 font-semibold tabular-nums">{formatINR(selectedQuotation.totalAmount)}</TableCell>
+                                </TableRow>
+                              </>
+                            );
+                          })()}
                         </TableBody>
                       </Table>
                     </div>
                   </div>
 
-                  {/* Audit Timeline */}
+                  {/* Status History — derived from real transition timestamps */}
                   <div className="space-y-4">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                       <Clock className="h-3 w-3" />
                       Status History
                     </h4>
                     <div className="space-y-4 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-border/60">
-                      <div className="relative pl-8 group">
-                        <div className="absolute left-0 top-[6px] h-3 w-3 rounded-full border-2 border-primary/20 bg-background z-10" />
-                        <div className="p-3 bg-muted/20 rounded-lg border border-border/40">
-                          <div className="flex items-start justify-between mb-1">
-                            <p className="text-xs font-medium text-primary/80">Quotation Created</p>
-                            <time className="text-[10px] text-muted-foreground">{selectedQuotation.createdAt}</time>
-                          </div>
-                          <p className="text-sm">Quotation draft generated in system.</p>
-                        </div>
-                      </div>
-                      {selectedQuotation.status !== "draft" && (
-                        <div className="relative pl-8 group">
-                          <div className="absolute left-0 top-[6px] h-3 w-3 rounded-full border-2 border-blue-500/20 bg-background z-10" />
-                          <div className="p-3 bg-muted/20 rounded-lg border border-border/40">
-                            <div className="flex items-start justify-between mb-1">
-                              <p className="text-xs font-medium text-blue-600 capitalize">{selectedQuotation.status}</p>
-                              <time className="text-[10px] text-muted-foreground">Recent</time>
+                      {(() => {
+                        const events: Array<{ label: string; description: string; at: string; tone: string }> = [];
+                        events.push({ label: "Created (Draft)", description: "Quotation draft generated in system.", at: selectedQuotation.createdAt, tone: "primary" });
+                        if (selectedQuotation.sentAt) {
+                          events.push({ label: "Sent to customer", description: "Quotation shared with the customer for review.", at: selectedQuotation.sentAt, tone: "blue" });
+                        }
+                        if (selectedQuotation.approvedAt) {
+                          events.push({ label: "Approved", description: "Customer accepted the quotation.", at: selectedQuotation.approvedAt, tone: "teal" });
+                        }
+                        if (selectedQuotation.rejectedAt) {
+                          events.push({ label: "Rejected", description: selectedQuotation.rejectionReason || "Quotation rejected.", at: selectedQuotation.rejectedAt, tone: "destructive" });
+                        }
+                        if (selectedQuotation.convertedAt || quotationLinkedProjectId(selectedQuotation)) {
+                          const pid = quotationLinkedProjectId(selectedQuotation) || "";
+                          events.push({
+                            label: "Converted to project",
+                            description: pid ? `Project ${pid} was created from this quotation.` : "Quotation converted to project.",
+                            at: selectedQuotation.convertedAt || selectedQuotation.confirmedAt || selectedQuotation.approvedAt || selectedQuotation.createdAt,
+                            tone: "green",
+                          });
+                        }
+                        events.sort((a, b) => (a.at || "").localeCompare(b.at || ""));
+                        const toneClass: Record<string, string> = {
+                          primary: "border-primary/20 text-primary/80",
+                          blue: "border-primary/20 text-primary",
+                          teal: "border-primary/20 text-primary",
+                          green: "border-success/20 text-success",
+                          destructive: "border-destructive/20 text-destructive",
+                        };
+                        return events.map((e, idx) => (
+                          <div key={idx} className="relative pl-8 group">
+                            <div className={`absolute left-0 top-[6px] h-3 w-3 rounded-full border-2 bg-background z-10 ${toneClass[e.tone] || "border-muted"}`} />
+                            <div className="p-3 bg-muted/20 rounded-lg border border-border/40">
+                              <div className="flex items-start justify-between mb-1">
+                                <p className={`text-xs font-medium ${toneClass[e.tone]?.split(" ").find(c => c.startsWith("text-")) || "text-foreground"}`}>{e.label}</p>
+                                <time className="text-2xs text-muted-foreground">{e.at}</time>
+                              </div>
+                              <p className="text-sm">{e.description}</p>
                             </div>
-                            <p className="text-sm">Status transitioned to {selectedQuotation.status}.</p>
                           </div>
-                        </div>
-                      )}
+                        ));
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1695,12 +1967,58 @@ const Quotations = () => {
                         <Share2 className="h-4 w-4 mr-2" />
                         Share
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCloneQuotation(selectedQuotation)}
+                      >
+                        <Copy className="h-4 w-4 mr-2" />
+                        Clone
+                      </Button>
+                      {(selectedQuotation.status === "draft" ||
+                        selectedQuotation.status === "sent" ||
+                        selectedQuotation.status === "rejected") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => { void handleReviseQuotation(selectedQuotation); }}
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Revise
+                        </Button>
+                      )}
+                      {selectedQuotation.status !== "withdrawn" &&
+                        selectedQuotation.status !== "converted_to_project" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-muted-foreground"
+                            onClick={() => { setWithdrawReason(""); setWithdrawDialogQuotation(selectedQuotation); }}
+                          >
+                            <X className="h-4 w-4 mr-2" />
+                            Withdraw
+                          </Button>
+                        )}
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {selectedQuotation.status !== "approved" && selectedQuotation.status !== "rejected" && selectedQuotation.status !== "confirmed" && (
-                        <Button 
-                          variant="destructive" 
+                      {/* Send Quotation — draft only */}
+                      {selectedQuotation.status === "draft" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
+                          onClick={() => { void handleMarkAsSent(selectedQuotation.id); setIsViewQuotationOpen(false); }}
+                        >
+                          <Send className="h-4 w-4 mr-2" />
+                          Send Quotation
+                        </Button>
+                      )}
+
+                      {/* Reject — draft or sent */}
+                      {(selectedQuotation.status === "draft" || selectedQuotation.status === "sent") && (
+                        <Button
+                          variant="destructive"
                           size="sm"
                           onClick={() => { handleMarkAsRejected(selectedQuotation.id); setIsViewQuotationOpen(false); }}
                           className="bg-destructive/5 text-destructive hover:bg-destructive hover:text-white border-destructive/20"
@@ -1709,8 +2027,9 @@ const Quotations = () => {
                           Reject
                         </Button>
                       )}
-                      
-                      {selectedQuotation.status === "draft" && (
+
+                      {/* Approve — sent only */}
+                      {selectedQuotation.status === "sent" && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -1722,30 +2041,8 @@ const Quotations = () => {
                         </Button>
                       )}
 
-                      {(selectedQuotation.status === "sent" || selectedQuotation.status === "approved") && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10 text-emerald-700"
-                          onClick={() => { void handleConvertToClient(selectedQuotation.id); setIsViewQuotationOpen(false); }}
-                          disabled={!canDo("quotation:confirm")}
-                        >
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          Confirm Quotation
-                        </Button>
-                      )}
-
-                      {(selectedQuotation.status === "approved" || selectedQuotation.status === "confirmed") && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsSendConfirmOpen(true)}
-                        >
-                          Send Confirmation
-                        </Button>
-                      )}
-
-                      {selectedQuotation.status === "approved" && (
+                      {/* Convert to Project — approved with no linked project */}
+                      {selectedQuotation.status === "approved" && !quotationLinkedProjectId(selectedQuotation) && (
                         <Button
                           size="sm"
                           className="bg-primary text-white"
@@ -1756,11 +2053,19 @@ const Quotations = () => {
                         </Button>
                       )}
 
-                      {selectedQuotation.status === "confirmed" && (
-                        <div className="flex items-center gap-2 px-3 py-1 bg-primary/10 text-primary rounded-lg border border-primary/20">
-                          <Check className="h-4 w-4" />
-                          <span className="text-xs font-bold uppercase tracking-wider">Converted</span>
-                        </div>
+                      {/* View Project — already converted */}
+                      {(selectedQuotation.status === "converted_to_project" || quotationLinkedProjectId(selectedQuotation)) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const pid = quotationLinkedProjectId(selectedQuotation);
+                            if (pid) navigate(`/projects/${pid}`);
+                          }}
+                        >
+                          <Briefcase className="h-4 w-4 mr-2" />
+                          View Project
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -1777,25 +2082,30 @@ const Quotations = () => {
   // Create/Edit Solar Quotation View
   return (
     <PageShell className="min-h-[calc(100vh-140px)] space-y-6">
-      <StickyPageHeader
-        breadcrumbs={[
-          { label: "Home", to: "/" },
-          { label: "Quotations", to: "/quotations" },
-          { label: currentView === "edit" ? `Edit ${quotationNumber}` : "New" },
-        ]}
-      >
-        <Button variant="outline" size="sm" onClick={() => { setCurrentView("list"); resetForm(); }}>
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-        <Badge className={`${getStatusColor(status)} border-0 capitalize`}>{status}</Badge>
-      </StickyPageHeader>
+      {lastConfirm && (
+        <InlineConfirmBanner
+          variant={lastConfirm.variant}
+          title={lastConfirm.title}
+          description={lastConfirm.description}
+          onDismiss={() => setLastConfirm(null)}
+        />
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="create">Create/Edit</TabsTrigger>
-          <TabsTrigger value="preview">Preview</TabsTrigger>
-        </TabsList>
+        <div className="flex items-center gap-3 border-b border-border pb-3">
+          <Button variant="ghost" size="sm" className="shrink-0" onClick={() => { setCurrentView("list"); resetForm(); }} aria-label="Back to quotations">
+            <ArrowLeft className="h-4 w-4 mr-1" aria-hidden />
+            Back
+          </Button>
+          <TabsList>
+            <TabsTrigger value="create">Create/Edit</TabsTrigger>
+            <TabsTrigger value="preview">Preview</TabsTrigger>
+          </TabsList>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-2xs uppercase tracking-wider text-muted-foreground">{currentView === "edit" ? `Edit · ${quotationNumber}` : "New"}</span>
+            <Badge className={`${getStatusColor(status)} border-0 capitalize`}>{status}</Badge>
+          </div>
+        </div>
 
         <TabsContent value="create" className="space-y-6 mt-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1819,7 +2129,7 @@ const Quotations = () => {
                     <div className="flex items-center gap-2">
                       <Label>Client Name *</Label>
                       {customerId && (
-                        <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-500 border-blue-500/20 py-0 h-4">
+                        <Badge variant="outline" className="text-2xs bg-primary/10 text-primary border-primary/20 py-0 h-4">
                           Linked: {customerId}
                         </Badge>
                       )}
@@ -1866,80 +2176,49 @@ const Quotations = () => {
                   <CardTitle className="text-lg">System Configuration</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Template Selector — sources materials from unified Site Checklist Templates. */}
+                  {/* Single template selector — applies the full quotation boilerplate
+                      (materials + services + system metadata). Sentinel "__none__" keeps
+                      Radix happy since it disallows value="". */}
                   <div className="space-y-2 pb-4 border-b">
-                    <Label>Select Template (Optional)</Label>
-                    <Select 
-                      value="" 
-                      onValueChange={(templateId) => {
-                        const template = siteChecklistTemplates.find(p => p.id === templateId);
-                        if (template) {
-                          const templateMaterials = template.items.map((item, idx) => {
-                            const richLine = template.materialsBom?.find(b => b.id === item.inventoryItemId);
-                            return {
-                              id: idx + 1,
-                              category: richLine?.category || "Material",
-                              itemName: item.name,
-                              size: richLine?.size || "",
-                              quantity: item.quantity,
-                              rate: richLine?.rate ?? 0,
-                              unit: item.unit,
-                            };
-                          });
-                          setMaterials(templateMaterials);
-                          toast({
-                            title: "Template Applied",
-                            description: `"${template.name}" materials have been loaded`,
-                          });
-                        }
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Load materials from template..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {siteChecklistTemplates.map(template => (
-                          <SelectItem key={template.id} value={template.id}>
-                            {template.name} ({template.segment})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Select a template to auto-populate materials list
-                    </p>
-                  </div>
-
-                  <div className="space-y-2 pb-4 border-b">
-                    <Label>Apply quotation template</Label>
+                    <div className="flex items-center justify-between">
+                      <Label>Apply template</Label>
+                      {selectedQuotationTemplateId && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => setSelectedQuotationTemplateId(null)}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </div>
                     <Select
-                      key={quotationBoilerplateKey}
-                      value=""
-                      disabled={quotationTemplates.length === 0}
-                      onValueChange={(templateId) => {
-                        handleApplyQuotationBoilerplate(templateId);
-                        setQuotationBoilerplateKey((k) => k + 1);
+                      value={selectedQuotationTemplateId ?? "__none__"}
+                      onValueChange={(value) => {
+                        if (value === "__none__") {
+                          setSelectedQuotationTemplateId(null);
+                          return;
+                        }
+                        setSelectedQuotationTemplateId(value);
+                        handleApplyQuotationBoilerplate(value);
                       }}
                     >
                       <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            quotationTemplates.length
-                              ? "Load boilerplate from saved template…"
-                              : "No quotation templates saved yet"
-                          }
-                        />
+                        <SelectValue placeholder="No template — manual entry" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="__none__">No template — manual entry</SelectItem>
                         {quotationTemplates.map((tpl) => (
                           <SelectItem key={tpl.id} value={tpl.id}>
-                            {tpl.name}
+                            {tpl.name} · {tpl.segment}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Full boilerplate from Save as Template (separate from the inventory-line template selector above).
+                      Loads materials, services, and system metadata. You can edit any field after applying.
                     </p>
                   </div>
 
@@ -2042,10 +2321,10 @@ const Quotations = () => {
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <Table>
+                <CardContent className="p-0">
+                  <DataTableShell variant="inline" maxHeight="none">
                     <TableHeader>
-                      <TableRow>
+                      <TableRow className={dataTableClasses.headRow}>
                         <TableHead className="w-[40px]">#</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Item</TableHead>
@@ -2057,60 +2336,76 @@ const Quotations = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {materials.map((item, idx) => (
-                        <React.Fragment key={item.id}>
-                          <TableRow>
-                            <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="text-xs">{item.category}</Badge>
-                            </TableCell>
-                            <TableCell className="font-medium">{item.itemName}</TableCell>
-                            <TableCell className="text-muted-foreground">{item.size}</TableCell>
-                            <TableCell>
-                              <Input 
-                                type="number" 
-                                className="w-16 h-8 text-center" 
-                                value={item.quantity}
-                                onChange={(e) => handleQuantityChange(item.id, parseInt(e.target.value) || 0)}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Input 
-                                type="number" 
-                                className="w-24 h-8 text-right" 
-                                value={item.rate}
-                                onChange={(e) => handleRateChange(item.id, parseFloat(e.target.value) || 0)}
-                              />
-                            </TableCell>
-                            <TableCell className="text-right font-medium">
-                              ₹{(item.quantity * item.rate).toLocaleString()}
-                            </TableCell>
-                            <TableCell>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-8 w-8 text-destructive"
-                                onClick={() => handleRemoveMaterial(item.id)}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                          {/* Description row for each material */}
-                          <TableRow className="bg-muted/30">
-                            <TableCell colSpan={8} >
-                              <Input 
-                                placeholder="Add description for this item (optional)"
-                                value={item.description || ""}
-                                onChange={(e) => handleMaterialDescriptionChange(item.id, e.target.value)}
-                                className="h-8 text-sm"
-                              />
-                            </TableCell>
-                          </TableRow>
-                        </React.Fragment>
-                      ))}
+                      {materials.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                            No material items yet. Click <span className="font-medium">Add Item</span> or apply a template above.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        materials.map((item, idx) => (
+                          <React.Fragment key={item.id}>
+                            <TableRow className={dataTableClasses.row}>
+                              <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-xs">{item.category}</Badge>
+                              </TableCell>
+                              <TableCell className="font-medium">{item.itemName}</TableCell>
+                              <TableCell className="text-muted-foreground">{item.size}</TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  className="w-16 h-8 text-center"
+                                  value={item.quantity}
+                                  onChange={(e) => handleQuantityChange(item.id, parseInt(e.target.value) || 0)}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  className="w-24 h-8 text-right"
+                                  value={item.rate}
+                                  onChange={(e) => handleRateChange(item.id, parseFloat(e.target.value) || 0)}
+                                />
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {formatINR((item.quantity * item.rate))}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive"
+                                  onClick={() => handleRemoveMaterial(item.id)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                            <TableRow className="bg-muted/30">
+                              <TableCell colSpan={8}>
+                                <Input
+                                  placeholder="Add description for this item (optional)"
+                                  value={item.description || ""}
+                                  onChange={(e) => handleMaterialDescriptionChange(item.id, e.target.value)}
+                                  className="h-8 text-sm"
+                                />
+                              </TableCell>
+                            </TableRow>
+                          </React.Fragment>
+                        ))
+                      )}
+                      {materials.length > 0 && (
+                        <TableRow className="bg-muted/40 font-semibold">
+                          <TableCell colSpan={6} className="text-right">Materials subtotal</TableCell>
+                          <TableCell className="text-right text-primary">
+                            {formatINR(materials.reduce((sum, m) => sum + m.quantity * m.rate, 0))}
+                          </TableCell>
+                          <TableCell />
+                        </TableRow>
+                      )}
                     </TableBody>
-                  </Table>
+                  </DataTableShell>
                 </CardContent>
               </Card>
 
@@ -2146,7 +2441,7 @@ const Quotations = () => {
                 <CardContent className="space-y-4">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">System Cost</span>
-                    <span className="font-medium">₹{systemCost.toLocaleString()}</span>
+                    <span className="font-medium">{formatINR(systemCost)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">Discount (%)</span>
@@ -2163,7 +2458,7 @@ const Quotations = () => {
                   {discountAmount > 0 && !discountError && (
                     <div className="flex justify-between text-primary">
                       <span>Discount Amount</span>
-                      <span>-₹{discountAmount.toLocaleString()}</span>
+                      <span>-{formatINR(discountAmount)}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between gap-2">
@@ -2177,12 +2472,12 @@ const Quotations = () => {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">GST Amount</span>
-                    <span>₹{gstAmount.toLocaleString()}</span>
+                    <span>{formatINR(gstAmount)}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between text-lg font-semibold">
                     <span>Net Price (incl. GST)</span>
-                    <span>₹{netPrice.toLocaleString()}</span>
+                    <span>{formatINR(netPrice)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">Govt. Subsidy</span>
@@ -2196,7 +2491,7 @@ const Quotations = () => {
                   <Separator />
                   <div className={`flex justify-between text-xl font-bold ${totalError ? 'text-destructive' : 'text-primary'}`}>
                     <span>Effective Price</span>
-                    <span>₹{effectivePrice.toLocaleString()}</span>
+                    <span>{formatINR(effectivePrice)}</span>
                   </div>
                   {totalError && (
                     <p className="text-xs text-destructive">{totalError}</p>
@@ -2386,43 +2681,66 @@ const Quotations = () => {
                   Share to Client
                 </Button>
                 
-                {/* Quotation Actions - Only for existing quotations */}
+                {/* Quotation Actions — state-aware, only for saved quotations */}
                 {editingQuotationId && (
                   <div className="space-y-2 pt-4 border-t mt-4">
                     <p className="text-xs font-medium text-muted-foreground mb-2">Quotation Actions</p>
-                    
-                    {/* Mark as Approved */}
-                    {status !== "approved" && status !== "rejected" && (
-                      <Button 
-                        variant="outline" 
+
+                    {/* Send Quotation — draft only */}
+                    {status === "draft" && (
+                      <Button
+                        variant="outline"
                         className="w-full border-primary text-primary hover:bg-primary/10"
-                        onClick={() => {
-                          if (editingQuotationId) void handleMarkAsApproved(editingQuotationId);
-                        }}
+                        onClick={() => { void handleMarkAsSent(editingQuotationId); }}
+                      >
+                        <Send className="w-4 h-4 mr-2" />
+                        Send Quotation
+                      </Button>
+                    )}
+
+                    {/* Approve Quotation — sent only */}
+                    {status === "sent" && (
+                      <Button
+                        variant="outline"
+                        className="w-full border-primary text-primary hover:bg-primary/10"
+                        onClick={() => { void handleMarkAsApproved(editingQuotationId); }}
                       >
                         <CheckCircle className="w-4 h-4 mr-2" />
-                        Mark as Approved
+                        Approve Quotation
                       </Button>
                     )}
-                    
-                    {/* Create Project - for approved quotations */}
-                    {status === "approved" && (
-                      <Button 
-                        className="w-full bg-primary"
-                        onClick={() => {
-                          const quotation = savedQuotations.find(q => q.id === editingQuotationId);
-                          if (quotation) handleCreateProject(quotation);
-                        }}
-                      >
-                        <Briefcase className="w-4 h-4 mr-2" />
-                        Create Project
-                      </Button>
-                    )}
-                    
-                    {/* Mark as Rejected - only for non-rejected, non-approved quotations */}
-                    {status !== "rejected" && status !== "approved" && (
-                      <Button 
-                        variant="outline" 
+
+                    {/* Convert to Project — approved only (and no linked project yet) */}
+                    {status === "approved" && (() => {
+                      const q = savedQuotations.find(qq => qq.id === editingQuotationId);
+                      const alreadyLinked = !!(q && quotationLinkedProjectId(q));
+                      return !alreadyLinked ? (
+                        <Button
+                          className="w-full bg-primary"
+                          onClick={() => { if (q) handleCreateProject(q); }}
+                        >
+                          <Briefcase className="w-4 h-4 mr-2" />
+                          Convert to Project
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => {
+                            const pid = q ? quotationLinkedProjectId(q) : undefined;
+                            if (pid) navigate(`/projects/${pid}`);
+                          }}
+                        >
+                          <Briefcase className="w-4 h-4 mr-2" />
+                          View Project
+                        </Button>
+                      );
+                    })()}
+
+                    {/* Reject — draft, sent or approved (terminal-but-allowed) */}
+                    {(status === "draft" || status === "sent" || status === "approved") && (
+                      <Button
+                        variant="outline"
                         className="w-full border-destructive text-destructive hover:bg-destructive/10"
                         onClick={() => {
                           handleMarkAsRejected(editingQuotationId);
@@ -2437,6 +2755,12 @@ const Quotations = () => {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Default static sections — editable from Settings → Quotation sections. */}
+          <div className="mt-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Default sections included on every quotation</h2>
+            <QuotationStaticSectionsBlock variant="create" />
           </div>
         </TabsContent>
 
@@ -2555,7 +2879,7 @@ const Quotations = () => {
                         </TableCell>
                         <TableCell className="text-center">{item.quantity} {item.unit}</TableCell>
                         {!sectionVisibility.hideAmounts && (
-                          <TableCell className="text-right">₹{(item.quantity * item.rate).toLocaleString()}</TableCell>
+                          <TableCell className="text-right">{formatINR((item.quantity * item.rate))}</TableCell>
                         )}
                       </TableRow>
                     ))}
@@ -2620,33 +2944,33 @@ const Quotations = () => {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>System Cost:</span>
-                      <span>₹{systemCost.toLocaleString()}</span>
+                      <span>{formatINR(systemCost)}</span>
                     </div>
                     {discountAmount > 0 && (
                       <div className="flex justify-between text-primary">
                         <span>Discount ({discountPercent}%):</span>
-                        <span>-₹{discountAmount.toLocaleString()}</span>
+                        <span>-{formatINR(discountAmount)}</span>
                       </div>
                     )}
                     <div className="flex justify-between">
                       <span>GST ({gstPercent}%):</span>
-                      <span>₹{gstAmount.toLocaleString()}</span>
+                      <span>{formatINR(gstAmount)}</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between font-semibold text-lg">
                       <span>Net Price:</span>
-                      <span>₹{netPrice.toLocaleString()}</span>
+                      <span>{formatINR(netPrice)}</span>
                     </div>
                     {govtSubsidy > 0 && (
                       <div className="flex justify-between text-primary">
                         <span>Govt. Subsidy:</span>
-                        <span>-₹{govtSubsidy.toLocaleString()}</span>
+                        <span>-{formatINR(govtSubsidy)}</span>
                       </div>
                     )}
                     <Separator />
                     <div className="flex justify-between font-bold text-xl text-primary pt-2">
                       <span>Net Effective Price:</span>
-                      <span>₹{effectivePrice.toLocaleString()}</span>
+                      <span>{formatINR(effectivePrice)}</span>
                     </div>
                   </div>
                 </div>
@@ -2661,6 +2985,11 @@ const Quotations = () => {
                 </div>
               </div>
             )}
+            {/* Default static sections (Why Choose MSS? / Benefits / …) */}
+            <div className="pt-6 border-t space-y-3">
+              <QuotationStaticSectionsBlock variant="preview" />
+            </div>
+
             {/* Footer */}
             <div className="text-center text-sm text-muted-foreground pt-6 border-t">
               <p>This quotation is valid for 15 days from the date of issue.</p>
@@ -2805,7 +3134,7 @@ const Quotations = () => {
                         <p className="text-xs text-muted-foreground">{item.category} • Stock: {item.stock}</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium text-sm">₹{item.rate.toLocaleString()}</p>
+                        <p className="font-medium text-sm">{formatINR(item.rate)}</p>
                         <p className="text-xs text-muted-foreground">per unit</p>
                       </div>
                     </div>
@@ -2829,7 +3158,7 @@ const Quotations = () => {
           <div className="space-y-4 py-4">
             <div className="p-3 bg-muted/30 rounded-lg">
               <p className="text-sm text-muted-foreground">System Configuration:</p>
-              <p className="font-medium capitalize">{systemCategory} - {systemCapacity} kW</p>
+              <p className="font-medium capitalize">{systemCategory} - {formatCapacityKW(systemCapacity)}</p>
             </div>
             <div className="space-y-2">
               <Label>Template Name</Label>
@@ -2843,28 +3172,6 @@ const Quotations = () => {
           <div className="flex justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsSaveTemplateOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveAsTemplate}>Save Template</Button>
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Send Confirmation Sheet */}
-      <Sheet open={isSendConfirmOpen} onOpenChange={setIsSendConfirmOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
-          <div className="text-center py-4">
-            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-              <Send className="w-8 h-8 text-primary" />
-            </div>
-            <h3 className="text-xl font-semibold">Send Quotation?</h3>
-            <p className="text-muted-foreground mt-2">
-              This will send the quotation to <strong>{clientName}</strong> at {clientEmail}
-            </p>
-            <div className="mt-6 flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setIsSendConfirmOpen(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={handleSendToClient}>
-                <Check className="w-4 h-4 mr-2" />
-                Send
-              </Button>
-            </div>
           </div>
         </SheetContent>
       </Sheet>
@@ -2894,7 +3201,7 @@ const Quotations = () => {
                   checked={shareMethod === "whatsapp"}
                   onChange={() => setShareMethod("whatsapp")}
                 />
-                <MessageCircle className="h-5 w-5 text-blue-600" />
+                <MessageCircle className="h-5 w-5 text-primary" />
                 <span className="font-medium text-sm">WhatsApp</span>
               </label>
               
@@ -2907,7 +3214,7 @@ const Quotations = () => {
                   checked={shareMethod === "email"}
                   onChange={() => setShareMethod("email")}
                 />
-                <Mail className="h-5 w-5 text-blue-600" />
+                <Mail className="h-5 w-5 text-primary" />
                 <span className="font-medium text-sm">Email</span>
               </label>
               
@@ -2920,7 +3227,7 @@ const Quotations = () => {
                   checked={shareMethod === "sms"}
                   onChange={() => setShareMethod("sms")}
                 />
-                <Phone className="h-5 w-5 text-orange-600" />
+                <Phone className="h-5 w-5 text-warning" />
                 <span className="font-medium text-sm">SMS</span>
               </label>
               
@@ -2933,7 +3240,7 @@ const Quotations = () => {
                   checked={shareMethod === "visit"}
                   onChange={() => setShareMethod("visit")}
                 />
-                <MapPin className="h-5 w-5 text-purple-600" />
+                <MapPin className="h-5 w-5 text-accent-foreground" />
                 <span className="font-medium text-sm">In-Person</span>
               </label>
             </div>
@@ -3034,7 +3341,7 @@ const Quotations = () => {
             <div className="space-y-4 py-4">
               <div className="p-4 bg-muted/30 rounded-lg space-y-2">
                 <p className="text-sm"><strong>Client:</strong> {selectedQuotationForProject.clientName}</p>
-                <p className="text-sm"><strong>System:</strong> {selectedQuotationForProject.systemCategory} {selectedQuotationForProject.systemCapacity}kW</p>
+                <p className="text-sm"><strong>System:</strong> {selectedQuotationForProject.systemCategory} {formatCapacityKW(selectedQuotationForProject.systemCapacity)}</p>
                 <p className="text-sm"><strong>Location:</strong> {selectedQuotationForProject.clientCity}, {selectedQuotationForProject.clientState}</p>
               </div>
 
@@ -3267,8 +3574,8 @@ const Quotations = () => {
                     ))}
                   </div>
                   
-                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                    <p className="text-sm text-amber-600">
+                  <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                    <p className="text-sm text-warning">
                       Before deleting, please verify that related data will not be affected. 
                       Deleting this quotation may affect the linked project and any invoices.
                     </p>
@@ -3309,6 +3616,40 @@ const Quotations = () => {
               onClick={confirmDeleteQuotation}
             >
               {deleteHasRelations ? "Submit Deletion Request" : "Delete Permanently"}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet
+        open={withdrawDialogQuotation != null}
+        onOpenChange={(open) => { if (!open) { setWithdrawDialogQuotation(null); setWithdrawReason(""); } }}
+      >
+        <SheetContent side="right" className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Withdraw quotation</SheetTitle>
+            <SheetDescription>
+              Mark <strong>{withdrawDialogQuotation?.quotationNumber}</strong> as withdrawn. The quotation will be locked
+              from further changes and the client-facing offer is retracted. Reason is optional but recommended for the
+              audit trail.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-2 py-4">
+            <Label htmlFor="withdraw-reason">Reason (optional)</Label>
+            <Textarea
+              id="withdraw-reason"
+              placeholder="e.g. quote superseded, customer went silent, pricing error..."
+              value={withdrawReason}
+              onChange={(e) => setWithdrawReason(e.target.value)}
+              className="min-h-[80px]"
+            />
+          </div>
+          <SheetFooter className="mt-2 flex gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => { setWithdrawDialogQuotation(null); setWithdrawReason(""); }}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => { void handleWithdrawQuotation(); }}>
+              Withdraw quotation
             </Button>
           </SheetFooter>
         </SheetContent>

@@ -7,28 +7,43 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { 
   User, Building2, Briefcase, FileText, Receipt, IndianRupee, 
-  _Users, MapPin, Phone, Mail, Calendar, ExternalLink, 
-  ClipboardList, Wallet, _Package, Handshake, Store
+ MapPin, Phone, Mail, Calendar, ExternalLink, 
+  ClipboardList, Wallet, Handshake, Store, UserCheck, HardHat
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
+import { formatINR } from "@/lib/formatCurrency";
 
-type EntityType = "project" | "customer" | "employee" | "partner" | "vendor" | "quotation" | "invoice";
+type EntityType =
+  | "project"
+  | "customer"
+  | "employee"
+  | "partner"
+  | "vendor"
+  | "quotation"
+  | "invoice"
+  | "agent"
+  | "vendorshipCompany"
+  | "incGiverCompany";
 
-interface EntityInfoModalProps {
+interface EntityInfoSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   entityType: EntityType;
   entityId: string | number;
 }
 
-export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: EntityInfoModalProps) {
+export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: EntityInfoSheetProps) {
   const { 
     getProjectById, 
     getCustomerById, 
     getEmployeeById, 
     getPartnerById,
     getQuotationById,
-    _getInvoiceById,
+    getInvoiceById,
+    saleBills,
+    getAgentById,
+    getVendorshipCompanyById,
+    getINCGiverCompanyById,
     vendors,
     getProjectInvoices,
     getCustomerInvoices,
@@ -38,7 +53,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
     getTransactionsByPartner,
     projects,
     quotations,
-    _invoices,
+    enquiries,
   } = useAppData();
 
   const renderProjectInfo = () => {
@@ -76,7 +91,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
           </div>
           <div className="flex items-center gap-2">
             <IndianRupee className="h-4 w-4 text-muted-foreground" />
-            <span>Contract: ₹{(project.contractAmount || 0).toLocaleString()}</span>
+            <span>Contract: {formatINR((project.contractAmount || 0))}</span>
           </div>
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -127,7 +142,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
 
     const customerInvoices = getCustomerInvoices(customer.id);
     const customerSaleBills = getCustomerSaleBills(customer.id);
-    const customerProjects = projects.filter(p => p.client === customer.name);
+    const customerProjects = projects.filter((p) => p.customerId === customer.id);
     const customerQuotations = quotations.filter(q => q.clientName === customer.name);
 
     return (
@@ -157,7 +172,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
           </div>
           <div className="flex items-center gap-2">
             <IndianRupee className="h-4 w-4 text-muted-foreground" />
-            <span>Total: ₹{(customer.totalPurchases || 0).toLocaleString()}</span>
+            <span>Total: {formatINR((customer.totalPurchases || 0))}</span>
           </div>
         </div>
 
@@ -187,7 +202,7 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
               </Link>
             )}
             {customerProjects.length > 0 && (
-              <Link to={`/projects?customer=${customer.name}`} onClick={() => onOpenChange(false)}>
+              <Link to={`/projects?customer=${customer.id}`} onClick={() => onOpenChange(false)}>
                 <Button variant="outline" size="sm" className="gap-1">
                   <Briefcase className="h-3 w-3" />
                   Projects ({customerProjects.length})
@@ -247,12 +262,12 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
           </div>
           <div className="flex items-center gap-2">
             <IndianRupee className="h-4 w-4 text-muted-foreground" />
-            <span>Salary: ₹{(employee.salary || 0).toLocaleString()}</span>
+            <span>Salary: {formatINR((employee.salary || 0))}</span>
           </div>
           <div className="flex items-center gap-2">
             <Wallet className="h-4 w-4 text-muted-foreground" />
             <span className={employee.pendingAmount >= 0 ? "text-primary" : "text-destructive"}>
-              {employee.pendingAmount >= 0 ? "Pending" : "Advance"}: ₹{Math.abs(employee.pendingAmount || 0).toLocaleString()}
+              {employee.pendingAmount >= 0 ? "Pending" : "Advance"}: {formatINR(Math.abs(employee.pendingAmount || 0))}
             </span>
           </div>
         </div>
@@ -350,8 +365,8 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-full bg-orange-500/10 flex items-center justify-center">
-            <Store className="h-6 w-6 text-orange-600" />
+          <div className="h-12 w-12 rounded-full bg-warning/10 flex items-center justify-center">
+            <Store className="h-6 w-6 text-warning" />
           </div>
           <div>
             <h3 className="font-semibold text-lg">{vendor.name}</h3>
@@ -378,8 +393,8 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
           </div>
           <div className="flex items-center gap-2">
             <IndianRupee className="h-4 w-4 text-muted-foreground" />
-            <span className={vendor.outstandingAmount > 0 ? "text-amber-600" : "text-primary"}>
-              Outstanding: ₹{(vendor.outstandingAmount || 0).toLocaleString()}
+            <span className={vendor.outstandingAmount > 0 ? "text-warning" : "text-primary"}>
+              Outstanding: {formatINR((vendor.outstandingAmount || 0))}
             </span>
           </div>
         </div>
@@ -407,6 +422,339 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
     );
   };
 
+  const renderQuotationInfo = () => {
+    const quotation = getQuotationById(String(entityId));
+    if (!quotation) return <p className="text-muted-foreground">Quotation not found</p>;
+
+    const linkedProject = projects.find((p) => p.quotationId === quotation.id);
+    const customer = quotation.customerId ? getCustomerById(quotation.customerId) : undefined;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <ClipboardList className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">{quotation.quotationNumber}</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="capitalize">{quotation.status.replace(/_/g, " ")}</Badge>
+              <Badge variant="outline">{quotation.quotationType}</Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center gap-2 col-span-2">
+            <User className="h-4 w-4 text-muted-foreground" />
+            <span>{quotation.clientName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span>{quotation.clientPhone || "—"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <IndianRupee className="h-4 w-4 text-muted-foreground" />
+            <span>{formatINR((quotation.totalAmount || 0))}</span>
+          </div>
+        </div>
+
+        <div className="pt-3 border-t space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase">Quick Links</p>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/quotations" state={{ focusQuotationId: quotation.id }} onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" className="gap-1">
+                <ExternalLink className="h-3 w-3" />
+                View quotation
+              </Button>
+            </Link>
+            {customer && (
+              <Link to={`/customers/${customer.id}`} onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Building2 className="h-3 w-3" />
+                  Customer
+                </Button>
+              </Link>
+            )}
+            {linkedProject && (
+              <Link to={`/projects/${linkedProject.id}`} onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Briefcase className="h-3 w-3" />
+                  Project
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderInvoiceInfo = () => {
+    const invoice =
+      getInvoiceById(String(entityId)) ?? saleBills.find((b) => b.id === entityId);
+    if (!invoice) return <p className="text-muted-foreground">Invoice not found</p>;
+
+    const balance = Math.max(0, (invoice.total || 0) - (invoice.amountReceived || 0));
+    const linkedProject = invoice.projectId ? getProjectById(invoice.projectId) : null;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <FileText className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">{invoice.invoiceNumber}</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="capitalize">{invoice.status}</Badge>
+              <Badge variant="outline">{invoice.type === "sale-bill" ? "Sale bill" : "Invoice"}</Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center gap-2 col-span-2">
+            <User className="h-4 w-4 text-muted-foreground" />
+            <span>{invoice.customerName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <IndianRupee className="h-4 w-4 text-muted-foreground" />
+            <span>Total: {formatINR((invoice.total || 0))}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+            <span>Balance: {formatINR(balance)}</span>
+          </div>
+          {linkedProject && (
+            <div className="flex items-center gap-2 col-span-2">
+              <Briefcase className="h-4 w-4 text-muted-foreground" />
+              <span>{linkedProject.name}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="pt-3 border-t space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase">Quick Links</p>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/invoices" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" className="gap-1">
+                <ExternalLink className="h-3 w-3" />
+                Open invoices
+              </Button>
+            </Link>
+            {invoice.customerId && (
+              <Link to={`/customers/${invoice.customerId}`} onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Building2 className="h-3 w-3" />
+                  Customer
+                </Button>
+              </Link>
+            )}
+            {linkedProject && (
+              <Link to={`/projects/${linkedProject.id}`} onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Briefcase className="h-3 w-3" />
+                  Project
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAgentInfo = () => {
+    const agent = getAgentById(String(entityId));
+    if (!agent) return <p className="text-muted-foreground">Agent not found</p>;
+
+    const agentEnquiries = enquiries.filter((e) => e.agentId === agent.id);
+    const agentQuotations = quotations.filter((q) => q.agentId === agent.id);
+    const agentProjects = projects.filter((p) => p.agentId === agent.id);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <UserCheck className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">{agent.name}</h3>
+            <Badge variant="outline" className="capitalize">{agent.status}</Badge>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span>{agent.phone}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <IndianRupee className="h-4 w-4 text-muted-foreground" />
+            <span>
+              {agent.rateType === "per-kw"
+                ? `${formatINR(agent.ratePerKw)}/kW`
+                : `${formatINR(agent.flatRate || 0)} flat`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 col-span-2">
+            <Handshake className="h-4 w-4 text-muted-foreground" />
+            <span>
+              {agentProjects.length} project{agentProjects.length === 1 ? "" : "s"} ·{" "}
+              {agentEnquiries.length} enquir{agentEnquiries.length === 1 ? "y" : "ies"}
+            </span>
+          </div>
+        </div>
+
+        <div className="pt-3 border-t space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase">Quick Links</p>
+          <div className="flex flex-wrap gap-2">
+            <Link to={`/agents/${agent.id}`} onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" className="gap-1">
+                <ExternalLink className="h-3 w-3" />
+                View agent
+              </Button>
+            </Link>
+            {agentQuotations.length > 0 && (
+              <Link to="/quotations" onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <ClipboardList className="h-3 w-3" />
+                  Quotations ({agentQuotations.length})
+                </Button>
+              </Link>
+            )}
+            {agentProjects.length > 0 && (
+              <Link to={`/agents/${agent.id}?tab=projects`} onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Briefcase className="h-3 w-3" />
+                  Projects ({agentProjects.length})
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderVendorshipCompanyInfo = () => {
+    const company = getVendorshipCompanyById(String(entityId));
+    if (!company) return <p className="text-muted-foreground">Vendorship company not found</p>;
+
+    const linkedProjects = projects.filter((p) => p.scope?.vendorshipCompanyId === company.id);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <Store className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">{company.name}</h3>
+            {company.registrationCode && (
+              <Badge variant="outline" className="font-mono text-xs">{company.registrationCode}</Badge>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span>{company.phone}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+            <span>{linkedProjects.length} linked project{linkedProjects.length === 1 ? "" : "s"}</span>
+          </div>
+          {company.email && (
+            <div className="flex items-center gap-2 col-span-2">
+              <Mail className="h-4 w-4 text-muted-foreground" />
+              <span>{company.email}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="pt-3 border-t space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase">Quick Links</p>
+          <div className="flex flex-wrap gap-2">
+            <Link to={`/vendorship/${company.id}`} onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" className="gap-1">
+                <ExternalLink className="h-3 w-3" />
+                View company
+              </Button>
+            </Link>
+            {linkedProjects.length > 0 && (
+              <Link to="/projects" onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Briefcase className="h-3 w-3" />
+                  Projects ({linkedProjects.length})
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderIncGiverCompanyInfo = () => {
+    const company = getINCGiverCompanyById(String(entityId));
+    if (!company) return <p className="text-muted-foreground">INC work source not found</p>;
+
+    const linkedProjects = projects.filter((p) => p.scope?.incGiverCompanyId === company.id);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <HardHat className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">{company.name}</h3>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span>{company.phone}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+            <span>{linkedProjects.length} linked project{linkedProjects.length === 1 ? "" : "s"}</span>
+          </div>
+          {company.email && (
+            <div className="flex items-center gap-2 col-span-2">
+              <Mail className="h-4 w-4 text-muted-foreground" />
+              <span>{company.email}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="pt-3 border-t space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase">Quick Links</p>
+          <div className="flex flex-wrap gap-2">
+            <Link to={`/inc-sources/${company.id}`} onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" className="gap-1">
+                <ExternalLink className="h-3 w-3" />
+                View work source
+              </Button>
+            </Link>
+            {linkedProjects.length > 0 && (
+              <Link to="/projects" onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Briefcase className="h-3 w-3" />
+                  Projects ({linkedProjects.length})
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (entityType) {
       case "project":
@@ -419,6 +767,16 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
         return renderPartnerInfo();
       case "vendor":
         return renderVendorInfo();
+      case "quotation":
+        return renderQuotationInfo();
+      case "invoice":
+        return renderInvoiceInfo();
+      case "agent":
+        return renderAgentInfo();
+      case "vendorshipCompany":
+        return renderVendorshipCompanyInfo();
+      case "incGiverCompany":
+        return renderIncGiverCompanyInfo();
       default:
         return <p className="text-muted-foreground">Entity not found</p>;
     }
@@ -433,6 +791,9 @@ export function EntityInfoModal({ open, onOpenChange, entityType, entityId }: En
       case "vendor": return "Vendor Info";
       case "quotation": return "Quotation Info";
       case "invoice": return "Invoice Info";
+      case "agent": return "Agent Info";
+      case "vendorshipCompany": return "Vendorship Company";
+      case "incGiverCompany": return "INC Work Source";
       default: return "Info";
     }
   };
@@ -470,7 +831,7 @@ export function EntityLink({ entityType, entityId, name, className = "" }: Entit
       >
         {name}
       </button>
-      <EntityInfoModal
+      <EntityInfoSheet
         open={isModalOpen}
         onOpenChange={setIsModalOpen}
         entityType={entityType}

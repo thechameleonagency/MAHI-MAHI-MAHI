@@ -13,7 +13,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import {
   INCOME_MAIN_CATEGORIES,
-  _INCOME_SCHEMA,
+
   getIncomeCategoriesByMainCategory,
   getIncomeSubCategories,
   getIncomeCategoryByValue,
@@ -21,6 +21,7 @@ import {
 } from "@/lib/incomeSchema";
 import type { Income } from "@/types/finance";
 import { UnifiedFinanceValidationService } from "@/application/services/UnifiedFinanceValidationService";
+import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
 
 const MAIN_CAT_ICONS: Record<string, React.ReactNode> = {
   project: <Briefcase className="w-5 h-5" />,
@@ -30,7 +31,7 @@ const MAIN_CAT_ICONS: Record<string, React.ReactNode> = {
   company: <Building2 className="w-5 h-5" />,
 };
 
-interface UnifiedIncomeModalProps {
+interface UnifiedIncomeSheetProps {
   isOpen: boolean;
   onClose: () => void;
   projectId?: string;
@@ -39,7 +40,7 @@ interface UnifiedIncomeModalProps {
 
 type Step = "main-category" | "category" | "details" | "confirm";
 
-export function UnifiedIncomeModal({ isOpen, onClose, projectId: prefillProjectId, projectName: prefillProjectName }: UnifiedIncomeModalProps) {
+export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectId, projectName: prefillProjectName }: UnifiedIncomeSheetProps) {
   const { projects, partners, employees, loans, addIncome, generateId } = useAppData();
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
 
@@ -207,7 +208,7 @@ export function UnifiedIncomeModal({ isOpen, onClose, projectId: prefillProjectI
       partnerId: selectedPartnerId || undefined,
       partnerName: partners.find(p => p.id === selectedPartnerId)?.name || undefined,
       employeeId: selectedEmployeeId || undefined,
-      employeeName: employees.find(e => e.id === parseInt(selectedEmployeeId))?.name || undefined,
+      employeeName: employees.find((e) => String(e.id) === String(selectedEmployeeId))?.name || undefined,
       loanId: selectedLoanId || undefined,
       paymentMode,
       reference: reference || undefined,
@@ -314,8 +315,16 @@ export function UnifiedIncomeModal({ isOpen, onClose, projectId: prefillProjectI
               </div>
             )}
 
+            {/* W3 — Will-post-to chip from incomeToAccountMapping master. */}
+            {mainCategory && (category || subCategory) && (
+              <MappingPostingChip
+                kind="income"
+                mappingKey={`${mainCategory}:${subCategory || category}`}
+              />
+            )}
+
             {isOutgoing && (
-              <Badge className="bg-amber-500/10 text-amber-500 border-0">⚠ This is an outgoing payment</Badge>
+              <Badge className="bg-warning/10 text-warning border-0">⚠ This is an outgoing payment</Badge>
             )}
           </div>
         )}
@@ -326,7 +335,7 @@ export function UnifiedIncomeModal({ isOpen, onClose, projectId: prefillProjectI
             <div className="flex items-center gap-2 mb-2 flex-wrap">
               <Badge variant="outline">{categoryInfo?.label}</Badge>
               {subCategory && <Badge variant="secondary">{selectedSubCat?.label}</Badge>}
-              {isOutgoing && <Badge className="bg-amber-500/10 text-amber-500 border-0">Outgoing</Badge>}
+              {isOutgoing && <Badge className="bg-warning/10 text-warning border-0">Outgoing</Badge>}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -571,7 +580,7 @@ export function UnifiedIncomeModal({ isOpen, onClose, projectId: prefillProjectI
                 {selectedProject && <div className="flex justify-between"><span className="text-muted-foreground">Project</span><span className="font-medium">{selectedProject.name}</span></div>}
                 {receivedFrom && <div className="flex justify-between"><span className="text-muted-foreground">Received From</span><span className="font-medium">{receivedFrom}</span></div>}
                 {selectedPartnerId && <div className="flex justify-between"><span className="text-muted-foreground">Partner</span><span className="font-medium">{partners.find(p => p.id === selectedPartnerId)?.name}</span></div>}
-                {selectedEmployeeId && <div className="flex justify-between"><span className="text-muted-foreground">Employee</span><span className="font-medium">{employees.find(e => e.id === parseInt(selectedEmployeeId))?.name}</span></div>}
+                {selectedEmployeeId && <div className="flex justify-between"><span className="text-muted-foreground">Employee</span><span className="font-medium">{employees.find((e) => String(e.id) === String(selectedEmployeeId))?.name}</span></div>}
                 {udharPersonName && <div className="flex justify-between"><span className="text-muted-foreground">Person</span><span className="font-medium">{udharPersonName}</span></div>}
                 {udharContact && <div className="flex justify-between"><span className="text-muted-foreground">Contact</span><span className="font-medium">{udharContact}</span></div>}
                 {udharExpectedReturnDate && <div className="flex justify-between"><span className="text-muted-foreground">Expected Return</span><span className="font-medium">{new Date(udharExpectedReturnDate).toLocaleDateString()}</span></div>}
@@ -594,7 +603,7 @@ export function UnifiedIncomeModal({ isOpen, onClose, projectId: prefillProjectI
                       <p>• Partner Ledger ({partners.find(p => p.id === selectedPartnerId)?.name}): <span className={isOutgoing ? "text-destructive" : "text-primary"}>{isOutgoing ? "-" : "+"}₹{parseFloat(amount).toLocaleString()}</span></p>
                     )}
                     {mainCategory === "employee-payment" && selectedEmployeeId && !isOutgoing && (
-                      <p>• Employee Liability: <span className="text-amber-500">+₹{parseFloat(amount).toLocaleString()} (Company owes)</span></p>
+                      <p>• Employee Liability: <span className="text-warning">+₹{parseFloat(amount).toLocaleString()} (Company owes)</span></p>
                     )}
                     {mainCategory === "employee-payment" && selectedEmployeeId && isOutgoing && (
                       <p>• Employee Liability: <span className="text-primary">-₹{parseFloat(amount).toLocaleString()} (Reimbursed)</span></p>

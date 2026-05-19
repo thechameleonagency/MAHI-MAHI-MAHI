@@ -25,7 +25,7 @@ export interface QuotationTemplate {
 
 /** Optional rich BOM line (categories, sizes, rates) used by Solar package subtype. */
 export interface SiteChecklistTemplateBomLine {
-  id: number;
+  id: string;
   category: string;
   materialName: string;
   size?: string;

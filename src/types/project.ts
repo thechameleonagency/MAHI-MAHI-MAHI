@@ -24,7 +24,7 @@ export interface ProjectPartner {
 }
 
 export interface ProjectMaterialLedgerEntry {
-  itemId: number;
+  itemId: string;
   /** Links consumption to `executionLineItems[].id` when issued against BOQ. */
   baselineLineId?: string;
   openingQty: number;
@@ -68,7 +68,7 @@ export interface ProjectTeamAssignment {
 // Employee Task interface for task assignment system
 export interface Task {
   id: string;
-  employeeId?: number; // Optional if assigned to team
+  employeeId?: string; // Optional if assigned to team
   teamId?: string;     // Optional if assigned to individual
   projectId: string;
   siteId: string;
@@ -90,11 +90,13 @@ export interface Task {
     subItems: string[];
   }[];
   dateOffset?: number; // T+n offset from base date
+  /** Audit trail of past work-date moves; first entry is the original promised date. */
+  delayHistory?: { from: string; to: string; reason?: string; at: string }[];
 }
 
 // Quotation material snapshot for preset tracking
 export interface QuotationMaterial {
-  id: number;
+  id: string;
   name: string;
   quantity: number;
   unit: string;
@@ -105,8 +107,8 @@ export interface QuotationMaterial {
 /** Frozen commercial scope from quotation conversion or intake wizard. */
 export interface CommercialBaselineLine {
   id: string;
-  quotationMaterialId?: number;
-  inventoryItemId?: number;
+  quotationMaterialId?: string;
+  inventoryItemId?: string;
   description: string;
   quantity: number;
   unit: string;
@@ -181,6 +183,13 @@ export interface ProjectSiteChecklistItem {
   sourceQuotationItemId?: string | number;
   /** True when super admin added/edited this item per project requirements (not from quotation). */
   addedByOverride?: boolean;
+  /** Where the row originated. Legacy items without this field are treated as "quotation". */
+  source?: "quotation" | "template" | "manual";
+  sourceTemplateId?: string;
+  sourceTemplateName?: string;
+  addedByEmployeeId?: string;
+  addedByEmployeeName?: string;
+  addedAt?: string;
 }
 
 export interface Project {
@@ -265,7 +274,7 @@ export interface Project {
   location: string;
   
   // Team
-  assignees?: number[];
+  assignees?: string[];
   teamAssignments?: ProjectTeamAssignment[];
   onSite?: number;
   
@@ -339,7 +348,7 @@ export interface Project {
   incScope?: "labour" | "labour_and_materials";
   
   // Materials sent to site
-  materialsSent?: { itemId: number; itemName: string; quantity: number; dateIssued: string; unitPrice: number; }[];
+  materialsSent?: { itemId: string; itemName: string; quantity: number; dateIssued: string; unitPrice: number; }[];
   siteMaterialLedger?: ProjectMaterialLedgerEntry[];
   
   // Media
@@ -361,7 +370,7 @@ export interface Project {
     ready: boolean;
     note?: string;
     markedAt: string;
-    markedBy: number;
+    markedBy: string;
   };
   /** Timestamp when "Start project" was actually clicked (distinct from planned startDate). */
   startedAt?: string;
@@ -375,10 +384,13 @@ export interface Project {
     total: number;
     addedAt: string;
   }[];
+  /** Soft-archive marker for super_admin / cleanup. Active when null/undefined. */
+  archivedAt?: string | null;
+  archivedReason?: string;
 }
 
 export interface Employee {
-  id: number;
+  id: string;
   name: string;
   initial: string;
   role: string;
@@ -403,11 +415,15 @@ export interface Employee {
   // Payments
   advancePaid: number;
   pendingAmount: number;
+
+  /** Termination marker. Status flips to "Inactive" simultaneously. */
+  terminatedAt?: string;
+  terminationReason?: string;
 }
 
 export interface AttendanceRecord {
   id: string;
-  employeeId: number;
+  employeeId: string;
   date: string;
   status: "present" | "absent" | "holiday" | "half-day" | "paid_leave";
   sites: string[];
@@ -417,7 +433,7 @@ export interface AttendanceRecord {
 export interface Quotation {
   id: string;
   quotationNumber: string;
-  status: "draft" | "sent" | "approved" | "rejected" | "converted_to_project";
+  status: "draft" | "sent" | "approved" | "rejected" | "withdrawn" | "converted_to_project";
   quotationType: "solar" | "other";
   enquiryId?: string;
   
@@ -499,18 +515,21 @@ export interface Quotation {
   
   // Status
   /** @deprecated derive from `status === "converted_to_project"` */
-  isConverted: boolean;
+  /** @deprecated Derive from `status === "converted_to_project"` or `linkedProjectId`. */
+  isConverted?: boolean;
   /** @deprecated use `linkedProjectId` */
   convertedToProjectId?: string;
   linkedProjectId?: string;
   convertedToInvoiceId?: string;
   rejectionReason?: string;
+  withdrawnReason?: string;
 
   // Dates (status transition timestamps — used to render real Status History)
   createdAt: string;
   sentAt?: string;
   approvedAt?: string;
   rejectedAt?: string;
+  withdrawnAt?: string;
   convertedAt?: string;
   /** @deprecated kept for legacy seed compatibility; mirrors `approvedAt` */
   confirmedAt?: string;
@@ -573,10 +592,13 @@ export interface InventoryMovementRecord {
   condition?: string;
   notes?: string;
   createdAt: string;
+  /** Super-admin movement reversal markers; preserves the original row for audit. */
+  reversedAt?: string;
+  reversalReason?: string;
 }
 
 export interface InventoryItem {
-  id: number;
+  id: string;
   name: string;
   category: string;
   stock: number;
@@ -595,6 +617,8 @@ export interface InventoryItem {
   minStock: number;
   alert?: boolean;
   movementHistory?: InventoryMovementRecord[];
+  /** When set, item is hidden from new procurement / sale flows. */
+  deactivatedAt?: string;
 }
 
 /** Solar package line items edited on Settings (persisted via AppDataContext). */
@@ -614,64 +638,21 @@ export interface SolarPackagePreset {
 
 /** Directory / team rows from Settings (persisted via AppDataContext). */
 export interface SettingsTeamMember {
-  id: number;
+  id: string;
   name: string;
   email: string;
   role: string;
   status: string;
 }
 
-export const DEFAULT_SOLAR_PACKAGE_PRESETS: SolarPackagePreset[] = [
-  {
-    id: "res-3kw",
-    name: "Standard 3kW System",
-    category: "residential",
-    capacityKW: 3,
-    panelBrand: "Waaree",
-    panelWattage: 540,
-    panelCount: 6,
-    inverterBrand: "Growatt",
-    inverterCapacity: "3kW",
-    structureType: "Elevated GI",
-    estimatedCost: 185000,
-  },
-  {
-    id: "com-20kw",
-    name: "Commercial 20kW System",
-    category: "commercial",
-    capacityKW: 20,
-    panelBrand: "Tata",
-    panelWattage: 550,
-    panelCount: 36,
-    inverterBrand: "Sungrow",
-    inverterCapacity: "20kW",
-    structureType: "Flush Mount GI",
-    estimatedCost: 1100000,
-  },
-  {
-    id: "ind-100kw",
-    name: "Industrial 100kW System",
-    category: "industrial",
-    capacityKW: 100,
-    panelBrand: "Canadian Solar",
-    panelWattage: 550,
-    panelCount: 180,
-    inverterBrand: "Sungrow",
-    inverterCapacity: "100kW",
-    structureType: "Ground Mount Aluminum",
-    estimatedCost: 5500000,
-  },
-];
+/** @deprecated Use Settings → masters; kept as empty export for import compatibility. */
+export const DEFAULT_SOLAR_PACKAGE_PRESETS: SolarPackagePreset[] = [];
 
-export const DEFAULT_SETTINGS_TEAM_MEMBERS: SettingsTeamMember[] = [
-  { id: 1, name: "John Doe", email: "john@company.com", role: "Admin", status: "Active" },
-  { id: 2, name: "Rajesh Kumar", email: "rajesh@company.com", role: "Manager", status: "Active" },
-  { id: 3, name: "Priya Sharma", email: "priya@company.com", role: "Accountant", status: "Active" },
-  { id: 4, name: "Amit Singh", email: "amit@company.com", role: "Supervisor", status: "Pending" },
-];
+/** Empty by default; team members are added via Settings or persisted seed. */
+export const DEFAULT_SETTINGS_TEAM_MEMBERS: SettingsTeamMember[] = [];
 
 export interface InventoryPresetItem {
-  inventoryItemId: number;
+  inventoryItemId: string;
   name: string;
   quantity: number;
   unit: string;
@@ -683,7 +664,7 @@ export type { ServicePreset, ServicePresetService };
 export interface SiteChecklistItem {
   id: string;
   requiresMaterial: boolean;
-  inventoryItemId?: number;
+  inventoryItemId?: string;
   materialName?: string;
   requiredQuantity?: number;
   masterPresetId?: string;
@@ -693,8 +674,8 @@ export interface SiteChecklistItem {
 export interface Team {
   id: string;
   name: string;
-  memberIds: number[];
-  leadId?: number;
+  memberIds: string[];
+  leadId?: string;
   createdAt: string;
   status: "Active" | "Inactive";
   description?: string;
@@ -702,7 +683,7 @@ export interface Team {
 
 /** Site / execution location linked to a project. */
 export interface SiteRecord {
-  id: number;
+  id: string;
   name: string;
   projectId: string;
   projectName?: string;
@@ -710,6 +691,7 @@ export interface SiteRecord {
   status?: "active" | "completed" | "on-hold";
   checklistItems?: SiteChecklistItem[];
   presetId?: string; // Link to SiteChecklistPreset in Masters
+  archivedAt?: string | null;
 }
 
 export interface ToolMovementRecord {
@@ -725,14 +707,16 @@ export interface ToolMovementRecord {
   /** Free-text condition / handoff notes (mirrors `notes` on returns when only one field is set). */
   conditionNotes?: string;
   createdAt: string;
+  reversedAt?: string;
+  reversalReason?: string;
 }
 
 export interface Tool {
-  id: number;
+  id: string;
   name: string;
   assignedTo: string;
   site: string;
-  status: "In Use" | "Available" | "Under Repair";
+  status: "In Use" | "Available" | "Under Repair" | "Retired";
   lastUpdated: string;
   condition: "Good" | "Fair" | "Poor" | "Damaged";
   /** Current on-hand notes (wear, repair history, etc.). */
@@ -741,10 +725,12 @@ export interface Tool {
   purchaseRate: number;
   purchaseDate: string;
   movementHistory?: ToolMovementRecord[];
+  retiredAt?: string;
+  retiredReason?: string;
 }
 
 export interface Vendor {
-  id: number;
+  id: string;
   name: string;
   category: string[];
   contact: string;
@@ -782,4 +768,7 @@ export interface Enquiry {
   createdAt: string;
   updatedAt: string;
   notes: { date: string; note: string; by: string; updatedBy?: string }[];
+  /** Soft-archive marker. Active when null/undefined. */
+  archivedAt?: string | null;
+  archivedReason?: string;
 }

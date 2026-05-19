@@ -72,7 +72,7 @@ export function ChangeRequestSheet({
   const handleSubmit = () => {
     const materialDelta = materialLines
       .map((l) => ({
-        itemId: Number.parseInt(l.itemId, 10),
+        itemId: String(l.itemId),
         deltaQty: Number.parseFloat(l.deltaQty) || 0,
       }))
       .filter((m) => m.itemId > 0 && m.deltaQty > 0);
@@ -191,9 +191,10 @@ export function ChangeRequestSheet({
                   type="button"
                   variant="ghost"
                   size="icon"
+                  aria-label="Remove material line"
                   onClick={() => setMaterialLines((p) => p.filter((l) => l.key !== line.key))}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-4 w-4" aria-hidden />
                 </Button>
               </div>
             ))}

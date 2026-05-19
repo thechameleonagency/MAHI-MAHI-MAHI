@@ -26,7 +26,7 @@ export function useDerivedAlertCount(): number {
       invoices,
       loans,
       lowStockItems: lowStockItems ?? [],
-      blockages,
+      blockages: blockages ?? [],
       quotations,
       projects,
       projectTimelineByProjectId,

@@ -149,7 +149,7 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
   }
 
   for (const loan of input.loans) {
-    const day = nextEmiDueDate(loan, input.loanRepayments);
+    const day = nextEmiDueDate(loan, input.loanRepayments ?? []);
     if (!day) continue;
     events.push({
       id: `emi-${loan.id}-${day}`,
@@ -202,6 +202,13 @@ export function getEventsForDate(events: CalendarEvent[], day: string): Calendar
   return events.filter((e) => e.date === day);
 }
 
+/** Inclusive date-range filter. Empty `to` defaults to `from`. */
+export function getEventsForRange(events: CalendarEvent[], from: string, to: string): CalendarEvent[] {
+  const lo = from;
+  const hi = to || from;
+  return events.filter((e) => e.date >= lo && e.date <= hi);
+}
+
 export function groupEventsBySource(events: CalendarEvent[]): Record<CalendarEventSource, CalendarEvent[]> {
   const groups = {} as Record<CalendarEventSource, CalendarEvent[]>;
   for (const src of Object.keys(SOURCE_LABELS) as CalendarEventSource[]) {
@@ -211,4 +218,13 @@ export function groupEventsBySource(events: CalendarEvent[]): Record<CalendarEve
     groups[e.source].push(e);
   }
   return groups;
+}
+
+/** Group events by their date (yyyy-MM-dd). Keys sorted ascending. */
+export function groupEventsByDate(events: CalendarEvent[]): Record<string, CalendarEvent[]> {
+  const map: Record<string, CalendarEvent[]> = {};
+  for (const e of events) {
+    (map[e.date] ??= []).push(e);
+  }
+  return map;
 }

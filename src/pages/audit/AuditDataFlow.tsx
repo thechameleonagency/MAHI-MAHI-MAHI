@@ -1,3 +1,10 @@
+/**
+ * Design-system justification: this diagram encodes entity *category* with colour
+ * (Owner=purple, Partner=rose, MSS=primary, INC=success, etc.). The semantic-token
+ * palette only has 3 tones (success/warning/destructive) plus primary/accent — not
+ * enough to distinguish 6 entity classes at a glance. Palette literals are kept as
+ * a visualization-data encoding, mirroring how charts encode series colours.
+ */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,10 +18,12 @@ import {
  Database, Receipt, Layers, MousePointerClick, Calendar, ClipboardList, AlertTriangle, GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { VOUCHER_TYPES, LEDGER_ACCOUNTS } from "@/services/finance/chartOfAccounts";
+import { ENTITY_POSTING_INVENTORY } from "@/lib/audit/entityInventory";
 
 // ============ DATA STRUCTURES ============
 
@@ -140,20 +149,20 @@ const expenseFlow: FlowNode[] = [
     id: "office",
     label: "Office",
     icon: Home,
-    color: "text-amber-700 dark:text-amber-400",
-    bgColor: "bg-amber-500/10 border-amber-500/30",
+    color: "text-warning dark:text-warning",
+    bgColor: "bg-warning/10 border-warning/30",
     description: "Rent, electricity, supplies",
     children: [
-      { id: "office-rent", label: "Rent", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
-      { id: "electricity-bill", label: "Electricity Bill", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
-      { id: "water-camper", label: "Water (Pani Camper)", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
-      { id: "office-food", label: "Food", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
-      { id: "office-tea", label: "Tea", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
-      { id: "office-internet", label: "Internet", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
-      { id: "office-phone", label: "Phone", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
-      { id: "office-supplies", label: "Office Supplies", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
-      { id: "office-infrastructure", label: "Infrastructure", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
-      { id: "office-misc", label: "Miscellaneous", icon: ChevronRight, color: "text-amber-600", bgColor: "" },
+      { id: "office-rent", label: "Rent", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "electricity-bill", label: "Electricity Bill", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "water-camper", label: "Water (Pani Camper)", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "office-food", label: "Food", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "office-tea", label: "Tea", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "office-internet", label: "Internet", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "office-phone", label: "Phone", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "office-supplies", label: "Office Supplies", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "office-infrastructure", label: "Infrastructure", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "office-misc", label: "Miscellaneous", icon: ChevronRight, color: "text-warning", bgColor: "" },
     ],
     feedsInto: ["pl-operating", "expense-audit", "cash-bank"],
   },
@@ -161,42 +170,42 @@ const expenseFlow: FlowNode[] = [
     id: "site",
     label: "Site / Project",
     icon: HardHat,
-    color: "text-orange-700 dark:text-orange-400",
-    bgColor: "bg-orange-500/10 border-orange-500/30",
+    color: "text-warning dark:text-warning",
+    bgColor: "bg-warning/10 border-warning/30",
     description: "Commission, transport, outsource",
     children: [
-      { id: "commission", label: "Commission", icon: ChevronRight, color: "text-orange-600", bgColor: "bg-orange-500/5 border-orange-500/20",
+      { id: "commission", label: "Commission", icon: ChevronRight, color: "text-warning", bgColor: "bg-warning/5 border-warning/20",
         children: [
-          { id: "agent-commission", label: "Agent", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "discom-commission", label: "DISCOM", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "bank-commission", label: "Bank", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "lineman-commission", label: "Lineman", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "powerhouse-commission", label: "Power House", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
+          { id: "agent-commission", label: "Agent", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "discom-commission", label: "DISCOM", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "bank-commission", label: "Bank", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "lineman-commission", label: "Lineman", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "powerhouse-commission", label: "Power House", icon: ChevronRight, color: "text-warning", bgColor: "" },
         ]},
-      { id: "material-transport", label: "Material Transport", icon: ChevronRight, color: "text-orange-600", bgColor: "bg-orange-500/5 border-orange-500/20",
+      { id: "material-transport", label: "Material Transport", icon: ChevronRight, color: "text-warning", bgColor: "bg-warning/5 border-warning/20",
         children: [
-          { id: "company-vehicle-transport", label: "Company Vehicle", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "employee-vehicle-transport", label: "Employee Vehicle", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "outsource-vehicle-transport", label: "Outsource Vehicle", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
+          { id: "company-vehicle-transport", label: "Company Vehicle", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "employee-vehicle-transport", label: "Employee Vehicle", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "outsource-vehicle-transport", label: "Outsource Vehicle", icon: ChevronRight, color: "text-warning", bgColor: "" },
         ]},
-      { id: "site-team-transport", label: "Team Transport", icon: ChevronRight, color: "text-orange-600", bgColor: "" },
-      { id: "pulley-transport", label: "Pulley for Material", icon: ChevronRight, color: "text-orange-600", bgColor: "" },
-      { id: "labour-material-shift", label: "Labour Material Shift", icon: ChevronRight, color: "text-orange-600", bgColor: "" },
-      { id: "machine-rent", label: "Machine Rent", icon: ChevronRight, color: "text-orange-600", bgColor: "bg-orange-500/5 border-orange-500/20",
+      { id: "site-team-transport", label: "Team Transport", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "pulley-transport", label: "Pulley for Material", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "labour-material-shift", label: "Labour Material Shift", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "machine-rent", label: "Machine Rent", icon: ChevronRight, color: "text-warning", bgColor: "bg-warning/5 border-warning/20",
         children: [
-          { id: "machine-hourly", label: "Hourly Rent", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "machine-daily", label: "Daily Rent", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
+          { id: "machine-hourly", label: "Hourly Rent", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "machine-daily", label: "Daily Rent", icon: ChevronRight, color: "text-warning", bgColor: "" },
         ]},
-      { id: "outsource-work", label: "Outsource Work", icon: ChevronRight, color: "text-orange-600", bgColor: "bg-orange-500/5 border-orange-500/20",
+      { id: "outsource-work", label: "Outsource Work", icon: ChevronRight, color: "text-warning", bgColor: "bg-warning/5 border-warning/20",
         children: [
-          { id: "jcb-work", label: "JCB Work", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "crane-work", label: "Crane Work", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "hydra-lifting", label: "Hydra Lifting", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "site-cleaning", label: "Cleaning", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
-          { id: "pani-tanker", label: "Pani Tanker", icon: ChevronRight, color: "text-orange-500", bgColor: "" },
+          { id: "jcb-work", label: "JCB Work", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "crane-work", label: "Crane Work", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "hydra-lifting", label: "Hydra Lifting", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "site-cleaning", label: "Cleaning", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "pani-tanker", label: "Pani Tanker", icon: ChevronRight, color: "text-warning", bgColor: "" },
         ]},
-      { id: "site-toll-parking", label: "Tolls & Parking", icon: ChevronRight, color: "text-orange-600", bgColor: "" },
-      { id: "other-site", label: "Other Site Expense", icon: ChevronRight, color: "text-orange-600", bgColor: "" },
+      { id: "site-toll-parking", label: "Tolls & Parking", icon: ChevronRight, color: "text-warning", bgColor: "" },
+      { id: "other-site", label: "Other Site Expense", icon: ChevronRight, color: "text-warning", bgColor: "" },
     ],
     feedsInto: ["pl-project-costs", "expense-audit", "cash-bank"],
   },
@@ -316,14 +325,14 @@ const incomeFlow: FlowNode[] = [
     id: "employee-payment-inc",
     label: "Employee Payments",
     icon: Users,
-    color: "text-amber-700 dark:text-amber-400",
-    bgColor: "bg-amber-500/10 border-amber-500/30",
+    color: "text-warning dark:text-warning",
+    bgColor: "bg-warning/10 border-warning/30",
     description: "Employee-paid expenses, reimbursements",
     children: [
-      { id: "employee-expense-payment", label: "Employee Paid for Company", icon: ChevronRight, color: "text-amber-600", bgColor: "bg-amber-500/5 border-amber-500/20",
+      { id: "employee-expense-payment", label: "Employee Paid for Company", icon: ChevronRight, color: "text-warning", bgColor: "bg-warning/5 border-warning/20",
         children: [
-          { id: "employee-paid-expense", label: "Employee Paid Expense", icon: ChevronRight, color: "text-amber-500", bgColor: "" },
-          { id: "reimbursement-to-employee", label: "Reimbursement to Employee", icon: ChevronRight, color: "text-amber-500", bgColor: "" },
+          { id: "employee-paid-expense", label: "Employee Paid Expense", icon: ChevronRight, color: "text-warning", bgColor: "" },
+          { id: "reimbursement-to-employee", label: "Reimbursement to Employee", icon: ChevronRight, color: "text-warning", bgColor: "" },
         ]},
     ],
     feedsInto: ["pl-employee", "cash-bank"],
@@ -347,26 +356,26 @@ const incomeFlow: FlowNode[] = [
 
 const auditModules: { id: string; label: string; icon: React.ElementType; color: string; bgColor: string; description: string; inputs: string[] }[] = [
   { id: "pl-revenue", label: "P&L → Revenue", icon: TrendingUp, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Sales revenue from invoices & sale bills", inputs: ["Invoices", "Sale Bills", "Client Payments"] },
-  { id: "pl-cogs", label: "P&L → COGS", icon: Package, color: "text-orange-700", bgColor: "bg-orange-500/10 border-orange-500/30", description: "Opening Stock + Purchases − Closing Stock", inputs: ["Inventory Items", "Vendor Bills", "Stock Movements"] },
+  { id: "pl-cogs", label: "P&L → COGS", icon: Package, color: "text-warning", bgColor: "bg-warning/10 border-warning/30", description: "Opening Stock + Purchases − Closing Stock", inputs: ["Inventory Items", "Vendor Bills", "Stock Movements"] },
   { id: "pl-operating", label: "P&L → Operating Exp", icon: Building2, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Company + Office expenses", inputs: ["Company Expenses", "Office Expenses"] },
   { id: "pl-employee", label: "P&L → Employee Costs", icon: Users, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Salaries, advances, reimbursements", inputs: ["Salary", "Advance", "Food", "Stay", "Medical", "Transport"] },
-  { id: "pl-project-costs", label: "P&L → Project Costs", icon: HardHat, color: "text-orange-700", bgColor: "bg-orange-500/10 border-orange-500/30", description: "Commission, transport, outsource work", inputs: ["Commission", "Material Transport", "Machine Rent", "Outsource Work"] },
+  { id: "pl-project-costs", label: "P&L → Project Costs", icon: HardHat, color: "text-warning", bgColor: "bg-warning/10 border-warning/30", description: "Commission, transport, outsource work", inputs: ["Commission", "Material Transport", "Machine Rent", "Outsource Work"] },
   { id: "pl-drawings", label: "P&L → Owner Drawings", icon: Crown, color: "text-purple-700", bgColor: "bg-purple-500/10 border-purple-500/30", description: "Owner withdrawals & personal expenses", inputs: ["Withdrawals", "Personal Expenses"] },
   { id: "pl-partner", label: "P&L → Partner", icon: Handshake, color: "text-rose-700", bgColor: "bg-rose-500/10 border-rose-500/30", description: "Partner withdrawals, profit payments", inputs: ["Withdrawals", "Profit Payments", "Investments"] },
   { id: "gst-sales", label: "GST → Sales Register", icon: BookOpen, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "CGST + SGST + IGST from invoices", inputs: ["Invoice Items (HSN)", "Invoice Services (SAC)"] },
   { id: "gst-purchase", label: "GST → Purchase Register", icon: BookOpen, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Input GST from vendor bills", inputs: ["Vendor Bills", "Bill Items"] },
   { id: "debtors", label: "Debtors (Receivables)", icon: Scale, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Invoice Total − Amount Received", inputs: ["Unpaid/Partial Invoices"] },
-  { id: "creditors", label: "Creditors (Payables)", icon: Scale, color: "text-red-700", bgColor: "bg-red-500/10 border-red-500/30", description: "Vendor Bill Total − Amount Paid", inputs: ["Unpaid/Partial Vendor Bills", "Loans Outstanding"] },
-  { id: "cash-bank", label: "Cash & Bank Ledger", icon: Wallet, color: "text-amber-700", bgColor: "bg-amber-500/10 border-amber-500/30", description: "Unified transaction ledger", inputs: ["All Incomes", "All Expenses", "All Payments", "Vendor Payments"] },
+  { id: "creditors", label: "Creditors (Payables)", icon: Scale, color: "text-destructive", bgColor: "bg-destructive/10 border-destructive/30", description: "Vendor Bill Total − Amount Paid", inputs: ["Unpaid/Partial Vendor Bills", "Loans Outstanding"] },
+  { id: "cash-bank", label: "Cash & Bank Ledger", icon: Wallet, color: "text-warning", bgColor: "bg-warning/10 border-warning/30", description: "Unified transaction ledger", inputs: ["All Incomes", "All Expenses", "All Payments", "Vendor Payments"] },
   { id: "inventory-audit", label: "Inventory Valuation", icon: Package, color: "text-purple-700", bgColor: "bg-purple-500/10 border-purple-500/30", description: "Stock × Buy Price per item", inputs: ["Inventory Items", "Stock Levels", "Purchase History"] },
   { id: "fixed-assets", label: "Fixed Assets Register", icon: Layers, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Tools depreciation tracking", inputs: ["Tools", "Purchase Date", "Rate"] },
-  { id: "expense-audit", label: "Expense Audit", icon: FileText, color: "text-orange-700", bgColor: "bg-orange-500/10 border-orange-500/30", description: "Category-wise drill-down", inputs: ["All 6 Expense Categories", "mainCategory filter"] },
+  { id: "expense-audit", label: "Expense Audit", icon: FileText, color: "text-warning", bgColor: "bg-warning/10 border-warning/30", description: "Category-wise drill-down", inputs: ["All 6 Expense Categories", "mainCategory filter"] },
   { id: "material-reservations", label: "Material Reservations", icon: Package, color: "text-cyan-700", bgColor: "bg-cyan-500/10 border-cyan-500/30", description: "Checklist-driven holds; shortfall pressure", inputs: ["MaterialReservation", "siteChecklist", "ProcurementShortfall"] },
-  { id: "site-visits", label: "Site Visits", icon: HardHat, color: "text-orange-700", bgColor: "bg-orange-500/10 border-orange-500/30", description: "Visit log reconciled to checklist", inputs: ["SiteVisit", "Project.siteChecklist"] },
+  { id: "site-visits", label: "Site Visits", icon: HardHat, color: "text-warning", bgColor: "bg-warning/10 border-warning/30", description: "Visit log reconciled to checklist", inputs: ["SiteVisit", "Project.siteChecklist"] },
   { id: "scheduled-install", label: "Scheduled Installations", icon: Calendar, color: "text-primary", bgColor: "bg-primary/10 border-primary/30", description: "Team/employee schedule feed", inputs: ["ScheduledInstallation", "Calendar"] },
   { id: "change-requests", label: "Project Change Requests", icon: GitBranch, color: "text-violet-700", bgColor: "bg-violet-500/10 border-violet-500/30", description: "Capacity/add-on deltas → draft invoice", inputs: ["ProjectChangeRequest", "executionLineItems", "commercialBaseline"] },
-  { id: "material-damage", label: "Material Damage", icon: AlertTriangle, color: "text-red-700", bgColor: "bg-red-500/10 border-red-500/30", description: "Write-off + inventory movement", inputs: ["MaterialDamage", "InventoryMovement", "P&L damage line"] },
-  { id: "agent-accruals", label: "Agent Commission Accruals", icon: ClipboardList, color: "text-amber-700", bgColor: "bg-amber-500/10 border-amber-500/30", description: "pending → payable → paid lifecycle", inputs: ["AgentCommissionAccrual", "Quotation approved", "Project started"] },
+  { id: "material-damage", label: "Material Damage", icon: AlertTriangle, color: "text-destructive", bgColor: "bg-destructive/10 border-destructive/30", description: "Write-off + inventory movement", inputs: ["MaterialDamage", "InventoryMovement", "P&L damage line"] },
+  { id: "agent-accruals", label: "Agent Commission Accruals", icon: ClipboardList, color: "text-warning", bgColor: "bg-warning/10 border-warning/30", description: "pending → payable → paid lifecycle", inputs: ["AgentCommissionAccrual", "Quotation approved", "Project started"] },
 ];
 
 const operationsFlow: FlowNode[] = [
@@ -379,11 +388,11 @@ const operationsFlow: FlowNode[] = [
     description: "Post-award execution entities (Phase 1)",
     children: [
       { id: "reservations", label: "Material Reservations", icon: Package, color: "text-cyan-600", bgColor: "bg-cyan-500/5 border-cyan-500/20", feedsInto: ["inventory-audit", "pl-cogs"] },
-      { id: "site-visit", label: "Site Visits", icon: HardHat, color: "text-orange-600", bgColor: "bg-orange-500/5 border-orange-500/20", feedsInto: ["pl-project-costs", "expense-audit"] },
+      { id: "site-visit", label: "Site Visits", icon: HardHat, color: "text-warning", bgColor: "bg-warning/5 border-warning/20", feedsInto: ["pl-project-costs", "expense-audit"] },
       { id: "schedule", label: "Scheduled Installations", icon: Calendar, color: "text-primary", bgColor: "bg-primary/5 border-primary/20", feedsInto: ["cash-bank"] },
       { id: "change-req", label: "Change Requests", icon: GitBranch, color: "text-violet-600", bgColor: "bg-violet-500/5 border-violet-500/20", feedsInto: ["pl-revenue", "gst-sales", "debtors"] },
-      { id: "damage", label: "Material Damage", icon: AlertTriangle, color: "text-red-600", bgColor: "bg-red-500/5 border-red-500/20", feedsInto: ["inventory-audit", "pl-cogs"] },
-      { id: "accrual", label: "Agent Commission Accruals", icon: ClipboardList, color: "text-amber-600", bgColor: "bg-amber-500/5 border-amber-500/20", feedsInto: ["pl-project-costs", "expense-audit"] },
+      { id: "damage", label: "Material Damage", icon: AlertTriangle, color: "text-destructive", bgColor: "bg-destructive/5 border-destructive/20", feedsInto: ["inventory-audit", "pl-cogs"] },
+      { id: "accrual", label: "Agent Commission Accruals", icon: ClipboardList, color: "text-warning", bgColor: "bg-warning/5 border-warning/20", feedsInto: ["pl-project-costs", "expense-audit"] },
     ],
     feedsInto: ["inventory-audit", "pl-revenue", "expense-audit"],
   },
@@ -485,11 +494,11 @@ const AuditDataFlow = () => {
             <ArrowDown className="w-5 h-5 text-muted-foreground" />
 
             {/* Layer 2: Voucher Classification */}
-            <div className="border border-dashed border-amber-500/40 rounded-lg p-3 bg-amber-500/5 w-full max-w-2xl">
-              <p className="text-2xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2">Layer 2 — Voucher Classification</p>
+            <div className="border border-dashed border-warning/40 rounded-lg p-3 bg-warning/5 w-full max-w-2xl">
+              <p className="text-2xs font-semibold text-warning dark:text-warning uppercase tracking-wider mb-2">Layer 2 — Voucher Classification</p>
               <div className="flex flex-wrap gap-1.5 justify-center">
                 {VOUCHER_TYPES.map(v => (
-                  <Badge key={v.type} variant="outline" className="text-2xs px-2 py-1 border-amber-500/40 text-amber-700 dark:text-amber-300">{v.label}</Badge>
+                  <Badge key={v.type} variant="outline" className="text-2xs px-2 py-1 border-warning/40 text-warning dark:text-warning">{v.label}</Badge>
                 ))}
               </div>
             </div>
@@ -536,14 +545,78 @@ const AuditDataFlow = () => {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="expenses" className="space-y-4">
-        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
+      <Tabs defaultValue="entity-inventory" className="space-y-4">
+        <TabsList className="grid grid-cols-6 w-full max-w-3xl">
+          <TabsTrigger value="entity-inventory">Entity → Posting</TabsTrigger>
           <TabsTrigger value="expenses">Expenses</TabsTrigger>
           <TabsTrigger value="incomes">Incomes</TabsTrigger>
           <TabsTrigger value="operations">Operations</TabsTrigger>
           <TabsTrigger value="vouchers">Voucher Types</TabsTrigger>
           <TabsTrigger value="audit-modules">Audit Modules</TabsTrigger>
         </TabsList>
+
+        {/* ENTITY → POSTING (W4: complete entity inventory with calculation method) */}
+        <TabsContent value="entity-inventory">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Database className="h-4 w-4 text-primary" />
+                Entity → Posting Inventory
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Every entity type from <code className="bg-muted/40 px-1 rounded">src/types/*.ts</code> with its voucher pair, Chart-of-Accounts leaves, audit consumer, cash/accrual treatment, and GST impact. Source-of-truth for skill 39 <code className="bg-muted/40 px-1 rounded">auditdataflow-completeness-audit</code>.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {ENTITY_POSTING_INVENTORY.length === 0 ? (
+                <ListEmptyState
+                  icon={Database}
+                  title="No entity inventory rows"
+                  description="Add entity posting definitions in src/lib/audit/entityInventory.ts."
+                />
+              ) : (
+              <>
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/40 sticky top-0">
+                    <tr className="text-left">
+                      <th className="px-2 py-2 font-medium">Entity</th>
+                      <th className="px-2 py-2 font-medium">Trigger</th>
+                      <th className="px-2 py-2 font-medium">Voucher (Dr · Cr)</th>
+                      <th className="px-2 py-2 font-medium">CoA Leaves</th>
+                      <th className="px-2 py-2 font-medium">Audit Consumer</th>
+                      <th className="px-2 py-2 font-medium">Cash / Accrual</th>
+                      <th className="px-2 py-2 font-medium">GST</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ENTITY_POSTING_INVENTORY.map((row) => (
+                      <tr key={row.entity} className="border-t hover:bg-muted/20">
+                        <td className="px-2 py-2 font-medium whitespace-nowrap">
+                          {row.entity}
+                          <div className="text-2xs text-muted-foreground font-mono">{row.typesFile}</div>
+                        </td>
+                        <td className="px-2 py-2 text-muted-foreground">{row.trigger}</td>
+                        <td className="px-2 py-2 leading-snug">{row.voucher}</td>
+                        <td className="px-2 py-2 text-muted-foreground font-mono leading-snug">{row.coaLeaves}</td>
+                        <td className="px-2 py-2 leading-snug">{row.auditConsumer}</td>
+                        <td className="px-2 py-2">
+                          <Badge variant="outline" className="text-2xs capitalize">{row.cashAccrual}</Badge>
+                        </td>
+                        <td className="px-2 py-2 leading-snug">{row.gstImpact}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-2xs text-muted-foreground mt-3">
+                Rows: {ENTITY_POSTING_INVENTORY.length}. Edit at <code>src/lib/audit/entityInventory.ts</code>.
+              </p>
+              </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* EXPENSE TREE */}
         <TabsContent value="expenses">

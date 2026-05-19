@@ -2,14 +2,14 @@ export type VendorBillStatus = "draft" | "approved" | "disputed" | "pending" | "
 
 export interface VendorBill {
   id: string;
-  vendorId: number;
+  vendorId: string;
   vendorName?: string;
   billNumber: string;
   billDate: string;
   dueDate?: string;
   projectId?: string;
   projectName?: string;
-  items: { description: string; name?: string; quantity: number; rate: number; amount: number; inventoryItemId?: number }[];
+  items: { description: string; name?: string; quantity: number; rate: number; amount: number; inventoryItemId?: string }[];
   subtotal?: number;
   gst?: number;
   total: number;
@@ -25,7 +25,7 @@ export interface VendorBill {
 
 export interface VendorPayment {
   id: string;
-  vendorId: number;
+  vendorId: string;
   vendorName?: string;
   billId?: string;
   billNumber?: string;

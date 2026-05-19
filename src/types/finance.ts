@@ -93,6 +93,17 @@ export interface Payment {
   linkedIncomeId?: string;
   vendorBillId?: string;
   loanId?: string;
+  /**
+   * W5 — routing of a client payment for a partner project.
+   *  - "mss": client paid us directly (default; counterpartyType=customer)
+   *  - "partner": client paid the partner on our behalf (paired with a `Customer Paid Partner` PartnerTransaction)
+   *  - "split": client paid both — this Payment represents the MSS portion; a sibling PartnerTransaction tracks the partner portion
+   */
+  paymentSource?: "mss" | "partner" | "split";
+  /** When paymentSource = "partner" | "split": the partner who received the client cash. */
+  partnerId?: string;
+  /** When paymentSource = "split": the amount that went to the partner (this Payment.amount holds the MSS amount). */
+  partnerPortion?: number;
 }
 
 // Unified Journal Entry (Replaces Expense/Income)
@@ -147,7 +158,7 @@ export interface Expense {
     entityName?: string;
     splits?: { entityId: string; entityType: string; entityName: string; amount: number; }[];
   };
-  teamMealEmployeeIds?: number[];
+  teamMealEmployeeIds?: string[];
   teamMealEmployeeNames?: string[];
   reimbursement?: ExpenseReimbursement;
   allocation?: ExpenseAllocation;
@@ -167,6 +178,14 @@ export interface Expense {
   paymentMode?: string;
   vendorshipCompanyId?: string;
   createdAt?: string;
+  /**
+   * T1 — interest+principal split for Vehicle EMI / Loan Repayment categories.
+   * When set, `amount` = `interestPortion + principalPortion`. The interest portion hits
+   * the P&L Finance Cost leaf; the principal portion reduces the corresponding Loan Liability.
+   */
+  interestPortion?: number;
+  /** T1 — companion to interestPortion. */
+  principalPortion?: number;
 }
 
 // Legacy Income (Keeping for backward compatibility during Phase 1 migration)
@@ -221,7 +240,20 @@ export interface Partner {
   address?: string;
   notes?: string;
   createdAt: string;
+  /** When set, the partner relationship is ended (no new projects allowed; existing kept for history). */
+  endedAt?: string;
+  endedReason?: string;
 }
+
+/** W5 — canonical partner-transaction types. UI options + ledger derivation read from this list. */
+export const PARTNER_TRANSACTION_TYPES = [
+  "Given to Partner",
+  "Received from Partner",
+  "Customer Paid Partner",
+  "Vendorship Fee",
+  "Profit Payment",
+] as const;
+export type PartnerTransactionType = typeof PARTNER_TRANSACTION_TYPES[number];
 
 export interface PartnerTransaction {
   id: string;
@@ -229,7 +261,7 @@ export interface PartnerTransaction {
   partnerName: string;
   date: string;
   amount: number;
-  type: string;
+  type: PartnerTransactionType | string;
   direction?: "given" | "received";
   projectId?: string;
   notes: string;
@@ -327,7 +359,7 @@ export interface OwnerInvestment {
 
 export interface EmployeePaidHoliday {
   id: string;
-  employeeId: number;
+  employeeId: string;
   employeeName: string;
   date: string;
   month: string;
@@ -412,7 +444,7 @@ export interface INCGiverTransaction {
 
 export interface EmployeePayrollRecord {
   id: string;
-  employeeId: number;
+  employeeId: string;
   employeeName: string;
   month: string;
   year: number;
@@ -427,7 +459,7 @@ export interface EmployeePayrollRecord {
 
 export interface EmployeeWalletLedgerEntry {
   id: string;
-  employeeId: number;
+  employeeId: string;
   date: string;
   kind: "advance" | "recovery" | "adjustment";
   amount: number;

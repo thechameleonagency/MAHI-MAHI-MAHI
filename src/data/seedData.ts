@@ -75,52 +75,52 @@ export const seedAgents: Agent[] = [
 
 // ═══ EMPLOYEES ═══
 export const seedEmployees: Employee[] = [
-  { id: 1, name: "Arjun Kapoor", initial: "AK", role: "Admin", phone: "9200000001", email: "arjun@mss.solar", status: "Active", site: "Office", salary: 85000, wallet: 12500, aadhar: "1234 5678 9012", dob: "1990-05-15", joiningDate: "2025-01-01", daysPresent: 22, daysAbsent: 2, holidays: 4, advancePaid: 0, pendingAmount: 0 },
-  { id: 2, name: "Priya Singh", initial: "PS", role: "Project Manager", phone: "9200000002", email: "priya@mss.solar", status: "Active", site: "On Site", salary: 65000, wallet: 8400, aadhar: "2345 6789 0123", dob: "1992-08-20", joiningDate: "2025-03-01", daysPresent: 24, daysAbsent: 0, holidays: 4, advancePaid: 5000, pendingAmount: 0 },
-  { id: 3, name: "Rahul Dravid", initial: "RD", role: "Site Supervisor", phone: "9200000003", email: "rahul@mss.solar", status: "Active", site: "On Site", salary: 45000, wallet: 3200, aadhar: "3456 7890 1234", dob: "1988-11-10", joiningDate: "2025-06-01", daysPresent: 20, daysAbsent: 4, holidays: 4, advancePaid: 2000, pendingAmount: 0 },
-  { id: 4, name: "Suresh Raina", initial: "SR", role: "Technician", phone: "9200000004", email: "suresh@mss.solar", status: "Active", site: "On Site", salary: 35000, wallet: 1500, aadhar: "4567 8901 2345", dob: "1994-02-25", joiningDate: "2025-09-01", daysPresent: 25, daysAbsent: 0, holidays: 3, advancePaid: 0, pendingAmount: 0 },
-  { id: 5, name: "Hardik Pandya", initial: "HP", role: "Sales Manager", phone: "9200000005", email: "hardik@mss.solar", status: "Active", site: "Office", salary: 55000, wallet: 6000, aadhar: "5678 9012 3456", dob: "1993-10-12", joiningDate: "2025-10-01", daysPresent: 23, daysAbsent: 1, holidays: 4, advancePaid: 0, pendingAmount: 0 },
-  { id: 6, name: "Rohit Sharma", initial: "RS", role: "Site Supervisor", phone: "9200000006", email: "rohit@mss.solar", status: "Active", site: "On Site", salary: 45000, wallet: 2800, aadhar: "6789 0123 4567", dob: "1989-04-30", joiningDate: "2026-01-15", daysPresent: 21, daysAbsent: 3, holidays: 4, advancePaid: 1000, pendingAmount: 0 },
-  { id: 7, name: "K.L. Rahul", initial: "KL", role: "Technician", phone: "9200000007", email: "kl@mss.solar", status: "Active", site: "On Site", salary: 35000, wallet: 1200, aadhar: "7890 1234 5678", dob: "1995-07-18", joiningDate: "2026-02-01", daysPresent: 22, daysAbsent: 2, holidays: 4, advancePaid: 0, pendingAmount: 0 },
-  { id: 8, name: "Jasprit Bumrah", initial: "JB", role: "Technician", phone: "9200000008", email: "jasprit@mss.solar", status: "Active", site: "On Site", salary: 35000, wallet: 1100, aadhar: "8901 2345 6789", dob: "1993-12-06", joiningDate: "2026-03-01", daysPresent: 24, daysAbsent: 0, holidays: 4, advancePaid: 0, pendingAmount: 0 },
-  { id: 9, name: "Smriti Mandhana", initial: "SM", role: "Design Engineer", phone: "9200000009", email: "smriti@mss.solar", status: "Active", site: "Office", salary: 58000, wallet: 4200, aadhar: "9012 3456 7890", dob: "1991-07-18", joiningDate: "2026-02-15", daysPresent: 23, daysAbsent: 1, holidays: 4, advancePaid: 0, pendingAmount: 0 },
-  { id: 10, name: "Ravindra Jadeja", initial: "RJ", role: "Technician", phone: "9200000010", email: "jadeja@mss.solar", status: "Active", site: "On Site", salary: 36000, wallet: 900, aadhar: "0123 4567 8901", dob: "1988-12-06", joiningDate: "2026-03-10", daysPresent: 22, daysAbsent: 2, holidays: 4, advancePaid: 0, pendingAmount: 0 },
-  { id: 11, name: "Shafali Verma", initial: "SV", role: "Procurement", phone: "9200000011", email: "shafali@mss.solar", status: "Active", site: "Office", salary: 48000, wallet: 2100, aadhar: "1122 3344 5566", dob: "1996-01-28", joiningDate: "2026-04-01", daysPresent: 20, daysAbsent: 0, holidays: 4, advancePaid: 0, pendingAmount: 0 },
-  { id: 12, name: "Bhuvneshwar Kumar", initial: "BK", role: "Site Supervisor", phone: "9200000012", email: "bhuvi@mss.solar", status: "Active", site: "On Site", salary: 46000, wallet: 2600, aadhar: "2233 4455 6677", dob: "1990-02-05", joiningDate: "2026-04-15", daysPresent: 19, daysAbsent: 1, holidays: 4, advancePaid: 500, pendingAmount: 0 },
+  { id: "EMP001", name: "Arjun Kapoor", initial: "AK", role: "Admin", phone: "9200000001", email: "arjun@mss.solar", status: "Active", site: "Office", salary: 85000, wallet: 12500, aadhar: "1234 5678 9012", dob: "1990-05-15", joiningDate: "2025-01-01", daysPresent: 22, daysAbsent: 2, holidays: 4, advancePaid: 0, pendingAmount: 0 },
+  { id: "EMP002", name: "Priya Singh", initial: "PS", role: "Project Manager", phone: "9200000002", email: "priya@mss.solar", status: "Active", site: "On Site", salary: 65000, wallet: 8400, aadhar: "2345 6789 0123", dob: "1992-08-20", joiningDate: "2025-03-01", daysPresent: 24, daysAbsent: 0, holidays: 4, advancePaid: 5000, pendingAmount: 0 },
+  { id: "EMP003", name: "Rahul Dravid", initial: "RD", role: "Site Supervisor", phone: "9200000003", email: "rahul@mss.solar", status: "Active", site: "On Site", salary: 45000, wallet: 3200, aadhar: "3456 7890 1234", dob: "1988-11-10", joiningDate: "2025-06-01", daysPresent: 20, daysAbsent: 4, holidays: 4, advancePaid: 2000, pendingAmount: 0 },
+  { id: "EMP004", name: "Suresh Raina", initial: "SR", role: "Technician", phone: "9200000004", email: "suresh@mss.solar", status: "Active", site: "On Site", salary: 35000, wallet: 1500, aadhar: "4567 8901 2345", dob: "1994-02-25", joiningDate: "2025-09-01", daysPresent: 25, daysAbsent: 0, holidays: 3, advancePaid: 0, pendingAmount: 0 },
+  { id: "EMP005", name: "Hardik Pandya", initial: "HP", role: "Sales Manager", phone: "9200000005", email: "hardik@mss.solar", status: "Active", site: "Office", salary: 55000, wallet: 6000, aadhar: "5678 9012 3456", dob: "1993-10-12", joiningDate: "2025-10-01", daysPresent: 23, daysAbsent: 1, holidays: 4, advancePaid: 0, pendingAmount: 0 },
+  { id: "EMP006", name: "Rohit Sharma", initial: "RS", role: "Site Supervisor", phone: "9200000006", email: "rohit@mss.solar", status: "Active", site: "On Site", salary: 45000, wallet: 2800, aadhar: "6789 0123 4567", dob: "1989-04-30", joiningDate: "2026-01-15", daysPresent: 21, daysAbsent: 3, holidays: 4, advancePaid: 1000, pendingAmount: 0 },
+  { id: "EMP007", name: "K.L. Rahul", initial: "KL", role: "Technician", phone: "9200000007", email: "kl@mss.solar", status: "Active", site: "On Site", salary: 35000, wallet: 1200, aadhar: "7890 1234 5678", dob: "1995-07-18", joiningDate: "2026-02-01", daysPresent: 22, daysAbsent: 2, holidays: 4, advancePaid: 0, pendingAmount: 0 },
+  { id: "EMP008", name: "Jasprit Bumrah", initial: "JB", role: "Technician", phone: "9200000008", email: "jasprit@mss.solar", status: "Active", site: "On Site", salary: 35000, wallet: 1100, aadhar: "8901 2345 6789", dob: "1993-12-06", joiningDate: "2026-03-01", daysPresent: 24, daysAbsent: 0, holidays: 4, advancePaid: 0, pendingAmount: 0 },
+  { id: "EMP009", name: "Smriti Mandhana", initial: "SM", role: "Design Engineer", phone: "9200000009", email: "smriti@mss.solar", status: "Active", site: "Office", salary: 58000, wallet: 4200, aadhar: "9012 3456 7890", dob: "1991-07-18", joiningDate: "2026-02-15", daysPresent: 23, daysAbsent: 1, holidays: 4, advancePaid: 0, pendingAmount: 0 },
+  { id: "EMP010", name: "Ravindra Jadeja", initial: "RJ", role: "Technician", phone: "9200000010", email: "jadeja@mss.solar", status: "Active", site: "On Site", salary: 36000, wallet: 900, aadhar: "0123 4567 8901", dob: "1988-12-06", joiningDate: "2026-03-10", daysPresent: 22, daysAbsent: 2, holidays: 4, advancePaid: 0, pendingAmount: 0 },
+  { id: "EMP011", name: "Shafali Verma", initial: "SV", role: "Procurement", phone: "9200000011", email: "shafali@mss.solar", status: "Active", site: "Office", salary: 48000, wallet: 2100, aadhar: "1122 3344 5566", dob: "1996-01-28", joiningDate: "2026-04-01", daysPresent: 20, daysAbsent: 0, holidays: 4, advancePaid: 0, pendingAmount: 0 },
+  { id: "EMP012", name: "Bhuvneshwar Kumar", initial: "BK", role: "Site Supervisor", phone: "9200000012", email: "bhuvi@mss.solar", status: "Active", site: "On Site", salary: 46000, wallet: 2600, aadhar: "2233 4455 6677", dob: "1990-02-05", joiningDate: "2026-04-15", daysPresent: 19, daysAbsent: 1, holidays: 4, advancePaid: 500, pendingAmount: 0 },
 ];
 
 // ═══ ENQUIRIES (4 Months History) ═══
 export const seedEnquiries: Enquiry[] = [
   { id: "ENQ-2026-001", customerName: "Mahesh Babu", customerPhone: "9300000001", customerEmail: "mahesh@cinema.com", customerAddress: "Jubilee Hills, Hyderabad", customerType: "individual", source: "website", systemCapacity: "10kW", estimatedBudget: 800000, requirements: "Residential on-grid system with Net Metering", status: "converted", priority: "high", assignedTo: "Hardik Pandya", createdAt: "2026-02-10", updatedAt: "2026-02-20", notes: [] },
-  { id: "ENQ-2026-002", customerName: "Rajinikanth", customerPhone: "9300000002", customerEmail: "thalaiva@superstar.com", customerAddress: "Poes Garden, Chennai", customerType: "individual", source: "phone", systemCapacity: "5kW", estimatedBudget: 450000, requirements: "Hybrid solar system for power backup", status: "quotation-sent", priority: "medium", assignedTo: "Hardik Pandya", createdAt: "2026-03-05", updatedAt: "2026-03-15", notes: [] },
-  { id: "ENQ-2026-003", customerName: "TATA Steel", customerPhone: "9300000003", customerEmail: "procurement@tatasteel.com", customerAddress: "Jamshedpur", customerType: "company", source: "referral", agentId: "A001", systemCapacity: "500kW", estimatedBudget: 35000000, requirements: "Industrial rooftop solar for warehouse", status: "contacted", priority: "high", assignedTo: "Hardik Pandya", createdAt: "2026-04-12", updatedAt: "2026-04-15", notes: [] },
+  { id: "ENQ-2026-002", customerName: "Rajinikanth", customerPhone: "9300000002", customerEmail: "thalaiva@superstar.com", customerAddress: "Poes Garden, Chennai", customerType: "individual", source: "phone", systemCapacity: "5kW", estimatedBudget: 450000, requirements: "Hybrid solar system for power backup", status: "quotation_sent", priority: "medium", assignedTo: "Hardik Pandya", createdAt: "2026-03-05", updatedAt: "2026-03-15", notes: [] },
+  { id: "ENQ-2026-003", customerName: "TATA Steel", customerPhone: "9300000003", customerEmail: "procurement@tatasteel.com", customerAddress: "Jamshedpur", customerType: "company", source: "referral", agentId: "A001", systemCapacity: "500kW", estimatedBudget: 35000000, requirements: "Industrial rooftop solar for warehouse", status: "new", priority: "high", assignedTo: "Hardik Pandya", followUpDate: "2026-05-18", createdAt: "2026-04-12", updatedAt: "2026-04-15", notes: [] },
   { id: "ENQ-2026-004", customerName: "Deepika Padukone", customerPhone: "9300000004", customerEmail: "deepika@bollywood.res", customerAddress: "Prabhadevi, Mumbai", customerType: "individual", source: "social-media", systemCapacity: "15kW", estimatedBudget: 1200000, requirements: "Aesthetic BIPV panels for luxury villa", status: "new", priority: "medium", assignedTo: "Unassigned", createdAt: "2026-05-01", updatedAt: "2026-05-01", notes: [] },
   { id: "ENQ-2026-005", customerName: "SRK Properties", customerPhone: "9300000005", customerEmail: "admin@mannat.res", customerAddress: "Bandra, Mumbai", customerType: "company", source: "walk-in", systemCapacity: "25kW", estimatedBudget: 2200000, requirements: "Society common area lighting solar", status: "lost", priority: "low", assignedTo: "Hardik Pandya", createdAt: "2026-02-25", updatedAt: "2026-03-10", notes: [{ date: "2026-03-10", note: "Client decided to wait for next subsidy cycle.", by: "Hardik Pandya" }] },
   { id: "ENQ-2026-006", customerName: "Anushka Sharma", customerPhone: "9300000006", customerEmail: "anushka@vivi.com", customerAddress: "Worli, Mumbai", customerType: "individual", source: "referral", agentId: "A004", systemCapacity: "12kW", estimatedBudget: 1000000, requirements: "Residential solar for farm house", status: "converted", priority: "high", assignedTo: "Hardik Pandya", createdAt: "2026-03-20", updatedAt: "2026-03-25", notes: [] },
-  { id: "ENQ-2026-007", customerName: "Reliance Retail", customerPhone: "9300000007", customerEmail: "ops@reliance.ret", customerAddress: "Ghansoli, Navi Mumbai", customerType: "company", source: "website", systemCapacity: "100kW", estimatedBudget: 8000000, requirements: "Store rooftop solar rollout", status: "contacted", priority: "high", assignedTo: "Hardik Pandya", createdAt: "2026-04-28", updatedAt: "2026-05-02", notes: [] },
-  { id: "ENQ-2026-008", customerName: "Virat Kohli", customerPhone: "9300000008", customerEmail: "virat.k@cricket.in", customerAddress: "Gurgaon", customerType: "individual", source: "phone", systemCapacity: "20kW", estimatedBudget: 1800000, requirements: "Performance tracking enabled system", status: "meeting-scheduled", priority: "high", assignedTo: "Hardik Pandya", createdAt: "2026-04-20", updatedAt: "2026-05-03", notes: [] },
+  { id: "ENQ-2026-007", customerName: "Reliance Retail", customerPhone: "9300000007", customerEmail: "ops@reliance.ret", customerAddress: "Ghansoli, Navi Mumbai", customerType: "company", source: "website", systemCapacity: "100kW", estimatedBudget: 8000000, requirements: "Store rooftop solar rollout", status: "new", priority: "high", assignedTo: "Hardik Pandya", createdAt: "2026-04-28", updatedAt: "2026-05-02", notes: [] },
+  { id: "ENQ-2026-008", customerName: "Virat Kohli", customerPhone: "9300000008", customerEmail: "virat.k@cricket.in", customerAddress: "Gurgaon", customerType: "individual", source: "phone", systemCapacity: "20kW", estimatedBudget: 1800000, requirements: "Performance tracking enabled system", status: "meeting_scheduled", priority: "high", assignedTo: "Hardik Pandya", createdAt: "2026-04-20", updatedAt: "2026-05-03", notes: [] },
   { id: "ENQ-2026-009", customerName: "Blue Star Logistics", customerPhone: "9812000107", customerEmail: "ops@bluestar.log", customerAddress: "Navi Mumbai", customerType: "company", source: "referral", agentId: "A002", systemCapacity: "40kW", estimatedBudget: 3200000, requirements: "Warehouse rooftop with channel partner margin", status: "converted", priority: "high", assignedTo: "Priya Singh", createdAt: "2026-04-01", updatedAt: "2026-04-20", notes: [] },
   { id: "ENQ-2026-010", customerName: "Priyanka Sharma", customerPhone: "9812000108", customerEmail: "priyanka.s@gmail.com", customerAddress: "Indira Nagar, Bangalore", customerType: "individual", source: "website", systemCapacity: "8kW", estimatedBudget: 450000, requirements: "INC given by Sunrise Power", status: "converted", priority: "medium", assignedTo: "Priya Singh", createdAt: "2026-04-10", updatedAt: "2026-04-22", notes: [] },
   { id: "ENQ-2026-011", customerName: "Sunshine Hospital", customerPhone: "9812000109", customerEmail: "admin@sunshinehosp.in", customerAddress: "Gachibowli, Hyderabad", customerType: "company", source: "walk-in", systemCapacity: "120kW", estimatedBudget: 5500000, requirements: "Phase-1 rooftop EPC", status: "converted", priority: "high", assignedTo: "Priya Singh", createdAt: "2026-03-20", updatedAt: "2026-04-01", notes: [] },
-  { id: "ENQ-2026-012", customerName: "Lakeside Co-op Housing", customerPhone: "9812000112", customerEmail: "sec@lakeside.coop", customerAddress: "Whitefield, Bangalore", customerType: "company", source: "website", agentId: "A003", systemCapacity: "60kW", estimatedBudget: 4200000, requirements: "Net metering + export limiter", status: "contacted", priority: "high", assignedTo: "Priya Singh", createdAt: "2026-04-18", updatedAt: "2026-05-01", notes: [] },
-  { id: "ENQ-2026-013", customerName: "Dr. Neha Kulkarni", customerPhone: "9812000113", customerEmail: "neha.k@clinic.in", customerAddress: "Koregaon Park, Pune", customerType: "individual", source: "referral", agentId: "A004", systemCapacity: "6kW", estimatedBudget: 480000, requirements: "Battery-ready hybrid", status: "quotation-sent", priority: "medium", assignedTo: "Hardik Pandya", createdAt: "2026-04-08", updatedAt: "2026-04-28", notes: [] },
+  { id: "ENQ-2026-012", customerName: "Lakeside Co-op Housing", customerPhone: "9812000112", customerEmail: "sec@lakeside.coop", customerAddress: "Whitefield, Bangalore", customerType: "company", source: "website", agentId: "A003", systemCapacity: "60kW", estimatedBudget: 4200000, requirements: "Net metering + export limiter", status: "new", priority: "high", assignedTo: "Priya Singh", followUpDate: "2026-05-20", createdAt: "2026-04-18", updatedAt: "2026-05-01", notes: [] },
+  { id: "ENQ-2026-013", customerName: "Dr. Neha Kulkarni", customerPhone: "9812000113", customerEmail: "neha.k@clinic.in", customerAddress: "Koregaon Park, Pune", customerType: "individual", source: "referral", agentId: "A004", systemCapacity: "6kW", estimatedBudget: 480000, requirements: "Battery-ready hybrid", status: "quotation_sent", priority: "medium", assignedTo: "Hardik Pandya", createdAt: "2026-04-08", updatedAt: "2026-04-28", notes: [] },
   { id: "ENQ-2026-014", customerName: "Metro Cold Chain", customerPhone: "9812000114", customerEmail: "capex@metrocold.in", customerAddress: "Taloja, Navi Mumbai", customerType: "company", source: "referral", agentId: "A002", systemCapacity: "200kW", estimatedBudget: 14000000, requirements: "Cold store rooftop + demand charge reduction", status: "new", priority: "high", assignedTo: "Priya Singh", createdAt: "2026-05-02", updatedAt: "2026-05-02", notes: [] },
-  { id: "ENQ-2026-015", customerName: "Coastal Resorts Pvt Ltd", customerPhone: "9812000116", customerEmail: "projects@coastalresorts.in", customerAddress: "Candolim, Goa", customerType: "company", source: "social-media", systemCapacity: "35kW", estimatedBudget: 2600000, requirements: "Beachfront aesthetic + anti-corrosion", status: "meeting-scheduled", priority: "medium", assignedTo: "Hardik Pandya", createdAt: "2026-04-25", updatedAt: "2026-05-03", notes: [] },
-  { id: "ENQ-2026-016", customerName: "Northwind Textiles", customerPhone: "9812000117", customerEmail: "sustain@northwind.in", customerAddress: "Ludhiana", customerType: "company", source: "website", systemCapacity: "250kW", estimatedBudget: 17500000, requirements: "Roof strengthening study first", status: "contacted", priority: "high", assignedTo: "Priya Singh", createdAt: "2026-04-05", updatedAt: "2026-04-22", notes: [] },
+  { id: "ENQ-2026-015", customerName: "Coastal Resorts Pvt Ltd", customerPhone: "9812000116", customerEmail: "projects@coastalresorts.in", customerAddress: "Candolim, Goa", customerType: "company", source: "social-media", systemCapacity: "35kW", estimatedBudget: 2600000, requirements: "Beachfront aesthetic + anti-corrosion", status: "meeting_scheduled", priority: "medium", assignedTo: "Hardik Pandya", createdAt: "2026-04-25", updatedAt: "2026-05-03", notes: [] },
+  { id: "ENQ-2026-016", customerName: "Northwind Textiles", customerPhone: "9812000117", customerEmail: "sustain@northwind.in", customerAddress: "Ludhiana", customerType: "company", source: "website", systemCapacity: "250kW", estimatedBudget: 17500000, requirements: "Roof strengthening study first", status: "new", priority: "high", assignedTo: "Priya Singh", createdAt: "2026-04-05", updatedAt: "2026-04-22", notes: [] },
   { id: "ENQ-2026-017", customerName: "Arvind Rao", customerPhone: "9812000118", customerEmail: "arvind.rao@proton.me", customerAddress: "JP Nagar, Bangalore", customerType: "individual", source: "phone", agentId: "A006", systemCapacity: "7kW", estimatedBudget: 520000, requirements: "East-west split roof layout", status: "converted", priority: "low", assignedTo: "Hardik Pandya", createdAt: "2026-03-28", updatedAt: "2026-04-18", notes: [] },
   { id: "ENQ-2026-018", customerName: "Ishaan Verma", customerPhone: "9812000115", customerEmail: "ishaan.v@gmail.com", customerAddress: "Sector 62, Noida", customerType: "individual", source: "walk-in", systemCapacity: "5kW", estimatedBudget: 390000, requirements: "Budget build with local subsidy", status: "lost", priority: "low", assignedTo: "Hardik Pandya", createdAt: "2026-04-20", updatedAt: "2026-04-29", notes: [{ date: "2026-04-29", note: "Went with DISCOM bundled offer.", by: "Hardik Pandya" }] },
 ];
 
 // ═══ QUOTATIONS ═══
 export const seedQuotations: Quotation[] = [
-  { id: "Q001", quotationNumber: "MSS/26/001", clientName: "Mahesh Babu", clientPhone: "9300000001", clientEmail: "mahesh@cinema.com", clientCity: "Hyderabad", clientState: "Telangana", status: "approved", quotationType: "solar", enquiryId: "ENQ-2026-001", systemCategory: "residential", systemCapacity: "10kW", totalAmount: 780000, clientAgreedAmount: 750000, paymentType: "cash", isConverted: true, convertedToProjectId: "PROJ-2026-001", createdAt: "2026-02-15", notes: "Discount offered for upfront payment." },
-  { id: "Q002", quotationNumber: "MSS/26/002", clientName: "Anushka Sharma", clientPhone: "9300000006", clientEmail: "anushka@vivi.com", clientCity: "Mumbai", clientState: "Maharashtra", status: "approved", quotationType: "solar", enquiryId: "ENQ-2026-006", systemCategory: "residential", systemCapacity: "12kW", totalAmount: 950000, clientAgreedAmount: 920000, paymentType: "loan", isConverted: true, convertedToProjectId: "PROJ-2026-002", createdAt: "2026-03-22", notes: "Loan documentation shared with IDBI Bank." },
-  { id: "Q003", quotationNumber: "MSS/26/003", clientName: "Rajinikanth", clientPhone: "9300000002", clientEmail: "thalaiva@superstar.com", clientCity: "Chennai", clientState: "Tamil Nadu", status: "sent", quotationType: "solar", enquiryId: "ENQ-2026-002", systemCategory: "residential", systemCapacity: "5kW", totalAmount: 480000, clientAgreedAmount: 480000, paymentType: "cash", isConverted: false, createdAt: "2026-03-10", notes: "Waiting for client confirmation." },
-  { id: "Q004", quotationNumber: "MSS/26/004", clientName: "Green Valley Society", clientPhone: "9812000105", clientEmail: "admin@greenvalley.res", clientCity: "Pune", clientState: "Maharashtra", status: "approved", quotationType: "solar", systemCategory: "commercial", systemCapacity: "25kW", totalAmount: 1850000, clientAgreedAmount: 1800000, paymentType: "cash-and-loan", isConverted: true, convertedToProjectId: "PROJ-2026-003", createdAt: "2026-02-20", notes: "Society board approved." },
-  { id: "Q005", quotationNumber: "MSS/26/005", clientName: "Lakeside Co-op Housing", clientPhone: "9812000112", clientEmail: "sec@lakeside.coop", clientCity: "Bangalore", clientState: "Karnataka", status: "sent", quotationType: "solar", enquiryId: "ENQ-2026-012", customerId: "C012", agentId: "A003", systemCategory: "commercial", systemCapacity: "60kW", totalAmount: 4300000, clientAgreedAmount: 4100000, paymentType: "cash-and-loan", isConverted: false, createdAt: "2026-04-22", notes: "Awaiting structural report." },
-  { id: "Q006", quotationNumber: "MSS/26/006", clientName: "Dr. Neha Kulkarni", clientPhone: "9812000113", clientEmail: "neha.k@clinic.in", clientCity: "Pune", clientState: "Maharashtra", status: "draft", quotationType: "solar", enquiryId: "ENQ-2026-013", customerId: "C013", agentId: "A004", systemCategory: "residential", systemCapacity: "6kW", totalAmount: 495000, clientAgreedAmount: 480000, paymentType: "loan", isConverted: false, createdAt: "2026-04-26", notes: "Hybrid inverter BOM pending." },
-  { id: "Q007", quotationNumber: "MSS/26/007", clientName: "Arvind Rao", clientPhone: "9812000118", clientEmail: "arvind.rao@proton.me", clientCity: "Bangalore", clientState: "Karnataka", status: "approved", quotationType: "solar", enquiryId: "ENQ-2026-017", customerId: "C018", agentId: "A006", systemCategory: "residential", systemCapacity: "7kW", totalAmount: 540000, clientAgreedAmount: 520000, paymentType: "cash", isConverted: false, createdAt: "2026-04-12", notes: "East-west layout premium." },
-  { id: "Q008", quotationNumber: "MSS/26/008", clientName: "Coastal Resorts Pvt Ltd", clientPhone: "9812000116", clientEmail: "projects@coastalresorts.in", clientCity: "Candolim", clientState: "Goa", status: "sent", quotationType: "solar", enquiryId: "ENQ-2026-015", customerId: "C016", systemCategory: "commercial", systemCapacity: "35kW", totalAmount: 2750000, clientAgreedAmount: 2650000, paymentType: "cash-and-loan", isConverted: false, createdAt: "2026-05-01", notes: "Marine-grade structure add-on." },
+  { id: "Q001", quotationNumber: "MSS/26/001", clientName: "Mahesh Babu", clientPhone: "9300000001", clientEmail: "mahesh@cinema.com", clientCity: "Hyderabad", clientState: "Telangana", status: "converted_to_project", quotationType: "solar", enquiryId: "ENQ-2026-001", systemCategory: "residential", systemCapacity: "10", totalAmount: 780000, clientAgreedAmount: 750000, paymentType: "cash", linkedProjectId: "PROJ-2026-001", createdAt: "2026-02-15", sentAt: "2026-02-16", approvedAt: "2026-02-22", convertedAt: "2026-02-23", notes: "Discount offered for upfront payment." },
+  { id: "Q002", quotationNumber: "MSS/26/002", clientName: "Anushka Sharma", clientPhone: "9300000006", clientEmail: "anushka@vivi.com", clientCity: "Mumbai", clientState: "Maharashtra", status: "converted_to_project", quotationType: "solar", enquiryId: "ENQ-2026-006", systemCategory: "residential", systemCapacity: "12", totalAmount: 950000, clientAgreedAmount: 920000, paymentType: "loan", linkedProjectId: "PROJ-2026-002", createdAt: "2026-03-22", sentAt: "2026-03-23", approvedAt: "2026-03-28", convertedAt: "2026-03-30", notes: "Loan documentation shared with IDBI Bank." },
+  { id: "Q003", quotationNumber: "MSS/26/003", clientName: "Rajinikanth", clientPhone: "9300000002", clientEmail: "thalaiva@superstar.com", clientCity: "Chennai", clientState: "Tamil Nadu", status: "sent", quotationType: "solar", enquiryId: "ENQ-2026-002", systemCategory: "residential", systemCapacity: "5", totalAmount: 480000, clientAgreedAmount: 480000, paymentType: "cash", createdAt: "2026-03-10", sentAt: "2026-03-11", notes: "Waiting for client confirmation." },
+  { id: "Q004", quotationNumber: "MSS/26/004", clientName: "Green Valley Society", clientPhone: "9812000105", clientEmail: "admin@greenvalley.res", clientCity: "Pune", clientState: "Maharashtra", status: "converted_to_project", quotationType: "solar", systemCategory: "commercial", systemCapacity: "25", totalAmount: 1850000, clientAgreedAmount: 1800000, paymentType: "cash-and-loan", linkedProjectId: "PROJ-2026-003", createdAt: "2026-02-20", sentAt: "2026-02-21", approvedAt: "2026-02-25", convertedAt: "2026-02-26", notes: "Society board approved." },
+  { id: "Q005", quotationNumber: "MSS/26/005", clientName: "Lakeside Co-op Housing", clientPhone: "9812000112", clientEmail: "sec@lakeside.coop", clientCity: "Bangalore", clientState: "Karnataka", status: "sent", quotationType: "solar", enquiryId: "ENQ-2026-012", customerId: "C012", agentId: "A003", systemCategory: "commercial", systemCapacity: "60", totalAmount: 4300000, clientAgreedAmount: 4100000, paymentType: "cash-and-loan", createdAt: "2026-04-22", sentAt: "2026-04-24", notes: "Awaiting structural report." },
+  { id: "Q006", quotationNumber: "MSS/26/006", clientName: "Dr. Neha Kulkarni", clientPhone: "9812000113", clientEmail: "neha.k@clinic.in", clientCity: "Pune", clientState: "Maharashtra", status: "draft", quotationType: "solar", enquiryId: "ENQ-2026-013", customerId: "C013", agentId: "A004", systemCategory: "residential", systemCapacity: "6", totalAmount: 495000, clientAgreedAmount: 480000, paymentType: "loan", createdAt: "2026-04-26", notes: "Hybrid inverter BOM pending." },
+  { id: "Q007", quotationNumber: "MSS/26/007", clientName: "Arvind Rao", clientPhone: "9812000118", clientEmail: "arvind.rao@proton.me", clientCity: "Bangalore", clientState: "Karnataka", status: "approved", quotationType: "solar", enquiryId: "ENQ-2026-017", customerId: "C018", agentId: "A006", systemCategory: "residential", systemCapacity: "7", totalAmount: 540000, clientAgreedAmount: 520000, paymentType: "cash", createdAt: "2026-04-12", sentAt: "2026-04-14", approvedAt: "2026-04-18", notes: "East-west layout premium." },
+  { id: "Q008", quotationNumber: "MSS/26/008", clientName: "Coastal Resorts Pvt Ltd", clientPhone: "9812000116", clientEmail: "projects@coastalresorts.in", clientCity: "Candolim", clientState: "Goa", status: "sent", quotationType: "solar", enquiryId: "ENQ-2026-015", customerId: "C016", systemCategory: "commercial", systemCapacity: "35", totalAmount: 2750000, clientAgreedAmount: 2650000, paymentType: "cash-and-loan", createdAt: "2026-05-01", sentAt: "2026-05-03", notes: "Marine-grade structure add-on." },
 ];
 
 // ═══ PROJECTS (Modular Scope Configs) ═══
@@ -140,7 +140,7 @@ export const seedProjects: Project[] = [
     contractAmount: 750000,
     amountReceived: 750000,
     location: "Hyderabad",
-    assignees: [2, 3, 4],
+    assignees: ["EMP002", "EMP003", "EMP004"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -149,6 +149,9 @@ export const seedProjects: Project[] = [
       billingParty: "MSS"
     },
     projectKind: "SOLO_EPC",
+    projectMode: "DIRECT_CLIENT",
+    vendorshipOwner: "MSS",
+    executionScope: "full",
     projectCategory: "solar",
     createdAt: "2026-03-05"
   },
@@ -166,7 +169,7 @@ export const seedProjects: Project[] = [
     contractAmount: 240000,
     amountReceived: 50000,
     location: "Mumbai",
-    assignees: [2, 5],
+    assignees: ["EMP002", "EMP005"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -176,6 +179,10 @@ export const seedProjects: Project[] = [
       billingParty: "MSS"
     },
     projectKind: "PARTNER_EPC",
+    projectMode: "PARTNER_NETWORK",
+    vendorshipOwner: "partner",
+    executionScope: "full",
+    partnerRole: "epc",
     projectCategory: "solar",
     createdAt: "2026-03-25"
   },
@@ -193,7 +200,7 @@ export const seedProjects: Project[] = [
     contractAmount: 700000,
     amountReceived: 0,
     location: "Kolkata",
-    assignees: [2],
+    assignees: ["EMP002"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -204,6 +211,10 @@ export const seedProjects: Project[] = [
       vendorshipFeeAmount: 25000
     },
     projectKind: "FIXED_EPC",
+    projectMode: "PARTNER_NETWORK",
+    vendorshipOwner: "partner",
+    executionScope: "full",
+    partnerRole: "fixed_margin",
     projectCategory: "solar",
     createdAt: "2026-04-05"
   },
@@ -221,7 +232,7 @@ export const seedProjects: Project[] = [
     contractAmount: 150000,
     amountReceived: 30000,
     location: "Nashik",
-    assignees: [3, 4],
+    assignees: ["EMP003", "EMP004"],
     scope: {
       hasMaterial: false,
       hasInstallation: true,
@@ -230,6 +241,9 @@ export const seedProjects: Project[] = [
       billingParty: "MSS"
     },
     projectKind: "INC",
+    projectMode: "DIRECT_CLIENT",
+    vendorshipOwner: "MSS",
+    executionScope: "service_only",
     projectCategory: "solar",
     createdAt: "2026-04-15"
   },
@@ -247,7 +261,7 @@ export const seedProjects: Project[] = [
     contractAmount: 620000,
     amountReceived: 300000,
     location: "Pune",
-    assignees: [2],
+    assignees: ["EMP002"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -258,6 +272,9 @@ export const seedProjects: Project[] = [
       billingParty: "MSS"
     },
     projectKind: "OUTSOURCED_INC",
+    projectMode: "DIRECT_CLIENT",
+    vendorshipOwner: "MSS",
+    executionScope: "full",
     projectCategory: "solar",
     createdAt: "2026-04-20"
   },
@@ -275,7 +292,7 @@ export const seedProjects: Project[] = [
     contractAmount: 30000,
     amountReceived: 0,
     location: "Bangalore",
-    assignees: [5],
+    assignees: ["EMP005"],
     scope: {
       hasMaterial: false,
       hasInstallation: false,
@@ -288,6 +305,10 @@ export const seedProjects: Project[] = [
     externalVendorshipEntity: "SafePower Systems",
     vendorshipFeeReceivable: 30000,
     projectKind: "VENDORSHIP_ONLY",
+    projectMode: "PARTNER_NETWORK",
+    vendorshipOwner: "MSS",
+    executionScope: "none",
+    partnerRole: "vendorship_only",
     projectCategory: "solar",
     createdAt: "2026-04-30"
   },
@@ -305,7 +326,7 @@ export const seedProjects: Project[] = [
     contractAmount: 3200000,
     amountReceived: 1600000,
     location: "Navi Mumbai",
-    assignees: [2, 5],
+    assignees: ["EMP002", "EMP005"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -315,6 +336,10 @@ export const seedProjects: Project[] = [
       billingParty: "MSS",
     },
     projectKind: "VENDOR_NETWORK",
+    projectMode: "PARTNER_NETWORK",
+    vendorshipOwner: "partner",
+    executionScope: "full",
+    partnerRole: "vendor_channel",
     channelPartnerIdRef: "P003",
     vendorNetworkCommissionType: "per_kw",
     vendorNetworkFeePerKw: 1500,
@@ -322,14 +347,14 @@ export const seedProjects: Project[] = [
     agentId: "A002",
     materialsSent: [
       {
-        itemId: 1,
+        itemId: "INV001",
         itemName: "Waaree 540W Mono PERC",
         quantity: 70,
         dateIssued: "2026-05-01",
         unitPrice: 14500,
       },
     ],
-    siteMaterialLedger: [{ itemId: 1, openingQty: 0, issuedQty: 70, returnedQty: 0, scrapAtSiteQty: 0, consumedQty: 0, updatedAt: "2026-05-02" }],
+    siteMaterialLedger: [{ itemId: "INV001", openingQty: 0, issuedQty: 70, returnedQty: 0, scrapAtSiteQty: 0, consumedQty: 0, updatedAt: "2026-05-02" }],
     createdAt: "2026-04-18",
   },
   {
@@ -346,7 +371,7 @@ export const seedProjects: Project[] = [
     contractAmount: 420000,
     amountReceived: 50000,
     location: "Bangalore",
-    assignees: [3],
+    assignees: ["EMP003"],
     scope: {
       hasMaterial: false,
       hasInstallation: true,
@@ -356,6 +381,9 @@ export const seedProjects: Project[] = [
       incGiverCompanyId: "IG002",
     },
     projectKind: "INC_GIVEN",
+    projectMode: "INC_GIVEN_TO_US",
+    vendorshipOwner: "none",
+    executionScope: "full",
     projectCategory: "solar",
     createdAt: "2026-04-22",
   },
@@ -373,7 +401,7 @@ export const seedProjects: Project[] = [
     contractAmount: 5200000,
     amountReceived: 2600000,
     location: "Hyderabad",
-    assignees: [2, 3, 7],
+    assignees: ["EMP002", "EMP003", "EMP007"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -382,9 +410,12 @@ export const seedProjects: Project[] = [
       billingParty: "MSS",
     },
     projectKind: "SOLO_EPC",
+    projectMode: "DIRECT_CLIENT",
+    vendorshipOwner: "MSS",
+    executionScope: "full",
     projectCategory: "solar",
     materialsSent: [
-      { itemId: 3, itemName: "Tata Power 550W Bifacial", quantity: 200, dateIssued: "2026-04-25", unitPrice: 16500 },
+      { itemId: "INV003", itemName: "Tata Power 550W Bifacial", quantity: 200, dateIssued: "2026-04-25", unitPrice: 16500 },
     ],
     generatedDocuments: [
       {
@@ -413,7 +444,7 @@ export const seedProjects: Project[] = [
     contractAmount: 380000,
     amountReceived: 380000,
     location: "Gurgaon",
-    assignees: [4],
+    assignees: ["EMP004"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -423,6 +454,10 @@ export const seedProjects: Project[] = [
       billingParty: "MSS",
     },
     projectKind: "PARTNER_EPC",
+    projectMode: "PARTNER_NETWORK",
+    vendorshipOwner: "partner",
+    executionScope: "full",
+    partnerRole: "epc",
     projectCategory: "solar",
     createdAt: "2026-01-10",
   },
@@ -441,7 +476,7 @@ export const seedProjects: Project[] = [
     contractAmount: 480000,
     amountReceived: 480000,
     location: "Delhi",
-    assignees: [2],
+    assignees: ["EMP002"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -451,6 +486,10 @@ export const seedProjects: Project[] = [
       billingParty: "PARTNER",
     },
     projectKind: "FIXED_EPC",
+    projectMode: "PARTNER_NETWORK",
+    vendorshipOwner: "partner",
+    executionScope: "full",
+    partnerRole: "fixed_margin",
     projectCategory: "solar",
     createdAt: "2026-01-18",
   },
@@ -469,7 +508,7 @@ export const seedProjects: Project[] = [
     contractAmount: 640000,
     amountReceived: 640000,
     location: "Mumbai",
-    assignees: [5],
+    assignees: ["EMP005"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -479,6 +518,10 @@ export const seedProjects: Project[] = [
       billingParty: "MSS",
     },
     projectKind: "VENDOR_NETWORK",
+    projectMode: "PARTNER_NETWORK",
+    vendorshipOwner: "partner",
+    executionScope: "full",
+    partnerRole: "vendor_channel",
     channelPartnerIdRef: "P004",
     vendorNetworkCommissionType: "flat",
     vendorNetworkFlatFee: 25000,
@@ -500,7 +543,7 @@ export const seedProjects: Project[] = [
     contractAmount: 95000,
     amountReceived: 95000,
     location: "Pune",
-    assignees: [6],
+    assignees: ["EMP006"],
     scope: {
       hasMaterial: false,
       hasInstallation: true,
@@ -509,6 +552,9 @@ export const seedProjects: Project[] = [
       billingParty: "MSS",
     },
     projectKind: "INC",
+    projectMode: "DIRECT_CLIENT",
+    vendorshipOwner: "MSS",
+    executionScope: "service_only",
     incScope: "labour",
     projectCategory: "solar",
     createdAt: "2026-01-02",
@@ -528,7 +574,7 @@ export const seedProjects: Project[] = [
     contractAmount: 1100000,
     amountReceived: 1100000,
     location: "Pune",
-    assignees: [2],
+    assignees: ["EMP002"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -539,6 +585,9 @@ export const seedProjects: Project[] = [
       billingParty: "MSS",
     },
     projectKind: "OUTSOURCED_INC",
+    projectMode: "DIRECT_CLIENT",
+    vendorshipOwner: "MSS",
+    executionScope: "full",
     projectCategory: "solar",
     createdAt: "2025-11-20",
   },
@@ -557,7 +606,7 @@ export const seedProjects: Project[] = [
     contractAmount: 890000,
     amountReceived: 890000,
     location: "Nashik",
-    assignees: [3],
+    assignees: ["EMP003"],
     scope: {
       hasMaterial: true,
       hasInstallation: true,
@@ -567,6 +616,9 @@ export const seedProjects: Project[] = [
       incGiverCompanyId: "IG001",
     },
     projectKind: "INC_GIVEN",
+    projectMode: "INC_GIVEN_TO_US",
+    vendorshipOwner: "none",
+    executionScope: "full",
     projectCategory: "solar",
     createdAt: "2025-10-01",
   },
@@ -585,7 +637,7 @@ export const seedProjects: Project[] = [
     contractAmount: 20000,
     amountReceived: 20000,
     location: "Hyderabad",
-    assignees: [5],
+    assignees: ["EMP005"],
     scope: {
       hasMaterial: false,
       hasInstallation: false,
@@ -598,6 +650,10 @@ export const seedProjects: Project[] = [
     externalVendorshipEntity: "SolarReg Services",
     vendorshipFeeReceivable: 20000,
     projectKind: "VENDORSHIP_ONLY",
+    projectMode: "PARTNER_NETWORK",
+    vendorshipOwner: "MSS",
+    executionScope: "none",
+    partnerRole: "vendorship_only",
     projectCategory: "solar",
     createdAt: "2026-01-05",
   },
@@ -618,6 +674,7 @@ export const seedInvoices: Invoice[] = [
   { id: "INV-2026-105", invoiceNumber: "MSS/INV/105", type: "invoice", customerId: "C005", customerName: "Green Valley Society", projectId: "PROJ-2026-105", items: [], services: [], subtotal: 1100000, cgst: 0, sgst: 0, igst: 0, total: 1100000, amountReceived: 1100000, status: "paid", invoiceDate: "2026-03-01", dueDate: "2026-03-15", createdAt: "2026-03-01" },
   { id: "INV-2026-106", invoiceNumber: "MSS/INV/106", type: "invoice", customerId: "C004", customerName: "Prakash Industries", projectId: "PROJ-2026-106", items: [], services: [], subtotal: 890000, cgst: 0, sgst: 0, igst: 0, total: 890000, amountReceived: 890000, status: "paid", invoiceDate: "2026-01-15", dueDate: "2026-01-25", createdAt: "2026-01-15" },
   { id: "INV-2026-107", invoiceNumber: "MSS/INV/107", type: "invoice", customerId: "C010", customerName: "Rohan Kapoor", projectId: "PROJ-2026-107", items: [], services: [], subtotal: 20000, cgst: 0, sgst: 0, igst: 0, total: 20000, amountReceived: 20000, status: "paid", invoiceDate: "2026-02-01", dueDate: "2026-02-08", createdAt: "2026-02-01" },
+  { id: "INV-2026-108", invoiceNumber: "MSS/INV/108", type: "invoice", customerId: "C015", customerName: "Ishaan Verma", projectId: "PROJ-2026-107", items: [], services: [], subtotal: 120000, cgst: 0, sgst: 0, igst: 0, total: 120000, amountReceived: 0, status: "pending", invoiceDate: "2026-05-10", dueDate: "2026-05-25", createdAt: "2026-05-10", notes: "Void smoke — no payments yet" },
 ];
 
 // ═══ FINANCE: PAYMENTS & EXPENSES (4 Months History) ═══
@@ -645,11 +702,11 @@ export const seedExpenses: Expense[] = [
   { id: "EXP-005", date: "2026-03-25", amount: 4200, category: "Office", description: "Electricity Bill Mar", paidBy: { type: "company" } },
   { id: "EXP-006", date: "2026-04-22", amount: 12000, mainCategory: "site", category: "Logistics", description: "Crane hire — Sunshine Phase-1", paidBy: { type: "company" }, projectId: "PROJ-2026-108", projectName: "Sunshine Hospital Phase-1 120kW", context: "project" },
   { id: "EXP-007", date: "2026-05-02", amount: 6500, mainCategory: "site", category: "Consumables", description: "Cable ties & MC4 spares — Blue Star", paidBy: { type: "company" }, projectId: "PROJ-2026-007", projectName: "Blue Star Channel 40kW", context: "project" },
-  { id: "EXP-008", date: "2026-04-18", amount: 240000, mainCategory: "site", category: "Procurement", description: "Waaree panel lot — Sunshine", paidBy: { type: "company" }, vendorId: "1", vendorName: "Waaree Energies Ltd", projectId: "PROJ-2026-108", projectName: "Sunshine Hospital Phase-1 120kW", context: "project" },
+  { id: "EXP-008", date: "2026-04-18", amount: 240000, mainCategory: "site", category: "Procurement", description: "Waaree panel lot — Sunshine", paidBy: { type: "company" }, vendorId: "V001", vendorName: "Waaree Energies Ltd", projectId: "PROJ-2026-108", projectName: "Sunshine Hospital Phase-1 120kW", context: "project" },
   { id: "EXP-009", date: "2026-04-29", amount: 8800, mainCategory: "site", category: "Safety", description: "Harness + lifeline rental", paidBy: { type: "company" }, projectId: "PROJ-2026-003", projectName: "Bharat-Fixed Ambit 10kW", context: "project" },
   { id: "EXP-010", date: "2026-05-04", amount: 14200, category: "Office", description: "Courier + prints — sales kits", paidBy: { type: "company" } },
-  { id: "EXP-011", date: "2026-04-16", amount: 9600, mainCategory: "site", category: "Logistics", description: "Polycab DC drums — Blue Star", paidBy: { type: "company" }, vendorId: "3", vendorName: "Polycab India Ltd", projectId: "PROJ-2026-007", projectName: "Blue Star Channel 40kW", context: "project" },
-  { id: "EXP-012", date: "2026-03-18", amount: 2200, category: "Operations", description: "Team lunch — site survey", paidBy: { type: "company" }, teamMealEmployeeIds: [2, 3, 9], teamMealEmployeeNames: ["Priya Singh", "Rahul Dravid", "Smriti Mandhana"] },
+  { id: "EXP-011", date: "2026-04-16", amount: 9600, mainCategory: "site", category: "Logistics", description: "Polycab DC drums — Blue Star", paidBy: { type: "company" }, vendorId: "V003", vendorName: "Polycab India Ltd", projectId: "PROJ-2026-007", projectName: "Blue Star Channel 40kW", context: "project" },
+  { id: "EXP-012", date: "2026-03-18", amount: 2200, category: "Operations", description: "Team lunch — site survey", paidBy: { type: "company" }, teamMealEmployeeIds: ["EMP002", "EMP003", "EMP009"], teamMealEmployeeNames: ["Priya Singh", "Rahul Dravid", "Smriti Mandhana"] },
 ];
 
 // ═══ FINANCE: LOANS (Active with History) ═══
@@ -671,85 +728,85 @@ export const seedLoanRepayments: LoanRepayment[] = [
 
 // ═══ INVENTORY ═══
 export const seedInventoryItems: InventoryItem[] = [
-  { id: 1, name: "Waaree 540W Mono PERC", category: "Panels", stock: 150, unit: "Nos", minStock: 20, value: 14500, buyPrice: 13000, salePrice: 16000, hsn: "8541", alert: false },
-  { id: 2, name: "Growatt 5kW On-grid Inverter", category: "Inverters", stock: 12, unit: "Nos", minStock: 3, value: 42000, buyPrice: 38000, salePrice: 48000, hsn: "8504", alert: false },
-  { id: 3, name: "Tata Power 550W Bifacial", category: "Panels", stock: 85, unit: "Nos", minStock: 20, value: 16500, buyPrice: 15000, salePrice: 18500, hsn: "8541", alert: false },
-  { id: 4, name: "MC4 Connectors (Pair)", category: "BOS", stock: 450, unit: "Pair", minStock: 100, value: 85, buyPrice: 65, salePrice: 120, hsn: "8536", alert: false },
-  { id: 5, name: "GI Structure - 3kW Residential", category: "Structure", stock: 5, unit: "Set", minStock: 2, value: 22000, buyPrice: 18000, salePrice: 28000, hsn: "7308", alert: false },
-  { id: 6, name: "ACDB 32A Three-phase", category: "Electrical", stock: 18, unit: "Nos", minStock: 4, value: 8500, buyPrice: 6200, salePrice: 9800, hsn: "8536", alert: false },
-  { id: 7, name: "DC Cable 4 sq.mm (100m drum)", category: "Cables", stock: 24, unit: "Drum", minStock: 6, value: 4200, buyPrice: 3500, salePrice: 5100, hsn: "8544", alert: false },
-  { id: 8, name: "Lightning Arrestor Kit", category: "BOS", stock: 40, unit: "Set", minStock: 10, value: 3200, buyPrice: 2400, salePrice: 4100, hsn: "8535", alert: false },
-  { id: 9, name: "Earthing Kit Copper-bonded", category: "BOS", stock: 55, unit: "Set", minStock: 12, value: 1800, buyPrice: 1200, salePrice: 2400, hsn: "7413", alert: false },
-  { id: 10, name: "Polycab 6kW Hybrid Inverter", category: "Inverters", stock: 6, unit: "Nos", minStock: 2, value: 72000, buyPrice: 65000, salePrice: 82000, hsn: "8504", alert: false },
-  { id: 11, name: "Aluminium Ladder 12ft", category: "Tools", stock: 14, unit: "Nos", minStock: 4, value: 6500, buyPrice: 4800, salePrice: 7800, hsn: "7616", alert: false },
-  { id: 12, name: "Combiner Box 4-string", category: "Electrical", stock: 22, unit: "Nos", minStock: 5, value: 5400, buyPrice: 4100, salePrice: 6600, hsn: "8537", alert: false },
+  { id: "INV001", name: "Waaree 540W Mono PERC", category: "Panels", stock: 150, unit: "Nos", minStock: 20, value: 14500, buyPrice: 13000, salePrice: 16000, hsn: "8541", alert: false },
+  { id: "INV002", name: "Growatt 5kW On-grid Inverter", category: "Inverters", stock: 12, unit: "Nos", minStock: 3, value: 42000, buyPrice: 38000, salePrice: 48000, hsn: "8504", alert: false },
+  { id: "INV003", name: "Tata Power 550W Bifacial", category: "Panels", stock: 85, unit: "Nos", minStock: 20, value: 16500, buyPrice: 15000, salePrice: 18500, hsn: "8541", alert: false },
+  { id: "INV004", name: "MC4 Connectors (Pair)", category: "BOS", stock: 450, unit: "Pair", minStock: 100, value: 85, buyPrice: 65, salePrice: 120, hsn: "8536", alert: false },
+  { id: "INV005", name: "GI Structure - 3kW Residential", category: "Structure", stock: 5, unit: "Set", minStock: 2, value: 22000, buyPrice: 18000, salePrice: 28000, hsn: "7308", alert: false },
+  { id: "INV006", name: "ACDB 32A Three-phase", category: "Electrical", stock: 18, unit: "Nos", minStock: 4, value: 8500, buyPrice: 6200, salePrice: 9800, hsn: "8536", alert: false },
+  { id: "INV007", name: "DC Cable 4 sq.mm (100m drum)", category: "Cables", stock: 24, unit: "Drum", minStock: 6, value: 4200, buyPrice: 3500, salePrice: 5100, hsn: "8544", alert: false },
+  { id: "INV008", name: "Lightning Arrestor Kit", category: "BOS", stock: 40, unit: "Set", minStock: 10, value: 3200, buyPrice: 2400, salePrice: 4100, hsn: "8535", alert: false },
+  { id: "INV009", name: "Earthing Kit Copper-bonded", category: "BOS", stock: 55, unit: "Set", minStock: 12, value: 1800, buyPrice: 1200, salePrice: 2400, hsn: "7413", alert: false },
+  { id: "INV010", name: "Polycab 6kW Hybrid Inverter", category: "Inverters", stock: 6, unit: "Nos", minStock: 2, value: 72000, buyPrice: 65000, salePrice: 82000, hsn: "8504", alert: false },
+  { id: "INV011", name: "Aluminium Ladder 12ft", category: "Tools", stock: 14, unit: "Nos", minStock: 4, value: 6500, buyPrice: 4800, salePrice: 7800, hsn: "7616", alert: false },
+  { id: "INV012", name: "Combiner Box 4-string", category: "Electrical", stock: 22, unit: "Nos", minStock: 5, value: 5400, buyPrice: 4100, salePrice: 6600, hsn: "8537", alert: false },
 ];
 
 export const seedVendors: Vendor[] = [
-  { id: 1, name: "Waaree Energies Ltd", category: ["Panels"], contact: "Sunil Jain", email: "sales@waaree.com", address: "Borivali, Mumbai", gstin: "27AAAWA0001A1Z1", outstandingAmount: 450000, purchaseHistory: [] },
-  { id: 2, name: "Growatt New Energy", category: ["Inverters"], contact: "Li Wei", email: "service@growatt.com", address: "Shenzhen, China", outstandingAmount: 0, purchaseHistory: [] },
-  { id: 3, name: "Polycab India Ltd", category: ["Cables", "Electrical"], contact: "Ramesh K", email: "projects@polycab.com", address: "Halol, Gujarat", gstin: "24AAAPA0003A1Z1", outstandingAmount: 120000, purchaseHistory: [] },
-  { id: 4, name: "Havells India", category: ["Electrical", "BOS"], contact: "Neha Sinha", email: "solar@havells.com", address: "Alwar, Rajasthan", gstin: "08AAAHV0004A1Z1", outstandingAmount: 0, purchaseHistory: [] },
-  { id: 5, name: "3M Electrical Markets", category: ["BOS"], contact: "Jason Lee", email: "india.renewables@3m.com", address: "Bangalore", gstin: "29AAA3M0005A1Z1", outstandingAmount: 28000, purchaseHistory: [] },
-  { id: 6, name: "Local Scrap & Copper", category: ["BOS"], contact: "Shankar Patil", email: "patil.scrap@local", address: "Pune", outstandingAmount: 0, purchaseHistory: [] },
+  { id: "V001", name: "Waaree Energies Ltd", category: ["Panels"], contact: "Sunil Jain", email: "sales@waaree.com", address: "Borivali, Mumbai", gstin: "27AAAWA0001A1Z1", outstandingAmount: 450000, purchaseHistory: [] },
+  { id: "V002", name: "Growatt New Energy", category: ["Inverters"], contact: "Li Wei", email: "service@growatt.com", address: "Shenzhen, China", outstandingAmount: 0, purchaseHistory: [] },
+  { id: "V003", name: "Polycab India Ltd", category: ["Cables", "Electrical"], contact: "Ramesh K", email: "projects@polycab.com", address: "Halol, Gujarat", gstin: "24AAAPA0003A1Z1", outstandingAmount: 120000, purchaseHistory: [] },
+  { id: "V004", name: "Havells India", category: ["Electrical", "BOS"], contact: "Neha Sinha", email: "solar@havells.com", address: "Alwar, Rajasthan", gstin: "08AAAHV0004A1Z1", outstandingAmount: 0, purchaseHistory: [] },
+  { id: "V005", name: "3M Electrical Markets", category: ["BOS"], contact: "Jason Lee", email: "india.renewables@3m.com", address: "Bangalore", gstin: "29AAA3M0005A1Z1", outstandingAmount: 28000, purchaseHistory: [] },
+  { id: "V006", name: "Local Scrap & Copper", category: ["BOS"], contact: "Shankar Patil", email: "patil.scrap@local", address: "Pune", outstandingAmount: 0, purchaseHistory: [] },
 ];
 
 // ═══ HR: ATTENDANCE (Historical) ═══
 export const seedAttendanceRecords: AttendanceRecord[] = [
-  { id: "ATT-001", employeeId: 1, date: "2026-05-01", status: "present", sites: ["Office"], notes: "Normal check-in" },
-  { id: "ATT-002", employeeId: 2, date: "2026-05-01", status: "present", sites: ["PROJ-2026-002"], notes: "Site visit" },
-  { id: "ATT-003", employeeId: 3, date: "2026-05-01", status: "present", sites: ["PROJ-2026-004"], notes: "" },
-  { id: "ATT-004", employeeId: 4, date: "2026-05-01", status: "absent", sites: [], notes: "Sick leave" },
-  { id: "ATT-005", employeeId: 1, date: "2026-05-02", status: "present", sites: ["Office"], notes: "" },
-  { id: "ATT-006", employeeId: 2, date: "2026-05-02", status: "present", sites: ["PROJ-2026-002"], notes: "" },
-  { id: "ATT-007", employeeId: 5, date: "2026-05-02", status: "present", sites: ["PROJ-2026-007"], notes: "Channel project coordination" },
-  { id: "ATT-008", employeeId: 7, date: "2026-05-03", status: "present", sites: ["PROJ-2026-108"], notes: "Hospital rooftop shift" },
-  { id: "ATT-009", employeeId: 3, date: "2026-05-03", status: "half-day", sites: ["PROJ-2026-008"], notes: "INC given survey" },
-  { id: "ATT-010", employeeId: 6, date: "2026-05-04", status: "present", sites: ["PROJ-2026-005"], notes: "Outsourced supervision" },
-  { id: "ATT-011", employeeId: 8, date: "2026-05-04", status: "present", sites: ["PROJ-2026-004"], notes: "Panel stringing" },
-  { id: "ATT-012", employeeId: 2, date: "2026-05-05", status: "present", sites: ["Office"], notes: "Planning" },
-  { id: "ATT-013", employeeId: 9, date: "2026-05-05", status: "present", sites: ["PROJ-2026-108"], notes: "Single-line review" },
-  { id: "ATT-014", employeeId: 10, date: "2026-05-05", status: "present", sites: ["PROJ-2026-003"], notes: "Bharat structure check" },
-  { id: "ATT-015", employeeId: 11, date: "2026-05-04", status: "present", sites: ["Office"], notes: "PO follow-ups" },
-  { id: "ATT-016", employeeId: 12, date: "2026-05-04", status: "present", sites: ["PROJ-2026-005"], notes: "Subcontractor walkthrough" },
-  { id: "ATT-017", employeeId: 1, date: "2026-04-28", status: "present", sites: ["Office"], notes: "" },
-  { id: "ATT-018", employeeId: 4, date: "2026-04-28", status: "present", sites: ["PROJ-2026-002"], notes: "" },
-  { id: "ATT-019", employeeId: 5, date: "2026-04-27", status: "present", sites: ["PROJ-2026-007"], notes: "" },
-  { id: "ATT-020", employeeId: 6, date: "2026-04-26", status: "holiday", sites: [], notes: "Optional holiday" },
-  { id: "ATT-021", employeeId: 7, date: "2026-04-25", status: "present", sites: ["PROJ-2026-108"], notes: "" },
-  { id: "ATT-022", employeeId: 8, date: "2026-04-24", status: "present", sites: ["PROJ-2026-004"], notes: "" },
-  { id: "ATT-023", employeeId: 9, date: "2026-04-23", status: "half-day", sites: ["Office"], notes: "Half day — clinic" },
-  { id: "ATT-024", employeeId: 3, date: "2026-04-22", status: "present", sites: ["PROJ-2026-008"], notes: "" },
-  { id: "ATT-025", employeeId: 2, date: "2026-04-21", status: "present", sites: ["PROJ-2026-002"], notes: "" },
-  { id: "ATT-026", employeeId: 10, date: "2026-04-20", status: "absent", sites: [], notes: "Leave" },
-  { id: "ATT-027", employeeId: 11, date: "2026-04-19", status: "present", sites: ["PROJ-2026-007"], notes: "Vendor coordination" },
-  { id: "ATT-028", employeeId: 12, date: "2026-04-18", status: "present", sites: ["PROJ-2026-005"], notes: "" },
-  { id: "ATT-029", employeeId: 1, date: "2026-04-17", status: "present", sites: ["Office"], notes: "" },
-  { id: "ATT-030", employeeId: 4, date: "2026-04-16", status: "present", sites: ["PROJ-2026-001"], notes: "Warranty paperwork — closed site" },
+  { id: "ATT-001", employeeId: "EMP001", date: "2026-05-01", status: "present", sites: ["Office"], notes: "Normal check-in" },
+  { id: "ATT-002", employeeId: "EMP002", date: "2026-05-01", status: "present", sites: ["PROJ-2026-002"], notes: "Site visit" },
+  { id: "ATT-003", employeeId: "EMP003", date: "2026-05-01", status: "present", sites: ["PROJ-2026-004"], notes: "" },
+  { id: "ATT-004", employeeId: "EMP004", date: "2026-05-01", status: "absent", sites: [], notes: "Sick leave" },
+  { id: "ATT-005", employeeId: "EMP001", date: "2026-05-02", status: "present", sites: ["Office"], notes: "" },
+  { id: "ATT-006", employeeId: "EMP002", date: "2026-05-02", status: "present", sites: ["PROJ-2026-002"], notes: "" },
+  { id: "ATT-007", employeeId: "EMP005", date: "2026-05-02", status: "present", sites: ["PROJ-2026-007"], notes: "Channel project coordination" },
+  { id: "ATT-008", employeeId: "EMP007", date: "2026-05-03", status: "present", sites: ["PROJ-2026-108"], notes: "Hospital rooftop shift" },
+  { id: "ATT-009", employeeId: "EMP003", date: "2026-05-03", status: "half-day", sites: ["PROJ-2026-008"], notes: "INC given survey" },
+  { id: "ATT-010", employeeId: "EMP006", date: "2026-05-04", status: "present", sites: ["PROJ-2026-005"], notes: "Outsourced supervision" },
+  { id: "ATT-011", employeeId: "EMP008", date: "2026-05-04", status: "present", sites: ["PROJ-2026-004"], notes: "Panel stringing" },
+  { id: "ATT-012", employeeId: "EMP002", date: "2026-05-05", status: "present", sites: ["Office"], notes: "Planning" },
+  { id: "ATT-013", employeeId: "EMP009", date: "2026-05-05", status: "present", sites: ["PROJ-2026-108"], notes: "Single-line review" },
+  { id: "ATT-014", employeeId: "EMP010", date: "2026-05-05", status: "present", sites: ["PROJ-2026-003"], notes: "Bharat structure check" },
+  { id: "ATT-015", employeeId: "EMP011", date: "2026-05-04", status: "present", sites: ["Office"], notes: "PO follow-ups" },
+  { id: "ATT-016", employeeId: "EMP012", date: "2026-05-04", status: "present", sites: ["PROJ-2026-005"], notes: "Subcontractor walkthrough" },
+  { id: "ATT-017", employeeId: "EMP001", date: "2026-04-28", status: "present", sites: ["Office"], notes: "" },
+  { id: "ATT-018", employeeId: "EMP004", date: "2026-04-28", status: "present", sites: ["PROJ-2026-002"], notes: "" },
+  { id: "ATT-019", employeeId: "EMP005", date: "2026-04-27", status: "present", sites: ["PROJ-2026-007"], notes: "" },
+  { id: "ATT-020", employeeId: "EMP006", date: "2026-04-26", status: "holiday", sites: [], notes: "Optional holiday" },
+  { id: "ATT-021", employeeId: "EMP007", date: "2026-04-25", status: "present", sites: ["PROJ-2026-108"], notes: "" },
+  { id: "ATT-022", employeeId: "EMP008", date: "2026-04-24", status: "present", sites: ["PROJ-2026-004"], notes: "" },
+  { id: "ATT-023", employeeId: "EMP009", date: "2026-04-23", status: "half-day", sites: ["Office"], notes: "Half day — clinic" },
+  { id: "ATT-024", employeeId: "EMP003", date: "2026-04-22", status: "present", sites: ["PROJ-2026-008"], notes: "" },
+  { id: "ATT-025", employeeId: "EMP002", date: "2026-04-21", status: "present", sites: ["PROJ-2026-002"], notes: "" },
+  { id: "ATT-026", employeeId: "EMP010", date: "2026-04-20", status: "absent", sites: [], notes: "Leave" },
+  { id: "ATT-027", employeeId: "EMP011", date: "2026-04-19", status: "present", sites: ["PROJ-2026-007"], notes: "Vendor coordination" },
+  { id: "ATT-028", employeeId: "EMP012", date: "2026-04-18", status: "present", sites: ["PROJ-2026-005"], notes: "" },
+  { id: "ATT-029", employeeId: "EMP001", date: "2026-04-17", status: "present", sites: ["Office"], notes: "" },
+  { id: "ATT-030", employeeId: "EMP004", date: "2026-04-16", status: "present", sites: ["PROJ-2026-001"], notes: "Warranty paperwork — closed site" },
 ];
 
 // ═══ FALLBACKS / OTHER ═══
 export const seedTasks: Task[] = [
-  { id: "TASK-001", projectId: "PROJ-2026-002", siteId: "1", siteName: "Mehta Sky-Villa", workType: "Panel Installation", notes: "Complete by Wed", createdDate: "2026-05-01", workDate: "2026-05-03", status: "started", createdBy: "Arjun Kapoor", employeeId: 4 },
-  { id: "TASK-002", projectId: "PROJ-2026-007", siteId: "4", siteName: "Blue Star Navi Mumbai Warehouse", workType: "AC Cabling", notes: "Rack layout approved", createdDate: "2026-05-02", workDate: "2026-05-04", status: "sent", createdBy: "Priya Singh", employeeId: 5 },
-  { id: "TASK-003", projectId: "PROJ-2026-108", siteId: "5", siteName: "Sunshine Block-A Rooftop", workType: "Structure alignment", notes: "Third-party inspection slot", createdDate: "2026-05-02", workDate: "2026-05-06", status: "checked", createdBy: "Priya Singh", employeeId: 7 },
-  { id: "TASK-004", projectId: "PROJ-2026-008", siteId: "6", siteName: "Sharma Rooftop — INC Given", workType: "INC Given handoff", notes: "Coordinate with Sunrise PM", createdDate: "2026-05-03", workDate: "2026-05-05", status: "created", createdBy: "Arjun Kapoor", employeeId: 3 },
-  { id: "TASK-005", projectId: "PROJ-2026-004", siteId: "2", siteName: "Prakash MIDC", workType: "Labour sign-off", notes: "Daily progress photo", createdDate: "2026-05-04", workDate: "2026-05-04", status: "done", createdBy: "Rahul Dravid", employeeId: 4 },
-  { id: "TASK-006", projectId: "PROJ-2026-005", siteId: "7", siteName: "Deshmukh Kothrud Site", workType: "Subcontractor induction", notes: "Apex crew badge list", createdDate: "2026-05-04", workDate: "2026-05-07", status: "sent", createdBy: "Priya Singh", employeeId: 12 },
-  { id: "TASK-007", projectId: "PROJ-2026-003", siteId: "3", siteName: "Bharat MIDC Yard", workType: "Dispatch verification", notes: "Match DC cable drums", createdDate: "2026-05-05", workDate: "2026-05-08", status: "started", createdBy: "Shafali Verma", employeeId: 11 },
-  { id: "TASK-008", projectId: "PROJ-2026-108", siteId: "5", siteName: "Sunshine Block-A Rooftop", workType: "Lightning arrestor install", notes: "Use kit batch LA-08", createdDate: "2026-05-05", workDate: "2026-05-09", status: "created", createdBy: "Smriti Mandhana", employeeId: 9 },
-  { id: "TASK-009", projectId: "PROJ-2026-007", siteId: "4", siteName: "Blue Star Navi Mumbai Warehouse", workType: "Combiner boxing", notes: "Torque spec sheet attached", createdDate: "2026-05-05", workDate: "2026-05-10", status: "checked", createdBy: "Bhuvneshwar Kumar", employeeId: 12 },
-  { id: "TASK-010", projectId: "PROJ-2026-002", siteId: "1", siteName: "Mehta Sky-Villa", workType: "Client walkthrough", notes: "Loan disbursement pending", createdDate: "2026-05-06", workDate: "2026-05-06", status: "sent", createdBy: "Hardik Pandya", employeeId: 5 },
+  { id: "TASK-001", projectId: "PROJ-2026-002", siteId: "SITE001", siteName: "Mehta Sky-Villa", workType: "Panel Installation", notes: "Complete by Wed", createdDate: "2026-05-01", workDate: "2026-05-03", status: "started", createdBy: "Arjun Kapoor", employeeId: "EMP004" },
+  { id: "TASK-002", projectId: "PROJ-2026-007", siteId: "SITE004", siteName: "Blue Star Navi Mumbai Warehouse", workType: "AC Cabling", notes: "Rack layout approved", createdDate: "2026-05-02", workDate: "2026-05-04", status: "sent", createdBy: "Priya Singh", employeeId: "EMP005" },
+  { id: "TASK-003", projectId: "PROJ-2026-108", siteId: "SITE005", siteName: "Sunshine Block-A Rooftop", workType: "Structure alignment", notes: "Third-party inspection slot", createdDate: "2026-05-02", workDate: "2026-05-06", status: "checked", createdBy: "Priya Singh", employeeId: "EMP007" },
+  { id: "TASK-004", projectId: "PROJ-2026-008", siteId: "SITE006", siteName: "Sharma Rooftop — INC Given", workType: "INC Given handoff", notes: "Coordinate with Sunrise PM", createdDate: "2026-05-03", workDate: "2026-05-05", status: "created", createdBy: "Arjun Kapoor", employeeId: "EMP003" },
+  { id: "TASK-005", projectId: "PROJ-2026-004", siteId: "SITE002", siteName: "Prakash MIDC", workType: "Labour sign-off", notes: "Daily progress photo", createdDate: "2026-05-04", workDate: "2026-05-04", status: "done", createdBy: "Rahul Dravid", employeeId: "EMP004" },
+  { id: "TASK-006", projectId: "PROJ-2026-005", siteId: "SITE007", siteName: "Deshmukh Kothrud Site", workType: "Subcontractor induction", notes: "Apex crew badge list", createdDate: "2026-05-04", workDate: "2026-05-07", status: "sent", createdBy: "Priya Singh", employeeId: "EMP012" },
+  { id: "TASK-007", projectId: "PROJ-2026-003", siteId: "SITE003", siteName: "Bharat MIDC Yard", workType: "Dispatch verification", notes: "Match DC cable drums", createdDate: "2026-05-05", workDate: "2026-05-08", status: "started", createdBy: "Shafali Verma", employeeId: "EMP011" },
+  { id: "TASK-008", projectId: "PROJ-2026-108", siteId: "SITE005", siteName: "Sunshine Block-A Rooftop", workType: "Lightning arrestor install", notes: "Use kit batch LA-08", createdDate: "2026-05-05", workDate: "2026-05-09", status: "created", createdBy: "Smriti Mandhana", employeeId: "EMP009" },
+  { id: "TASK-009", projectId: "PROJ-2026-007", siteId: "SITE004", siteName: "Blue Star Navi Mumbai Warehouse", workType: "Combiner boxing", notes: "Torque spec sheet attached", createdDate: "2026-05-05", workDate: "2026-05-10", status: "checked", createdBy: "Bhuvneshwar Kumar", employeeId: "EMP012" },
+  { id: "TASK-010", projectId: "PROJ-2026-002", siteId: "SITE001", siteName: "Mehta Sky-Villa", workType: "Client walkthrough", notes: "Loan disbursement pending", createdDate: "2026-05-06", workDate: "2026-05-06", status: "sent", createdBy: "Hardik Pandya", employeeId: "EMP005" },
 ];
 
 export const seedTeams: Team[] = [
-  { id: "TEAM-001", name: "Installation Team A", memberIds: [4, 7, 8, 10], leadId: 4, createdAt: "2026-01-01", status: "Active" },
-  { id: "TEAM-002", name: "Commissioning Team B", memberIds: [9, 11, 12], leadId: 9, createdAt: "2026-03-15", status: "Active" },
+  { id: "TEAM-001", name: "Installation Team A", memberIds: ["EMP004", "EMP007", "EMP008", "EMP010"], leadId: "EMP004", createdAt: "2026-01-01", status: "Active" },
+  { id: "TEAM-002", name: "Commissioning Team B", memberIds: ["EMP009", "EMP011", "EMP012"], leadId: "EMP009", createdAt: "2026-03-15", status: "Active" },
 ];
 
 export const seedSites: SiteRecord[] = [
   {
-    id: 1,
+    id: "SITE001",
     name: "Mehta Sky-Villa",
     projectId: "PROJ-2026-002",
     projectName: "Mehta Sky-Villa 3kW",
@@ -759,7 +816,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-MEHTA-STRUCTURE",
         requiresMaterial: true,
-        inventoryItemId: 5,
+        inventoryItemId: "INV005",
         materialName: "GI Structure - 3kW Residential",
         requiredQuantity: 8,
         status: "pending",
@@ -767,7 +824,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-MEHTA-INVERTER",
         requiresMaterial: true,
-        inventoryItemId: 2,
+        inventoryItemId: "INV002",
         materialName: "Growatt 5kW On-grid Inverter",
         requiredQuantity: 1,
         status: "pending",
@@ -775,7 +832,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-MEHTA-PANELS",
         requiresMaterial: true,
-        inventoryItemId: 1,
+        inventoryItemId: "INV001",
         materialName: "Waaree 540W Mono PERC",
         requiredQuantity: 6,
         status: "pending",
@@ -783,7 +840,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-MEHTA-MC4",
         requiresMaterial: true,
-        inventoryItemId: 4,
+        inventoryItemId: "INV004",
         materialName: "MC4 Connectors (Pair)",
         requiredQuantity: 48,
         status: "pending",
@@ -791,7 +848,7 @@ export const seedSites: SiteRecord[] = [
     ],
   },
   {
-    id: 2,
+    id: "SITE002",
     name: "Prakash MIDC",
     projectId: "PROJ-2026-004",
     projectName: "Prakash MIDC Labour Only",
@@ -801,7 +858,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-PRAKASH-MC4",
         requiresMaterial: true,
-        inventoryItemId: 4,
+        inventoryItemId: "INV004",
         materialName: "MC4 Connectors (Pair)",
         requiredQuantity: 20,
         status: "pending",
@@ -809,7 +866,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-PRAKASH-PANELS-BIF",
         requiresMaterial: true,
-        inventoryItemId: 3,
+        inventoryItemId: "INV003",
         materialName: "Tata Power 550W Bifacial",
         requiredQuantity: 24,
         status: "pending",
@@ -817,7 +874,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-PRAKASH-SPARE-INV",
         requiresMaterial: true,
-        inventoryItemId: 2,
+        inventoryItemId: "INV002",
         materialName: "Growatt 5kW On-grid Inverter",
         requiredQuantity: 1,
         status: "pending",
@@ -825,7 +882,7 @@ export const seedSites: SiteRecord[] = [
     ],
   },
   {
-    id: 3,
+    id: "SITE003",
     name: "Bharat MIDC Yard",
     projectId: "PROJ-2026-003",
     projectName: "Bharat-Fixed Ambit 10kW",
@@ -835,7 +892,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-BHARAT-STRUCT",
         requiresMaterial: true,
-        inventoryItemId: 5,
+        inventoryItemId: "INV005",
         materialName: "GI Structure - 3kW Residential",
         requiredQuantity: 12,
         status: "pending",
@@ -843,7 +900,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-BHARAT-PANELS",
         requiresMaterial: true,
-        inventoryItemId: 1,
+        inventoryItemId: "INV001",
         materialName: "Waaree 540W Mono PERC",
         requiredQuantity: 18,
         status: "pending",
@@ -851,7 +908,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-BHARAT-BOS",
         requiresMaterial: true,
-        inventoryItemId: 4,
+        inventoryItemId: "INV004",
         materialName: "MC4 Connectors (Pair)",
         requiredQuantity: 120,
         status: "pending",
@@ -859,7 +916,7 @@ export const seedSites: SiteRecord[] = [
     ],
   },
   {
-    id: 4,
+    id: "SITE004",
     name: "Blue Star Navi Mumbai Warehouse",
     projectId: "PROJ-2026-007",
     projectName: "Blue Star Channel 40kW",
@@ -869,7 +926,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-BLUE-STRUCT",
         requiresMaterial: true,
-        inventoryItemId: 5,
+        inventoryItemId: "INV005",
         materialName: "GI Structure - 3kW Residential",
         requiredQuantity: 40,
         status: "pending",
@@ -877,7 +934,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-BLUE-PANELS",
         requiresMaterial: true,
-        inventoryItemId: 1,
+        inventoryItemId: "INV001",
         materialName: "Waaree 540W Mono PERC",
         requiredQuantity: 74,
         status: "pending",
@@ -885,7 +942,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-BLUE-INV",
         requiresMaterial: true,
-        inventoryItemId: 2,
+        inventoryItemId: "INV002",
         materialName: "Growatt 5kW On-grid Inverter",
         requiredQuantity: 8,
         status: "pending",
@@ -893,7 +950,7 @@ export const seedSites: SiteRecord[] = [
     ],
   },
   {
-    id: 5,
+    id: "SITE005",
     name: "Sunshine Block-A Rooftop",
     projectId: "PROJ-2026-108",
     projectName: "Sunshine Hospital Phase-1 120kW",
@@ -903,7 +960,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-SUN-PANELS",
         requiresMaterial: true,
-        inventoryItemId: 3,
+        inventoryItemId: "INV003",
         materialName: "Tata Power 550W Bifacial",
         requiredQuantity: 220,
         status: "pending",
@@ -911,7 +968,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-SUN-BOS",
         requiresMaterial: true,
-        inventoryItemId: 4,
+        inventoryItemId: "INV004",
         materialName: "MC4 Connectors (Pair)",
         requiredQuantity: 400,
         status: "pending",
@@ -926,7 +983,7 @@ export const seedSites: SiteRecord[] = [
     ],
   },
   {
-    id: 6,
+    id: "SITE006",
     name: "Sharma Rooftop — INC Given",
     projectId: "PROJ-2026-008",
     projectName: "Sunrise INC Given Rooftop",
@@ -943,7 +1000,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-SHARMA-CABLE",
         requiresMaterial: true,
-        inventoryItemId: 4,
+        inventoryItemId: "INV004",
         materialName: "MC4 Connectors (Pair)",
         requiredQuantity: 16,
         status: "pending",
@@ -951,7 +1008,7 @@ export const seedSites: SiteRecord[] = [
     ],
   },
   {
-    id: 7,
+    id: "SITE007",
     name: "Deshmukh Kothrud Site",
     projectId: "PROJ-2026-005",
     projectName: "EnergyMitra Outsourced Install",
@@ -961,7 +1018,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-DESH-ACDB",
         requiresMaterial: true,
-        inventoryItemId: 6,
+        inventoryItemId: "INV006",
         materialName: "ACDB 32A Three-phase",
         requiredQuantity: 1,
         status: "pending",
@@ -969,7 +1026,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-DESH-LA",
         requiresMaterial: true,
-        inventoryItemId: 8,
+        inventoryItemId: "INV008",
         materialName: "Lightning Arrestor Kit",
         requiredQuantity: 1,
         status: "pending",
@@ -977,7 +1034,7 @@ export const seedSites: SiteRecord[] = [
       {
         id: "CHK-DESH-EARTH",
         requiresMaterial: true,
-        inventoryItemId: 9,
+        inventoryItemId: "INV009",
         materialName: "Earthing Kit Copper-bonded",
         requiredQuantity: 1,
         status: "pending",
@@ -1048,7 +1105,79 @@ export const seedQuotationVisibilityPresets: QuotationVisibilityPreset[] = [
   { id: "VP-02", name: "Hide Amounts (Technical Only)", visibility: { systemDetails: true, materials: true, hideAmounts: true, whatYouGet: true, paymentTerms: false, warranty: true, termsConditions: false }, createdAt: "2026-01-01" },
 ];
 
-export const seedQuotationTemplates: QuotationTemplate[] = [];
+export const seedQuotationTemplates: QuotationTemplate[] = [
+  {
+    id: "QT-001",
+    name: "Residential 3 kW — Waaree + Growatt",
+    segment: "residential",
+    panelBrand: "Waaree",
+    panelWattage: 540,
+    inverterCapacity: "5 kW",
+    structureType: "Elevated GI",
+    materialItems: [
+      { inventoryItemId: "INV001", name: "Waaree 540W Mono PERC", quantity: 6, unit: "Nos" },
+      { inventoryItemId: "INV002", name: "Growatt 5kW On-grid Inverter", quantity: 1, unit: "Nos" },
+      { inventoryItemId: "INV005", name: "GI Structure - 3kW Residential", quantity: 1, unit: "Set" },
+      { inventoryItemId: "INV007", name: "DC Cable 4 sq.mm (100m drum)", quantity: 1, unit: "Drum" },
+      { inventoryItemId: "INV004", name: "MC4 Connectors (Pair)", quantity: 8, unit: "Pair" },
+      { inventoryItemId: "INV009", name: "Earthing Kit Copper-bonded", quantity: 1, unit: "Set" },
+      { inventoryItemId: "INV006", name: "ACDB 32A Three-phase", quantity: 1, unit: "Nos" },
+    ],
+    services: [
+      { description: "Installation & commissioning", sac: "998719", rate: 15000, gstRate: 18 },
+    ],
+    createdAt: "2026-01-15T09:00:00Z",
+  },
+  {
+    id: "QT-002",
+    name: "Commercial 25 kW — Tata + Polycab Hybrid",
+    segment: "commercial",
+    panelBrand: "Tata Power",
+    panelWattage: 550,
+    inverterCapacity: "25 kW (4× 6kW)",
+    structureType: "Elevated GI heavy-duty",
+    materialItems: [
+      { inventoryItemId: "INV003", name: "Tata Power 550W Bifacial", quantity: 46, unit: "Nos" },
+      { inventoryItemId: "INV010", name: "Polycab 6kW Hybrid Inverter", quantity: 4, unit: "Nos" },
+      { inventoryItemId: "INV007", name: "DC Cable 4 sq.mm (100m drum)", quantity: 4, unit: "Drum" },
+      { inventoryItemId: "INV012", name: "Combiner Box 4-string", quantity: 2, unit: "Nos" },
+      { inventoryItemId: "INV006", name: "ACDB 32A Three-phase", quantity: 2, unit: "Nos" },
+      { inventoryItemId: "INV009", name: "Earthing Kit Copper-bonded", quantity: 2, unit: "Set" },
+      { inventoryItemId: "INV008", name: "Lightning Arrestor Kit", quantity: 1, unit: "Set" },
+      { inventoryItemId: "INV004", name: "MC4 Connectors (Pair)", quantity: 60, unit: "Pair" },
+    ],
+    services: [
+      { description: "Installation & commissioning", sac: "998719", rate: 85000, gstRate: 18 },
+      { description: "AMC 1 year", sac: "998739", rate: 15000, gstRate: 18 },
+    ],
+    createdAt: "2026-01-15T09:30:00Z",
+  },
+  {
+    id: "QT-003",
+    name: "Industrial 100 kW — Tata + Polycab Cluster",
+    segment: "industrial",
+    panelBrand: "Tata Power",
+    panelWattage: 550,
+    inverterCapacity: "100 kW (16× 6kW)",
+    structureType: "Steel tilted",
+    materialItems: [
+      { inventoryItemId: "INV003", name: "Tata Power 550W Bifacial", quantity: 182, unit: "Nos" },
+      { inventoryItemId: "INV010", name: "Polycab 6kW Hybrid Inverter", quantity: 16, unit: "Nos" },
+      { inventoryItemId: "INV007", name: "DC Cable 4 sq.mm (100m drum)", quantity: 16, unit: "Drum" },
+      { inventoryItemId: "INV012", name: "Combiner Box 4-string", quantity: 8, unit: "Nos" },
+      { inventoryItemId: "INV006", name: "ACDB 32A Three-phase", quantity: 8, unit: "Nos" },
+      { inventoryItemId: "INV009", name: "Earthing Kit Copper-bonded", quantity: 6, unit: "Set" },
+      { inventoryItemId: "INV008", name: "Lightning Arrestor Kit", quantity: 4, unit: "Set" },
+      { inventoryItemId: "INV004", name: "MC4 Connectors (Pair)", quantity: 220, unit: "Pair" },
+    ],
+    services: [
+      { description: "Installation & commissioning", sac: "998719", rate: 350000, gstRate: 18 },
+      { description: "Remote monitoring setup", sac: "998719", rate: 40000, gstRate: 18 },
+      { description: "AMC 2 years", sac: "998739", rate: 50000, gstRate: 18 },
+    ],
+    createdAt: "2026-01-15T10:00:00Z",
+  },
+];
 
 /**
  * Rich Site Checklist Templates migrated from the legacy `/presets` page.
@@ -1096,7 +1225,7 @@ export const seedSiteChecklistTemplates: SiteChecklistTemplate[] = [
       segment: "residential" as const,
       items: bomToItems(bom),
       createdAt: "2026-01-10",
-      subtype: "solar_package" as const,
+      subtype: "generic" as const,
       capacityKW: 3,
       panelBrand: "Waaree",
       panelWattage: 540,
@@ -1116,7 +1245,7 @@ export const seedSiteChecklistTemplates: SiteChecklistTemplate[] = [
       segment: "residential" as const,
       items: bomToItems(bom),
       createdAt: "2026-01-10",
-      subtype: "solar_package" as const,
+      subtype: "generic" as const,
       capacityKW: 5,
       panelBrand: "Waaree",
       panelWattage: 540,
@@ -1136,7 +1265,7 @@ export const seedSiteChecklistTemplates: SiteChecklistTemplate[] = [
       segment: "commercial" as const,
       items: bomToItems(bom),
       createdAt: "2026-01-10",
-      subtype: "solar_package" as const,
+      subtype: "generic" as const,
       capacityKW: 15,
       panelBrand: "Tata",
       panelWattage: 550,
@@ -1154,12 +1283,12 @@ export const seedVendorBills: any[] = [];
 export const seedVendorPayments: any[] = [];
 
 export const seedEmployeePayrollRecords: EmployeePayrollRecord[] = [
-  { id: "PAYR-2026-02", employeeId: 1, employeeName: "Arjun Kapoor", month: "February", year: 2026, daysPresent: 22, grossAmount: 85000, deductions: 0, netAmount: 85000, paidDate: "2026-02-28", mode: "bank_transfer" },
-  { id: "PAYR-2026-03", employeeId: 1, employeeName: "Arjun Kapoor", month: "March", year: 2026, daysPresent: 24, grossAmount: 85000, deductions: 0, netAmount: 85000, paidDate: "2026-03-31", mode: "bank_transfer" },
-  { id: "PAYR-2026-04", employeeId: 1, employeeName: "Arjun Kapoor", month: "April", year: 2026, daysPresent: 21, grossAmount: 85000, deductions: 500, netAmount: 84500, paidDate: "2026-04-30", mode: "bank_transfer" },
-  { id: "PAYR-PS-04", employeeId: 2, employeeName: "Priya Singh", month: "April", year: 2026, daysPresent: 23, grossAmount: 65000, deductions: 2000, netAmount: 63000, paidDate: "2026-04-30", mode: "bank_transfer" },
-  { id: "PAYR-RD-04", employeeId: 3, employeeName: "Rahul Dravid", month: "April", year: 2026, daysPresent: 20, grossAmount: 45000, deductions: 0, netAmount: 45000, paidDate: "2026-04-30", mode: "bank_transfer" },
-  { id: "PAYR-HP-04", employeeId: 5, employeeName: "Hardik Pandya", month: "April", year: 2026, daysPresent: 22, grossAmount: 55000, deductions: 1500, netAmount: 53500, paidDate: "2026-04-30", mode: "bank_transfer" },
-  { id: "PAYR-SM-04", employeeId: 9, employeeName: "Smriti Mandhana", month: "April", year: 2026, daysPresent: 21, grossAmount: 58000, deductions: 0, netAmount: 58000, paidDate: "2026-04-30", mode: "bank_transfer" },
+  { id: "PAYR-2026-02", employeeId: "EMP001", employeeName: "Arjun Kapoor", month: "February", year: 2026, daysPresent: 22, grossAmount: 85000, deductions: 0, netAmount: 85000, paidDate: "2026-02-28", mode: "bank_transfer" },
+  { id: "PAYR-2026-03", employeeId: "EMP001", employeeName: "Arjun Kapoor", month: "March", year: 2026, daysPresent: 24, grossAmount: 85000, deductions: 0, netAmount: 85000, paidDate: "2026-03-31", mode: "bank_transfer" },
+  { id: "PAYR-2026-04", employeeId: "EMP001", employeeName: "Arjun Kapoor", month: "April", year: 2026, daysPresent: 21, grossAmount: 85000, deductions: 500, netAmount: 84500, paidDate: "2026-04-30", mode: "bank_transfer" },
+  { id: "PAYR-PS-04", employeeId: "EMP002", employeeName: "Priya Singh", month: "April", year: 2026, daysPresent: 23, grossAmount: 65000, deductions: 2000, netAmount: 63000, paidDate: "2026-04-30", mode: "bank_transfer" },
+  { id: "PAYR-RD-04", employeeId: "EMP003", employeeName: "Rahul Dravid", month: "April", year: 2026, daysPresent: 20, grossAmount: 45000, deductions: 0, netAmount: 45000, paidDate: "2026-04-30", mode: "bank_transfer" },
+  { id: "PAYR-HP-04", employeeId: "EMP005", employeeName: "Hardik Pandya", month: "April", year: 2026, daysPresent: 22, grossAmount: 55000, deductions: 1500, netAmount: 53500, paidDate: "2026-04-30", mode: "bank_transfer" },
+  { id: "PAYR-SM-04", employeeId: "EMP009", employeeName: "Smriti Mandhana", month: "April", year: 2026, daysPresent: 21, grossAmount: 58000, deductions: 0, netAmount: 58000, paidDate: "2026-04-30", mode: "bank_transfer" },
 ];
 export const seedAgentsData: Agent[] = seedAgents;

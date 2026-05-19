@@ -30,7 +30,7 @@ export function MaterialDamageSheet({
   onOpenChange: (v: boolean) => void;
   projectId: string;
   projectName: string;
-  itemId: number;
+  itemId: string;
   itemName: string;
   defaultUnitCost?: number;
   onReported?: (damageId: string) => void;
@@ -58,7 +58,7 @@ export function MaterialDamageSheet({
       stage,
       projectId,
       transportRef: transportRef.trim() || undefined,
-      reportedBy: reportedBy ? Number.parseInt(reportedBy, 10) : undefined,
+      reportedBy: reportedBy.trim() || undefined,
       notes: notes.trim() || undefined,
       costImpact: cost && cost > 0 ? cost : undefined,
     });

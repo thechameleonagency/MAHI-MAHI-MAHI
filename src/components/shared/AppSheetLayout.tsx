@@ -13,6 +13,13 @@ export const APP_DIALOG_SIZE_CLASS = {
   wide: "sm:max-w-6xl sm:w-[95vw]",
 } as const;
 
+/** Semantic presets for `AppSheetContent` width classes. */
+export const sheetPresets = {
+  wide: APP_DIALOG_SIZE_CLASS.wide,
+  narrow: APP_DIALOG_SIZE_CLASS.md,
+  confirm: APP_DIALOG_SIZE_CLASS.sm,
+} as const;
+
 export type AppSheetSize = keyof typeof APP_DIALOG_SIZE_CLASS;
 
 type AppSheetContentProps = React.ComponentPropsWithoutRef<typeof SheetContent> & {

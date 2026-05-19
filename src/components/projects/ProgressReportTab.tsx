@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { AlertTriangle, Check, Clock, Plus, Flag, Users, Calendar, MapPin, ChevronDown, ChevronRight, FileText, Briefcase, CheckCircle2, XCircle, Circle, IndianRupee, RotateCcw, User, Wrench, Zap, Camera, Video } from "lucide-react";
 import { ImageViewerModal } from "@/components/shared/ImageViewerModal";
-import { TaskAssignmentModal } from "@/components/employees/TaskAssignmentModal";
+import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ import type {
   Blockage,
   Ticket,
   ProjectTimelineStatus,
-  _WorkStatusApprovalInfo,
+
   WorkStatusApprovalStatus,
 } from "@/types/blockage";
 import { WORK_STATUS_STAGES, BLOCKAGE_TIMELINE_STAGES, DEFAULT_CUSTOM_STAGE_TAGS, type CustomBlockageStageTag } from "@/types/blockage";
@@ -39,7 +39,7 @@ const TIMELINE_STEPS = [
 ];
 
 interface MaterialSentItem {
-  itemId: number;
+  itemId: string;
   itemName: string;
   quantity: number;
   dateIssued: string;
@@ -69,6 +69,19 @@ interface ProgressReportTabProps {
   onAddTicket: (ticket: Omit<Ticket, "id" | "createdAt">) => void;
   onUpdateTimeline: (updates: Partial<ProjectTimelineStatus>) => void;
   scope?: ProjectScopeConfig;
+  /** Outsource info attached to the project — when present, renders an outsource tracking panel. */
+  outsource?: {
+    partyId?: string;
+    partyName?: string;
+    rateBasis: "per_kw" | "per_sqft" | "fixed";
+    rateValue: number;
+    quantity?: number;
+    total: number;
+    notes?: string;
+    attachedAt: string;
+  } | null;
+  /** Project mode drives content variants — INC_GIVEN_TO_US strips the documentation timeline. */
+  projectMode?: "DIRECT_CLIENT" | "PARTNER_NETWORK" | "INC_GIVEN_TO_US";
 }
 
 // File Login steps (sequential)
@@ -81,7 +94,7 @@ const FILE_LOGIN_STEPS = [
 // Subsidy options
 const SUBSIDY_OPTIONS = [
   { value: "center-78k", label: "Center", amount: "₹78,000", color: "bg-accent border-border/80 text-muted-foreground" },
-  { value: "state-17k", label: "State", amount: "₹17,000", color: "bg-purple-500/10 border-purple-500/30 text-purple-400" },
+  { value: "state-17k", label: "State", amount: "₹17,000", color: "bg-accent/30 border-accent text-accent-foreground" },
   { value: "both", label: "Both", amount: "₹95,000", color: "bg-accent border-border/80 text-muted-foreground" },
   { value: "not-applicable", label: "N/A", amount: "₹0", color: "bg-muted border-muted-foreground/20 text-muted-foreground" },
 ];
@@ -124,9 +137,9 @@ const TASK_TYPES = [
 ];
 
 const PRIORITIES = [
-  { value: "urgent", label: "Urgent", color: "bg-red-500/20 text-red-500" },
-  { value: "high", label: "High", color: "bg-orange-500/20 text-orange-500" },
-  { value: "medium", label: "Medium", color: "bg-yellow-500/20 text-yellow-500" },
+  { value: "urgent", label: "Urgent", color: "bg-destructive/20 text-destructive" },
+  { value: "high", label: "High", color: "bg-warning/20 text-warning" },
+  { value: "medium", label: "Medium", color: "bg-warning/20 text-warning" },
   { value: "low", label: "Low", color: "bg-slate-500/20 text-slate-600" },
 ];
 
@@ -157,21 +170,27 @@ export function ProgressReportTab({
   onAddTicket,
   onUpdateTimeline,
   scope,
+  outsource,
+  projectMode,
 }: ProgressReportTabProps) {
   
-  // Dynamic steps based on scope
+  // Dynamic steps based on scope + new project mode.
+  //  - INC_GIVEN_TO_US: the giver owns documents/material supply → strip file-login/DCR/DISCOM/subsidy.
+  //  - vendorshipOwner !== "MSS" (legacy scope shape): same — no MSS doc timeline.
+  //  - Work step only renders when scope explicitly installs.
   const visibleSteps = useMemo(() => {
-    // If no scope (legacy), return all
-    if (!scope) return TIMELINE_STEPS;
-    
+    const isIncGiven = projectMode === "INC_GIVEN_TO_US";
+    if (!scope && !isIncGiven) return TIMELINE_STEPS;
+
     return TIMELINE_STEPS.filter(step => {
-      if (step.key === "work") return scope.hasInstallation;
+      if (step.key === "work") return scope ? scope.hasInstallation : true;
       if (["fileLogin", "discomStatus", "dcrStatus", "subsidyType"].includes(step.key)) {
-        return scope.vendorshipOwner === "MSS";
+        if (isIncGiven) return false;
+        return scope ? scope.vendorshipOwner === "MSS" : true;
       }
-      return true; // Keep Pay, Bank, etc.
+      return true;
     });
-  }, [scope]);
+  }, [scope, projectMode]);
 
   // Modal states
   const [isAddBlockageOpen, setIsAddBlockageOpen] = useState(false);
@@ -1487,6 +1506,42 @@ export function ProgressReportTab({
 
   return (
     <div className="space-y-6">
+      {/* Outsource tracking panel — visible whenever the project has outsource info attached. */}
+      {outsource && (
+        <Card className="border-warning/30 bg-warning/50 dark:bg-warning/5">
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm flex items-center gap-2 text-warning dark:text-warning">
+              <Wrench className="h-4 w-4" />
+              Outsourced work tracking
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:grid-cols-4">
+            <div>
+              <p className="text-2xs uppercase tracking-wide text-muted-foreground">Subcontractor</p>
+              <p className="font-medium">{outsource.partyName || outsource.partyId || "—"}</p>
+            </div>
+            <div>
+              <p className="text-2xs uppercase tracking-wide text-muted-foreground">Rate basis</p>
+              <p className="font-medium capitalize">{outsource.rateBasis.replace("_", " ")}</p>
+            </div>
+            <div>
+              <p className="text-2xs uppercase tracking-wide text-muted-foreground">Rate</p>
+              <p className="font-medium tabular-nums">₹{outsource.rateValue.toLocaleString("en-IN")}</p>
+            </div>
+            <div>
+              <p className="text-2xs uppercase tracking-wide text-muted-foreground">Total</p>
+              <p className="font-medium tabular-nums">₹{outsource.total.toLocaleString("en-IN")}</p>
+            </div>
+            {outsource.notes && (
+              <div className="col-span-full">
+                <p className="text-2xs uppercase tracking-wide text-muted-foreground">Notes</p>
+                <p className="text-sm">{outsource.notes}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Conditional CTA Button - based on project status */}
       <div className="flex flex-wrap gap-2">
         {isCompleted ? (
@@ -1616,7 +1671,7 @@ export function ProgressReportTab({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="w-4 h-4 text-orange-500" />
+              <Clock className="w-4 h-4 text-warning" />
               Pending Tasks ({pendingTickets.length})
             </CardTitle>
           </CardHeader>
@@ -1659,13 +1714,13 @@ export function ProgressReportTab({
       )}
 
       {/* Site Blockages Section - with Active/History Toggle */}
-      <Card className={`${activeBlockages.length > 0 ? 'border-orange-500/30 shadow-orange-500/5' : ''}`}>
+      <Card className={`${activeBlockages.length > 0 ? 'border-warning/30 shadow-orange-500/5' : ''}`}>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-xl ${activeBlockages.length > 0 ? 'bg-orange-500/20' : 'bg-muted/90'}`}>
+              <div className={`p-2 rounded-xl ${activeBlockages.length > 0 ? 'bg-warning/20' : 'bg-muted/90'}`}>
                 {activeBlockages.length > 0 ? (
-                  <AlertTriangle className="h-4 w-4 text-orange-500" />
+                  <AlertTriangle className="h-4 w-4 text-warning" />
                 ) : (
                   <CheckCircle2 className="h-4 w-4 text-success" />
                 )}
@@ -1747,9 +1802,9 @@ export function ProgressReportTab({
                   : 'Unknown';
                 const isDelayed = blockage.projectStage === 'delayed';
                 const isOnHold = blockage.projectStage === 'on-hold';
-                const priorityColor = isDelayed ? 'bg-red-500' : isOnHold ? 'bg-yellow-500' : 'bg-orange-500';
-                const priorityBg = isDelayed ? 'bg-red-500/10 border-red-500/30' : isOnHold ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-orange-500/10 border-orange-500/30';
-                const priorityText = isDelayed ? 'text-red-400' : isOnHold ? 'text-yellow-400' : 'text-orange-400';
+                const priorityColor = isDelayed ? 'bg-destructive' : isOnHold ? 'bg-warning' : 'bg-warning';
+                const priorityBg = isDelayed ? 'bg-destructive/10 border-destructive/30' : isOnHold ? 'bg-warning/10 border-warning/30' : 'bg-warning/10 border-warning/30';
+                const priorityText = isDelayed ? 'text-destructive' : isOnHold ? 'text-warning' : 'text-warning';
                 
                 return (
                   <div key={blockage.id} className={`relative overflow-hidden rounded-xl border ${priorityBg}`}>
@@ -1763,9 +1818,9 @@ export function ProgressReportTab({
                           <div className="flex items-center gap-2 mb-1">
                             <h4 className={`font-semibold ${priorityText}`}>{blockage.title}</h4>
                             <Badge variant="secondary" className={`text-2xs px-1.5 py-0 h-4 ${
-                              isDelayed ? 'bg-red-500/20 text-red-400' : 
-                              isOnHold ? 'bg-yellow-500/20 text-yellow-400' : 
-                              'bg-orange-500/20 text-orange-400'
+                              isDelayed ? 'bg-destructive/20 text-destructive' : 
+                              isOnHold ? 'bg-warning/20 text-warning' : 
+                              'bg-warning/20 text-warning'
                             }`}>
                               {isDelayed ? 'HIGH PRIORITY' : isOnHold ? 'MEDIUM' : 'NORMAL'}
                             </Badge>
@@ -1997,8 +2052,8 @@ export function ProgressReportTab({
                       <div key={ticket.id} className="relative overflow-hidden rounded-xl border bg-card/50">
                         <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
                           ticket.priority === "urgent" ? "bg-destructive" :
-                          ticket.priority === "high" ? "bg-orange-500" :
-                          ticket.priority === "medium" ? "bg-amber-500" :
+                          ticket.priority === "high" ? "bg-warning" :
+                          ticket.priority === "medium" ? "bg-warning" :
                           "bg-primary"
                         }`} />
                         <div className="p-4 pl-5">
@@ -2014,7 +2069,7 @@ export function ProgressReportTab({
                                 {ticket.taskType === "custom" ? ticket.customTaskType : ticket.taskType} • Due: {formatUiDate(ticket.dueDate)}
                               </p>
                             </div>
-                            <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
+                            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
                               {ticket.status}
                             </Badge>
                           </div>
@@ -2280,7 +2335,7 @@ export function ProgressReportTab({
                           </div>
                           <div className="flex justify-between text-xs border-t border-muted-foreground/10 pt-1.5">
                             <span className="text-muted-foreground">Remaining</span>
-                            <span className="font-semibold text-amber-600">{formatCurrency(Math.max(0, projectContractAmount - totalCashReceived))}</span>
+                            <span className="font-semibold text-warning">{formatCurrency(Math.max(0, projectContractAmount - totalCashReceived))}</span>
                           </div>
                         </div>
                       )}
@@ -2460,9 +2515,9 @@ export function ProgressReportTab({
                       {/* Loan Rejected - Restart */}
                       {loanStatus === "rejected" && (
                         <div className="space-y-2 mt-2">
-                          <div className="flex items-center gap-2 p-2 bg-red-500/10 rounded-lg border border-red-500/30">
-                            <XCircle className="w-4 h-4 text-red-500" />
-                            <span className="text-xs font-medium text-red-500">Loan Rejected</span>
+                          <div className="flex items-center gap-2 p-2 bg-destructive/10 rounded-lg border border-destructive/30">
+                            <XCircle className="w-4 h-4 text-destructive" />
+                            <span className="text-xs font-medium text-destructive">Loan Rejected</span>
                           </div>
                           <Button size="sm" variant="outline" className="w-full" onClick={handleLoanRestart}>
                             <RotateCcw className="w-3 h-3 mr-1" />
@@ -2505,9 +2560,9 @@ export function ProgressReportTab({
                         <div key={stage.value} className={`flex flex-col gap-2 p-2.5 rounded-lg border transition-colors ${
                           allSubItemsDone 
                             ? 'bg-accent border-primary/30 ring-1 ring-border/60' 
-                            : approvalStatus === "requested" ? 'bg-amber-500/5 border-amber-500/30' :
+                            : approvalStatus === "requested" ? 'bg-warning/5 border-warning/30' :
                             approvalStatus === "approved" ? 'bg-muted/40 border-border/80' :
-                            approvalStatus === "rejected" ? 'bg-red-500/5 border-red-500/30' :
+                            approvalStatus === "rejected" ? 'bg-destructive/5 border-destructive/30' :
                             approvalStatus === "closed" ? 'bg-muted border-muted-foreground/20' :
                             'bg-muted/30 border-muted-foreground/10'
                         }`}>
@@ -2555,19 +2610,19 @@ export function ProgressReportTab({
                                     />
                                   ))}
                                   {approval.photoUrls.length > 3 && (
-                                    <span className="text-[9px] text-muted-foreground">+{approval.photoUrls.length - 3}</span>
+                                    <span className="text-2xs text-muted-foreground">+{approval.photoUrls.length - 3}</span>
                                   )}
                                 </div>
                               )}
                               {stage.photoRequired && (!approval?.photoUrls || approval.photoUrls.length === 0) && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">
+                                <span className="text-2xs px-1.5 py-0.5 rounded bg-destructive/20 text-destructive">
                                   <Camera className="w-2.5 h-2.5 inline mr-0.5" />
                                   0
                                 </span>
                               )}
                               {stage.videoRequired && (
                                 <span className={`px-1.5 py-0.5 rounded ${
-                                  approval?.videoCount ? 'bg-muted/90 text-foreground' : 'bg-amber-500/20 text-amber-600'
+                                  approval?.videoCount ? 'bg-muted/90 text-foreground' : 'bg-warning/20 text-warning'
                                 }`}>
                                   🎥 {approval?.videoCount || 0}
                                 </span>
@@ -2576,7 +2631,7 @@ export function ProgressReportTab({
                             
                             {/* Status Badge */}
                             {approvalStatus === "requested" && (
-                              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-2xs px-1.5">
+                              <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-2xs px-1.5">
                                 Pending Approval
                               </Badge>
                             )}
@@ -2586,7 +2641,7 @@ export function ProgressReportTab({
                               </Badge>
                             )}
                             {approvalStatus === "rejected" && (
-                              <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/30 text-2xs px-1.5">
+                              <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-2xs px-1.5">
                                 Rejected
                               </Badge>
                             )}
@@ -2627,7 +2682,7 @@ export function ProgressReportTab({
                                         isSubCompleted 
                                           ? 'bg-accent border-border/80' 
                                           : isOnHold
-                                          ? 'bg-amber-500/10 border-amber-500/30'
+                                          ? 'bg-warning/10 border-warning/30'
                                           : 'bg-muted/20 border-muted-foreground/10'
                                       }`}
                                       onClick={() => handleSubItemClick(stage.value, subItem.value, subItem.photoRequired || false)}
@@ -2637,24 +2692,24 @@ export function ProgressReportTab({
                                         {isSubCompleted ? (
                                           <CheckCircle2 className="w-3.5 h-3.5 text-success flex-shrink-0" />
                                         ) : isOnHold ? (
-                                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                                          <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0" />
                                         ) : (
-                                          <Circle className="w-2.5 h-2.5 text-red-400 flex-shrink-0" />
+                                          <Circle className="w-2.5 h-2.5 text-destructive flex-shrink-0" />
                                         )}
                                         
                                         <span className={`flex-1 font-medium ${
                                           isSubCompleted 
                                             ? 'text-foreground' 
                                             : isOnHold
-                                            ? 'text-amber-600'
-                                            : 'text-red-500'
+                                            ? 'text-warning'
+                                            : 'text-destructive'
                                         }`}>
                                           {subItem.label}
                                         </span>
                                         
                                         {/* Transport counts for transport sub-items */}
-                                        {subItem.value.includes("transport") && materialsSent && materialsSent.length > 0 && (
-                                          <span className="text-[9px] text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
+                                        {subItem.value?.includes("transport") && materialsSent && materialsSent.length > 0 && (
+                                          <span className="text-2xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
                                             {getTransportedCount(stage.value)} sent
                                           </span>
                                         )}
@@ -2675,19 +2730,19 @@ export function ProgressReportTab({
                                               />
                                             ))}
                                             {subApproval.photoUrls.length > 2 && (
-                                              <span className="text-[8px] text-muted-foreground">+{subApproval.photoUrls.length - 2}</span>
+                                              <span className="text-2xs text-muted-foreground">+{subApproval.photoUrls.length - 2}</span>
                                             )}
                                           </div>
                                         )}
                                         {subItem.photoRequired && (!subApproval?.photoUrls || subApproval.photoUrls.length === 0) && (
-                                          <span className="text-[9px] px-1 py-0.5 rounded bg-red-500/20 text-red-400">
+                                          <span className="text-2xs px-1 py-0.5 rounded bg-destructive/20 text-destructive">
                                             <Camera className="w-2.5 h-2.5 inline mr-0.5" />
                                             0
                                           </span>
                                         )}
                                         {subItem.videoRequired && (
-                                          <span className={`text-[9px] px-1 py-0.5 rounded ${
-                                            subApproval?.videoCount ? 'bg-muted/90 text-foreground' : 'bg-amber-500/20 text-amber-600'
+                                          <span className={`text-2xs px-1 py-0.5 rounded ${
+                                            subApproval?.videoCount ? 'bg-muted/90 text-foreground' : 'bg-warning/20 text-warning'
                                           }`}>
                                             <Video className="w-2.5 h-2.5 inline mr-0.5" />
                                             {subApproval?.videoCount || 0}
@@ -2720,7 +2775,7 @@ export function ProgressReportTab({
                                       
                                       {/* On hold / blockage indicator */}
                                       {isOnHold && (
-                                        <div className="mt-1.5 ml-5 flex items-center gap-1 text-2xs text-amber-600">
+                                        <div className="mt-1.5 ml-5 flex items-center gap-1 text-2xs text-warning">
                                           <Flag className="w-2.5 h-2.5" />
                                           <span>{hasBlockage ? "On Hold - Blockage linked" : "Rejected - Photo retake required"}</span>
                                         </div>
@@ -2728,7 +2783,7 @@ export function ProgressReportTab({
                                       
                                       {/* Rejection reason */}
                                       {subApproval?.rejectionReason && (
-                                        <div className="mt-1.5 ml-5 p-1.5 bg-red-500/10 rounded text-2xs text-red-600">
+                                        <div className="mt-1.5 ml-5 p-1.5 bg-destructive/10 rounded text-2xs text-destructive">
                                           Reason: {subApproval.rejectionReason}
                                         </div>
                                       )}
@@ -2800,7 +2855,7 @@ export function ProgressReportTab({
                               <Button 
                                 size="sm" 
                                 variant="outline" 
-                                className="h-7 text-xs border-amber-500/40 text-amber-600"
+                                className="h-7 text-xs border-warning/40 text-warning"
                                 onClick={() => handleRequestDone(stage.value)}
                               >
                                 <RotateCcw className="w-3 h-3 mr-1" />
@@ -2916,9 +2971,9 @@ export function ProgressReportTab({
                   )}
                   
                   {discomSubsidyStatus === "rejected" && (
-                    <div className="flex items-center gap-2 p-2 bg-red-500/10 rounded-lg border border-red-500/30 mt-3">
-                      <XCircle className="w-4 h-4 text-red-500" />
-                      <span className="text-xs font-medium text-red-500">Subsidy Rejected - Pending</span>
+                    <div className="flex items-center gap-2 p-2 bg-destructive/10 rounded-lg border border-destructive/30 mt-3">
+                      <XCircle className="w-4 h-4 text-destructive" />
+                      <span className="text-xs font-medium text-destructive">Subsidy Rejected - Pending</span>
                     </div>
                   )}
                 </div>
@@ -2981,7 +3036,7 @@ export function ProgressReportTab({
                           </div>
                           <div className="flex justify-between text-xs border-t border-muted-foreground/10 pt-1.5">
                             <span className="text-muted-foreground">Remaining</span>
-                            <span className="font-semibold text-amber-600">{formatCurrency(Math.max(0, projectContractAmount - totalCashReceived))}</span>
+                            <span className="font-semibold text-warning">{formatCurrency(Math.max(0, projectContractAmount - totalCashReceived))}</span>
                           </div>
                         </div>
                       )}
@@ -3357,7 +3412,7 @@ export function ProgressReportTab({
 
       {/* Resolve Blockage Modal */}
       <Sheet open={isResolveBlockageModalOpen} onOpenChange={setIsResolveBlockageModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Resolve Blockage</SheetTitle>
             <SheetDescription>Mark this blockage as resolved</SheetDescription>
@@ -3365,8 +3420,8 @@ export function ProgressReportTab({
           
           {selectedBlockageToResolve && (
             <div className="space-y-4 py-4">
-              <div className="p-3 bg-orange-500/10 rounded-lg border border-orange-500/20">
-                <p className="font-medium text-orange-400">{selectedBlockageToResolve.title}</p>
+              <div className="p-3 bg-warning/10 rounded-lg border border-warning/20">
+                <p className="font-medium text-warning">{selectedBlockageToResolve.title}</p>
                 <p className="text-sm text-muted-foreground mt-1">{selectedBlockageToResolve.reason}</p>
               </div>
               
@@ -3416,7 +3471,7 @@ export function ProgressReportTab({
 
       {/* Add Blockage Modal */}
       <Sheet open={isAddBlockageOpen} onOpenChange={setIsAddBlockageOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add Blockage</SheetTitle>
             <SheetDescription>Record why work has stopped on this project</SheetDescription>
@@ -3593,7 +3648,7 @@ export function ProgressReportTab({
 
       {/* Create Ticket Modal */}
       <Sheet open={isAddTicketOpen} onOpenChange={setIsAddTicketOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Create Ticket / Task</SheetTitle>
             <SheetDescription>Assign a task to team members</SheetDescription>
@@ -3905,7 +3960,7 @@ export function ProgressReportTab({
       
       {/* Photo Assignment Modal */}
       <Sheet open={!!photoAssignmentModal?.open} onOpenChange={(open) => !open && setPhotoAssignmentModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Photos Required for {photoAssignmentModal?.stageName}</SheetTitle>
             <SheetDescription>
@@ -4001,7 +4056,7 @@ export function ProgressReportTab({
       />
       {/* Task Assignment Modal */}
       {isAssignTaskOpen && (
-        <TaskAssignmentModal
+        <TaskAssignmentSheet
           isOpen={isAssignTaskOpen}
           onClose={() => {
             setIsAssignTaskOpen(false);

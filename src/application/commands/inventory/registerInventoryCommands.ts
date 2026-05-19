@@ -9,7 +9,7 @@ import type { Project } from "@/types/project";
 export type WarehouseOnlyMovementType = "PurchaseIn" | "ScrapWarehouse";
 
 export type WarehouseInventoryMovementPayload = {
-  itemId: number;
+  itemId: string;
   movementType: WarehouseOnlyMovementType;
   quantity: number;
 };
@@ -18,7 +18,7 @@ export const WAREHOUSE_INVENTORY_MOVEMENT_COMMAND = "inventory.warehouse_movemen
 
 export type MaterialMovementAtProjectPayload = {
   projectId: string;
-  itemId: number;
+  itemId: string;
   movementType: MovementType;
   quantity: number;
   allowNegativeSiteBalanceOverride?: boolean;
@@ -46,7 +46,7 @@ export const registerInventoryCommands = (
     consumedQty: 0,
   };
 
-  commandBus.register<Command<WarehouseInventoryMovementPayload>, { itemId: number }>(
+  commandBus.register<Command<WarehouseInventoryMovementPayload>, { itemId: string }>(
     WAREHOUSE_INVENTORY_MOVEMENT_COMMAND,
     (command) => {
       permissionService.assertCanPerformAction(command.actorRole, "inventory:material_movement");
@@ -88,7 +88,7 @@ export const registerInventoryCommands = (
     },
   );
 
-  commandBus.register<Command<MaterialMovementAtProjectPayload>, { projectId: string; itemId: number }>(
+  commandBus.register<Command<MaterialMovementAtProjectPayload>, { projectId: string; itemId: string }>(
     MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
     (command) => {
       permissionService.assertCanPerformAction(command.actorRole, "inventory:material_movement");

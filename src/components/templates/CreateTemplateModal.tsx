@@ -36,7 +36,7 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
   const [siteSubtype, setSiteSubtype] = useState<SiteSubtype>("generic");
 
   // Catalog-linked materials (used by both tabs for simple form).
-  const [materials, setMaterials] = useState<{ inventoryItemId: number; quantity: number }[]>([]);
+  const [materials, setMaterials] = useState<{ inventoryItemId: string; quantity: number }[]>([]);
   const [services, setServices] = useState<{ description: string; sac: string; rate: number; gstRate: number }[]>([]);
 
   // Solar-package rich metadata (Site Checklist tab only).
@@ -51,7 +51,7 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
   const [bom, setBom] = useState<SiteChecklistTemplateBomLine[]>([]);
 
   const handleAddMaterial = () => {
-    setMaterials([...materials, { inventoryItemId: inventoryItems[0]?.id || 0, quantity: 1 }]);
+    setMaterials([...materials, { inventoryItemId: inventoryItems[0]?.id ? String(inventoryItems[0].id) : "", quantity: 1 }]);
   };
 
   const handleRemoveMaterial = (index: number) => {
@@ -250,23 +250,8 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
             </div>
           </div>
 
-          {type === "site" && (
-            <div className="space-y-2">
-              <Label>Site checklist subtype</Label>
-              <Select value={siteSubtype} onValueChange={(v: SiteSubtype) => setSiteSubtype(v)}>
-                <SelectTrigger className="w-full max-w-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="generic">Generic checklist (catalogue materials only)</SelectItem>
-                  <SelectItem value="solar_package">Solar package (rich BOM + system specs)</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Solar packages unlock panel/inverter/structure metadata and a categorised BOM editor.
-              </p>
-            </div>
-          )}
+          {/* "Solar package" subtype was folded into the single Site Checklist concept —
+              every site checklist is now a flat materials list. */}
 
           {/* Solar package rich metadata + BOM editor */}
           {isSolarPackage && (
@@ -447,7 +432,7 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
                       value={m.inventoryItemId.toString()}
                       onValueChange={(v) => {
                         const newMaterials = [...materials];
-                        newMaterials[i].inventoryItemId = parseInt(v, 10);
+                        newMaterials[i].inventoryItemId = v;
                         setMaterials(newMaterials);
                       }}
                     >

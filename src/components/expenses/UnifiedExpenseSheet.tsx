@@ -11,9 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Building2, User, Crown, Handshake, Split, ArrowRight, ArrowLeft, Check, AlertCircle, Package, Calendar, Home, HardHat, Users } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { toast } from "@/hooks/use-toast";
 import { 
-  _EXPENSE_SCHEMA,
+
   EXPENSE_MAIN_CATEGORIES,
   getCategoryByValue, 
   getSubCategoriesByCategory,
@@ -37,8 +38,11 @@ import {
 import type { Expense, AuditLogEntry } from "@/types/finance";
 import { UnifiedFinanceValidationService } from "@/application/services/UnifiedFinanceValidationService";
 import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
+import { loadCreateDraft, type ExpenseDraftFromProject } from "@/lib/createFromContext";
 import { formatINR } from "@/lib/formatCurrency";
 import { formatUiDate } from "@/lib/formatUiDate";
+import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
+import { useMasters } from "@/contexts/MastersContext";
 
 /** Ledger preview: negative outflow (formatINR is always positive ₹…). */
 function formatInrOutflow(n: number): string {
@@ -75,12 +79,12 @@ const PAYER_LABELS: Record<string, string> = {
   split: "Split Payment",
 };
 
-interface UnifiedExpenseModalProps {
+interface UnifiedExpenseSheetProps {
   isOpen: boolean;
   onClose: () => void;
   projectId?: string;
   projectName?: string;
-  employeeId?: number;
+  employeeId?: string;
   employeeName?: string;
   isPartnershipProject?: boolean;
   projectPartnerIds?: string[];
@@ -89,7 +93,7 @@ interface UnifiedExpenseModalProps {
 
 type Step = "main-category" | "category" | "details" | "payer" | "confirm";
 
-export function UnifiedExpenseModal({
+export function UnifiedExpenseSheet({
   isOpen,
   onClose,
   projectId: prefillProjectId,
@@ -99,8 +103,10 @@ export function UnifiedExpenseModal({
   isPartnershipProject = false,
   projectPartnerIds = [],
   isProjectCompleted = false,
-}: UnifiedExpenseModalProps) {
+}: UnifiedExpenseSheetProps) {
   const { employees, partners, projects, addExpense, generateId, inventoryItems, addAuditLog } = useAppData();
+  const { sessionUserId, currentRole } = useAppSession();
+  const masters = useMasters();
   const ownerName = (() => { try { return JSON.parse(localStorage.getItem("mss.settings.company") || "{}").ownerName || "Owner"; } catch { return "Owner"; } })();
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
   
@@ -113,12 +119,12 @@ export function UnifiedExpenseModal({
   
   // Project / Employee / Partner selection
   const [selectedProjectId, setSelectedProjectId] = useState(prefillProjectId || "");
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(prefillEmployeeId || null);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(prefillEmployeeId || null);
   const [selectedPartnerId, setSelectedPartnerId] = useState("");
   
   // Multi-employee selection (for shared payments / reimbursement)
-  const [multiSelectedEmployeeIds, setMultiSelectedEmployeeIds] = useState<number[]>([]);
-  const [multiEmployeeAmounts, setMultiEmployeeAmounts] = useState<Record<number, string>>({});
+  const [multiSelectedEmployeeIds, setMultiSelectedEmployeeIds] = useState<string[]>([]);
+  const [multiEmployeeAmounts, setMultiEmployeeAmounts] = useState<Record<string, string>>({});
   
   // Custom sub-category
   const [customSubCategory, setCustomSubCategory] = useState("");
@@ -129,6 +135,9 @@ export function UnifiedExpenseModal({
   
   // Details state
   const [amount, setAmount] = useState("");
+  // T1 — interest/principal split (Vehicle EMI / Loan Repayment)
+  const [interestPortion, setInterestPortion] = useState("");
+  const [principalPortion, setPrincipalPortion] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
 
@@ -139,6 +148,12 @@ export function UnifiedExpenseModal({
       setBillingMonth(new Date().toISOString().slice(0, 7));
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !prefillProjectId) return;
+    const d = loadCreateDraft<ExpenseDraftFromProject>("expense-create-draft");
+    if (d?.projectId === prefillProjectId && d.notes) setNotes(d.notes);
+  }, [isOpen, prefillProjectId]);
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   
@@ -151,19 +166,19 @@ export function UnifiedExpenseModal({
   const [isRecurring, setIsRecurring] = useState(false);
   
   // Participants (who shared the expense - for team meals, transport etc.)
-  const [participantIds, setParticipantIds] = useState<number[]>([]);
+  const [participantIds, setParticipantIds] = useState<string[]>([]);
   
   // Payer state (who actually paid the money)
   const [payerType, setPayerType] = useState<"company" | "employee" | "owner" | "partner" | "split">("company");
-  const [payerEmployeeId, setPayerEmployeeId] = useState<number | null>(null);
+  const [payerEmployeeId, setPayerEmployeeId] = useState<string | null>(null);
   const [payerPartnerId, setPayerPartnerId] = useState<string>("");
   const [paymentMode, setPaymentMode] = useState("Bank Transfer");
   
   // Split payment
   const [splitCompanyAmount, setSplitCompanyAmount] = useState("");
   const [splitOwnerAmount, setSplitOwnerAmount] = useState("");
-  const [splitEmployeeIds, setSplitEmployeeIds] = useState<number[]>([]);
-  const [splitEmployeeAmounts, setSplitEmployeeAmounts] = useState<Record<number, string>>({});
+  const [splitEmployeeIds, setSplitEmployeeIds] = useState<string[]>([]);
+  const [splitEmployeeAmounts, setSplitEmployeeAmounts] = useState<Record<string, string>>({});
   const [splitPartnerIds, setSplitPartnerIds] = useState<string[]>([]);
   const [splitPartnerAmounts, setSplitPartnerAmounts] = useState<Record<string, string>>({});
   
@@ -172,7 +187,7 @@ export function UnifiedExpenseModal({
   const [reimbursementAmount, setReimbursementAmount] = useState("");
   
   // Inventory
-  const [selectedInventoryItemId, setSelectedInventoryItemId] = useState<number | null>(null);
+  const [selectedInventoryItemId, setSelectedInventoryItemId] = useState<string | null>(null);
   const [inventoryQuantity, setInventoryQuantity] = useState("");
 
   // Vendor
@@ -210,6 +225,14 @@ export function UnifiedExpenseModal({
   
   // Dynamic field requirements
   const needsProject = schemaRequiresProject(category) || mainCategory === "site";
+
+  // T1 — Does the resolved expense category map require interest/principal split (Vehicle EMI / Loan Repayment)?
+  const mappingKey = `${mainCategory}:${subCategory || category}`;
+  const requiresInterestPrincipalSplit = useMemo(() => {
+    if (!mainCategory || (!category && !subCategory)) return false;
+    const mappings = masters.getExpenseToAccountMapping();
+    return !!mappings.find((m) => m.value === mappingKey)?.requiresInterestPrincipalSplit;
+  }, [masters, mainCategory, category, subCategory, mappingKey]);
   const optionalProject = hasOptionalProject(category);
   const needsEmployee = schemaRequiresEmployee(category, subCategory);
   const needsPartner = schemaRequiresPartner(category) || mainCategory === "partner";
@@ -284,6 +307,8 @@ export function UnifiedExpenseModal({
     setCategory("");
     setSubCategory("");
     setAmount("");
+    setInterestPortion("");
+    setPrincipalPortion("");
     setDate(new Date().toISOString().split("T")[0]);
     setNotes("");
     setQuantity("");
@@ -327,7 +352,7 @@ export function UnifiedExpenseModal({
       amount?: string;
       date?: string;
       selectedProjectId?: string;
-      selectedEmployeeId?: number | null;
+      selectedEmployeeId?: string | null;
       notes?: string;
       payerType?: "company" | "employee" | "owner" | "partner" | "split";
     }>(EXPENSE_MODAL_DRAFT_KEY);
@@ -370,7 +395,15 @@ export function UnifiedExpenseModal({
         return true;
       case "details": {
         const a = Number.parseFloat(amount);
-        return !!amount && Number.isFinite(a) && a > 0;
+        if (!amount || !Number.isFinite(a) || a <= 0) return false;
+        // T1 — interest+principal split must each be > 0 and sum to total
+        if (requiresInterestPrincipalSplit) {
+          const i = Number.parseFloat(interestPortion);
+          const p = Number.parseFloat(principalPortion);
+          if (!Number.isFinite(i) || i <= 0) return false;
+          if (!Number.isFinite(p) || p <= 0) return false;
+        }
+        return true;
       }
       case "payer":
         if (payerType === "employee" && !payerEmployeeId) return false;
@@ -495,6 +528,13 @@ export function UnifiedExpenseModal({
       dueDate: needsDueDate ? dueDate : undefined,
       paidDate: paidDate || undefined,
       isRecurring,
+      // T1 — persist interest+principal split when the resolved mapping requires it
+      interestPortion: requiresInterestPrincipalSplit
+        ? (() => { const v = Number.parseFloat(interestPortion); return Number.isFinite(v) ? v : undefined; })()
+        : undefined,
+      principalPortion: requiresInterestPrincipalSplit
+        ? (() => { const v = Number.parseFloat(principalPortion); return Number.isFinite(v) ? v : undefined; })()
+        : undefined,
     };
   };
 
@@ -537,8 +577,8 @@ export function UnifiedExpenseModal({
         const audit: AuditLogEntry = {
           id: generateId("LOG"),
           timestamp: new Date().toISOString(),
-          userId: "prototype-user",
-          userName: "prototype",
+          userId: sessionUserId,
+          userName: currentRole,
           action: "create",
           entityType: "expense_reimbursement",
           entityId: expense.id,
@@ -674,6 +714,14 @@ export function UnifiedExpenseModal({
                   </SelectContent>
                 </Select>
               </div>
+            )}
+
+            {/* W3 — Will-post-to chip from expenseToAccountMapping master. */}
+            {mainCategory && (category || subCategory) && (
+              <MappingPostingChip
+                kind="expense"
+                mappingKey={`${mainCategory}:${subCategory || category}`}
+              />
             )}
 
             {/* Custom sub-category input for multi-employee shared */}
@@ -823,7 +871,7 @@ export function UnifiedExpenseModal({
             {needsEmployee && !isMultiEmployeeCategory && (
               <div className="space-y-2">
                 <Label>Select Employee *</Label>
-                <Select value={selectedEmployeeId?.toString() || ""} onValueChange={(v) => setSelectedEmployeeId(parseInt(v))}>
+                <Select value={selectedEmployeeId || ""} onValueChange={(v) => setSelectedEmployeeId(v || null)}>
                   <SelectTrigger><SelectValue placeholder="Choose an employee" /></SelectTrigger>
                   <SelectContent>
                     {employees.map(emp => (
@@ -867,7 +915,7 @@ export function UnifiedExpenseModal({
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label className="text-xs text-muted-foreground">Select Item</Label>
-                      <Select value={selectedInventoryItemId?.toString() || ""} onValueChange={(v) => setSelectedInventoryItemId(parseInt(v))}>
+                      <Select value={selectedInventoryItemId || ""} onValueChange={(v) => setSelectedInventoryItemId(v || null)}>
                         <SelectTrigger><SelectValue placeholder="Choose item" /></SelectTrigger>
                         <SelectContent>
                           {inventoryItems.map(item => (
@@ -952,9 +1000,63 @@ export function UnifiedExpenseModal({
                   placeholder="Enter amount"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
+                  disabled={requiresInterestPrincipalSplit}
                 />
+                {requiresInterestPrincipalSplit && (
+                  <p className="text-2xs text-muted-foreground">
+                    Total = Interest + Principal (auto-computed below).
+                  </p>
+                )}
               </div>
             </div>
+
+            {/* T1 — Interest / Principal split (Vehicle EMI / Loan Repayment) */}
+            {requiresInterestPrincipalSplit && (
+              <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  This category requires split accounting per Indian tax standards. The
+                  <span className="font-mono mx-1">interest</span>portion posts to <span className="font-medium">P&amp;L Finance Cost</span>; the
+                  <span className="font-mono mx-1">principal</span>portion reduces the corresponding <span className="font-medium">Loan Liability</span> (Balance Sheet) — NOT P&amp;L.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Interest portion (₹) *</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="e.g. 1200"
+                      value={interestPortion}
+                      onChange={(e) => {
+                        setInterestPortion(e.target.value);
+                        const i = Number.parseFloat(e.target.value) || 0;
+                        const p = Number.parseFloat(principalPortion) || 0;
+                        setAmount(String(i + p));
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Principal portion (₹) *</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="e.g. 8800"
+                      value={principalPortion}
+                      onChange={(e) => {
+                        setPrincipalPortion(e.target.value);
+                        const i = Number.parseFloat(interestPortion) || 0;
+                        const p = Number.parseFloat(e.target.value) || 0;
+                        setAmount(String(i + p));
+                      }}
+                    />
+                  </div>
+                </div>
+                <p className="text-2xs text-muted-foreground">
+                  Total EMI: <span className="font-medium">₹{amount || "0"}</span>
+                </p>
+              </div>
+            )}
 
             {/* Per-employee amount inputs for multi-employee categories */}
             {isMultiEmployeeCategory && multiSelectedEmployeeIds.length > 0 && (
@@ -1096,7 +1198,7 @@ export function UnifiedExpenseModal({
             {payerType === "employee" && (
               <div className="space-y-2 border rounded-lg p-3">
                 <Label className="text-sm">Which employee paid?</Label>
-                <Select value={payerEmployeeId?.toString() || ""} onValueChange={(v) => setPayerEmployeeId(parseInt(v))}>
+                <Select value={payerEmployeeId || ""} onValueChange={(v) => setPayerEmployeeId(v || null)}>
                   <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
                   <SelectContent>
                     {employees.map(emp => (
@@ -1339,7 +1441,7 @@ export function UnifiedExpenseModal({
                         {willReimburse && (
                           <p>
                             • Company Liability:{" "}
-                            <span className="text-amber-500">
+                            <span className="text-warning">
                               {formatInrCredit(
                                 (() => {
                                   const r = Number.parseFloat(reimbursementAmount);
@@ -1359,7 +1461,7 @@ export function UnifiedExpenseModal({
                         {willReimburse && (
                           <p>
                             • Company Liability:{" "}
-                            <span className="text-amber-500">
+                            <span className="text-warning">
                               {formatInrCredit(
                                 (() => {
                                   const r = Number.parseFloat(reimbursementAmount);

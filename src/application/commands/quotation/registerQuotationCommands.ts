@@ -53,7 +53,7 @@ export const registerQuotationCommands = (
       }
       repositories.enquiryRepository.update(quotation.enquiryId, {
         quotationId: quotation.id,
-        status: "quotation-sent",
+        status: "quotation_sent",
         updatedAt: new Date().toISOString()
       });
     }
@@ -76,7 +76,7 @@ export const registerQuotationCommands = (
     TRANSITION_QUOTATION_STATUS_COMMAND,
     (command) => {
       const action: AppAction =
-        command.payload.nextStatus === "confirmed" ? "quotation:confirm" : "quotation:create";
+        command.payload.nextStatus === "converted_to_project" ? "quotation:confirm" : "quotation:create";
       permissionService.assertCanPerformAction(command.actorRole, action);
       const quotation = repositories.quotationRepository.getById(command.payload.quotationId);
       if (!quotation) {
@@ -108,15 +108,17 @@ export const registerQuotationCommands = (
         }
       }
 
-      if (nextStatus === "confirmed") {
+      if (nextStatus === "converted_to_project") {
         if (!quotation.paymentType) {
           return {
             ok: false,
-            errorCode: "QUOTATION_CONFIRM_VALIDATION_FAILED",
-            message: "Confirmed quotation requires payment type",
+            errorCode: "QUOTATION_CONVERT_VALIDATION_FAILED",
+            message: "Converting a quotation to a project requires a payment type",
           };
         }
       }
+
+      const today = new Date().toISOString().split("T")[0];
 
       if (nextStatus === "approved") {
         // Only create a new customer if the quotation isn't already linked to one
@@ -141,17 +143,17 @@ export const registerQuotationCommands = (
           repositories.customerRepository.add(newCustomer);
         }
 
-        // Link quotation to customer
         repositories.quotationRepository.update(quotation.id, {
-          customerId: customerId,
+          customerId,
           status: nextStatus,
-          approvedAt: new Date().toISOString().split("T")[0],
+          approvedAt: today,
         });
       } else {
         repositories.quotationRepository.update(quotation.id, {
           status: nextStatus,
-          ...(nextStatus === "sent" ? { sentAt: new Date().toISOString().split("T")[0] } : {}),
-          ...(nextStatus === "confirmed" ? { confirmedAt: new Date().toISOString().split("T")[0] } : {}),
+          ...(nextStatus === "sent" ? { sentAt: today } : {}),
+          ...(nextStatus === "rejected" ? { rejectedAt: today } : {}),
+          ...(nextStatus === "converted_to_project" ? { convertedAt: today } : {}),
         });
       }
 

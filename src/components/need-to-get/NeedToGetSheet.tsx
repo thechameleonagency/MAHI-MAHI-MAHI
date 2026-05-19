@@ -36,8 +36,11 @@ import jsPDF from "jspdf";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { procurementNeedLineKey } from "@/types/operations";
+import type { ProcurementNeedLine } from "@/types/operations";
+import { formatINR } from "@/lib/formatCurrency";
 
-type NeedToGetModalProps = {
+type NeedToGetSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
@@ -175,15 +178,46 @@ function needToGetOrderedRowKey(r: NeedToGetViewRow) {
   return `${r.projectId}|${r.siteId}|${r.materialId}|${r.needByDate}`;
 }
 
-export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
-  const { sites, projects, inventoryItems, vendorBills, employees, vendors } = useAppData();
+function rowLineKey(r: Pick<NeedToGetRow, "projectId" | "siteId" | "materialId" | "needByDate">) {
+  return procurementNeedLineKey({
+    projectId: r.projectId,
+    siteId: r.siteId,
+    materialId: r.materialId,
+    needByDate: r.needByDate,
+  });
+}
+
+export function NeedToGetSheet({ open, onOpenChange }: NeedToGetSheetProps) {
+  const {
+    sites,
+    projects,
+    inventoryItems,
+    vendorBills,
+    employees,
+    vendors,
+    materialReservations,
+    procurementNeedLines,
+    upsertProcurementNeedLine,
+    generateId,
+    canDo,
+  } = useAppData();
   const navigate = useNavigate();
   const service = useMemo(() => new NeedToGetService(), []);
 
   const allRows = useMemo(
-    () => service.buildRows(sites, projects, inventoryItems, vendorBills),
-    [service, sites, projects, inventoryItems, vendorBills],
+    () => service.buildRows(sites, projects, inventoryItems, vendorBills, materialReservations),
+    [service, sites, projects, inventoryItems, vendorBills, materialReservations],
   );
+
+  const procurementByLineKey = useMemo(() => {
+    const m = new Map<string, ProcurementNeedLine>();
+    for (const line of procurementNeedLines) {
+      m.set(line.lineKey, line);
+    }
+    return m;
+  }, [procurementNeedLines]);
+
+  const canAssignVendor = canDo("vendor:record_bill");
 
   const activeSitesPerProject = useMemo(() => countActiveSitesByProjectId(sites), [sites]);
 
@@ -193,8 +227,9 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
   );
 
   const [projectFilter, setProjectFilter] = useState<string[]>([]);
-  const [siteFilter, setSiteFilter] = useState<number[]>([]);
-  const [materialFilter, setMaterialFilter] = useState<number[]>([]);
+  const [siteFilter, setSiteFilter] = useState<string[]>([]);
+  const [materialFilter, setMaterialFilter] = useState<string[]>([]);
+  const [vendorFilter, setVendorFilter] = useState<string>("all");
   const [needByBefore, setNeedByBefore] = useState("");
   const [groupMode, setGroupMode] = useState<NeedToGetGroupMode>("flat");
   const [page, setPage] = useState(1);
@@ -219,7 +254,7 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
 
   /** Sites constrained to rows visible under current project filter (subset of selected projects). */
   const siteOptions = useMemo(() => {
-    const m = new Map<number, string>();
+    const m = new Map<string, string>();
     for (const r of allRows) {
       if (projectFilter.length > 0 && !projectFilter.includes(r.projectId)) continue;
       m.set(r.siteId, r.siteName);
@@ -237,7 +272,7 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
   }, [allowedSiteIds]);
 
   const materialOptions = useMemo(() => {
-    const m = new Map<number, string>();
+    const m = new Map<string, string>();
     allRows.forEach((r) => m.set(r.materialId, r.materialName));
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [allRows]);
@@ -248,9 +283,13 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
       if (siteFilter.length && !siteFilter.includes(r.siteId)) return false;
       if (materialFilter.length && !materialFilter.includes(r.materialId)) return false;
       if (needByBefore && r.needByDate > needByBefore) return false;
+      if (vendorFilter !== "all") {
+        const assigned = procurementByLineKey.get(rowLineKey(r));
+        if (assigned?.vendorId !== vendorFilter) return false;
+      }
       return true;
     });
-  }, [allRows, projectFilter, siteFilter, materialFilter, needByBefore]);
+  }, [allRows, projectFilter, siteFilter, materialFilter, needByBefore, vendorFilter, procurementByLineKey]);
 
   const displayRows = useMemo(
     () => aggregateNeedToGetRows(filtered, groupMode, getLocationLabel),
@@ -384,13 +423,43 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
     setProjectFilter((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
     setPage(1);
   };
-  const toggleSite = (id: number) => {
+  const toggleSite = (id: string) => {
     setSiteFilter((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
     setPage(1);
   };
-  const toggleMaterial = (id: number) => {
+  const toggleMaterial = (id: string) => {
     setMaterialFilter((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
     setPage(1);
+  };
+
+  const assignVendorToRow = (r: NeedToGetViewRow, vendorId: string) => {
+    const lineKey = rowLineKey(r);
+    const existing = procurementByLineKey.get(lineKey);
+    const line: ProcurementNeedLine = {
+      id: existing?.id ?? generateId("PNL"),
+      lineKey,
+      projectId: r.projectId,
+      siteId: r.siteId,
+      materialId: r.materialId,
+      materialName: r.materialName,
+      qtyNeeded: r.qtyShort,
+      needByDate: r.needByDate,
+      lastPurchaseRate: r.lastPurchaseRate,
+      vendorId: vendorId || undefined,
+      status: existing?.status ?? "pending",
+      acquiredAt: existing?.acquiredAt,
+      vendorBillId: existing?.vendorBillId,
+      acquiredQty: existing?.acquiredQty,
+      acquiredRate: existing?.acquiredRate,
+      notes: existing?.notes,
+    };
+    upsertProcurementNeedLine(line);
+    toast({
+      title: vendorId ? "Vendor assigned" : "Vendor cleared",
+      description: vendorId
+        ? `${vendors.find((v) => String(v.id) === vendorId)?.name ?? "Vendor"} — ${r.materialName}`
+        : r.materialName,
+    });
   };
 
   const filterTriggerClass =
@@ -460,7 +529,7 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
 
           <p className="text-xs text-muted-foreground print:hidden">
             Multi-site projects show the site in &ldquo;Where&rdquo;; single-site projects show the project name. Filters: pick projects first, then
-            sites. Status-only checklist lines (no SKU) appear with qty &ldquo;—&rdquo;; use vendor bill for material shortfalls only.
+            sites. Assign a vendor per line so shared lists show where to buy each item. Status-only checklist lines (no SKU) show qty &ldquo;—&rdquo;.
           </p>
           <p className="text-xs text-muted-foreground print:hidden">
             <span className="font-medium text-foreground/90">Row merge ({GROUP_LABELS[groupMode]}):</span> {GROUP_MERGE_HINT[groupMode]}
@@ -587,6 +656,26 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
               </PopoverContent>
             </Popover>
 
+            <Select
+              value={vendorFilter}
+              onValueChange={(v) => {
+                setVendorFilter(v);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className={cn("h-9 w-[11rem]", filterTriggerClass)}>
+                <SelectValue placeholder="Vendor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All vendors</SelectItem>
+                {vendorsSorted.map((v) => (
+                  <SelectItem key={v.id} value={String(v.id)}>
+                    {v.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" className={cn("min-w-[10rem]", filterTriggerClass)} type="button">
@@ -683,7 +772,7 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
                   <TableHead>Need by</TableHead>
                   <TableHead className="text-right">₹ / unit</TableHead>
                   <TableHead className="text-right">Est. ₹</TableHead>
-                  <TableHead className="w-[7rem] print:hidden">Bill</TableHead>
+                  <TableHead className="min-w-[9rem] print:hidden">Vendor</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -719,7 +808,7 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
                               aria-label="Mark line as ordered"
                             />
                             {isOrdered ? (
-                              <Badge className="border-0 bg-emerald-600/15 px-1.5 py-0 text-[9px] font-semibold uppercase text-emerald-700">
+                              <Badge className="border-0 bg-success/15 px-1.5 py-0 text-2xs font-semibold uppercase text-success">
                                 Ordered
                               </Badge>
                             ) : null}
@@ -754,39 +843,39 @@ export function NeedToGetModal({ open, onOpenChange }: NeedToGetModalProps) {
                           {isNonMaterial ? "—" : `₹${lineVal.toLocaleString("en-IN")}`}
                         </TableCell>
                         <TableCell className="align-top print:hidden">
-                          {!isNonMaterial && r.materialId > 0 && vendorsSorted.length > 0 ? (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button type="button" variant="outline" size="sm" className="h-8 text-xs">
-                                  Vendor bill
-                                  <ChevronDown className="ml-1 h-3 w-3 opacity-60" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="max-h-56 overflow-y-auto">
-                                {vendorsSorted.map((v) => (
-                                  <DropdownMenuItem
-                                    key={v.id}
-                                    onClick={() => {
-                                      const q = encodeURIComponent(String(r.qtyShort));
-                                      const pid = encodeURIComponent(r.projectId || "");
-                                      navigate(
-                                        `/vendors/${v.id}?action=add-purchase&inventoryItemId=${r.materialId}&qty=${q}&projectId=${pid}`,
-                                      );
-                                      toast({
-                                        title: "Opening vendor",
-                                        description: `Prefilling purchase for ${r.materialName} (${r.qtyShort} units).`,
-                                      });
-                                    }}
-                                  >
-                                    {v.name}
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          ) : isNonMaterial ? (
+                          {isNonMaterial ? (
                             <span className="text-2xs text-muted-foreground">—</span>
+                          ) : canAssignVendor && vendorsSorted.length > 0 ? (
+                            <Select
+                              value={
+                                procurementByLineKey.get(rowLineKey(r))?.vendorId ?? "__none__"
+                              }
+                              onValueChange={(v) =>
+                                assignVendorToRow(r, v === "__none__" ? "" : v)
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Select vendor" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">— Unassigned —</SelectItem>
+                                {vendorsSorted.map((v) => (
+                                  <SelectItem key={v.id} value={String(v.id)}>
+                                    {v.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           ) : (
-                            <span className="text-2xs text-muted-foreground">Add a vendor</span>
+                            <span className="text-2xs text-muted-foreground">
+                              {procurementByLineKey.get(rowLineKey(r))?.vendorId
+                                ? vendors.find(
+                                    (v) =>
+                                      String(v.id) ===
+                                      procurementByLineKey.get(rowLineKey(r))?.vendorId,
+                                  )?.name ?? "Assigned"
+                                : "—"}
+                            </span>
                           )}
                         </TableCell>
                       </TableRow>

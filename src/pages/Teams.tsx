@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search, Users, UserPlus, Trash2, Edit } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,11 +27,24 @@ import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { DEFAULT_TABLE_PAGE_SIZE, dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { toast } from "@/hooks/use-toast";
+import { ListSkeleton } from "@/components/ui/ListSkeleton";
 import { useAppData } from "@/contexts/AppDataContext";
 import type { Team } from "@/types/project";
+import { useCan } from "@/hooks/useCan";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 const Teams = () => {
   const { teams, employees, projects, addTeam, updateTeam, deleteTeam, generateId } = useAppData();
+  const canCreateTeam = useCan("team", "create");
+  const canEditTeam = useCan("team", "edit");
+  const canDeleteTeam = useCan("team", "delete");
+  const navigate = useNavigate();
+  const [listReady, setListReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setListReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -111,7 +124,7 @@ const Teams = () => {
     resetForm();
   };
 
-  const toggleMember = (employeeId: number) => {
+  const toggleMember = (employeeId: string) => {
     setSelectedMemberIds(prev => 
       prev.includes(employeeId) 
         ? prev.filter(id => id !== employeeId) 
@@ -124,36 +137,52 @@ const Teams = () => {
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "HR", to: "/employees" }, { label: "Teams" }]}
         subRow={
-          <InlineKpiStrip
-            className="w-full min-w-0 flex-wrap justify-start"
-            items={[
-              { label: "Total Teams", value: (teams || []).length },
-              { label: "Active Members", value: (teams || []).reduce((acc, t) => acc + t.memberIds.length, 0) },
-            ]}
-          />
+          <div className="flex w-full flex-wrap items-end gap-2">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search team name or description"
+                className="h-9 pl-9"
+                value={searchQuery}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+            <InlineKpiStrip
+              className="ml-auto flex-wrap"
+              items={[
+                { label: "Total Teams", value: (teams || []).length },
+                { label: "Active Members", value: (teams || []).reduce((acc, t) => acc + t.memberIds.length, 0) },
+              ]}
+            />
+          </div>
         }
       >
-        <Button size="sm" onClick={() => { resetForm(); setIsAddOpen(true); }}>
+        <Button size="sm" onClick={() => { resetForm(); setIsAddOpen(true); }} disabled={!canCreateTeam}>
           <Plus className="mr-2 h-4 w-4" />
           Create Team
         </Button>
       </StickyPageHeader>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative max-w-md flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search team name or description"
-            className="pl-9"
-            value={searchQuery}
-            onChange={(event) => {
-              setSearchQuery(event.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-      </div>
-
+      {listReady && teams.length === 0 ? (
+        <ListEmptyState
+          icon={Users}
+          title="No teams yet"
+          description="Create a team to assign members and link projects."
+          actionLabel={canCreateTeam ? "Create team" : undefined}
+          onAction={canCreateTeam ? () => { resetForm(); setIsAddOpen(true); } : undefined}
+        />
+      ) : listReady && filteredTeams.length === 0 ? (
+        <ListEmptyState
+          icon={Users}
+          title="No teams match"
+          description="Try a different search term."
+          actionLabel="Clear search"
+          onAction={() => { setSearchQuery(""); setPage(1); }}
+        />
+      ) : (
       <DataTableShell
         maxHeight={listTableViewportMaxHeight(pageSize)}
         scrollResetKey={`${safePage}-${pageSize}-${filteredTeams.length}`}
@@ -180,8 +209,14 @@ const Teams = () => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {pagedItems.map((team) => (
-            <TableRow key={team.id} className="align-top">
+          {!listReady ? (
+            <ListSkeleton variant="table" count={5} columns={5} />
+          ) : pagedItems.map((team) => (
+            <TableRow
+              key={team.id}
+              className="align-top cursor-pointer hover:bg-muted/30"
+              onClick={() => navigate(`/teams/${team.id}`)}
+            >
               <TableCell>
                 <div className="space-y-1">
                   <p className="font-medium text-primary">{team.name}</p>
@@ -226,16 +261,17 @@ const Teams = () => {
                   {team.status}
                 </Badge>
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                 <div className="flex justify-end gap-2">
-                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => handleOpenEdit(team)}>
-                    <Edit className="h-4 w-4" />
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" aria-label={`Edit team ${team.name}`} onClick={() => handleOpenEdit(team)} disabled={!canEditTeam}>
+                    <Edit className="h-4 w-4" aria-hidden />
                   </Button>
-                  <Button 
-                    size="icon" 
-                    variant="ghost" 
-                    className="h-8 w-8 text-destructive" 
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-destructive"
                     type="button"
+                    disabled={!canDeleteTeam}
                     onClick={() => setTeamToDelete(team)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -244,15 +280,9 @@ const Teams = () => {
               </TableCell>
             </TableRow>
           ))}
-          {pagedItems.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={4} className="h-24 text-center text-muted-foreground text-sm">
-                No teams found. Create one to get started.
-              </TableCell>
-            </TableRow>
-          )}
         </TableBody>
       </DataTableShell>
+      )}
 
       <Sheet open={isAddOpen} onOpenChange={(v) => { if(!v) resetForm(); setIsAddOpen(v); }}>
         <AppSheetContent size="xl" layout="form">
@@ -266,11 +296,11 @@ const Teams = () => {
             <div className="space-y-4 bg-muted/30 p-4 rounded-xl border border-border/50">
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">Team Name *</Label>
-                <Input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="e.g. Installation Team Alpha" className="bg-white" />
+                <Input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="e.g. Installation Team Alpha" className="bg-background" />
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">Description</Label>
-                <Input value={teamDescription} onChange={(event) => setTeamDescription(event.target.value)} placeholder="Short description of the team's purpose" className="bg-white" />
+                <Input value={teamDescription} onChange={(event) => setTeamDescription(event.target.value)} placeholder="Short description of the team's purpose" className="bg-background" />
               </div>
             </div>
 
@@ -287,7 +317,7 @@ const Teams = () => {
                   <div 
                     key={emp.id} 
                     className={`flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer hover:border-primary/30 ${
-                      selectedMemberIds.includes(emp.id) ? "bg-primary/5 border-primary/50 shadow-sm" : "bg-white border-border/60"
+                      selectedMemberIds.includes(emp.id) ? "bg-primary/5 border-primary/50 shadow-sm" : "bg-background border-border/60"
                     }`}
                     onClick={() => toggleMember(emp.id)}
                   >

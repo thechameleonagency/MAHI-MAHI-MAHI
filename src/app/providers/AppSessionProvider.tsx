@@ -4,6 +4,8 @@ import type { UserRole } from "@/domain/entities/identity";
 type AppSessionContextType = {
   currentRole: UserRole;
   setCurrentRole: (role: UserRole) => void;
+  /** Stable actor id for audit/command attribution (prototype: role-based). */
+  sessionUserId: string;
 };
 
 const AppSessionContext = createContext<AppSessionContextType | undefined>(undefined);
@@ -11,12 +13,15 @@ const AppSessionContext = createContext<AppSessionContextType | undefined>(undef
 export const AppSessionProvider = ({ children }: { children: ReactNode }) => {
   const [currentRole, setCurrentRole] = useState<UserRole>("admin");
 
+  const sessionUserId = `actor-${currentRole}`;
+
   const value = useMemo(
     () => ({
       currentRole,
       setCurrentRole,
+      sessionUserId,
     }),
-    [currentRole],
+    [currentRole, sessionUserId],
   );
 
   return <AppSessionContext.Provider value={value}>{children}</AppSessionContext.Provider>;

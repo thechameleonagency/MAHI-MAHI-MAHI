@@ -1,0 +1,73 @@
+/**
+ * Canonical list of client routes from `src/App.tsx` (excluding the `*` catch-all).
+ * Used to tell "unknown URL" from "known URL denied for this role" in `RouteAccessGate`.
+ */
+export function normalizePathname(pathname: string): string {
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed === "" ? "/" : trimmed;
+}
+
+export function isRegisteredAppRoute(rawPathname: string): boolean {
+  const p = normalizePathname(rawPathname);
+
+  const exact = new Set([
+    "/",
+    "/active-sites",
+    "/projects",
+    "/quotations",
+    "/enquiries",
+    "/agents",
+    "/customers",
+    "/invoices",
+    "/sale-bills",
+    "/inventory",
+    "/inventory/materials",
+    "/inventory/tools",
+    "/templates",
+    "/presets",
+    "/inventory/presets",
+    "/employees",
+    "/teams",
+    "/attendance",
+    "/finance",
+    "/vendors",
+    "/loans",
+    "/partners",
+    "/vendorship-companies",
+    "/inc-work-sources",
+    "/timeline",
+    "/calendar",
+    "/analytics",
+    "/notifications",
+    "/settings",
+    "/settings/design-system",
+    "/audit",
+    "/audit/chart-of-accounts",
+    "/audit/profit-loss",
+    "/audit/inventory",
+    "/audit/debtors-creditors",
+    "/audit/gst",
+    "/audit/cash-bank",
+    "/audit/expenses",
+    "/audit/assets",
+    "/audit/logs",
+    "/audit/reports",
+    "/audit/data-flow",
+  ]);
+
+  if (exact.has(p)) return true;
+
+  if (/^\/projects\/[^/]+$/.test(p)) return true;
+  if (/^\/customers\/[^/]+$/.test(p)) return true;
+  if (/^\/vendors\/[^/]+$/.test(p)) return true;
+  if (/^\/employees\/[^/]+$/.test(p)) return true;
+  if (/^\/partners\/[^/]+$/.test(p)) return true;
+  if (/^\/loans\/person\/[^/]+$/.test(p)) return true;
+  if (/^\/teams\/[^/]+$/.test(p)) return true;
+  if (/^\/vendorship\/[^/]+$/.test(p)) return true;
+  if (/^\/inc-sources\/[^/]+$/.test(p)) return true;
+
+  if (/^\/agents\/[^/]+$/.test(p)) return true;
+
+  return false;
+}

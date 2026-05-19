@@ -26,6 +26,7 @@ import {
   computeFinanceMetrics,
   computeInventoryMetrics,
   computeCustomerMetrics,
+  computePeopleMetrics,
   type AnalyticsDateRange,
   type MetricRow,
 } from "@/lib/analytics";
@@ -90,6 +91,10 @@ const Analytics = () => {
     materialReservations,
     vendorBills,
     loans,
+    blockages,
+    attendanceRecords,
+    employeePayrollRecords,
+    employeeWalletLedger,
   } = useAppData();
   
   const _exportRef = useRef<HTMLDivElement>(null);
@@ -113,6 +118,11 @@ const Analytics = () => {
       materialReservations,
       vendorBills,
       loans,
+      employees,
+      attendanceRecords,
+      payrollRecords: employeePayrollRecords,
+      walletLedger: employeeWalletLedger,
+      blockages,
     }),
     [
       enquiries,
@@ -130,6 +140,11 @@ const Analytics = () => {
       materialReservations,
       vendorBills,
       loans,
+      employees,
+      attendanceRecords,
+      employeePayrollRecords,
+      employeeWalletLedger,
+      blockages,
     ],
   );
 
@@ -147,6 +162,15 @@ const Analytics = () => {
   );
   const inventoryMetrics = useMemo(() => computeInventoryMetrics(analyticsSlices), [analyticsSlices]);
   const customerMetrics = useMemo(() => computeCustomerMetrics(analyticsSlices), [analyticsSlices]);
+  const peopleMetrics = useMemo(() => {
+    const now = new Date();
+    const from = new Date(now);
+    if (analyticsDateRange === "month") from.setMonth(now.getMonth() - 1);
+    else if (analyticsDateRange === "quarter") from.setMonth(now.getMonth() - 3);
+    else if (analyticsDateRange === "year") from.setFullYear(now.getFullYear() - 1);
+    else from.setFullYear(now.getFullYear() - 10);
+    return computePeopleMetrics(analyticsSlices, from, now);
+  }, [analyticsSlices, analyticsDateRange]);
 
   const exportMetricRows = (filename: string, rows: MetricRow[]) => {
     downloadCSV(
@@ -208,7 +232,7 @@ const Analytics = () => {
         name: emp.initial || emp.name.split(' ').map((n: string) => n[0]).join('').toUpperCase() || emp.name.slice(0, 4),
         tasks: total,
         completed: done,
-        efficiency: Math.round((done / total) * 100),
+        efficiency: total === 0 ? 0 : Math.round((done / total) * 100),
       };
     }).sort((a, b) => b.efficiency - a.efficiency);
   }, [employees, tasks]);
@@ -237,10 +261,9 @@ const Analytics = () => {
     const filteredSaleBills = (saleBills || []).filter(b => filterByRange(b.invoiceDate));
     const filteredPayments = payments.filter(p => filterByRange(p.date));
 
-    const totalRevenue =
-      filteredInvoices.reduce((s, i) => s + (i.amountReceived || 0), 0) +
-      filteredSaleBills.reduce((s, i) => s + (i.amountReceived || 0), 0) +
-      filteredPayments.filter(p => p.direction === "in").reduce((s, p) => s + p.amount, 0);
+    const totalRevenue = filteredPayments
+      .filter((p) => p.direction === "in")
+      .reduce((s, p) => s + p.amount, 0);
     const activeProjects = projects.filter(p => p.status === "Ongoing").length;
     const totalEmployees = employees.length;
     const stockValue = inventoryItems.reduce((sum, item) => sum + ((item.stock || 0) * (item.salePrice || 0)), 0);
@@ -367,9 +390,9 @@ const Analytics = () => {
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Analytics" }]}
         subRow={
-          <>
+          <div className="flex w-full min-w-0 flex-nowrap items-center gap-3 overflow-x-auto">
             <Select value={analyticsDateRange} onValueChange={setAnalyticsDateRange}>
-              <SelectTrigger className="h-9 w-[130px] border-border bg-muted/50 text-xs">
+              <SelectTrigger className="h-9 w-[130px] shrink-0 border-border bg-muted/50 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -380,7 +403,8 @@ const Analytics = () => {
               </SelectContent>
             </Select>
             <InlineKpiStrip
-              className="w-full flex-wrap justify-end"
+              singleRow
+              className="min-w-0 flex-1"
               items={[
                 { label: "Revenue", value: `₹${(kpiValues.revenue / 10000000).toFixed(2)}Cr` },
                 { label: "Active jobs", value: kpiValues.activeProjects },
@@ -388,7 +412,7 @@ const Analytics = () => {
                 { label: "Stock", value: `₹${(kpiValues.stockValue / 100000).toFixed(0)}L` },
               ]}
             />
-          </>
+          </div>
         }
       >
         <Button variant="outline" size="sm" className="h-8" onClick={() => setIsExportModalOpen(true)}>
@@ -452,7 +476,7 @@ const Analytics = () => {
                     <p className="text-xs text-muted-foreground">{emp.completed}/{emp.tasks} tasks</p>
                   </div>
                 </div>
-                <Badge variant="outline" className={emp.efficiency >= 90 ? "bg-primary/10 text-primary border-primary/20" : "bg-amber-500/10 text-amber-500 border-amber-500/20"}>
+                <Badge variant="outline" className={emp.efficiency >= 90 ? "bg-primary/10 text-primary border-primary/20" : "bg-warning/10 text-warning border-warning/20"}>
                   {emp.efficiency}%
                 </Badge>
               </div>
@@ -526,6 +550,48 @@ const Analytics = () => {
             onExport={() => exportMetricRows("analytics_customers.csv", customerMetrics.summaryRows)}
           />
         </div>
+
+        <AnalyticsSection
+          title="People"
+          rows={peopleMetrics.summaryRows}
+          onExport={() => exportMetricRows("analytics_people.csv", peopleMetrics.summaryRows)}
+        >
+          {peopleMetrics.blockagesByReason.length > 0 && (
+            <div className="rounded-lg border border-border bg-muted/20 p-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Blockage causes
+              </p>
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                {peopleMetrics.blockagesByReason.map((row) => (
+                  <div key={row.reason} className="flex items-center justify-between text-sm">
+                    <span className="truncate text-muted-foreground">{row.reason}</span>
+                    <span className="tabular-nums font-medium">{row.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {peopleMetrics.tasksByEmployee.filter((t) => t.done + t.open > 0).length > 0 && (
+            <div className="rounded-lg border border-border bg-muted/20 p-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Tasks per person (range)
+              </p>
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                {peopleMetrics.tasksByEmployee
+                  .filter((t) => t.done + t.open > 0)
+                  .slice(0, 12)
+                  .map((row) => (
+                    <div key={row.employeeId} className="flex items-center justify-between text-sm">
+                      <span className="truncate text-muted-foreground">{row.name}</span>
+                      <span className="tabular-nums font-medium">
+                        {row.done}<span className="text-muted-foreground">/{row.done + row.open}</span>
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </AnalyticsSection>
       </div>
 
       {/* Export Modal */}

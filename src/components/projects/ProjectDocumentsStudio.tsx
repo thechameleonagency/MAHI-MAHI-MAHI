@@ -18,7 +18,7 @@ import type { Project, ProjectGeneratedDocument, Quotation } from "@/types/proje
 import {
   DOCUMENT_KIND_LABELS,
   createGeneratedDocumentRow,
-} from "@/domain/projectDocs/generateDummyProjectDocument";
+} from "@/domain/projectDocs/projectDocumentGenerator";
 import { projectForbidsAction } from "@/lib/projectDetailTabs";
 
 type Props = {
@@ -144,15 +144,15 @@ export function ProjectDocumentsStudio({ project, quotation, updateProject, gene
         </div>
 
         {project.scope?.vendorshipOwner !== "MSS" && (
-          <div className="p-4 border-b bg-amber-50/50 border-amber-100 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-amber-800 text-xs font-medium">
+          <div className="p-4 border-b bg-warning/50 border-warning flex items-center justify-between">
+            <div className="flex items-center gap-2 text-warning text-xs font-medium">
               <Info className="h-4 w-4" />
               <span>External Vendorship Code: Documents must be uploaded manually.</span>
             </div>
             <Button
               size="sm"
               variant="outline"
-              className="h-8 border-amber-200 text-amber-700 hover:bg-amber-100"
+              className="h-8 border-warning text-warning hover:bg-warning"
               onClick={() => {
                 // Prototype: external vendorship docs are uploaded out-of-band.
                 // Surface a clear next step instead of opening a hidden picker that never persisted.
