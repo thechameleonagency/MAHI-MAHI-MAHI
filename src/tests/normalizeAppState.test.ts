@@ -44,7 +44,7 @@ describe("normalizeAppState", () => {
         projects: normalized.projects,
         projectTimelineByProjectId: normalized.projectTimelineByProjectId,
         vendorBills: normalized.vendorBills,
-        vendorNamesByNumericId: new Map(),
+        vendorNamesById: new Map(),
       }),
     ).not.toThrow();
   });

@@ -225,7 +225,7 @@ export class NeedToGetService {
     projects: Project[],
     inventoryItems: InventoryItem[],
     vendorBills: VendorBill[],
-    materialReservations: MaterialReservation[] = [],
+    materialReservations: MaterialReservation[],
   ): NeedToGetRow[] {
     const lastRate = buildLastPurchaseRateByMaterial(vendorBills, inventoryItems);
     const projectById = new Map(projects.map((p) => [p.id, p]));

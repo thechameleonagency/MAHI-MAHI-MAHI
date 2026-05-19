@@ -17,6 +17,13 @@ export type CalendarEventSource =
   | "site-visit"
   | "milestone";
 
+export type CalendarEntityType = "project" | "customer" | "invoice" | "vendor" | "quotation";
+
+export interface CalendarEntityLink {
+  entityType: CalendarEntityType;
+  entityId: string | number;
+}
+
 export interface CalendarEvent {
   id: string;
   date: string;
@@ -25,6 +32,8 @@ export interface CalendarEvent {
   subtitle?: string;
   href?: string;
   projectId?: string;
+  titleLink?: CalendarEntityLink;
+  subtitleLink?: CalendarEntityLink;
 }
 
 export interface CalendarDataInput {
@@ -86,6 +95,7 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
       subtitle: t.workType,
       href: "/timeline",
       projectId: t.siteId,
+      titleLink: t.siteId ? { entityType: "project", entityId: t.siteId } : undefined,
     });
   }
 
@@ -101,6 +111,7 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
       subtitle: s.status,
       href: s.projectId ? `/projects/${s.projectId}` : "/projects",
       projectId: s.projectId,
+      titleLink: s.projectId ? { entityType: "project", entityId: s.projectId } : undefined,
     });
   }
 
@@ -115,6 +126,7 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
       title: e.customerName,
       subtitle: e.status,
       href: "/enquiries",
+      titleLink: e.customerId ? { entityType: "customer", entityId: e.customerId } : undefined,
     });
   }
 
@@ -130,6 +142,10 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
       subtitle: inv.customerName,
       href: "/invoices",
       projectId: inv.projectId,
+      titleLink: { entityType: "invoice", entityId: inv.id },
+      subtitleLink: inv.customerId
+        ? { entityType: "customer", entityId: inv.customerId }
+        : undefined,
     });
   }
 
@@ -145,6 +161,7 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
       subtitle: bill.vendorName,
       href: bill.vendorId ? `/vendors/${bill.vendorId}` : "/vendors",
       projectId: bill.projectId,
+      subtitleLink: bill.vendorId ? { entityType: "vendor", entityId: bill.vendorId } : undefined,
     });
   }
 
@@ -173,6 +190,7 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
       subtitle: v.reconciledChecklistAt ? "Reconciled" : "Visit logged",
       href: `/projects/${v.projectId}`,
       projectId: v.projectId,
+      titleLink: { entityType: "project", entityId: v.projectId },
     });
   }
 
@@ -191,6 +209,7 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
         subtitle: label,
         href: `/projects/${p.id}`,
         projectId: p.id,
+        titleLink: { entityType: "project", entityId: p.id },
       });
     }
   }

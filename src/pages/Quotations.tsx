@@ -25,6 +25,8 @@ import {
   buildQuotationToProjectDraft,
   loadCreateDraft,
   parseCreateFromParam,
+  resolveCreateFromOrToast,
+  stripCreateFromParam,
   saveCreateDraft,
   type QuotationCloneDraft,
   type QuotationDraftFromCustomer,
@@ -506,11 +508,21 @@ const Quotations = () => {
     const createFrom = parseCreateFromParam(params.get("createFrom"));
 
     if (createFrom?.kind === "customer") {
+      const stored = loadCreateDraft<QuotationDraftFromCustomer>("quotation-create-draft");
+      const cust =
+        stored?.customerId === createFrom.id
+          ? _customers.find((c) => c.id === createFrom.id)
+          : resolveCreateFromOrToast("customer", createFrom.id, (entityId) =>
+              _customers.find((c) => c.id === entityId),
+            );
+      if (!cust && stored?.customerId !== createFrom.id) {
+        stripCreateFromParam(params);
+        navigate(`/quotations${params.toString() ? `?${params}` : ""}`, { replace: true });
+        return;
+      }
       resetForm();
       setEditingQuotationId(null);
       setCurrentView("create");
-      const stored = loadCreateDraft<QuotationDraftFromCustomer>("quotation-create-draft");
-      const cust = _customers.find((c) => c.id === createFrom.id);
       if (stored?.customerId === createFrom.id) {
         applyCustomerQuotationDraft(stored);
       } else if (cust) {
@@ -518,17 +530,27 @@ const Quotations = () => {
         saveCreateDraft("quotation-create-draft", built);
         applyCustomerQuotationDraft(built);
       }
-      navigate("/quotations", { replace: true });
+      stripCreateFromParam(params);
+      navigate(`/quotations${params.toString() ? `?${params}` : ""}`, { replace: true });
       return;
     }
 
     if (createFrom?.kind === "enq") {
+      const stored = loadCreateDraft<QuotationDraftFromEnquiry>("quotation-create-draft");
+      const enquiry =
+        stored?.sourceEnquiryId === createFrom.id
+          ? enquiries.find((e) => e.id === createFrom.id)
+          : resolveCreateFromOrToast("enq", createFrom.id, (entityId) =>
+              enquiries.find((e) => e.id === entityId),
+            );
+      if (!enquiry && stored?.sourceEnquiryId !== createFrom.id) {
+        stripCreateFromParam(params);
+        navigate(`/quotations${params.toString() ? `?${params}` : ""}`, { replace: true });
+        return;
+      }
       resetForm();
       setEditingQuotationId(null);
       setCurrentView("create");
-
-      const stored = loadCreateDraft<QuotationDraftFromEnquiry>("quotation-create-draft");
-      const enquiry = enquiries.find((e) => e.id === createFrom.id);
       if (stored?.sourceEnquiryId === createFrom.id) {
         applyEnquiryQuotationDraft(stored);
       } else if (enquiry) {
@@ -536,8 +558,8 @@ const Quotations = () => {
         saveCreateDraft("quotation-create-draft", built);
         applyEnquiryQuotationDraft(built);
       }
-
-      navigate("/quotations", { replace: true });
+      stripCreateFromParam(params);
+      navigate(`/quotations${params.toString() ? `?${params}` : ""}`, { replace: true });
       return;
     }
 
@@ -573,6 +595,40 @@ const Quotations = () => {
     navigate("/quotations", { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: run when search signals create/enquiry once
   }, [location.search, navigate, enquiries, _customers]);
+
+  // C2: handle `?quotation=<id>` / `?open=<id>` deep links from GlobalSearch / EntityInfoSheet /
+  // ProjectDetail / DashboardQuotationRow (which also passes `state.focusQuotationId`).
+  // Open the view sheet; toast if missing; strip the param after handle.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const stateQuotationId = (location.state as { focusQuotationId?: string } | null)?.focusQuotationId;
+    const target =
+      params.get("quotation") ??
+      params.get("open") ??
+      params.get("highlight") ??
+      stateQuotationId ??
+      null;
+    if (!target) return;
+    const found = savedQuotations.find((q) => q.id === target);
+    if (found) {
+      setSelectedQuotation(found);
+      setIsViewQuotationOpen(true);
+    } else {
+      toast({
+        title: "Quotation not found",
+        description: `No quotation with id ${target}.`,
+        variant: "destructive",
+      });
+    }
+    params.delete("quotation");
+    params.delete("open");
+    params.delete("highlight");
+    const remaining = params.toString();
+    navigate(`/quotations${remaining ? `?${remaining}` : ""}`, {
+      replace: true,
+      state: stateQuotationId ? null : location.state,
+    });
+  }, [location.search, location.state, savedQuotations, navigate]);
 
   // Open save amounts confirmation modal
   const _handleOpenSaveAmounts = (quotation: Quotation) => {
@@ -957,6 +1013,7 @@ const Quotations = () => {
   };
 
   const handleMarkAsSent = async (quotationId: string) => {
+    setLastConfirm(null);
     const result = await transitionQuotationStatus(quotationId, "sent");
     if (!result.ok) {
       toast({ title: "Cannot send quotation", description: result.error || "Status change not allowed", variant: "destructive" });
@@ -969,6 +1026,7 @@ const Quotations = () => {
   };
 
   const handleMarkAsRejected = async (quotationId: string) => {
+    setLastConfirm(null);
     const result = await transitionQuotationStatus(quotationId, "rejected");
     if (!result.ok) {
       toast({ title: "Invalid Transition", description: result.error || "Status change not allowed", variant: "destructive" });
@@ -978,6 +1036,7 @@ const Quotations = () => {
   };
 
   const handleMarkAsApproved = async (quotationId: string) => {
+    setLastConfirm(null);
     const result = await transitionQuotationStatus(quotationId, "approved");
     if (!result.ok) {
       toast({ title: "Cannot approve quotation", description: result.error || "Status change not allowed", variant: "destructive" });
@@ -1292,6 +1351,7 @@ const Quotations = () => {
       await transitionQuotationStatus(selectedQuotationForProject.id, "converted_to_project");
     }
 
+    setLastConfirm(null);
     toast({
       title: "Project Created",
       description: `Project "${newProject.name}" has been created from quotation${selectedQuotationForProject.paymentType ? ` (${selectedQuotationForProject.paymentType === "loan" ? "Loan" : "Cash"} file)` : ""}`,

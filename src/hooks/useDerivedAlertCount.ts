@@ -16,8 +16,8 @@ export function useDerivedAlertCount(): number {
     vendors,
   } = useAppData();
 
-  const vendorNamesByNumericId = useMemo(
-    () => new Map(vendors.map((v) => [v.id, v.name] as const)),
+  const vendorNamesById = useMemo(
+    () => new Map(vendors.map((v) => [String(v.id), v.name] as const)),
     [vendors],
   );
 
@@ -31,7 +31,7 @@ export function useDerivedAlertCount(): number {
       projects,
       projectTimelineByProjectId,
       vendorBills,
-      vendorNamesByNumericId,
+      vendorNamesById,
     }).length;
   }, [
     invoices,
@@ -42,6 +42,6 @@ export function useDerivedAlertCount(): number {
     projects,
     projectTimelineByProjectId,
     vendorBills,
-    vendorNamesByNumericId,
+    vendorNamesById,
   ]);
 }

@@ -43,6 +43,8 @@ import { formatINR } from "@/lib/formatCurrency";
 type NeedToGetSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Pre-select project filter when opened (e.g. from Active Sites shortfall badge). */
+  initialProjectId?: string | null;
 };
 
 const GROUP_LABELS: Record<NeedToGetGroupMode, string> = {
@@ -187,7 +189,7 @@ function rowLineKey(r: Pick<NeedToGetRow, "projectId" | "siteId" | "materialId" 
   });
 }
 
-export function NeedToGetSheet({ open, onOpenChange }: NeedToGetSheetProps) {
+export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToGetSheetProps) {
   const {
     sites,
     projects,
@@ -227,6 +229,15 @@ export function NeedToGetSheet({ open, onOpenChange }: NeedToGetSheetProps) {
   );
 
   const [projectFilter, setProjectFilter] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (open && initialProjectId) {
+      setProjectFilter([initialProjectId]);
+    }
+    if (!open && initialProjectId) {
+      setProjectFilter([]);
+    }
+  }, [open, initialProjectId]);
   const [siteFilter, setSiteFilter] = useState<string[]>([]);
   const [materialFilter, setMaterialFilter] = useState<string[]>([]);
   const [vendorFilter, setVendorFilter] = useState<string>("all");
@@ -480,10 +491,7 @@ export function NeedToGetSheet({ open, onOpenChange }: NeedToGetSheetProps) {
     <>
       <Sheet
         open={open}
-        onOpenChange={(v) => {
-          if (!v) clearOrderedRows();
-          onOpenChange(v);
-        }}
+        onOpenChange={onOpenChange}
       >
         <AppSheetContent layout="document" size="wide" className="print:max-w-none">
           <AppSheetHeaderWithActions

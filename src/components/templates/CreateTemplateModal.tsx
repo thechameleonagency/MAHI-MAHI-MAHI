@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useMasters } from "@/contexts/MastersContext";
+import { useCan } from "@/hooks/useCan";
 import { toast } from "@/hooks/use-toast";
 import type {
   SiteChecklistTemplate,
@@ -29,6 +31,18 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
     quotationTemplates,
     siteChecklistTemplates,
   } = useAppData();
+  const { getSacCodes, getGstRates } = useMasters();
+  const canCreateTemplate = useCan("template", "create");
+  const sacCodes = useMemo(() => getSacCodes(), [getSacCodes]);
+  const gstRates = useMemo(() => getGstRates(), [getGstRates]);
+  const defaultSac = sacCodes[0]?.value ?? "";
+  const defaultGstRate = useMemo(() => {
+    const preferred = gstRates.find((g) => g.value === "18");
+    const raw = preferred?.value ?? gstRates[0]?.value ?? "18";
+    const n = Number.parseFloat(raw);
+    return Number.isFinite(n) ? n : 18;
+  }, [gstRates]);
+
   const [name, setName] = useState("");
   const [segment, setSegment] = useState<TemplateCapacitySegment>("residential");
 
@@ -59,7 +73,7 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
   };
 
   const handleAddService = () => {
-    setServices([...services, { description: "", sac: "9987", rate: 0, gstRate: 18 }]);
+    setServices([...services, { description: "", sac: defaultSac, rate: 0, gstRate: defaultGstRate }]);
   };
 
   const handleRemoveService = (index: number) => {
@@ -110,6 +124,14 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
   };
 
   const handleSave = () => {
+    if (!canCreateTemplate) {
+      toast({
+        title: "Action not permitted",
+        description: "Your role cannot create templates.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!name) {
       toast({ title: "Error", description: "Please enter a template name", variant: "destructive" });
       return;
@@ -519,7 +541,16 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
                           newServices[i].sac = e.target.value;
                           setServices(newServices);
                         }}
+                        list={`template-sac-list-${i}`}
+                        placeholder={defaultSac || "SAC code"}
                       />
+                      <datalist id={`template-sac-list-${i}`}>
+                        {sacCodes.map((code) => (
+                          <option key={code.value} value={code.value}>
+                            {code.label}
+                          </option>
+                        ))}
+                      </datalist>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Rate (₹)</Label>
@@ -535,15 +566,25 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">GST %</Label>
-                      <Input
-                        type="number"
-                        value={s.gstRate}
-                        onChange={(e) => {
+                      <Select
+                        value={String(s.gstRate)}
+                        onValueChange={(v) => {
                           const newServices = [...services];
-                          newServices[i].gstRate = parseFloat(e.target.value);
+                          newServices[i].gstRate = Number.parseFloat(v) || 0;
                           setServices(newServices);
                         }}
-                      />
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="GST rate" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {gstRates.map((g) => (
+                            <SelectItem key={g.value} value={g.value}>
+                              {g.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>
@@ -556,7 +597,9 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Save Template</Button>
+          <Button onClick={handleSave} disabled={!canCreateTemplate}>
+            Save Template
+          </Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>

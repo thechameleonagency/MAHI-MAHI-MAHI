@@ -14,7 +14,7 @@ describe("prototype MSS integration", () => {
 
   it("Need-to-Get derives at least one shortfall row from seeded active sites", () => {
     const svc = new NeedToGetService();
-    const rows = svc.buildRows(dummySites, dummyProjects, dummyInventoryItems, dummyVendorBills);
+    const rows = svc.buildRows(dummySites, dummyProjects, dummyInventoryItems, dummyVendorBills, []);
     expect(rows.length).toBeGreaterThan(0);
   });
 

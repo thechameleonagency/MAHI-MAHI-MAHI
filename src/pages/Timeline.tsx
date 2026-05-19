@@ -2,7 +2,6 @@ import { useMemo, useCallback, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -11,25 +10,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { formatINRCompact } from "@/lib/formatCurrency";
 import {
   Calendar,
   MapPin,
   IndianRupee,
   Package,
   User,
-
-  ChevronLeft,
-  ChevronRight,
   Activity,
   FileText,
   Receipt,
   Briefcase,
-  CheckCircle2,
-  AlertCircle,
-  Truck,
-  Coffee,
   LayoutGrid,
   Users,
   Sparkles,
@@ -38,21 +30,15 @@ import {
   format,
   startOfWeek,
   addDays,
-  subWeeks,
-  addWeeks,
-  isSameDay,
   subDays,
   parseISO,
   isBefore,
   startOfDay,
 } from "date-fns";
-import { WORK_STATUS_STAGES } from "@/types/blockage";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { cn } from "@/lib/utils";
-import { AgingChip } from "@/components/ui/AgingChip";
-import { getTaskOverdueAging } from "@/lib/agingHelpers";
 
 /** Top-level timeline dimensions (aligned with sidebar “Timeline”). */
 type TimelineMainTab = "sites" | "people" | "office";
@@ -80,9 +66,7 @@ type BuiltActivityItem = {
 };
 
 function formatCompactMoney(amount: number): string {
-  if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `₹${(amount / 1000).toFixed(1)}K`;
-  return `₹${Math.round(amount).toLocaleString("en-IN")}`;
+  return formatINRCompact(amount);
 }
 
 function parseDay(d: string): Date {
@@ -143,7 +127,7 @@ function buildOfficeActivity(params: {
       details: `${exp.category}${exp.subCategory ? ` · ${exp.subCategory}` : ""} — ${formatCompactMoney(exp.amount)}${exp.projectName ? ` · ${exp.projectName}` : ""}`,
       user: exp.paidBy?.entityName || exp.paidBy?.type || "Company",
       icon: "expense",
-      accentClass: "text-emerald-600 bg-emerald-500/15",
+      accentClass: "text-success bg-success/15",
     });
   });
 
@@ -177,7 +161,7 @@ function buildOfficeActivity(params: {
       details: `${formatCompactMoney(pay.amount)} · ${counterparty}${pay.paymentMode ? ` · ${pay.paymentMode}` : ""}`,
       user: counterparty,
       icon: "payment",
-      accentClass: pay.direction === "in" ? "text-teal-600 bg-teal-500/15" : "text-rose-600 bg-rose-500/15",
+      accentClass: pay.direction === "in" ? "text-primary bg-primary/15" : "text-accent-foreground bg-accent/15",
     });
   });
 
@@ -190,33 +174,249 @@ function buildOfficeActivity(params: {
   );
 }
 
-function getWorkTypeColor(workType: string): string {
-  const colors: Record<string, string> = {
-    Structure: "border-primary/30 bg-primary/10 text-primary dark:text-blue-300",
-    Panel: "border-primary/30 bg-primary/10 text-primary dark:text-blue-300",
-    Inverter: "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-    Wiring: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
-    Earthing: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-    Civil: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300",
-    Meter: "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
-    Transport: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300",
-  };
-  return colors[workType] ?? "border-border bg-muted/60 text-muted-foreground";
+type TimelineSource =
+  | "site-task"
+  | "site-spend"
+  | "people-task"
+  | "office-expense"
+  | "office-invoice"
+  | "office-payment";
+
+interface TimelineItem {
+  id: string;
+  date: string;
+  source: TimelineSource;
+  icon: ActivityIconKey;
+  action: string;
+  details: string;
+  user: string;
+  accentClass: string;
+  href?: string;
+}
+
+const SOURCE_CHIP: Record<TimelineSource, { label: string; className: string }> = {
+  "site-task": { label: "Site", className: "bg-primary/10 text-primary border-primary/30" },
+  "site-spend": { label: "Spend", className: "bg-warning/10 text-warning border-warning/30" },
+  "people-task": { label: "Field", className: "bg-accent/30 text-accent-foreground border-accent/40" },
+  "office-expense": { label: "Expense", className: "bg-success/10 text-success border-success/30" },
+  "office-invoice": { label: "Invoice", className: "bg-primary/10 text-primary border-primary/30" },
+  "office-payment": { label: "Payment", className: "bg-accent/30 text-accent-foreground border-accent/40" },
+};
+
+interface MergedTimelineFeedProps {
+  enabledSections: Set<TimelineMainTab>;
+  peopleMode: PeopleMode;
+  tasksByDateForProjects: Record<string, { tasks: Array<{ id: string; workDate: string; siteId?: string; siteName?: string; workType: string; employeeId?: number; status: string }>; expenses: Array<{ id: string; date: string; category: string; subCategory?: string; amount: number; projectName?: string; projectId?: string }> }>;
+  groupedTasksByDate: Record<string, Array<{ id: string; workDate: string; siteId?: string; siteName?: string; workType: string; employeeId?: number; status: string }>>;
+  officeFiltered: Record<string, BuiltActivityItem[]>;
+  employees: Array<{ id: number; name: string }>;
+  projects: Array<{ id: string; name: string }>;
+  onWiden: () => void;
+}
+
+function MergedTimelineFeed({
+  enabledSections,
+  peopleMode,
+  tasksByDateForProjects,
+  groupedTasksByDate,
+  officeFiltered,
+  employees,
+  projects,
+  onWiden,
+}: MergedTimelineFeedProps) {
+  const merged = useMemo<TimelineItem[]>(() => {
+    const out: TimelineItem[] = [];
+    if (enabledSections.has("sites")) {
+      Object.entries(tasksByDateForProjects).forEach(([date, { tasks: dayTasks, expenses: dayExpenses }]) => {
+        dayTasks.forEach((task, idx) => {
+          const emp = employees.find((e) => e.id === task.employeeId);
+          const project = projects.find((p) => p.id === task.siteId);
+          out.push({
+            id: `site-task-${task.id}-${idx}`,
+            date,
+            source: "site-task",
+            icon: "project",
+            action: `${task.workType} · ${task.siteName || project?.name || task.siteId || "Site"}`,
+            details: emp ? `${emp.name} · ${task.status === "done" ? "Done" : "Pending"}` : task.status,
+            user: emp?.name ?? "Unassigned",
+            accentClass: "text-primary bg-primary/15",
+            href: project ? `/projects/${project.id}` : undefined,
+          });
+        });
+        dayExpenses.forEach((exp, idx) => {
+          out.push({
+            id: `site-spend-${exp.id}-${idx}`,
+            date,
+            source: "site-spend",
+            icon: "expense",
+            action: `${exp.category}${exp.subCategory ? ` · ${exp.subCategory}` : ""}`,
+            details: `${formatCompactMoney(exp.amount)}${exp.projectName ? ` · ${exp.projectName}` : ""}`,
+            user: exp.projectName ?? "Site",
+            accentClass: "text-warning bg-warning/15",
+          });
+        });
+      });
+    }
+    if (enabledSections.has("people")) {
+      Object.entries(groupedTasksByDate).forEach(([date, dayTasks]) => {
+        dayTasks.forEach((task, idx) => {
+          const emp = employees.find((e) => e.id === task.employeeId);
+          const project = projects.find((p) => p.id === task.siteId);
+          out.push({
+            id: `people-task-${task.id}-${idx}`,
+            date,
+            source: "people-task",
+            icon: "employee",
+            action: `${emp?.name ?? "Unassigned"} — ${task.workType}`,
+            details: `${task.siteName || project?.name || task.siteId || "Site"} · ${task.status === "done" ? "Done" : "Pending"}`,
+            user: emp?.name ?? "Unassigned",
+            accentClass: "text-accent-foreground bg-accent/30",
+            href: project ? `/projects/${project.id}` : undefined,
+          });
+        });
+      });
+    }
+    if (enabledSections.has("office")) {
+      Object.entries(officeFiltered).forEach(([date, rows]) => {
+        rows.forEach((row) => {
+          const src: TimelineSource =
+            row.icon === "expense" ? "office-expense"
+              : row.icon === "invoice" ? "office-invoice"
+                : "office-payment";
+          out.push({
+            id: `office-${row.id}`,
+            date,
+            source: src,
+            icon: row.icon,
+            action: row.action,
+            details: row.details,
+            user: row.user,
+            accentClass: row.accentClass,
+          });
+        });
+      });
+    }
+    return out;
+  }, [enabledSections, tasksByDateForProjects, groupedTasksByDate, officeFiltered, employees, projects]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, TimelineItem[]>();
+    merged.forEach((item) => {
+      const key = peopleMode === "weekly"
+        ? format(startOfWeek(parseDay(item.date), { weekStartsOn: 1 }), "yyyy-MM-dd")
+        : item.date;
+      const list = map.get(key) ?? [];
+      list.push(item);
+      map.set(key, list);
+    });
+    return [...map.entries()].sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0));
+  }, [merged, peopleMode]);
+
+  if (grouped.length === 0) {
+    return (
+      <Card>
+        <CardContent>
+          <ListEmptyState
+            icon={LayoutGrid}
+            title="Nothing in this window"
+            description="No activity for the selected sections and date range."
+            actionLabel="Try last 30 days"
+            onAction={onWiden}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
+      {grouped.map(([key, items]) => {
+        const dt = parseDay(key);
+        const heading = peopleMode === "weekly"
+          ? `Week of ${format(dt, "dd MMM")} — ${format(addDays(dt, 6), "dd MMM yyyy")}`
+          : format(dt, "EEEE dd MMM yyyy");
+        return (
+          <Card key={key} className="overflow-hidden shadow-sm">
+            <CardHeader className="border-b bg-gradient-to-r from-muted/80 to-transparent py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary font-bold text-primary-foreground">
+                  {format(dt, "d")}
+                </div>
+                <div>
+                  <CardTitle className="text-base">{heading}</CardTitle>
+                  <p className="text-xs text-muted-foreground">{items.length} event{items.length === 1 ? "" : "s"}</p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2 p-3">
+              {items.map((item) => {
+                const chip = SOURCE_CHIP[item.source];
+                const Body = (
+                  <div className="flex gap-3 rounded-xl border border-transparent bg-muted/30 p-3 transition-colors hover:border-border hover:bg-muted/50">
+                    <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full", item.accentClass)}>
+                      {activityIcon(item.icon)}
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0">
+                        <p className="text-sm font-medium leading-tight">{item.action}</p>
+                        <Badge variant="outline" className={cn("text-2xs", chip.className)}>{chip.label}</Badge>
+                      </div>
+                      <p className="text-xs leading-snug text-muted-foreground">{item.details}</p>
+                      <Badge variant="outline" className="text-2xs">{item.user}</Badge>
+                    </div>
+                  </div>
+                );
+                return item.href ? (
+                  <Link key={item.id} to={item.href} className="block">{Body}</Link>
+                ) : (
+                  <div key={item.id}>{Body}</div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
 }
 
 const Timeline = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  // UI 13 — sections are multi-select; URL persists as comma-list (e.g. ?sections=sites,people).
+  const rawSections = searchParams.get("sections");
+  const enabledSections: Set<TimelineMainTab> = useMemo(() => {
+    if (!rawSections) return new Set<TimelineMainTab>(["sites", "people", "office"]);
+    const arr = rawSections.split(",").filter((s): s is TimelineMainTab =>
+      s === "sites" || s === "people" || s === "office",
+    );
+    return arr.length > 0 ? new Set(arr) : new Set<TimelineMainTab>(["sites", "people", "office"]);
+  }, [rawSections]);
+
+  // Legacy single-tab still derived for transitional refs (defaults to first enabled, used for filters scoping)
   const rawTab = searchParams.get("tab");
   const tab: TimelineMainTab =
-    rawTab === "people" || rawTab === "office" || rawTab === "sites" ? rawTab : "sites";
+    rawTab === "people" || rawTab === "office" || rawTab === "sites"
+      ? rawTab
+      : (enabledSections.values().next().value as TimelineMainTab) ?? "sites";
   const rawPeopleMode = searchParams.get("peopleMode");
-  const peopleMode: PeopleMode = rawPeopleMode === "weekly" ? "weekly" : "daily";
+  // UI 13 — weekly is the default per spec (user prefers the weekly-board card design).
+  const peopleMode: PeopleMode = rawPeopleMode === "daily" ? "daily" : "weekly";
 
-  const setTab = useCallback(
-    (next: TimelineMainTab) => {
+  const toggleSection = useCallback(
+    (section: TimelineMainTab) => {
       setSearchParams((prev) => {
         const p = new URLSearchParams(prev);
-        p.set("tab", next);
+        const current = (p.get("sections") || "sites,people,office")
+          .split(",")
+          .filter((s): s is TimelineMainTab => s === "sites" || s === "people" || s === "office");
+        const next = current.includes(section)
+          ? current.filter((s) => s !== section)
+          : [...current, section];
+        if (next.length === 0) {
+          p.delete("sections");
+        } else {
+          p.set("sections", next.join(","));
+        }
         return p;
       });
     },
@@ -246,20 +446,6 @@ const Timeline = () => {
 
   const [sitesProjectId, setSitesProjectId] = useState<string>("all");
   const [sitesDaysBack, setSitesDaysBack] = useState<7 | 14 | 30>(14);
-
-  const [majdoorFilterEmployee, setMajdoorFilterEmployee] = useState("all");
-  const [majdoorFilterWorkType, setMajdoorFilterWorkType] = useState("all");
-  const [majdoorFilterDate, setMajdoorFilterDate] = useState("all");
-  const [selectedWeeklyEmployee, setSelectedWeeklyEmployee] = useState("all");
-
-  const [officeDaysBack, setOfficeDaysBack] = useState<7 | 14 | 30>(14);
-  const [officeFilterType, setOfficeFilterType] = useState<ActivityIconKey | "all">("all");
-
-  const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
-
-  const uniqueDates = [...new Set(tasks.map((t) => t.workDate))].sort().reverse();
-  const uniqueEmployeeNames = [...new Set(employees.map((e) => e.name))];
 
   const cutoffSites = startOfDay(subDays(new Date(), sitesDaysBack));
 
@@ -299,77 +485,28 @@ const Timeline = () => {
     return acc;
   }, [filteredTasksForSites, expenses, cutoffSites, sitesProjectId]);
 
-  const recentDatesWithData = useMemo(() => {
-    return Object.keys(tasksByDateForProjects)
-      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
-      .filter((k) => {
-        const d = tasksByDateForProjects[k];
-        return (d.tasks.length ?? 0) > 0 || (d.expenses?.length ?? 0) > 0;
-      });
-  }, [tasksByDateForProjects]);
-
-  const filteredTasksMajdoor = tasks.filter((task) => {
-    const emp = employees.find((e) => e.id === task.employeeId);
-    if (majdoorFilterEmployee !== "all" && emp?.name !== majdoorFilterEmployee) return false;
-    if (majdoorFilterWorkType !== "all" && task.workType !== majdoorFilterWorkType) return false;
-    if (majdoorFilterDate !== "all" && task.workDate !== majdoorFilterDate) return false;
-    return true;
-  });
-
   const groupedTasksByDate = useMemo(() => {
-    return filteredTasksMajdoor.reduce(
-      (acc, task) => {
-        if (!acc[task.workDate]) acc[task.workDate] = [];
-        acc[task.workDate].push(task);
-        return acc;
-      },
-      {} as Record<string, typeof tasks>,
-    );
-  }, [filteredTasksMajdoor]);
+    const acc: Record<string, typeof tasks> = {};
+    tasks.forEach((task) => {
+      const day = parseDay(task.workDate);
+      if (isBefore(day, cutoffSites)) return;
+      if (!acc[task.workDate]) acc[task.workDate] = [];
+      acc[task.workDate].push(task);
+    });
+    return acc;
+  }, [tasks, cutoffSites]);
 
-  const employeeTasksForWeek = employees
-    .map((emp) => {
-      const empTasks = tasks.filter(
-        (t) =>
-          t.employeeId === emp.id &&
-          weekDays.some((day) => isSameDay(parseDay(t.workDate), day)),
-      );
-      return {
-        employee: emp,
-        tasksByDay: weekDays.map((day) => ({
-          date: day,
-          tasks: empTasks.filter((t) => isSameDay(parseDay(t.workDate), day)),
-        })),
-        totalTasks: empTasks.length,
-        completedTasks: empTasks.filter((t) => t.status === "done").length,
-      };
-    })
-    .filter((e) => selectedWeeklyEmployee === "all" || e.employee.name === selectedWeeklyEmployee);
-
-  const officeByDate = useMemo(
+  const officeFiltered = useMemo(
     () =>
       buildOfficeActivity({
-        expenseDaysBack: officeDaysBack,
+        expenseDaysBack: sitesDaysBack,
         expenses,
         invoices,
         payments,
         customers,
       }),
-    [officeDaysBack, expenses, invoices, payments, customers],
+    [sitesDaysBack, expenses, invoices, payments, customers],
   );
-
-  const officeFiltered = useMemo(() => {
-    const out: Record<string, BuiltActivityItem[]> = {};
-    for (const [date, rows] of Object.entries(officeByDate)) {
-      const f =
-        officeFilterType === "all" ? rows : rows.filter((r) => r.icon === officeFilterType);
-      if (f.length) out[date] = f;
-    }
-    return out;
-  }, [officeByDate, officeFilterType]);
-
-  const getEmployeeName = (empId: number) => employees.find((e) => e.id === empId)?.name ?? "Unknown";
-  const _getProjectName = (projId: string) => projects.find((p) => p.id === projId)?.name ?? projId;
 
   const kpiStrip = useMemo(() => {
     const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
@@ -397,8 +534,7 @@ const Timeline = () => {
   ];
 
   return (
-    <TooltipProvider>
-      <PageShell className="space-y-6 pb-10">
+    <PageShell className="space-y-6 pb-10">
         <StickyPageHeader
           breadcrumbs={[
             { label: "Home", to: "/" },
@@ -406,18 +542,29 @@ const Timeline = () => {
             { label: "Timeline" },
           ]}
           subRow={
-            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
-              {/* Compact KPI chips */}
-              {kpiStrip.map((k) => (
-                <div key={k.label} className="flex items-center gap-1.5 rounded-full border bg-muted/40 px-2.5 py-1">
-                  <span className="text-2xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
-                  <span className="text-xs font-semibold tabular-nums">{k.value}</span>
+            <div className="flex w-full min-w-0 flex-col gap-2">
+              {/* Row 1 — section toggles + window + granularity + active-sites link */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1" role="group" aria-label="Timeline section toggles">
+                  {mainTabs.map(({ id, label, icon: Icon }) => {
+                    const active = enabledSections.has(id);
+                    return (
+                      <Button
+                        key={id}
+                        type="button"
+                        variant={active ? "secondary" : "ghost"}
+                        size="sm"
+                        className={cn("h-8 px-3 text-xs", active && "ring-1 ring-primary/30")}
+                        onClick={() => toggleSection(id)}
+                        aria-pressed={active}
+                      >
+                        <Icon className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                        {label}
+                      </Button>
+                    );
+                  })}
                 </div>
-              ))}
 
-              {/* Window segmented control */}
-              <div className="ml-auto flex items-center gap-2">
-                <span className="text-xs font-medium text-muted-foreground">Window</span>
                 <div className="flex rounded-lg border bg-background p-0.5">
                   {([7, 14, 30] as const).map((n) => (
                     <Button
@@ -433,9 +580,38 @@ const Timeline = () => {
                   ))}
                 </div>
 
-                {/* Project filter */}
+                <div className="flex rounded-lg border bg-background p-0.5" role="group" aria-label="Granularity">
+                  <Button
+                    type="button"
+                    variant={peopleMode === "daily" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-7 px-2.5 text-xs"
+                    onClick={() => setPeopleMode("daily")}
+                    aria-pressed={peopleMode === "daily"}
+                  >
+                    Daily
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={peopleMode === "weekly" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-7 px-2.5 text-xs"
+                    onClick={() => setPeopleMode("weekly")}
+                    aria-pressed={peopleMode === "weekly"}
+                  >
+                    Weekly
+                  </Button>
+                </div>
+
+                <Button asChild variant="outline" size="sm" className="ml-auto h-8">
+                  <Link to="/active-sites">Active sites</Link>
+                </Button>
+              </div>
+
+              {/* Row 2 — project filter + KPI chips */}
+              <div className="flex flex-wrap items-center gap-2">
                 <Select value={sitesProjectId} onValueChange={setSitesProjectId}>
-                  <SelectTrigger className="h-8 w-[200px] text-xs">
+                  <SelectTrigger className="h-8 w-[220px] text-xs">
                     <SelectValue placeholder="All projects / sites" />
                   </SelectTrigger>
                   <SelectContent>
@@ -446,539 +622,33 @@ const Timeline = () => {
                   </SelectContent>
                 </Select>
 
-                <Button asChild variant="outline" size="sm" className="h-8 shrink-0">
-                  <Link to="/active-sites">Active sites</Link>
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {kpiStrip.map((k) => (
+                    <div key={k.label} className="flex items-center gap-1.5 rounded-full border bg-muted/40 px-2.5 py-1">
+                      <span className="whitespace-nowrap text-2xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
+                      <span className="text-xs font-semibold tabular-nums">{k.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           }
         >
         </StickyPageHeader>
 
-        {/* Primary tab switcher */}
-        <div className="grid gap-2 rounded-xl border bg-card/80 p-1.5 shadow-sm sm:grid-cols-3">
-          {mainTabs.map(({ id, label, hint, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={cn(
-                "flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left transition-all",
-                tab === id
-                  ? "bg-primary text-primary-foreground shadow-md"
-                  : "bg-muted/50 hover:bg-muted dark:bg-muted/25",
-              )}
-            >
-              <span className="flex items-center gap-2 font-semibold">
-                <Icon className="h-4 w-4 shrink-0 opacity-90" />
-                {label}
-              </span>
-              <span
-                className={cn(
-                  "text-xs",
-                  tab === id ? "text-primary-foreground/85" : "text-muted-foreground",
-                )}
-              >
-                {hint}
-              </span>
-            </button>
-          ))}
-        </div>
+        {/* Merged chronological feed — Sites / People / Office events in one stream. */}
+        <MergedTimelineFeed
+          enabledSections={enabledSections}
+          peopleMode={peopleMode}
+          tasksByDateForProjects={tasksByDateForProjects}
+          groupedTasksByDate={groupedTasksByDate}
+          officeFiltered={officeFiltered}
+          employees={employees}
+          projects={projects}
+          onWiden={() => setSitesDaysBack(30)}
+        />
 
-        {/* Sites */}
-        {tab === "sites" && (
-          <section className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {/* Filters live in the page header now (window / project / active sites button). */}
-
-            {recentDatesWithData.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-                  <LayoutGrid className="h-10 w-10 text-muted-foreground/50" />
-                  <p className="text-muted-foreground">Nothing in this window for the selected filters.</p>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setSitesDaysBack(30)}>
-                      Try last 30 days
-                    </Button>
-                    <Button variant="outline" size="sm" asChild>
-                      <Link to="/projects">Go to projects</Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              recentDatesWithData.map((dateKey, dayIdx) => {
-                const dayData = tasksByDateForProjects[dateKey];
-                const transportExpenses = dayData.expenses.filter((e) => e.category === "Transport");
-                const foodExpenses = dayData.expenses.filter(
-                  (e) =>
-                    e.category === "Food & Others" || e.subCategory?.toLowerCase().includes("food"),
-                );
-                const labourExpenses = dayData.expenses.filter((e) => e.category === "Labour");
-                const totalCost = dayData.expenses.reduce((sum, e) => sum + e.amount, 0);
-                const dayDate = parseDay(dateKey);
-                const isToday = isSameDay(dayDate, new Date());
-
-                return (
-                  <div key={dateKey} className="relative">
-                    {dayIdx < recentDatesWithData.length - 1 && (
-                      <div className="absolute bottom-0 left-8 top-24 hidden w-px bg-gradient-to-b from-primary/40 to-border md:block" />
-                    )}
-
-                    <div className="mb-6 flex flex-wrap items-center gap-4">
-                      <div
-                        className={cn(
-                          "relative z-[1] rounded-xl border px-5 py-3 shadow-sm",
-                          isToday ? "border-primary bg-primary text-primary-foreground" : "bg-muted/60",
-                        )}
-                      >
-                        <p className="text-lg font-bold">{isToday ? "Today" : format(dayDate, "EEE dd MMM")}</p>
-                        {!isToday && (
-                          <p className="text-xs opacity-80">{format(dayDate, "yyyy")}</p>
-                        )}
-                      </div>
-                      <Separator orientation="vertical" className="hidden h-10 md:block" />
-                      <Card className="flex-1 bg-muted/30">
-                        <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="cursor-help">
-                                <p className="text-2xs uppercase tracking-wide text-muted-foreground">Day spend</p>
-                                <p className="mt-0.5 text-base font-semibold text-primary tabular-nums">{formatCompactMoney(totalCost)}</p>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent>Sum of expenses dated this day (after filters).</TooltipContent>
-                          </Tooltip>
-                          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                            <span className="inline-flex items-center gap-1.5">
-                              <Truck className="h-3.5 w-3.5" />
-                              Transport {transportExpenses.length} · {formatCompactMoney(transportExpenses.reduce((s, e) => s + e.amount, 0))}
-                            </span>
-                            <span className="inline-flex items-center gap-1.5">
-                              <Coffee className="h-3.5 w-3.5" />
-                              Food {foodExpenses.length}
-                            </span>
-                            <span className="inline-flex items-center gap-1.5">
-                              Labour {labourExpenses.length}
-                            </span>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:pl-12">
-                      {dayData.tasks.map((task, idx) => {
-                        const emp = employees.find((e) => e.id === task.employeeId);
-                        const project = projects.find((p) => p.id === task.siteId);
-
-                        return (
-                          <Card
-                            key={`${task.id}-${idx}`}
-                            className="border-l-4 border-l-primary/60 shadow-sm transition hover:shadow-md"
-                          >
-                            <CardContent className="space-y-3 p-4">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                                    <MapPin className="h-4 w-4 text-primary" />
-                                  </div>
-                                  <span className="truncate font-medium flex items-center gap-1.5 flex-wrap">
-                                    {task.siteName || project?.name || task.siteId}
-                                    <AgingChip signal={getTaskOverdueAging(task)} />
-                                  </span>
-                                </div>
-                                <Badge variant={task.status === "done" ? "default" : "secondary"} className="shrink-0">
-                                  {task.status === "done" ? "Done" : "Pending"}
-                                </Badge>
-                              </div>
-                              <Badge variant="outline" className={cn("font-normal", getWorkTypeColor(task.workType))}>
-                                {task.workType}
-                              </Badge>
-                              <p className="line-clamp-3 text-sm text-muted-foreground">{task.notes || "—"}</p>
-                              <div className="flex items-center gap-2 border-t pt-3">
-                                <Avatar className="h-8 w-8">
-                                  <AvatarFallback className="bg-primary/15 text-xs font-medium text-primary">
-                                    {emp?.name?.charAt(0) ?? "?"}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <span className="text-sm text-muted-foreground">{getEmployeeName(task.employeeId)}</span>
-                              </div>
-                              {project && (
-                                <Button variant="link" className="h-auto p-0 text-xs" asChild>
-                                  <Link to={`/projects/${project.id}`}>Open project</Link>
-                                </Button>
-                              )}
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                      {dayData.tasks.length === 0 && (
-                        <Card className="border-dashed md:col-span-full">
-                          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                            No tasks — only expenses may exist for this date.
-                          </CardContent>
-                        </Card>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </section>
-        )}
-
-        {/* People */}
-        {tab === "people" && (
-          <section className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <Card>
-              <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <CardTitle className="text-lg">Field team</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Daily work log (filterable) or weekly heat-style summary per person.
-                  </p>
-                </div>
-                <div className="flex rounded-xl border bg-muted/40 p-1">
-                  <Button
-                    type="button"
-                    variant={peopleMode === "daily" ? "default" : "ghost"}
-                    size="sm"
-                    className="gap-2"
-                    onClick={() => setPeopleMode("daily")}
-                  >
-                    <Calendar className="h-4 w-4" />
-                    Daily log
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={peopleMode === "weekly" ? "default" : "ghost"}
-                    size="sm"
-                    className="gap-2"
-                    onClick={() => setPeopleMode("weekly")}
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                    Weekly board
-                  </Button>
-                </div>
-              </CardHeader>
-            </Card>
-
-            {peopleMode === "daily" && (
-              <Card className="border-dashed">
-                <CardContent className="flex flex-wrap gap-2 pt-6">
-                  <Select value={majdoorFilterEmployee} onValueChange={setMajdoorFilterEmployee}>
-                    <SelectTrigger className="w-[170px]">
-                      <SelectValue placeholder="Person" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Everyone</SelectItem>
-                      {uniqueEmployeeNames.map((emp) => (
-                        <SelectItem key={emp} value={emp}>
-                          {emp}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={majdoorFilterWorkType} onValueChange={setMajdoorFilterWorkType}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Trade / type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All trades</SelectItem>
-                      {WORK_STATUS_STAGES.flatMap((stage) => [
-                        { value: stage.value, label: stage.label, isMain: true },
-                        ...stage.subItems.map((sub) => ({ value: sub.value, label: sub.label, isMain: false })),
-                      ]).map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.isMain ? opt.label : `↳ ${opt.label}`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={majdoorFilterDate} onValueChange={setMajdoorFilterDate}>
-                    <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Date" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All dates</SelectItem>
-                      {uniqueDates.map((date) => (
-                        <SelectItem key={date} value={date}>
-                          {format(parseDay(date), "dd MMM yyyy")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </CardContent>
-              </Card>
-            )}
-
-            {peopleMode === "daily" && (
-              <div className="space-y-8">
-                {Object.keys(groupedTasksByDate).length === 0 ? (
-                  <Card>
-                    <CardContent className="py-14 text-center text-muted-foreground">
-                      No tasks match these filters.
-                    </CardContent>
-                  </Card>
-                ) : (
-                  Object.entries(groupedTasksByDate)
-                    .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
-                    .map(([date, dayTasks]) => (
-                      <div key={date}>
-                        <div className="mb-4 flex items-center gap-3">
-                          <Badge className="bg-primary px-3 py-1.5 text-primary-foreground">
-                            {format(parseDay(date), "EEEE dd MMM")}
-                          </Badge>
-                          <div className="h-px flex-1 bg-border" />
-                          <Badge variant="secondary">{dayTasks.length} tasks</Badge>
-                        </div>
-                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                          {dayTasks.map((task) => {
-                            const emp = employees.find((e) => e.id === task.employeeId);
-                            const project = projects.find((p) => p.id === task.siteId);
-                            return (
-                              <Card key={task.id} className="overflow-hidden">
-                                <CardContent className="space-y-3 p-4">
-                                  <div className="flex items-start gap-3">
-                                    <Avatar className="h-11 w-11 border border-border">
-                                      <AvatarFallback className="bg-primary/10 font-semibold text-primary">
-                                        {emp?.name?.charAt(0) ?? "?"}
-                                      </AvatarFallback>
-                                    </Avatar>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="font-medium">{emp?.name ?? "Unknown"}</p>
-                                      <p className="truncate text-xs text-muted-foreground">
-                                        {task.siteName || project?.name || task.siteId}
-                                      </p>
-                                    </div>
-                                    <Badge variant={task.status === "done" ? "default" : "secondary"}>
-                                      {task.status === "done" ? "Done" : "Pending"}
-                                    </Badge>
-                                  </div>
-                                  <Badge variant="outline" className={getWorkTypeColor(task.workType)}>
-                                    {task.workType}
-                                  </Badge>
-                                  <p className="text-sm text-muted-foreground">{task.notes || "—"}</p>
-                                </CardContent>
-                              </Card>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))
-                )}
-              </div>
-            )}
-
-            {peopleMode === "weekly" && (
-              <>
-                <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-muted/30 p-4">
-                  <Button variant="outline" size="icon" type="button" onClick={() => setCurrentWeekStart(subWeeks(currentWeekStart, 1))}>
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <span className="text-sm font-medium">
-                    Week of {format(currentWeekStart, "dd MMM")} — {format(addDays(currentWeekStart, 6), "dd MMM yyyy")}
-                  </span>
-                  <Button variant="outline" size="icon" type="button" onClick={() => setCurrentWeekStart(addWeeks(currentWeekStart, 1))}>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                  <Select value={selectedWeeklyEmployee} onValueChange={setSelectedWeeklyEmployee}>
-                    <SelectTrigger className="ml-auto w-[220px]">
-                      <SelectValue placeholder="Person" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Everyone</SelectItem>
-                      {employees.map((emp) => (
-                        <SelectItem key={emp.id} value={emp.name}>
-                          {emp.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {employeeTasksForWeek.map((empData) => (
-                    <Card key={empData.employee.id}>
-                      <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-12 w-12 border">
-                            <AvatarFallback className="bg-primary text-lg font-bold text-primary-foreground">
-                              {empData.employee.name.charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <CardTitle className="text-base">{empData.employee.name}</CardTitle>
-                            <p className="text-xs text-muted-foreground">{empData.employee.role}</p>
-                          </div>
-                        </div>
-                        <div className="text-right text-sm">
-                          <p className="font-semibold tabular-nums">{empData.completedTasks}/{empData.totalTasks}</p>
-                          <p className="text-2xs uppercase text-muted-foreground">done / total</p>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="flex gap-2 overflow-x-auto pb-1 pt-2">
-                          {empData.tasksByDay.map((day, idx) => {
-                            const completed = day.tasks.filter((t) => t.status === "done").length;
-                            const pending = day.tasks.filter((t) => t.status !== "done").length;
-                            const today = isSameDay(day.date, new Date());
-                            return (
-                              <div
-                                key={idx}
-                                className={cn(
-                                  "flex min-w-[7rem] flex-col rounded-xl border p-2.5 text-xs transition-colors",
-                                  today ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-muted/20",
-                                )}
-                              >
-                                <span className="font-semibold">{format(day.date, "EEE dd")}</span>
-                                {day.tasks.length === 0 ? (
-                                  <span className="mt-2 text-muted-foreground">—</span>
-                                ) : (
-                                  <>
-                                    <span className="mt-2 inline-flex items-center gap-1 text-primary dark:text-primary">
-                                      <CheckCircle2 className="h-3 w-3" />
-                                      {completed}
-                                    </span>
-                                    {pending > 0 && (
-                                      <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                                        <AlertCircle className="h-3 w-3" />
-                                        {pending}
-                                      </span>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div className="flex gap-4 border-t pt-3 text-center text-sm">
-                          <div className="flex-1 rounded-lg bg-muted/40 py-2">
-                            <p className="text-xl font-bold">{empData.totalTasks}</p>
-                            <p className="text-2xs uppercase text-muted-foreground">tasks</p>
-                          </div>
-                          <div className="flex-1 rounded-lg bg-muted/40 py-2">
-                            <p className="text-xl font-bold">
-                              {new Set(empData.tasksByDay.flatMap((d) => d.tasks.map((t) => t.siteId))).size}
-                            </p>
-                            <p className="text-2xs uppercase text-muted-foreground">sites</p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </>
-            )}
-          </section>
-        )}
-
-        {/* Office */}
-        {tab === "office" && (
-          <section className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <Card>
-              <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <CardTitle className="text-lg">Office trail</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Built from invoices, payments, and expenses — newest days first. Filters refine the feed only.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">Range</span>
-                  <div className="flex rounded-lg border bg-background p-0.5">
-                    {([7, 14, 30] as const).map((n) => (
-                      <Button
-                        key={n}
-                        type="button"
-                        variant={officeDaysBack === n ? "secondary" : "ghost"}
-                        size="sm"
-                        className="h-8 px-3 text-xs"
-                        onClick={() => setOfficeDaysBack(n)}
-                      >
-                        {n}d
-                      </Button>
-                    ))}
-                  </div>
-                  <Select value={officeFilterType} onValueChange={(v) => setOfficeFilterType(v as typeof officeFilterType)}>
-                    <SelectTrigger className="w-[160px]">
-                      <SelectValue placeholder="Type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All types</SelectItem>
-                      <SelectItem value="expense">Expenses</SelectItem>
-                      <SelectItem value="invoice">Invoices / bills</SelectItem>
-                      <SelectItem value="payment">Payments</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardHeader>
-            </Card>
-
-            {Object.keys(officeFiltered).length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-                  <Receipt className="h-10 w-10 opacity-40" />
-                  <p>No finance rows in this range.</p>
-                  <Button variant="outline" size="sm" onClick={() => setOfficeDaysBack(30)}>
-                    Expand to 30 days
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
-                {Object.entries(officeFiltered).map(([isoDay, items]) => {
-                  const dt = parseISO(`${isoDay}T12:00:00`);
-                  return (
-                    <Card key={isoDay} className="overflow-hidden shadow-sm">
-                      <CardHeader className="border-b bg-gradient-to-r from-muted/80 to-transparent py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary font-bold text-primary-foreground">
-                            {format(dt, "d")}
-                          </div>
-                          <div>
-                            <CardTitle className="text-base">{format(dt, "EEEE dd MMM yyyy")}</CardTitle>
-                            <p className="text-xs text-muted-foreground">{items.length} events</p>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-2 p-3">
-                        {items.map((item) => (
-                          <div
-                            key={item.id}
-                            className="flex gap-3 rounded-xl border border-transparent bg-muted/30 p-3 transition-colors hover:border-border hover:bg-muted/50"
-                          >
-                            <div
-                              className={cn(
-                                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                                item.accentClass,
-                              )}
-                            >
-                              {activityIcon(item.icon)}
-                            </div>
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0">
-                                <p className="text-sm font-medium leading-tight">{item.action}</p>
-                                <span className="text-2xs font-medium uppercase text-muted-foreground">
-                                  {item.timeLabel}
-                                </span>
-                              </div>
-                              <p className="text-xs leading-snug text-muted-foreground">{item.details}</p>
-                              <Badge variant="outline" className="text-2xs">
-                                {item.user}
-                              </Badge>
-                            </div>
-                          </div>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        )}
-      </PageShell>
-    </TooltipProvider>
+    </PageShell>
   );
 };
 

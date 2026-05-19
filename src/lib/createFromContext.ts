@@ -38,6 +38,7 @@ import {
   saveFormDraft,
   clearFormDraft,
 } from "@/lib/formDraftStorage";
+import { toast } from "@/hooks/use-toast";
 
 // ---------- URL/draft handoff helpers ----------
 
@@ -77,6 +78,41 @@ export function parseCreateFromParam(
 
 export function buildCreateFromParam(kind: CreateFromKind, id: string): string {
   return `${kind}:${id}`;
+}
+
+const CREATE_FROM_LABELS: Record<CreateFromKind, string> = {
+  enq: "Enquiry",
+  quo: "Quotation",
+  proj: "Project",
+  invoice: "Invoice",
+  "vendor-bill": "Vendor bill",
+  agent: "Agent",
+  customer: "Customer",
+};
+
+/**
+ * Validates that a `createFrom` parent entity exists before opening a create surface.
+ * Shows a destructive toast and returns `undefined` when the id is stale or missing.
+ */
+export function resolveCreateFromOrToast<T>(
+  kind: CreateFromKind,
+  id: string,
+  find: (entityId: string) => T | undefined,
+): T | undefined {
+  const entity = find(id);
+  if (entity) return entity;
+  const label = CREATE_FROM_LABELS[kind] ?? "Record";
+  toast({
+    title: `${label} not found`,
+    description: `No ${label.toLowerCase()} matches id ${id}. The link may be outdated.`,
+    variant: "destructive",
+  });
+  return undefined;
+}
+
+/** Remove `createFrom` from a URLSearchParams instance (mutates in place). */
+export function stripCreateFromParam(params: URLSearchParams): void {
+  params.delete("createFrom");
 }
 
 /**
@@ -307,7 +343,7 @@ export function buildProjectToBlockageDraft(project: Project): BlockageDraftFrom
 
 /** VendorBill → VendorPayment draft. */
 export interface VendorPaymentDraftFromBill {
-  vendorId: number;
+  vendorId: string;
   vendorName?: string;
   billId: string;
   amount: number;
@@ -322,7 +358,7 @@ export function buildVendorBillToPaymentDraft(
 ): VendorPaymentDraftFromBill {
   const due = Math.max(0, bill.total - (bill.amountPaid ?? 0));
   return {
-    vendorId: bill.vendorId,
+    vendorId: String(bill.vendorId),
     vendorName: vendor?.name ?? bill.vendorName,
     billId: bill.id,
     amount: due,

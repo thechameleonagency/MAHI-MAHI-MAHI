@@ -59,22 +59,22 @@ type SearchResult = {
 const typeConfig = {
   project: { icon: Building2, label: "Project", color: "bg-primary/20 text-primary" },
   customer: { icon: Users, label: "Customer", color: "bg-primary/20 text-primary" },
-  employee: { icon: Users, label: "Employee", color: "bg-purple-500/20 text-purple-400" },
-  invoice: { icon: Receipt, label: "Invoice", color: "bg-orange-500/20 text-orange-400" },
-  quotation: { icon: FileText, label: "Quotation", color: "bg-cyan-500/20 text-cyan-400" },
-  partner: { icon: Handshake, label: "Partner", color: "bg-yellow-500/20 text-yellow-400" },
-  vendor: { icon: Package, label: "Vendor", color: "bg-pink-500/20 text-pink-400" },
-  inventory: { icon: Warehouse, label: "Inventory", color: "bg-emerald-500/20 text-emerald-400" },
+  employee: { icon: Users, label: "Employee", color: "bg-accent/20 text-accent-foreground" },
+  invoice: { icon: Receipt, label: "Invoice", color: "bg-warning/20 text-warning" },
+  quotation: { icon: FileText, label: "Quotation", color: "bg-secondary text-secondary-foreground" },
+  partner: { icon: Handshake, label: "Partner", color: "bg-warning/20 text-warning" },
+  vendor: { icon: Package, label: "Vendor", color: "bg-destructive/20 text-destructive" },
+  inventory: { icon: Warehouse, label: "Inventory", color: "bg-success/20 text-success" },
   tool: { icon: Wrench, label: "Tool", color: "bg-slate-500/20 text-slate-400" },
-  agent: { icon: UserPlus, label: "Agent", color: "bg-indigo-500/20 text-indigo-400" },
-  enquiry: { icon: ClipboardList, label: "Enquiry", color: "bg-teal-500/20 text-teal-400" },
-  team: { icon: UsersRound, label: "Team", color: "bg-violet-500/20 text-violet-400" },
-  loan: { icon: Landmark, label: "Loan", color: "bg-rose-500/20 text-rose-400" },
-  task: { icon: ListTodo, label: "Task", color: "bg-amber-500/20 text-amber-400" },
-  vendorship_company: { icon: ShieldCheck, label: "Vendorship", color: "bg-sky-500/20 text-sky-400" },
-  inc_source: { icon: HardHat, label: "INC source", color: "bg-orange-500/20 text-orange-300" },
+  agent: { icon: UserPlus, label: "Agent", color: "bg-primary/20 text-primary" },
+  enquiry: { icon: ClipboardList, label: "Enquiry", color: "bg-primary/20 text-primary" },
+  team: { icon: UsersRound, label: "Team", color: "bg-accent/20 text-accent-foreground" },
+  loan: { icon: Landmark, label: "Loan", color: "bg-accent/20 text-accent-foreground" },
+  task: { icon: ListTodo, label: "Task", color: "bg-warning/20 text-warning" },
+  vendorship_company: { icon: ShieldCheck, label: "Vendorship", color: "bg-primary/20 text-primary" },
+  inc_source: { icon: HardHat, label: "INC source", color: "bg-warning/20 text-warning" },
   site: { icon: MapPin, label: "Site", color: "bg-lime-500/20 text-lime-400" },
-  template: { icon: LayoutTemplate, label: "Template", color: "bg-fuchsia-500/20 text-fuchsia-400" },
+  template: { icon: LayoutTemplate, label: "Template", color: "bg-accent/20 text-accent-foreground" },
 };
 
 const GlobalSearch = () => {
@@ -218,7 +218,7 @@ const GlobalSearch = () => {
           name: it.name,
           type: "inventory",
           subtitle: it.category,
-          path: `/inventory`,
+          path: `/inventory/materials`,
         });
       }
     });
@@ -256,7 +256,7 @@ const GlobalSearch = () => {
           name: e.customerName,
           type: "enquiry",
           subtitle: e.status,
-          path: `/enquiries`,
+          path: `/enquiries?open=${e.id}`,
         });
       }
     });

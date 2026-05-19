@@ -13,10 +13,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Download } from "lucide-react";
+import { BarChart3, Download } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useAppData } from "@/contexts/AppDataContext";
 import { downloadCSV } from "@/lib/csvExport";
+import { formatINR, formatINRCompact } from "@/lib/formatCurrency";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
@@ -32,6 +34,16 @@ import {
 } from "@/lib/analytics";
 
 function MetricGrid({ rows }: { rows: MetricRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <ListEmptyState
+        icon={BarChart3}
+        title="No metrics for this range"
+        description="Widen the date filter or load sample data from Settings."
+        className="py-10"
+      />
+    );
+  }
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
       {rows.map((r) => (
@@ -276,10 +288,6 @@ const Analytics = () => {
     };
   }, [invoices, saleBills, payments, projects, employees, inventoryItems, analyticsDateRange]);
   
-  const _formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
-  };
-
   const toggleProject = (projectId: string) => {
     setSelectedProjects(prev => 
       prev.includes(projectId) ? prev.filter(id => id !== projectId) : [...prev, projectId]
@@ -406,10 +414,10 @@ const Analytics = () => {
               singleRow
               className="min-w-0 flex-1"
               items={[
-                { label: "Revenue", value: `₹${(kpiValues.revenue / 10000000).toFixed(2)}Cr` },
+                { label: "Revenue", value: formatINRCompact(kpiValues.revenue) },
                 { label: "Active jobs", value: kpiValues.activeProjects },
                 { label: "Team", value: kpiValues.employees },
-                { label: "Stock", value: `₹${(kpiValues.stockValue / 100000).toFixed(0)}L` },
+                { label: "Stock", value: formatINRCompact(kpiValues.stockValue) },
               ]}
             />
           </div>
@@ -530,7 +538,7 @@ const Analytics = () => {
                   <tr key={b.bucket} className="border-b border-border/50">
                     <td className="py-2 pr-4">{b.bucket} days</td>
                     <td className="py-2 pr-4">{b.count}</td>
-                    <td className="py-2 text-right tabular-nums">₹{b.amount.toLocaleString("en-IN")}</td>
+                    <td className="py-2 text-right tabular-nums">{formatINR(b.amount)}</td>
                   </tr>
                 ))}
               </tbody>

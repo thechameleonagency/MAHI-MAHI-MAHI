@@ -15,6 +15,7 @@ describe("clearAllAppStorage", () => {
     localStorage.setItem("mahi_solar_app_data_version", "6");
     localStorage.setItem("mss.roleMatrix.v1", "{}");
     localStorage.setItem("mss.draft.quotation", "{}");
+    localStorage.setItem("mss.draft.invoice-create-v1", "{}");
     localStorage.setItem("mss.repo.projects", "[]");
     localStorage.setItem("masters_data", "{}");
     localStorage.setItem("mms-nav-pins", "[]");
@@ -22,7 +23,8 @@ describe("clearAllAppStorage", () => {
     localStorage.setItem("unrelated_app", "keep");
 
     const removed = clearAllAppStorage();
-    expect(removed.length).toBeGreaterThanOrEqual(7);
+    expect(removed.length).toBeGreaterThanOrEqual(8);
+    expect(localStorage.getItem("mss.draft.invoice-create-v1")).toBeNull();
     expect(localStorage.getItem("mahi_solar_app_data")).toBeNull();
     expect(localStorage.getItem("masters_data")).toBeNull();
     expect(localStorage.getItem("unrelated_app")).toBe("keep");

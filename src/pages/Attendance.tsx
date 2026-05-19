@@ -56,7 +56,7 @@ const Attendance = () => {
   
   // Teams assigned to sites on this date
   const suggestedAttendance = useMemo(() => {
-    const suggestions: Record<number, { projectId: string; teamName: string }> = {};
+    const suggestions: Record<string, { projectId: string; teamName: string }> = {};
     
     projects.forEach(project => {
       const assignments = project.teamAssignments || [];
@@ -93,7 +93,7 @@ const Attendance = () => {
     suggestion: suggestedAttendance[emp.id],
   }));
   
-  const [attendanceState, setAttendanceState] = useState<Record<number, { status: string | null; sites: string[] }>>({});
+  const [attendanceState, setAttendanceState] = useState<Record<string, { status: string | null; sites: string[] }>>({});
   const [isMarkHolidayOpen, setIsMarkHolidayOpen] = useState(false);
   const [selectedHolidayDates, setSelectedHolidayDates] = useState<Date[]>([]);
   const [isMultipleDayMode, setIsMultipleDayMode] = useState(false);
@@ -104,7 +104,7 @@ const Attendance = () => {
   // Fix: Sync attendance state when date changes - load from records
   useEffect(() => {
     const recordsForDate = attendanceRecords.filter(r => r.date === selectedDateStr);
-    const newState: Record<number, { status: string | null; sites: string[] }> = {};
+    const newState: Record<string, { status: string | null; sites: string[] }> = {};
     
     recordsForDate.forEach(record => {
       newState[record.employeeId] = { 
@@ -726,7 +726,7 @@ const Attendance = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Per Day:</span>
-                      <span className="font-medium text-primary">₹{(monthlyData.perDayRate || 0).toLocaleString()}</span>
+                      <span className="font-medium text-primary">{formatINR(monthlyData.perDayRate || 0)}</span>
                     </div>
                   </div>
                   
@@ -737,19 +737,19 @@ const Attendance = () => {
                   <div className="space-y-1 pt-2 border-t">
                     <div className="flex justify-between text-xs">
                       <span className="text-muted-foreground">Current Earnings:</span>
-                      <span className="font-medium">₹{(monthlyData.currentEarnings || 0).toLocaleString()}</span>
+                      <span className="font-medium">{formatINR(monthlyData.currentEarnings || 0)}</span>
                     </div>
                     {monthlyData.lastMonthPending !== 0 && (
                       <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Last Month Pending:</span>
                         <span className={`font-medium ${monthlyData.lastMonthPending > 0 ? 'text-warning' : 'text-primary'}`}>
-                          {monthlyData.lastMonthPending > 0 ? '+' : ''}₹{(monthlyData.lastMonthPending || 0).toLocaleString()}
+                          {monthlyData.lastMonthPending > 0 ? '+' : ''}{formatINR(monthlyData.lastMonthPending || 0)}
                         </span>
                       </div>
                     )}
                     <div className="flex justify-between text-sm font-semibold pt-1">
                       <span>Total Payable:</span>
-                      <span className="text-primary">₹{(monthlyData.totalPayable || 0).toLocaleString()}</span>
+                      <span className="text-primary">{formatINR(monthlyData.totalPayable || 0)}</span>
                     </div>
                     <Button
                       type="button"

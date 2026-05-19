@@ -24,6 +24,9 @@ import { formatUiDate } from "@/lib/formatUiDate";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getProjectIdleAging, getBlockageUpdatedAging } from "@/lib/agingHelpers";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { isActiveSiteProject } from "@/lib/activeSiteProjects";
+import { NeedToGetSheet } from "@/components/need-to-get/NeedToGetSheet";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
 
 // Timeline step labels
 const TIMELINE_STEPS = [
@@ -187,21 +190,30 @@ const ActiveSites = () => {
     sites,
     inventoryItems,
     vendorBills,
+    materialReservations,
     tasks,
   } = useAppData();
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
-  const [_refreshKey, setRefreshKey] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [needToGetOpen, setNeedToGetOpen] = useState(false);
+  const [needToGetProjectId, setNeedToGetProjectId] = useState<string | null>(null);
 
   const needToGetService = useMemo(() => new NeedToGetService(), []);
   const procurementShortQtyByProject = useMemo(() => {
-    const rows = needToGetService.buildRows(sites, projects, inventoryItems, vendorBills);
+    const rows = needToGetService.buildRows(
+      sites,
+      projects,
+      inventoryItems,
+      vendorBills,
+      materialReservations ?? [],
+    );
     const m = new Map<string, number>();
     for (const r of rows) {
       if (r.rowKind === "nonMaterial") continue;
       m.set(r.projectId, (m.get(r.projectId) ?? 0) + r.qtyShort);
     }
     return m;
-  }, [needToGetService, sites, projects, inventoryItems, vendorBills]);
+  }, [needToGetService, sites, projects, inventoryItems, vendorBills, materialReservations, refreshKey]);
   
   // State for expanded step in cards
   const [expandedStep, setExpandedStep] = useState<{projectId: string, step: string} | null>(null);
@@ -449,11 +461,7 @@ const ActiveSites = () => {
 
   // Get active/ongoing projects with filtering
   const activeProjects = useMemo(() => {
-    let filtered = projects.filter((p) => {
-      if (p.lifecycleStatus === "Completed") return false;
-      if (p.status === "Completed" || p.status === "Closed") return false;
-      return p.status === "Ongoing" || p.lifecycleStatus === "Active" || p.lifecycleStatus === "On Hold";
-    });
+    let filtered = projects.filter((p) => isActiveSiteProject(p));
     
     // Apply search filter
     if (filters.search) {
@@ -533,7 +541,7 @@ const ActiveSites = () => {
     });
     
     return filtered;
-  }, [projects, filters, projectTimelineByProjectId]);
+  }, [projects, filters, projectTimelineByProjectId, refreshKey]);
 
   // Get blockages for each project
   const getProjectBlockages = (projectId: string) => 
@@ -675,7 +683,16 @@ const ActiveSites = () => {
         }
       >
         <span className="hidden text-xs text-muted-foreground sm:inline">{timeSinceRefresh()}</span>
-        <Button variant="outline" size="sm" className="h-8" onClick={() => { setLastRefreshed(new Date()); setRefreshKey(k => k + 1); }}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={() => {
+            setLastRefreshed(new Date());
+            setRefreshKey((k) => k + 1);
+            toast({ title: "Refreshed", description: "Recomputed shortfalls and site list from workspace data." });
+          }}
+        >
           <RefreshCw className="mr-2 h-4 w-4" />
           Refresh
         </Button>
@@ -708,20 +725,59 @@ const ActiveSites = () => {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <CardTitle className="text-base font-semibold truncate">{project.name}</CardTitle>
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <EntityLink
+                          entityType="project"
+                          entityId={project.id}
+                          name={project.name}
+                          className="text-base font-semibold truncate text-left"
+                        />
+                      </span>
                       <AgingChip signal={getProjectIdleAging(project)} />
                       <Badge variant="secondary" className="text-2xs px-1.5 py-0 h-4 shrink-0">
                         {project.capacity}
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground truncate">{project.client}</p>
+                    {project.customerId ? (
+                      <span
+                        className="text-sm text-muted-foreground truncate block"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <EntityLink
+                          entityType="customer"
+                          entityId={project.customerId}
+                          name={project.client}
+                          className="text-sm font-normal text-muted-foreground"
+                        />
+                      </span>
+                    ) : (
+                      <p className="text-sm text-muted-foreground truncate">{project.client}</p>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
                     <Badge className={`${getStatusColor(project.status)} shrink-0 text-xs px-2`}>
                       {project.status}
                     </Badge>
                     {(procurementShortQtyByProject.get(project.id) ?? 0) > 0 && (
-                      <Badge variant="outline" className="text-2xs border-warning/40 text-warning">
+                      <Badge
+                        variant="outline"
+                        className="text-2xs border-warning/40 text-warning cursor-pointer hover:bg-warning/10"
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNeedToGetProjectId(project.id);
+                          setNeedToGetOpen(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setNeedToGetProjectId(project.id);
+                            setNeedToGetOpen(true);
+                          }
+                        }}
+                      >
                         Shortfall {procurementShortQtyByProject.get(project.id)} units
                       </Badge>
                     )}
@@ -976,12 +1032,33 @@ const ActiveSites = () => {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <CardTitle className="text-base font-semibold truncate">{project.name}</CardTitle>
+                          <span onClick={(e) => e.stopPropagation()}>
+                        <EntityLink
+                          entityType="project"
+                          entityId={project.id}
+                          name={project.name}
+                          className="text-base font-semibold truncate text-left"
+                        />
+                      </span>
                           <Badge variant="secondary" className="text-2xs px-1.5 py-0 h-4 shrink-0">
                             {project.capacity}
                           </Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground truncate">{project.client}</p>
+                        {project.customerId ? (
+                      <span
+                        className="text-sm text-muted-foreground truncate block"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <EntityLink
+                          entityType="customer"
+                          entityId={project.customerId}
+                          name={project.client}
+                          className="text-sm font-normal text-muted-foreground"
+                        />
+                      </span>
+                    ) : (
+                      <p className="text-sm text-muted-foreground truncate">{project.client}</p>
+                    )}
                       </div>
                       <Badge className="bg-primary/20 text-primary shrink-0 text-xs px-2">
                         Completed
@@ -1202,6 +1279,15 @@ const ActiveSites = () => {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <NeedToGetSheet
+        open={needToGetOpen}
+        onOpenChange={(open) => {
+          setNeedToGetOpen(open);
+          if (!open) setNeedToGetProjectId(null);
+        }}
+        initialProjectId={needToGetProjectId}
+      />
     </PageShell>
   );
 };

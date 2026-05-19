@@ -3,6 +3,8 @@
  * Used on reset epoch bumps, Settings reset, and prototype-wipe.html.
  */
 
+import { clearAllFormDrafts } from "@/lib/formDraftStorage";
+
 const APP_KEY_PREFIXES = ["mss.", "mahi_solar_"] as const;
 
 const APP_EXACT_KEYS = [
@@ -32,6 +34,10 @@ export function clearAllAppStorage(): string[] {
   for (const key of keys) {
     localStorage.removeItem(key);
     removed.push(key);
+  }
+  // Explicit draft sweep (also covered by `mss.` prefix; keeps reset intent obvious).
+  for (const key of clearAllFormDrafts()) {
+    if (!removed.includes(key)) removed.push(key);
   }
   return removed;
 }

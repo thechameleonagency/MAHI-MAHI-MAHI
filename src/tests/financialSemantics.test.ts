@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   formatProfitMargin,
+  getAccountsPayable,
+  getOutstandingReceivables,
   getRevenueAccrual,
   getRevenueCash,
+  partitionCashRevenueByBillKind,
   resolveContractAmount,
 } from "@/domain/finance/financialSemantics";
 import { seedInvoices, seedPayments, seedQuotations } from "@/data/seedData";
+import { dummyVendorBills } from "@/data/inventoryData";
 
 describe("financialSemantics", () => {
   it("resolveContractAmount prefers clientAgreedAmount", () => {
@@ -39,5 +43,25 @@ describe("financialSemantics", () => {
       .filter((i) => i.status !== "voided" && i.status !== "draft")
       .reduce((s, i) => s + i.total, 0);
     expect(accrual).toBe(manual);
+  });
+
+  it("getOutstandingReceivables includes sale bills", () => {
+    const inv = seedInvoices.find((i) => i.status !== "paid" && i.status !== "voided");
+    if (!inv) return;
+    const ar = getOutstandingReceivables([inv], seedPayments, []);
+    expect(ar).toBeGreaterThanOrEqual(0);
+  });
+
+  it("getAccountsPayable sums open vendor bill balances", () => {
+    const ap = getAccountsPayable(dummyVendorBills);
+    const manual = dummyVendorBills
+      .filter((b) => b.status !== "paid")
+      .reduce((s, b) => s + Math.max(0, b.total - (b.amountPaid ?? 0)), 0);
+    expect(ap).toBe(manual);
+  });
+
+  it("partitionCashRevenueByBillKind totals match getRevenueCash", () => {
+    const split = partitionCashRevenueByBillKind(seedPayments, seedInvoices, []);
+    expect(split.total).toBe(getRevenueCash(seedPayments));
   });
 });

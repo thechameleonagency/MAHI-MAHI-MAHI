@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -471,6 +472,15 @@ const AuditDataFlow = () => {
           />
         }
       />
+
+      <Alert>
+        <AlertTitle>Reference diagram</AlertTitle>
+        <AlertDescription>
+          Expense and income flow trees below are illustrative. They are not generated from live Settings masters or{" "}
+          <code className="text-xs bg-muted px-1 rounded">auditBooksMasters</code> — use Chart of Accounts and Profit
+          &amp; Loss for current mappings.
+        </AlertDescription>
+      </Alert>
 
       {/* High-level DFD overview */}
       <Card className="overflow-hidden">

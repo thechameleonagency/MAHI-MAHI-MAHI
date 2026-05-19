@@ -4,16 +4,7 @@ import { Plus, Search, Users, UserPlus, Trash2, Edit } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -342,31 +333,23 @@ const Teams = () => {
         </AppSheetContent>
       </Sheet>
 
-      <AlertDialog open={!!teamToDelete} onOpenChange={(open) => !open && setTeamToDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete team?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {teamToDelete ? `This will remove “${teamToDelete.name}” and unlink it from assignments. This cannot be undone.` : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (teamToDelete) {
-                  deleteTeam(teamToDelete.id);
-                  toast({ title: "Team deleted" });
-                }
-                setTeamToDelete(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DestructiveConfirmDialog
+        open={!!teamToDelete}
+        onOpenChange={(open) => { if (!open) setTeamToDelete(null); }}
+        title={teamToDelete ? `Delete ${teamToDelete.name}?` : "Delete team?"}
+        description={
+          teamToDelete
+            ? `This will remove “${teamToDelete.name}” and unlink it from assignments. This cannot be undone.`
+            : ""
+        }
+        onConfirm={() => {
+          if (teamToDelete) {
+            deleteTeam(teamToDelete.id);
+            toast({ title: "Team deleted" });
+          }
+          setTeamToDelete(null);
+        }}
+      />
     </PageShell>
   );
 };

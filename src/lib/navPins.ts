@@ -24,3 +24,30 @@ export function togglePinnedPath(path: string, current: string[]): string[] {
   }
   return [...current, path];
 }
+
+/** Split pins into allowed vs denied for the active role. */
+export function filterPinnedPaths(
+  paths: string[],
+  canAccessPath: (path: string) => boolean,
+): { kept: string[]; removed: string[] } {
+  const kept: string[] = [];
+  const removed: string[] = [];
+  for (const path of paths) {
+    if (canAccessPath(path)) kept.push(path);
+    else removed.push(path);
+  }
+  return { kept, removed };
+}
+
+/**
+ * Drop pins the role cannot open; persists when anything was removed.
+ * Returns paths that were removed (for optional toast copy).
+ */
+export function prunePinnedPathsForRole(canAccessPath: (path: string) => boolean): string[] {
+  const current = readPinnedPaths();
+  const { kept, removed } = filterPinnedPaths(current, canAccessPath);
+  if (removed.length > 0) {
+    writePinnedPaths(kept);
+  }
+  return removed;
+}

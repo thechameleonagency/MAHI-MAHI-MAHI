@@ -1,13 +1,20 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   parseCreateFromParam,
   buildCreateFromParam,
   buildEnquiryToQuotationDraft,
   buildQuotationToProjectDraft,
+  resolveCreateFromOrToast,
+  stripCreateFromParam,
   saveCreateDraft,
   loadCreateDraft,
   clearCreateDraft,
 } from "@/lib/createFromContext";
+import { toast } from "@/hooks/use-toast";
+
+vi.mock("@/hooks/use-toast", () => ({
+  toast: vi.fn(),
+}));
 import type { Enquiry, Quotation } from "@/types/project";
 import type { Customer } from "@/types/finance";
 
@@ -58,6 +65,7 @@ const sampleCustomer: Customer = {
 describe("createFromContext", () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.mocked(toast).mockClear();
   });
 
   afterEach(() => {
@@ -81,6 +89,31 @@ describe("createFromContext", () => {
   describe("buildCreateFromParam", () => {
     it("builds stable query values", () => {
       expect(buildCreateFromParam("proj", "P-99")).toBe("proj:P-99");
+    });
+  });
+
+  describe("resolveCreateFromOrToast", () => {
+    it("returns the entity when found", () => {
+      const found = resolveCreateFromOrToast("enq", "ENQ-1", () => sampleEnquiry);
+      expect(found).toBe(sampleEnquiry);
+      expect(toast).not.toHaveBeenCalled();
+    });
+
+    it("toasts and returns undefined when missing", () => {
+      const found = resolveCreateFromOrToast("enq", "missing", () => undefined);
+      expect(found).toBeUndefined();
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Enquiry not found", variant: "destructive" }),
+      );
+    });
+  });
+
+  describe("stripCreateFromParam", () => {
+    it("removes createFrom from search params", () => {
+      const params = new URLSearchParams("createFrom=enq:1&create=1");
+      stripCreateFromParam(params);
+      expect(params.get("createFrom")).toBeNull();
+      expect(params.get("create")).toBe("1");
     });
   });
 

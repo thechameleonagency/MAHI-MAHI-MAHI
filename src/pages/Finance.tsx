@@ -30,7 +30,12 @@ import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
 import { UnifiedIncomeSheet } from "@/components/income/UnifiedIncomeSheet";
 import { toast } from "@/hooks/use-toast";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { getRevenueCash, getOutstandingReceivables } from "@/domain/finance/financialSemantics";
+import {
+  getRevenueCash,
+  getOutstandingReceivables,
+  getAccountsPayable,
+} from "@/domain/finance/financialSemantics";
+import { getInvoiceOpenBalance } from "@/lib/billingSelectors";
 import { downloadCSV } from "@/lib/csvExport";
 import { format, isValid, parseISO } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -82,6 +87,7 @@ const Finance = () => {
     projects: contextProjects,
     inventoryItems: contextInventory,
     vendors: contextVendors,
+    vendorBills: contextVendorBills,
     addInvoice,
     generateId,
     addOwnerInvestment,
@@ -130,26 +136,17 @@ const Finance = () => {
     const monthlyData: Record<string, { revenue: number; expenses: number }> = {};
     months.forEach(m => { monthlyData[m] = { revenue: 0, expenses: 0 }; });
     
-    // Sum payments (revenue)
-    contextPayments.forEach(p => {
-      if (p.direction === "in" && p.date) {
-        const month = new Date(p.date).toLocaleString('en', { month: 'short' });
+    // Cash revenue = payments in only (do not also sum invoice.amountReceived — double-counts).
+    contextPayments.forEach((p) => {
+      if (p.direction === "in" && p.date && inDateRange(p.date)) {
+        const month = new Date(p.date).toLocaleString("en", { month: "short" });
         if (monthlyData[month]) monthlyData[month].revenue += p.amount;
       }
     });
-    
-    // Sum invoices and sale bills received amounts
-    [...contextInvoices, ...contextSaleBills].forEach(inv => {
-      if (inv.amountReceived && inv.invoiceDate) {
-        const month = new Date(inv.invoiceDate).toLocaleString('en', { month: 'short' });
-        if (monthlyData[month]) monthlyData[month].revenue += inv.amountReceived;
-      }
-    });
-    
-    // Sum expenses
-    contextExpenses.forEach(exp => {
-      if (exp.date) {
-        const month = new Date(exp.date).toLocaleString('en', { month: 'short' });
+
+    contextExpenses.forEach((exp) => {
+      if (exp.date && inDateRange(exp.date)) {
+        const month = new Date(exp.date).toLocaleString("en", { month: "short" });
         if (monthlyData[month]) monthlyData[month].expenses += exp.amount;
       }
     });
@@ -163,7 +160,7 @@ const Finance = () => {
     }));
     
     return result;
-  }, [contextPayments, contextInvoices, contextSaleBills, contextExpenses]);
+  }, [contextPayments, contextExpenses, dateFrom, dateTo]);
   
   // Derive transactions from context (keep ISO for sorting / export month filters — L68)
   const transactions = useMemo(() => {
@@ -253,22 +250,32 @@ const Finance = () => {
 
   // Compute KPI values from context
   const kpiValues = useMemo(() => {
-    const totalRevenue = getRevenueCash(contextPayments);
-    const totalExpenses = contextExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-    const outstanding = getOutstandingReceivables(contextInvoices, contextPayments);
-    const netProfit = totalRevenue - totalExpenses;
-    
+    const totalRevenue = getRevenueCash(
+      contextPayments,
+      dateFrom || undefined,
+      dateTo || undefined,
+    );
+    const totalExpenses = contextExpenses
+      .filter((exp) => inDateRange(exp.date))
+      .reduce((sum, exp) => sum + exp.amount, 0);
+    const outstanding = getOutstandingReceivables(
+      contextInvoices,
+      contextPayments,
+      contextSaleBills,
+    );
+    const cashSurplus = totalRevenue - totalExpenses;
+
     return {
       revenue: totalRevenue || 0,
       expenses: totalExpenses || 0,
       outstanding: outstanding || 0,
-      profit: netProfit || 0,
+      profit: cashSurplus || 0,
     };
-  }, [contextInvoices, contextPayments, contextExpenses]);
+  }, [contextInvoices, contextSaleBills, contextPayments, contextExpenses, dateFrom, dateTo]);
 
   const totalAP = useMemo(
-    () => contextVendors.reduce((s, v) => s + (v.outstandingAmount || 0), 0),
-    [contextVendors],
+    () => getAccountsPayable(contextVendorBills),
+    [contextVendorBills],
   );
 
   const topProfitProjects = useMemo(() =>
@@ -307,9 +314,9 @@ const Finance = () => {
       .map(([name, amount]) => ({ name, amount }))
       .sort((a, b) => b.amount - a.amount);
 
-    const outstandingRows = contextInvoices
+    const outstandingRows = [...contextInvoices, ...contextSaleBills]
       .map((inv) => {
-        const pending = inv.total - (inv.amountReceived || 0);
+        const pending = getInvoiceOpenBalance(inv, contextPayments);
         return { inv, pending };
       })
       .filter(({ pending }) => pending > 0.01)
@@ -348,7 +355,7 @@ const Finance = () => {
       largestDebtor,
       overdueCount: outstandingRows.filter((r) => r.isOverdue).length,
     };
-  }, [contextInvoices, contextPayments, contextExpenses]);
+  }, [contextInvoices, contextSaleBills, contextPayments, contextExpenses]);
   
   // Map inventory items for local use
   const inventoryItems = contextInventory.map(item => ({
@@ -757,7 +764,7 @@ const Finance = () => {
                 onClick: () => setIsOutstandingDetailOpen(true),
               },
               {
-                label: "Net profit",
+                label: "Cash surplus",
                 value: formatINRCompact(kpiValues.profit),
                 onClick: () => setIsProfitDetailOpen(true),
               },
@@ -2017,7 +2024,7 @@ const Finance = () => {
         </SheetContent>
       </Sheet>
 
-      {/* Net Profit Detail Modal */}
+      {/* Cash surplus detail modal (payments in − expenses; not audit P&L) */}
       <Sheet open={isProfitDetailOpen} onOpenChange={setIsProfitDetailOpen}>
         <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
@@ -2025,12 +2032,12 @@ const Finance = () => {
               <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
                 <IndianRupee className="h-4 w-4 text-primary" />
               </div>
-              Net Profit Details
+              Cash surplus details
             </SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
             <div className="p-4 bg-primary/10 rounded-lg">
-              <p className="text-sm text-muted-foreground">Net Profit (All Time)</p>
+              <p className="text-sm text-muted-foreground">Cash surplus (filtered period)</p>
               <p className={`text-3xl font-bold ${kpiValues.profit >= 0 ? "text-primary" : "text-destructive"}`}>{formatINR(kpiValues.profit)}</p>
             </div>
             <div className="space-y-3">
@@ -2045,7 +2052,7 @@ const Finance = () => {
                   <span className="font-semibold text-destructive">- {formatINR(kpiValues.expenses)}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-primary/10 rounded-lg border border-primary/20">
-                  <span className="text-sm font-medium">Net Profit</span>
+                  <span className="text-sm font-medium">Cash surplus</span>
                   <span className={`font-bold ${kpiValues.profit >= 0 ? "text-primary" : "text-destructive"}`}>{formatINR(kpiValues.profit)}</span>
                 </div>
               </div>

@@ -25,7 +25,7 @@ interface TaskAssignmentSheetProps {
   /** Progress-report timeline step key when opened from a milestone card. */
   defaultMilestoneId?: string;
   // Pre-selected target
-  employeeId?: number;
+  employeeId?: string;
   employeeName?: string;
   teamId?: string;
   teamName?: string;
@@ -34,9 +34,47 @@ interface TaskAssignmentSheetProps {
 interface SelectedWorkItem {
   stageKey: string;
   stageName: string;
-  subItems: string[]; 
+  subItems: string[];
   subItemLabels: string[];
-  dateOffset: number; 
+  dateOffset: number;
+}
+
+/** One row per stage — avoids duplicate tasks when stage + sub-item rows coexist. */
+function collapseSelectedWorkItems(items: SelectedWorkItem[]): SelectedWorkItem[] {
+  const byStage = new Map<string, SelectedWorkItem>();
+  for (const item of items) {
+    const prev = byStage.get(item.stageKey);
+    if (!prev) {
+      byStage.set(item.stageKey, item);
+      continue;
+    }
+    if (prev.subItems.length === 0 && item.subItems.length > 0) {
+      byStage.set(item.stageKey, item);
+      continue;
+    }
+    if (item.subItems.length === 0 && prev.subItems.length > 0) {
+      continue;
+    }
+    if (item.subItems.length > 0 && prev.subItems.length > 0) {
+      const mergedKeys: string[] = [];
+      const mergedLabels: string[] = [];
+      for (const key of [...prev.subItems, ...item.subItems]) {
+        if (mergedKeys.includes(key)) continue;
+        mergedKeys.push(key);
+        const labelIdx = item.subItems.indexOf(key);
+        const label =
+          labelIdx >= 0 ? item.subItemLabels[labelIdx] : prev.subItemLabels[prev.subItems.indexOf(key)];
+        mergedLabels.push(label);
+      }
+      byStage.set(item.stageKey, {
+        ...prev,
+        subItems: mergedKeys,
+        subItemLabels: mergedLabels,
+        dateOffset: Math.max(prev.dateOffset, item.dateOffset),
+      });
+    }
+  }
+  return [...byStage.values()];
 }
 
 export function TaskAssignmentSheet({
@@ -54,7 +92,7 @@ export function TaskAssignmentSheet({
   
   // Selection Logic
   const [assignmentType, setAssignmentType] = useState<"individual" | "team">(teamId ? "team" : "individual");
-  const [selectedTargetId, setSelectedTargetId] = useState<string>(teamId || employeeId?.toString() || "");
+  const [selectedTargetId, setSelectedTargetId] = useState<string>(teamId || employeeId || "");
   
   const [selectedSite, setSelectedSite] = useState("");
   const [notes, setNotes] = useState("");
@@ -234,7 +272,8 @@ export function TaskAssignmentSheet({
       ? employees.find(e => e.id.toString() === selectedTargetId)?.name || employeeName
       : teams.find(t => t.id === selectedTargetId)?.name || teamName;
 
-    selectedWorkItems.forEach(workItem => {
+    const workItems = collapseSelectedWorkItems(selectedWorkItems);
+    workItems.forEach((workItem) => {
       const workDate = getWorkDate(workItem.dateOffset);
       const workType = workItem.subItems.length === 0 
         ? workItem.stageName 
@@ -269,7 +308,7 @@ export function TaskAssignmentSheet({
     
     toast({
       title: "Tasks Assigned",
-      description: `${selectedWorkItems.length} task(s) assigned to ${targetName}`,
+      description: `${workItems.length} task(s) assigned to ${targetName}`,
     });
     
     setIsConfirmOpen(false);
