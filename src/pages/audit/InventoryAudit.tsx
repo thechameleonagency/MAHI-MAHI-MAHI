@@ -20,6 +20,7 @@ import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { InventoryItem } from "@/types/project";
+import { summarizeInventoryMovements } from "@/lib/audit";
 
 type MovementRow = {
   date: string;
@@ -53,7 +54,7 @@ function fifoStockValueForItem(item: InventoryItem, movements: MovementRow[]): n
 function StockCategoryTable({
   category,
   items,
-  _fmt,
+  fmt: _fmt,
   valuation,
   movements,
 }: {
@@ -148,7 +149,7 @@ function StockCategoryTable({
 
 const InventoryAudit = () => {
   const navigate = useNavigate();
-  const { inventoryItems, projects, vendorBills } = useAppData();
+  const { inventoryItems, projects, vendorBills, materialDamageRecords } = useAppData();
   const [valuation, setValuation] = useState<"weighted" | "fifo">("weighted");
   const [deadStockFloor, setDeadStockFloor] = useState(2);
   const [mainTab, setMainTab] = useState("summary");
@@ -197,8 +198,26 @@ const InventoryAudit = () => {
         });
       });
     });
+    (materialDamageRecords ?? []).forEach((d) => {
+      const inv = inventoryItems.find((i) => i.id === d.itemId);
+      moves.push({
+        date: d.reportedAt.split("T")[0],
+        item: inv?.name ?? `Item #${d.itemId}`,
+        type: "Damage",
+        qty: d.qty,
+        unitPrice: d.costImpact ? d.costImpact / Math.max(d.qty, 1) : inv?.buyPrice ?? 0,
+        total: d.costImpact ?? d.qty * (inv?.buyPrice ?? 0),
+        ref: d.projectId ? `Project ${d.projectId}` : "Warehouse",
+        refId: d.id,
+      });
+    });
     return moves.sort((a, b) => b.date.localeCompare(a.date));
-  }, [projects, vendorBills]);
+  }, [projects, vendorBills, materialDamageRecords, inventoryItems]);
+
+  const reconciliation = useMemo(
+    () => summarizeInventoryMovements(inventoryItems, materialDamageRecords ?? []),
+    [inventoryItems, materialDamageRecords],
+  );
 
   const stats = useMemo(() => {
     const totalValue =
@@ -239,21 +258,17 @@ const InventoryAudit = () => {
         ]}
         subRow={
           <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Dead-stock rule</Label>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Qty ≤</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    className="h-8 w-16 text-xs"
-                    value={deadStockFloor}
-                    onChange={(e) => setDeadStockFloor(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                  />
-                  <span className="text-xs text-muted-foreground">or item min stock if set</span>
-                </div>
-              </div>
+            <div className="flex shrink-0 flex-nowrap items-center gap-2 whitespace-nowrap">
+              <Label className="text-xs text-muted-foreground">Dead-stock rule</Label>
+              <span className="text-xs text-muted-foreground">Qty ≤</span>
+              <Input
+                type="number"
+                min={0}
+                className="h-8 w-16 text-xs"
+                value={deadStockFloor}
+                onChange={(e) => setDeadStockFloor(Math.max(0, parseInt(e.target.value, 10) || 0))}
+              />
+              <span className="text-xs text-muted-foreground">or item min stock if set</span>
             </div>
             <InlineKpiStrip
               className="w-full min-w-0 flex-wrap justify-start lg:justify-end"
@@ -336,7 +351,20 @@ const InventoryAudit = () => {
           <TabsTrigger value="movements">Movement Log</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="summary" className="mt-4">
+        <TabsContent value="summary" className="mt-4 space-y-4">
+          <Card className="mb-4">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Movement reconciliation (prototype)</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
+              <div><p className="text-xs text-muted-foreground">Purchases</p><p className="font-semibold">{reconciliation.purchases}</p></div>
+              <div><p className="text-xs text-muted-foreground">Issues</p><p className="font-semibold">{reconciliation.issues}</p></div>
+              <div><p className="text-xs text-muted-foreground">Damage</p><p className="font-semibold text-destructive">{reconciliation.damage}</p></div>
+              <div><p className="text-xs text-muted-foreground">Returns</p><p className="font-semibold">{reconciliation.returns}</p></div>
+              <div><p className="text-xs text-muted-foreground">Closing units</p><p className="font-semibold">{reconciliation.closingUnits}</p></div>
+              <div><p className="text-xs text-muted-foreground">Closing value</p><p className="font-semibold">{formatINR(reconciliation.closingValue)}</p></div>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">

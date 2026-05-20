@@ -9,12 +9,17 @@ export type InlineKpiItem = {
 
 /**
  * Compact status metrics (label above, value below) for use beside filters in StickyPageHeader.
+ *
+ * `singleRow` keeps all items on one horizontal line (with horizontal-scroll fallback on
+ * narrow viewports). Use for audit / books / analytics headers where the user wants all
+ * KPI items visible at-a-glance without wrap.
  */
-export function InlineKpiStrip({ items, className }: { items: InlineKpiItem[]; className?: string }) {
+export function InlineKpiStrip({ items, className, singleRow }: { items: InlineKpiItem[]; className?: string; singleRow?: boolean }) {
   return (
     <div
       className={cn(
-        "flex flex-wrap items-end justify-end gap-x-4 gap-y-1.5 rounded-lg border border-border/50 bg-muted/30 px-2 py-1.5 sm:gap-x-6 sm:px-3",
+        "flex items-end gap-x-4 gap-y-1.5 rounded-lg border border-border/50 bg-muted/30 px-2 py-1.5 sm:gap-x-6 sm:px-3",
+        singleRow ? "flex-nowrap overflow-x-auto justify-start" : "flex-wrap justify-end",
         className,
       )}
       role="list"

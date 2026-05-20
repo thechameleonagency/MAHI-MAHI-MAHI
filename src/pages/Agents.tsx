@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { Plus, Search, Edit, MapPin, UserCheck, Trash2, ExternalLink, Camera, Wallet } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { ListSkeleton } from "@/components/ui/ListSkeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -29,14 +30,41 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { formatINR } from "@/lib/formatCurrency";
+import { useCan } from "@/hooks/useCan";
 
 const Agents = () => {
   const navigate = useNavigate();
   const { agents, projects, enquiries, addAgent, updateAgent, deleteAgent, generateId } = useAppData();
-  
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const canCreateAgent = useCan("agent", "create");
+  const canEditAgent = useCan("agent", "edit");
+  const canDeleteAgent = useCan("agent", "delete");
+
+  const [listReady, setListReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setListReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "all");
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const q = searchQuery.trim();
+        if (q) next.set("q", q);
+        else next.delete("q");
+        if (statusFilter !== "all") next.set("status", statusFilter);
+        else next.delete("status");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchQuery, statusFilter, setSearchParams]);
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   
@@ -45,6 +73,7 @@ const Agents = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [agentPendingDelete, setAgentPendingDelete] = useState<Agent | null>(null);
+  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
 
   // Form state
   const [name, setName] = useState("");
@@ -114,7 +143,7 @@ const Agents = () => {
     addAgent(newAgent);
     setIsAddOpen(false);
     resetForm();
-    toast({ title: "Agent Added", description: `${name} has been added` });
+    setLastConfirm({ variant: "success", title: "Agent added", description: name });
   };
 
   const handleEdit = () => {
@@ -128,7 +157,7 @@ const Agents = () => {
     });
     setIsEditOpen(false);
     resetForm();
-    toast({ title: "Agent Updated", description: `${name} has been updated` });
+    setLastConfirm({ variant: "success", title: "Agent updated", description: name });
   };
 
   const openEdit = (agent: Agent) => {
@@ -282,14 +311,20 @@ const Agents = () => {
           </>
         }
       >
-        <Button size="sm" variant="outline" asChild>
-          <Link to="/agents/commissions/ledger">Commission ledger</Link>
-        </Button>
-        <Button size="sm" onClick={() => { resetForm(); setIsAddOpen(true); }}>
+        <Button size="sm" onClick={() => { resetForm(); setIsAddOpen(true); }} disabled={!canCreateAgent}>
           <Plus className="mr-2 h-4 w-4" />
           Add
         </Button>
       </StickyPageHeader>
+
+      {lastConfirm && (
+        <InlineConfirmBanner
+          variant={lastConfirm.variant}
+          title={lastConfirm.title}
+          description={lastConfirm.description}
+          onDismiss={() => setLastConfirm(null)}
+        />
+      )}
 
       <DataTableShell
             maxHeight={listTableViewportMaxHeight(tablePageSize)}
@@ -322,7 +357,9 @@ const Agents = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length === 0 ? (
+              {!listReady ? (
+                <ListSkeleton variant="table" count={5} columns={10} />
+              ) : filtered.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} className="p-0">
                     {agents.length === 0 ? (
@@ -379,7 +416,7 @@ const Agents = () => {
                     </TableCell>
                     <TableCell className="text-right">{stats.total}</TableCell>
                     <TableCell className="text-right">{formatINR(stats.totalCommission)}</TableCell>
-                    <TableCell className={`text-right ${stats.pending > 0 ? "text-amber-600 font-medium" : ""}`}>
+                    <TableCell className={`text-right ${stats.pending > 0 ? "text-warning font-medium" : ""}`}>
                       {formatINR(stats.pending)}
                     </TableCell>
                     <TableCell>
@@ -389,7 +426,7 @@ const Agents = () => {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(agent)}>
+                        <Button variant="ghost" size="sm" onClick={() => openEdit(agent)} disabled={!canEditAgent}>
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button
@@ -409,6 +446,7 @@ const Agents = () => {
                           size="sm"
                           className="text-destructive"
                           type="button"
+                          disabled={!canDeleteAgent}
                           onClick={() => setAgentPendingDelete(agent)}
                         >
                           <Trash2 className="h-4 w-4" />

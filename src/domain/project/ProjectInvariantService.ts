@@ -6,6 +6,32 @@ import {
   isPartnerCreditTransaction,
 } from "@/domain/partners/derivePartnerEconomics";
 
+export type ProjectCreateInvariantInput = {
+  /** Project shell about to be persisted (may include `partners[]`). */
+  project?: Pick<Project, "partners" | "projectKind">;
+  /** When omitted on intake create, SOLO_EPC is rejected. */
+  quotationId?: string;
+  /** Required for direct-exception create only. */
+  directExceptionReason?: string;
+};
+
+export type ProjectInvariantValidationResult =
+  | { ok: true }
+  | { ok: false; errorCode: string; message: string };
+
+export function validateProjectPartnerCount(
+  partners?: Project["partners"],
+): ProjectInvariantValidationResult {
+  if ((partners?.length ?? 0) > 1) {
+    return {
+      ok: false,
+      errorCode: "PARTNER_COUNT",
+      message: "At most one external partner per project.",
+    };
+  }
+  return { ok: true };
+}
+
 export type ProjectInvariantWorld = {
   projects: Project[];
   invoices: Invoice[];
@@ -32,6 +58,39 @@ function reviewQueueTouchesProject(queue: AccountingReviewQueueItem[], projectId
 }
 
 export class ProjectInvariantService {
+  /**
+   * Shared create-time rules for all project command paths (quotation, intake, direct exception).
+   */
+  validateProjectCreate(input: ProjectCreateInvariantInput): ProjectInvariantValidationResult {
+    const partnerCheck = validateProjectPartnerCount(input.project?.partners);
+    if (!partnerCheck.ok) {
+      return partnerCheck;
+    }
+
+    if (input.directExceptionReason !== undefined && !input.directExceptionReason.trim()) {
+      return {
+        ok: false,
+        errorCode: "REASON_REQUIRED",
+        message: "Direct project exception requires reason",
+      };
+    }
+
+    // Intake create without quotation (direct-exception uses a separate command + site payload).
+    if (!input.quotationId && input.project !== undefined) {
+      const kind = input.project.projectKind ?? "SOLO_EPC";
+      if (kind === "SOLO_EPC") {
+        return {
+          ok: false,
+          errorCode: "QUOTATION_REQUIRED",
+          message:
+            "Solo EPC projects require an approved quotation. Choose another project kind to proceed without a quotation.",
+        };
+      }
+    }
+
+    return { ok: true };
+  }
+
   canMarkCompleted(projectId: string, world: ProjectInvariantWorld): { ok: boolean; reasons: string[] } {
     const reasons: string[] = [];
     const project = world.projects.find((p) => p.id === projectId);

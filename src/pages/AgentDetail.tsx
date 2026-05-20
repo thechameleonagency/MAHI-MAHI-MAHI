@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
+import { findByRouteId } from "@/lib/resolveEntityId";
 import { ArrowLeft, Phone, Mail, MapPin, UserCheck, Check, Clock, ExternalLink, Plus, Wallet, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +19,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAppData } from "@/contexts/AppDataContext";
 import { format } from "date-fns";
-import { toast } from "sonner";
+import { toast } from "@/hooks/use-toast";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
+import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
+import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
@@ -33,12 +37,12 @@ const AgentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { agents, projects, enquiries, updateProject, updateAgent, addAgentCommissionPayment, getCommissionPaymentsByAgent, generateId } = useAppData();
+  const { agents, projects, enquiries, quotations, updateProject, updateAgent, addAgentCommissionPayment, updateAgentCommissionPayment, deleteAgentCommissionPayment, getCommissionPaymentsByAgent, generateId } = useAppData();
 
-  const [agentTab, setAgentTab] = useState<"enquiries" | "projects" | "commissions">("projects");
+  const [agentTab, setAgentTab] = useState<"enquiries" | "quotations" | "projects" | "commissions">("projects");
   useEffect(() => {
     const t = searchParams.get("tab");
-    if (t === "enquiries" || t === "projects" || t === "commissions") setAgentTab(t);
+    if (t === "enquiries" || t === "quotations" || t === "projects" || t === "commissions") setAgentTab(t);
   }, [searchParams]);
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -58,6 +62,12 @@ const AgentDetail = () => {
   const [eaFlatRate, setEaFlatRate] = useState("");
   const [eaStatus, setEaStatus] = useState<"active" | "inactive">("active");
 
+  // Commission payment action state
+  const [deletePayTarget, setDeletePayTarget] = useState<{ id: string; amount: number; projectId: string } | null>(null);
+  const [editPayTarget, setEditPayTarget] = useState<{ id: string; amount: number; projectId: string } | null>(null);
+  const [editPayNewAmount, setEditPayNewAmount] = useState("");
+  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
+
   const openEditAgent = () => {
     if (!agent) return;
     setEaName(agent.name);
@@ -75,7 +85,7 @@ const AgentDetail = () => {
     if (!agent || !id) return;
     const name = eaName.trim();
     if (!name) {
-      toast.error("Name is required");
+      toast({ title: "Name is required", variant: "destructive" });
       return;
     }
     const rpk = parseFloat(eaRatePerKw);
@@ -90,11 +100,11 @@ const AgentDetail = () => {
       flatRate: eaRateType === "per-project" && Number.isFinite(flat) && flat >= 0 ? flat : undefined,
       status: eaStatus,
     });
-    toast.success("Agent profile updated");
+    toast({ title: "Agent profile updated" });
     setIsEditAgentOpen(false);
   };
 
-  const agent = useMemo(() => agents.find(a => a.id === id), [agents, id]);
+  const agent = useMemo(() => findByRouteId(agents, id), [agents, id]);
 
   const agentProjects = useMemo(() =>
     projects.filter(p => p.agentId === id),
@@ -104,6 +114,11 @@ const AgentDetail = () => {
   const agentEnquiries = useMemo(() =>
     enquiries.filter(e => e.agentId === id),
     [enquiries, id]
+  );
+
+  const agentQuotations = useMemo(
+    () => quotations.filter((q) => q.agentId === id),
+    [quotations, id],
   );
 
   const convertedEnquiriesCount = useMemo(() =>
@@ -154,6 +169,8 @@ const AgentDetail = () => {
   const [projectsTabPageSize, setProjectsTabPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [enquiriesTabPage, setEnquiriesTabPage] = useState(1);
   const [enquiriesTabPageSize, setEnquiriesTabPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [quotationsTabPage, setQuotationsTabPage] = useState(1);
+  const [quotationsTabPageSize, setQuotationsTabPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [commissionTabPage, setCommissionTabPage] = useState(1);
   const [commissionTabPageSize, setCommissionTabPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
@@ -167,6 +184,11 @@ const AgentDetail = () => {
     enquiriesTabPage,
     enquiriesTabPageSize,
   );
+  const { pagedItems: pagedAgentQuotations, safePage: safeQuotationsTabPage } = usePagedSlice(
+    agentQuotations,
+    quotationsTabPage,
+    quotationsTabPageSize,
+  );
   const { pagedItems: pagedCommissionProjects, safePage: safeCommissionTabPage } = usePagedSlice(
     commissionRows,
     commissionTabPage,
@@ -176,7 +198,7 @@ const AgentDetail = () => {
   const handleRecordPayment = () => {
     const amount = Number.parseFloat(paymentAmount);
     if (!paymentProjectId || !Number.isFinite(amount) || amount <= 0) {
-      toast.error("Please select a project and enter a valid amount");
+      setLastConfirm({ variant: "error", title: "Please select a project and enter a valid amount." });
       return;
     }
     const project = projects.find(p => p.id === paymentProjectId);
@@ -184,7 +206,7 @@ const AgentDetail = () => {
 
     const pending = (project.commissionAmount || 0) - (project.commissionPaid || 0);
     if (amount > pending) {
-      toast.error(`Amount exceeds pending commission of ${formatINR(pending)}`);
+      setLastConfirm({ variant: "error", title: `Amount exceeds pending commission of ${formatINR(pending)}.` });
       return;
     }
 
@@ -199,18 +221,70 @@ const AgentDetail = () => {
       projectName: project.name,
       amount,
       date: paymentDate,
-      mode: paymentMode as "cash" | "bank_transfer" | "cheque" | "upi" | "other", // values already match union
+      mode: paymentMode as "cash" | "bank_transfer" | "cheque" | "upi" | "other",
       notes: paymentNotes || undefined,
       createdAt: new Date().toISOString(),
     });
 
-    toast.success(`${formatINR(amount)} commission payment recorded for ${project.name}`);
+    setLastConfirm({
+      variant: "success",
+      title: `Recorded ${formatINR(amount)} commission payment`,
+      description: `For ${project.name} · ${format(new Date(), "HH:mm")}`,
+    });
     setShowPaymentModal(false);
     setPaymentProjectId("");
     setPaymentAmount("");
     setPaymentMode("bank_transfer");
     setPaymentDate(format(new Date(), "yyyy-MM-dd"));
     setPaymentNotes("");
+  };
+
+  const handleConfirmDeletePay = () => {
+    if (!deletePayTarget) return;
+    const project = projects.find(p => p.id === deletePayTarget.projectId);
+    if (project) {
+      updateProject(deletePayTarget.projectId, {
+        commissionPaid: Math.max(0, (project.commissionPaid || 0) - deletePayTarget.amount),
+      });
+    }
+    deleteAgentCommissionPayment(deletePayTarget.id);
+    setLastConfirm({
+      variant: "success",
+      title: `Deleted ${formatINR(deletePayTarget.amount)} commission payment`,
+    });
+    setDeletePayTarget(null);
+  };
+
+  const handleSaveEditPay = () => {
+    if (!editPayTarget) return;
+    const nextAmount = Number.parseFloat(editPayNewAmount);
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      setLastConfirm({ variant: "error", title: "Enter a valid amount greater than 0." });
+      return;
+    }
+    const project = projects.find(p => p.id === editPayTarget.projectId);
+    if (project) {
+      const delta = nextAmount - editPayTarget.amount;
+      const newCommissionPaid = (project.commissionPaid || 0) + delta;
+      const maxAllowed = project.commissionAmount || 0;
+      if (newCommissionPaid > maxAllowed) {
+        setLastConfirm({
+          variant: "error",
+          title: `Total paid would exceed commission of ${formatINR(maxAllowed)}.`,
+        });
+        return;
+      }
+      updateProject(editPayTarget.projectId, {
+        commissionPaid: Math.max(0, newCommissionPaid),
+      });
+    }
+    updateAgentCommissionPayment(editPayTarget.id, { amount: nextAmount });
+    setLastConfirm({
+      variant: "success",
+      title: `Updated commission payment to ${formatINR(nextAmount)}`,
+    });
+    setEditPayTarget(null);
+    setEditPayNewAmount("");
   };
 
   if (!agent) {
@@ -262,11 +336,12 @@ const AgentDetail = () => {
               className="w-full sm:w-auto sm:justify-end"
               items={[
                 { label: "Enquiries", value: agentEnquiries.length },
+                { label: "Quotations", value: agentQuotations.length },
                 { label: "Converted", value: convertedEnquiriesCount },
                 { label: "Projects", value: agentProjects.length },
-                { label: "Commission", value: `₹${totalCommission.toLocaleString()}` },
-                { label: "Paid", value: `₹${paidCommission.toLocaleString()}` },
-                { label: "Pending", value: `₹${pendingCommission.toLocaleString()}` },
+                { label: "Commission", value: formatINR(totalCommission) },
+                { label: "Paid", value: formatINR(paidCommission) },
+                { label: "Pending", value: formatINR(pendingCommission) },
               ]}
             />
           </>
@@ -279,11 +354,50 @@ const AgentDetail = () => {
           <Button variant="outline" onClick={openEditAgent}>
             <Pencil className="h-4 w-4 mr-2" /> Edit profile
           </Button>
-          <Button onClick={() => navigate(`/enquiries?from=agent&referredBy=${encodeURIComponent(agent.name)}`)}>
+          <Button onClick={() => navigate(`/enquiries?createFrom=agent:${agent.id}`)}>
             <Plus className="h-4 w-4 mr-2" /> Add Enquiry from Agent
           </Button>
+          {agent.status === "inactive" ? (
+            <Button variant="outline" onClick={() => { updateAgent(agent.id, { status: "active" }); }}>
+              Reactivate
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              className="text-muted-foreground"
+              onClick={() => { updateAgent(agent.id, { status: "inactive" }); }}
+            >
+              Deactivate
+            </Button>
+          )}
         </div>
       </StickyPageHeader>
+
+      {agent.status === "inactive" && (
+        <LifecycleTerminalBanner
+          variant="archived"
+          title="Agent deactivated"
+          description={
+            <span>
+              This agent is inactive and excluded from new referrals. Commission and project history remain visible — reactivate to assign new enquiries.
+            </span>
+          }
+          primaryActionLabel="Reactivate"
+          onPrimaryAction={() => {
+            updateAgent(agent.id, { status: "active" });
+            setLastConfirm({ variant: "success", title: "Agent reactivated", description: agent.name });
+          }}
+        />
+      )}
+
+      {lastConfirm && (
+        <InlineConfirmBanner
+          variant={lastConfirm.variant}
+          title={lastConfirm.title}
+          description={lastConfirm.description}
+          onDismiss={() => setLastConfirm(null)}
+        />
+      )}
 
       <div className="flex items-center gap-4">
         <Avatar className="h-14 w-14 bg-primary">
@@ -309,7 +423,7 @@ const AgentDetail = () => {
       <Tabs
         value={agentTab}
         onValueChange={(v) => {
-          const next = v as "enquiries" | "projects" | "commissions";
+          const next = v as "enquiries" | "quotations" | "projects" | "commissions";
           setAgentTab(next);
           setSearchParams(
             (prev) => {
@@ -323,6 +437,7 @@ const AgentDetail = () => {
       >
         <TabsList>
           <TabsTrigger value="enquiries">Enquiries ({agentEnquiries.length})</TabsTrigger>
+          <TabsTrigger value="quotations">Quotations ({agentQuotations.length})</TabsTrigger>
           <TabsTrigger value="projects">Converted Projects ({agentProjects.length})</TabsTrigger>
           <TabsTrigger value="commissions">Commission History</TabsTrigger>
         </TabsList>
@@ -383,6 +498,67 @@ const AgentDetail = () => {
                   icon={UserCheck}
                   title="No enquiries yet"
                   description="This agent has not been linked to any enquiries."
+                />
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="quotations" className="space-y-4">
+          <Card>
+            <CardContent className="space-y-0 p-0 pt-4">
+              {agentQuotations.length > 0 ? (
+                <DataTableShell
+                  variant="inline"
+                  maxHeight={listTableViewportMaxHeight(quotationsTabPageSize)}
+                  scrollResetKey={`${safeQuotationsTabPage}-${quotationsTabPageSize}-${agentQuotations.length}`}
+                  footer={
+                    <TablePaginationBar
+                      page={safeQuotationsTabPage}
+                      pageSize={quotationsTabPageSize}
+                      total={agentQuotations.length}
+                      onPageChange={setQuotationsTabPage}
+                      onPageSizeChange={(n) => {
+                        setQuotationsTabPageSize(n);
+                        setQuotationsTabPage(1);
+                      }}
+                    />
+                  }
+                >
+                  <TableHeader>
+                    <TableRow className={dataTableClasses.headRow}>
+                      <TableHead>Quotation</TableHead>
+                      <TableHead>Client</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead className="w-12" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pagedAgentQuotations.map((q) => (
+                      <TableRow key={q.id}>
+                        <TableCell className="font-medium">{q.quotationNumber}</TableCell>
+                        <TableCell>{q.clientName}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={q.status} className="text-xs" />
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{formatINR(q.totalAmount ?? 0)}</TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to={`/quotations?id=${q.id}`}>
+                              <ExternalLink className="h-3 w-3" />
+                            </Link>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </DataTableShell>
+              ) : (
+                <ListEmptyState
+                  icon={UserCheck}
+                  title="No quotations"
+                  description="Quotations linked to this agent will appear here."
                 />
               )}
             </CardContent>
@@ -492,15 +668,15 @@ const AgentDetail = () => {
                     <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
                       <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
                         <p className="text-xs text-muted-foreground">Earned (projects)</p>
-                        <p className="text-lg font-semibold">₹{earned.toLocaleString("en-IN")}</p>
+                        <p className="text-lg font-semibold">{formatINR(earned)}</p>
                       </div>
                       <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
                         <p className="text-xs text-muted-foreground">Paid (ledger)</p>
-                        <p className="text-lg font-semibold text-primary">₹{paidFromLedger.toLocaleString("en-IN")}</p>
+                        <p className="text-lg font-semibold text-primary">{formatINR(paidFromLedger)}</p>
                       </div>
                       <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
                         <p className="text-xs text-muted-foreground">Balance due</p>
-                        <p className="text-lg font-semibold text-amber-600">₹{balance.toLocaleString("en-IN")}</p>
+                        <p className="text-lg font-semibold text-warning">{formatINR(balance)}</p>
                       </div>
                     </div>
                   );
@@ -543,12 +719,12 @@ const AgentDetail = () => {
                         <TableCell className="font-medium">{p.name}</TableCell>
                         <TableCell>
                           {p.commissionRateType === "per-kw"
-                            ? `₹${(p.commissionRate || 0).toLocaleString()}/kW`
-                            : `₹${(p.commissionRate || 0).toLocaleString()} flat`}
+                            ? `${formatINR(p.commissionRate || 0)}/kW`
+                            : `${formatINR(p.commissionRate || 0)} flat`}
                         </TableCell>
-                        <TableCell className="text-right">₹{(p.commissionAmount || 0).toLocaleString()}</TableCell>
-                        <TableCell className="text-right text-primary">₹{(p.commissionPaid || 0).toLocaleString()}</TableCell>
-                        <TableCell className="text-right text-amber-500">₹{((p.commissionAmount || 0) - (p.commissionPaid || 0)).toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR((p.commissionAmount || 0))}</TableCell>
+                        <TableCell className="text-right text-primary">{formatINR((p.commissionPaid || 0))}</TableCell>
+                        <TableCell className="text-right text-warning">{formatINR(((p.commissionAmount || 0) - (p.commissionPaid || 0)))}</TableCell>
                         <TableCell>
                           {((p.commissionAmount || 0) - (p.commissionPaid || 0)) > 0 && (
                             <Button variant="outline" size="sm" onClick={() => {
@@ -566,9 +742,9 @@ const AgentDetail = () => {
                   <TableFooter>
                     <TableRow className={dataTableClasses.footRow}>
                       <TableCell colSpan={2}>Total</TableCell>
-                      <TableCell className="text-right">₹{totalCommission.toLocaleString()}</TableCell>
-                      <TableCell className="text-right text-primary">₹{paidCommission.toLocaleString()}</TableCell>
-                      <TableCell className="text-right text-amber-500">₹{pendingCommission.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{formatINR(totalCommission)}</TableCell>
+                      <TableCell className="text-right text-primary">{formatINR(paidCommission)}</TableCell>
+                      <TableCell className="text-right text-warning">{formatINR(pendingCommission)}</TableCell>
                       <TableCell />
                     </TableRow>
                   </TableFooter>
@@ -609,6 +785,7 @@ const AgentDetail = () => {
                           <TableHead className="text-right">Amount</TableHead>
                           <TableHead className="text-right">Paid to date</TableHead>
                           <TableHead>Notes</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -617,11 +794,33 @@ const AgentDetail = () => {
                             <TableCell>{pay.date}</TableCell>
                             <TableCell>{pay.projectName ?? pay.projectId}</TableCell>
                             <TableCell className="capitalize">{pay.mode.replace("_", " ")}</TableCell>
-                            <TableCell className="text-right text-primary">₹{pay.amount.toLocaleString()}</TableCell>
+                            <TableCell className="text-right text-primary">{formatINR(pay.amount)}</TableCell>
                             <TableCell className="text-right text-muted-foreground">
-                              ₹{(runningById.get(pay.id) ?? 0).toLocaleString()}
+                              {formatINR((runningById.get(pay.id) ?? 0))}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-xs">{pay.notes ?? "—"}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setEditPayTarget({ id: pay.id, amount: pay.amount, projectId: pay.projectId });
+                                    setEditPayNewAmount(String(pay.amount));
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive"
+                                  onClick={() => setDeletePayTarget({ id: pay.id, amount: pay.amount, projectId: pay.projectId })}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -652,7 +851,7 @@ const AgentDetail = () => {
                 <SelectContent>
                   {projectsWithPending.map(p => (
                     <SelectItem key={p.id} value={p.id}>
-                      {p.name} — Pending: ₹{((p.commissionAmount || 0) - (p.commissionPaid || 0)).toLocaleString()}
+                      {p.name} — Pending: {formatINR(((p.commissionAmount || 0) - (p.commissionPaid || 0)))}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -664,7 +863,7 @@ const AgentDetail = () => {
               {paymentProjectId && (() => {
                 const p = projects.find(pr => pr.id === paymentProjectId);
                 const pending = p ? (p.commissionAmount || 0) - (p.commissionPaid || 0) : 0;
-                return <p className="text-xs text-muted-foreground mt-1">Pending: ₹{pending.toLocaleString()}</p>;
+                return <p className="text-xs text-muted-foreground mt-1">Pending: {formatINR(pending)}</p>;
               })()}
             </div>
             <div>
@@ -763,6 +962,54 @@ const AgentDetail = () => {
               Cancel
             </Button>
             <Button onClick={saveAgentProfile}>Save</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <DestructiveConfirmDialog
+        open={!!deletePayTarget}
+        onOpenChange={(o) => { if (!o) setDeletePayTarget(null); }}
+        title="Delete commission payment?"
+        description={deletePayTarget ? (
+          <span>
+            Removes the {formatINR(deletePayTarget.amount)} payment and adjusts the project's paid-commission total by the same amount.
+          </span>
+        ) : ""}
+        confirmLabel="Delete payment"
+        onConfirm={handleConfirmDeletePay}
+      />
+
+      <Sheet
+        open={!!editPayTarget}
+        onOpenChange={(o) => { if (!o) { setEditPayTarget(null); setEditPayNewAmount(""); } }}
+      >
+        <SheetContent className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Edit commission payment</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label>New amount (₹)</Label>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={editPayNewAmount}
+                onChange={(e) => setEditPayNewAmount(e.target.value)}
+                autoFocus
+              />
+              {editPayTarget && (
+                <p className="text-xs text-muted-foreground">
+                  Original: {formatINR(editPayTarget.amount)}. The project's paid-commission total will be adjusted by the delta.
+                </p>
+              )}
+            </div>
+          </div>
+          <SheetFooter className="mt-6 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setEditPayTarget(null); setEditPayNewAmount(""); }}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEditPay}>Save</Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>

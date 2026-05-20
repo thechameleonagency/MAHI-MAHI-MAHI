@@ -2,6 +2,7 @@ import type { CommandBus } from "@/application/commands/CommandBus";
 import type { Command } from "@/application/commands/types";
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
 import type { PermissionService } from "@/application/services/PermissionService";
+import { assertCommandPermission } from "@/application/commands/commandPermission";
 import type { AuditService } from "@/application/services/AuditService";
 import { InventoryMovementService, type MovementType } from "@/application/services/InventoryMovementService";
 import type { Project } from "@/types/project";
@@ -49,7 +50,7 @@ export const registerInventoryCommands = (
   commandBus.register<Command<WarehouseInventoryMovementPayload>, { itemId: string }>(
     WAREHOUSE_INVENTORY_MOVEMENT_COMMAND,
     (command) => {
-      permissionService.assertCanPerformAction(command.actorRole, "inventory:material_movement");
+      assertCommandPermission(permissionService, command, "inventory:material_movement");
       const { itemId, movementType, quantity } = command.payload;
       if (quantity <= 0) {
         return { ok: false, errorCode: "INVALID_QTY", message: "Quantity must be greater than zero" };
@@ -91,7 +92,7 @@ export const registerInventoryCommands = (
   commandBus.register<Command<MaterialMovementAtProjectPayload>, { projectId: string; itemId: string }>(
     MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
     (command) => {
-      permissionService.assertCanPerformAction(command.actorRole, "inventory:material_movement");
+      assertCommandPermission(permissionService, command, "inventory:material_movement");
       const { projectId, itemId, movementType, quantity, allowNegativeSiteBalanceOverride, baselineLineId } =
         command.payload;
 

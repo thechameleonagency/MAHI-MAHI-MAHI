@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { findByRouteId } from "@/lib/resolveEntityId";
 import { ArrowLeft, Phone, Mail, MapPin, Building2, User, IndianRupee, Plus, Check, Clock, AlertTriangle, ExternalLink, CreditCard, Eye, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -23,14 +24,28 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { formatINR } from "@/lib/formatCurrency";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { validateGstin } from "@/lib/formCategories";
+import {
+  buildCustomerToInvoiceDraft,
+  buildCustomerToProjectDraft,
+  buildCustomerToQuotationDraft,
+  saveCreateDraft,
+} from "@/lib/createFromContext";
+import { useCan } from "@/hooks/useCan";
+import { useCanAction } from "@/hooks/useCanAction";
+import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
+import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 
 const CustomerDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { customers, invoices, saleBills, projects, quotations, _payments, updateInvoice, updateSaleBill, addPayment, generateId, canDo, updateCustomer } = useAppData();
+  const { customers, invoices, saleBills, projects, quotations, payments: _payments, updateInvoice, updateSaleBill, addPayment, generateId, canDo, updateCustomer } = useAppData();
+  const canCreateQuotation = useCan("quotation", "create");
+  const canCreateProjectFromQuote = useCanAction("project:create_from_quote");
+  const canCreateInvoice = useCanAction("finance:create_invoice");
   
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -60,17 +75,27 @@ const CustomerDetail = () => {
   const [editGstin, setEditGstin] = useState("");
   const [editState, setEditState] = useState("");
 
-  const customer = useMemo(() => customers.find(c => c.id === id), [customers, id]);
+  const customer = useMemo(() => findByRouteId(customers, id), [customers, id]);
 
   // Get all invoices and sale bills for this customer
-  const customerInvoices = useMemo(() => 
-    invoices.filter(inv => inv.customerId === id || inv.customerName === customer?.name),
-    [invoices, id, customer]
+  const customerInvoices = useMemo(
+    () =>
+      invoices.filter(
+        (inv) =>
+          inv.customerId === id ||
+          (inv.customerId == null && inv.customerName === customer?.name),
+      ),
+    [invoices, id, customer],
   );
-  
-  const customerSaleBills = useMemo(() => 
-    saleBills.filter(sb => sb.customerId === id || sb.customerName === customer?.name),
-    [saleBills, id, customer]
+
+  const customerSaleBills = useMemo(
+    () =>
+      saleBills.filter(
+        (sb) =>
+          sb.customerId === id ||
+          (sb.customerId == null && sb.customerName === customer?.name),
+      ),
+    [saleBills, id, customer],
   );
 
   // Get pending and paid invoices (+ pending sale bills for FIFO)
@@ -90,15 +115,14 @@ const CustomerDetail = () => {
   );
 
   // Get customer's projects
-  const customerProjects = useMemo(() => 
-    projects.filter(p => p.client === customer?.name),
-    [projects, customer]
+  const customerProjects = useMemo(
+    () => (id ? projects.filter((p) => p.customerId === id) : []),
+    [projects, id],
   );
 
-  // Get customer's quotations
-  const customerQuotations = useMemo(() => 
-    quotations.filter(q => q.clientName === customer?.name),
-    [quotations, customer]
+  const customerQuotations = useMemo(
+    () => (id ? quotations.filter((q) => q.customerId === id) : []),
+    [quotations, id],
   );
 
   const paymentHistoryRows = useMemo(() => {
@@ -271,7 +295,7 @@ const CustomerDetail = () => {
     return (
       <span className="inline-flex items-center gap-1">
         {s === "paid" && <Check className="h-3 w-3 text-muted-foreground" aria-hidden />}
-        {s === "overpaid" && <Check className="h-3 w-3 text-violet-600" aria-hidden />}
+        {s === "overpaid" && <Check className="h-3 w-3 text-accent-foreground" aria-hidden />}
         {(s === "partial" || s === "pending") && <Clock className="h-3 w-3 text-muted-foreground" aria-hidden />}
         {s === "overdue" && <AlertTriangle className="h-3 w-3 text-muted-foreground" aria-hidden />}
         <StatusBadge status={s} label={labels[s] ?? status} className="text-xs" />
@@ -330,16 +354,91 @@ const CustomerDetail = () => {
           }}>
             <Pencil className="h-4 w-4 mr-2" /> Edit customer
           </Button>
-          <Button variant="outline" asChild>
-            <Link to={`/invoices?customer=${id}&create=invoice`}>
-              <Plus className="h-4 w-4 mr-2" /> Create Invoice
-            </Link>
-          </Button>
+          <PermissionGatedButton
+            allowed={canCreateQuotation}
+            deniedHint={PERMISSION_DENIED_HINTS.customerCreateQuotation}
+            variant="outline"
+            type="button"
+            onClick={() => {
+              if (!customer) return;
+              saveCreateDraft("quotation-create-draft", buildCustomerToQuotationDraft(customer));
+              navigate(`/quotations?createFrom=customer:${customer.id}`);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-2" /> Create quotation
+          </PermissionGatedButton>
+          <PermissionGatedButton
+            allowed={canCreateProjectFromQuote}
+            deniedHint={PERMISSION_DENIED_HINTS.customerCreateProject}
+            variant="outline"
+            type="button"
+            onClick={() => {
+              if (!customer) return;
+              saveCreateDraft("project-create-draft", buildCustomerToProjectDraft(customer));
+              navigate(`/projects?createFrom=customer:${customer.id}`);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-2" /> Create project
+          </PermissionGatedButton>
+          <PermissionGatedButton
+            allowed={canCreateInvoice}
+            deniedHint={PERMISSION_DENIED_HINTS.invoiceCreate}
+            variant="outline"
+            type="button"
+            onClick={() => {
+              if (!customer) return;
+              saveCreateDraft("invoice-create-draft", buildCustomerToInvoiceDraft(customer));
+              navigate(`/invoices?createFrom=customer:${customer.id}`);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-2" /> Create Invoice
+          </PermissionGatedButton>
           <Button onClick={() => setIsPaymentModalOpen(true)} disabled={pendingInvoices.length === 0 || !canDo("finance:record_payment")}>
             <IndianRupee className="h-4 w-4 mr-2" /> Record Payment
           </Button>
+          {customer.archivedAt ? (
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => {
+                updateCustomer(customer.id, { archivedAt: null });
+                toast({ title: "Customer restored", description: customer.name });
+              }}
+            >
+              Unarchive
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              type="button"
+              className="text-muted-foreground"
+              onClick={() => {
+                updateCustomer(customer.id, { archivedAt: new Date().toISOString() });
+                toast({ title: "Customer archived", description: customer.name });
+              }}
+            >
+              Archive
+            </Button>
+          )}
         </div>
       </StickyPageHeader>
+
+      {customer.archivedAt && (
+        <LifecycleTerminalBanner
+          variant="archived"
+          title="Customer archived"
+          description={
+            <span>
+              Archived on {formatUiDate(customer.archivedAt)}. Historical invoices and projects remain visible — unarchive to create new work.
+            </span>
+          }
+          primaryActionLabel="Unarchive"
+          onPrimaryAction={() => {
+            updateCustomer(customer.id, { archivedAt: null });
+            toast({ title: "Customer restored", description: customer.name });
+          }}
+        />
+      )}
 
       <div className="flex items-center gap-4">
         <Avatar className="h-14 w-14 bg-primary">
@@ -382,7 +481,7 @@ const CustomerDetail = () => {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-orange-400" /> Pending Invoices
+                  <Clock className="h-4 w-4 text-warning" /> Pending Invoices
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -420,9 +519,9 @@ const CustomerDetail = () => {
                         <TableCell className="font-medium">{inv.invoiceNumber}</TableCell>
                         <TableCell>{formatUiDate(inv.invoiceDate)}</TableCell>
                         <TableCell>{inv.projectName || "-"}</TableCell>
-                        <TableCell className="text-right">₹{inv.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-right text-primary">₹{inv.amountReceived.toLocaleString()}</TableCell>
-                        <TableCell className="text-right text-orange-400">₹{(inv.total - inv.amountReceived).toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR(inv.total)}</TableCell>
+                        <TableCell className="text-right text-primary">{formatINR(inv.amountReceived)}</TableCell>
+                        <TableCell className="text-right text-warning">{formatINR((inv.total - inv.amountReceived))}</TableCell>
                         <TableCell>{getStatusBadge(inv.status)}</TableCell>
                       </TableRow>
                     ))}
@@ -472,7 +571,7 @@ const CustomerDetail = () => {
                         <TableCell className="font-medium">{inv.invoiceNumber}</TableCell>
                         <TableCell>{formatUiDate(inv.invoiceDate)}</TableCell>
                         <TableCell>{inv.projectName || "-"}</TableCell>
-                        <TableCell className="text-right">₹{inv.total.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR(inv.total)}</TableCell>
                         <TableCell>{inv.receivedDate ? formatUiDate(inv.receivedDate) : "-"}</TableCell>
                       </TableRow>
                     ))}
@@ -526,12 +625,12 @@ const CustomerDetail = () => {
                       <TableRow key={sb.id}>
                         <TableCell className="font-medium">{sb.invoiceNumber}</TableCell>
                         <TableCell>{formatUiDate(sb.invoiceDate)}</TableCell>
-                        <TableCell className="text-right">₹{sb.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">₹{sb.amountReceived.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR(sb.total)}</TableCell>
+                        <TableCell className="text-right">{formatINR(sb.amountReceived)}</TableCell>
                         <TableCell>{getStatusBadge(sb.status)}</TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <Eye className="h-4 w-4" />
+                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View sale bill">
+                            <Eye className="h-4 w-4" aria-hidden />
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -566,20 +665,20 @@ const CustomerDetail = () => {
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">Total Billed</p>
                     <p className="text-xl font-bold text-foreground">
-                      ₹{(customerInvoices.reduce((s, i) => s + i.total, 0) + customerSaleBills.reduce((s, sb) => s + sb.total, 0)).toLocaleString()}
+                      {formatINR((customerInvoices.reduce((s, i) => s + i.total, 0) + customerSaleBills.reduce((s, sb) => s + sb.total, 0)))}
                     </p>
                   </CardContent>
                 </Card>
                 <Card className="bg-muted/30">
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">Total Received</p>
-                    <p className="text-xl font-bold text-primary">₹{totalReceived.toLocaleString()}</p>
+                    <p className="text-xl font-bold text-primary">{formatINR(totalReceived)}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-muted/30">
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">Outstanding</p>
-                    <p className="text-xl font-bold text-orange-500">₹{totalPending.toLocaleString()}</p>
+                    <p className="text-xl font-bold text-warning">{formatINR(totalPending)}</p>
                   </CardContent>
                 </Card>
               </div>
@@ -625,7 +724,7 @@ const CustomerDetail = () => {
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-medium text-primary">
-                          ₹{payment.amount.toLocaleString()}
+                          {formatINR(payment.amount)}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="capitalize">{payment.mode}</Badge>
@@ -638,7 +737,7 @@ const CustomerDetail = () => {
                               Full
                             </Badge>
                           ) : (
-                            <Badge className="bg-yellow-500/20 text-yellow-400 border-0">
+                            <Badge className="bg-warning/20 text-warning border-0">
                               Partial
                             </Badge>
                           )}
@@ -703,7 +802,7 @@ const CustomerDetail = () => {
                             {p.status}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right">₹{p.contractAmount.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR(p.contractAmount)}</TableCell>
                         <TableCell>
                           <Button variant="ghost" size="sm" asChild>
                             <Link to={`/projects/${p.id}`}><ExternalLink className="h-4 w-4" /></Link>
@@ -761,13 +860,13 @@ const CustomerDetail = () => {
                         <TableCell>
                           <Badge className={
                             q.status === "approved" ? "bg-primary/20 text-primary" :
-                            q.status === "rejected" ? "bg-red-500/20 text-red-400" :
-                            "bg-yellow-500/20 text-yellow-400"
+                            q.status === "rejected" ? "bg-destructive/20 text-destructive" :
+                            "bg-warning/20 text-warning"
                           }>
                             {q.status}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right">₹{(q.finalAmount || q.temporaryAmount || 0).toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR((q.finalAmount || q.temporaryAmount || 0))}</TableCell>
                         <TableCell>{q.createdAt ? formatUiDate(q.createdAt) : "-"}</TableCell>
                       </TableRow>
                     ))}
@@ -855,11 +954,11 @@ const CustomerDetail = () => {
                       <div>
                         <span className="font-medium">{invoice.invoiceNumber}</span>
                         <span className="text-muted-foreground ml-2">
-                          (Due: ₹{(invoice.total - invoice.amountReceived).toLocaleString()})
+                          (Due: {formatINR((invoice.total - invoice.amountReceived))})
                         </span>
                       </div>
                       <span className="text-primary font-medium">
-                        ₹{payAmount.toLocaleString()}
+                        {formatINR(payAmount)}
                         {payAmount >= invoice.total - invoice.amountReceived && (
                           <Check className="inline h-4 w-4 ml-1" />
                         )}
@@ -875,7 +974,7 @@ const CustomerDetail = () => {
             )}
 
             {(Number.isFinite(Number.parseFloat(paymentAmount)) ? Number.parseFloat(paymentAmount) : 0) > totalPending && totalPending > 0 && (
-              <p className="text-sm text-yellow-400">
+              <p className="text-sm text-warning">
                 Amount exceeds total pending ({formatINR(totalPending)}). Extra amount will not be applied.
               </p>
             )}

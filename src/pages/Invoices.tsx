@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { Plus, Search, FileText, Eye, Download, IndianRupee, Printer } from "lucide-react";
+import { useNavigate, useLocation, Link, useSearchParams } from "react-router-dom";
+import { Plus, Search, FileText, Eye, Download, IndianRupee, Printer, Copy, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +12,25 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
+import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/hooks/use-toast";
+import {
+  buildCustomerToInvoiceDraft,
+  buildInvoiceDuplicateDraft,
+  buildInvoiceToPaymentDraft,
+  buildProjectToInvoiceDraft,
+  loadCreateDraft,
+  parseCreateFromParam,
+  resolveCreateFromOrToast,
+  stripCreateFromParam,
+  stripQuickCreateParam,
+  saveCreateDraft,
+  type InvoiceDraftFromCustomer,
+  type InvoiceDraftFromProject,
+} from "@/lib/createFromContext";
 import { InvoiceCreateSheet } from "@/components/invoices/InvoiceCreateSheet";
 import ExportHeader from "@/components/ExportHeader";
 import html2canvas from "html2canvas";
@@ -27,11 +44,31 @@ import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatCurrency } from "@/lib/formatCurrency";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { ListSkeleton } from "@/components/ui/ListSkeleton";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getInvoiceOverdueAging } from "@/lib/agingHelpers";
+import { useCan } from "@/hooks/useCan";
+import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 
 const Invoices = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { 
+  const [searchParams] = useSearchParams();
+  const urlProjectId = searchParams.get("project");
+  const urlCustomerId = searchParams.get("customer");
+  const urlDocType = searchParams.get("type");
+  const {
     invoices,
     saleBills,
     customers,
@@ -39,16 +76,27 @@ const Invoices = () => {
     quotations,
     inventoryItems,
     servicePresets,
+    partners,
     addInvoice,
     addSaleBill,
     updateInvoice,
     updateSaleBill,
     addPayment,
+    addPartnerTransaction,
     addCustomer,
     generateId,
-    canDo,
   } = useAppData();
+  const canCreateInvoice = useCan("invoice", "create");
+  const canEditInvoice = useCan("invoice", "edit");
+  const canDeleteInvoice = useCan("invoice", "delete");
+  const canRecordPayment = useCan("payment", "create");
   
+  const [listReady, setListReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setListReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [docTypeFilter, setDocTypeFilter] = useState<"all" | "invoice" | "sale-bill">("all");
@@ -60,9 +108,17 @@ const Invoices = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isInvoiceDetailOpen, setIsInvoiceDetailOpen] = useState(false);
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
+  const [voidConfirmOpen, setVoidConfirmOpen] = useState(false);
+  const [isEditDraftOpen, setIsEditDraftOpen] = useState(false);
+  const [editDraftDueDate, setEditDraftDueDate] = useState("");
+  const [editDraftNotes, setEditDraftNotes] = useState("");
+  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("");
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  // W5 — partner-paid-by-client routing
+  const [paymentSource, setPaymentSource] = useState<"mss" | "partner" | "split">("mss");
+  const [partnerPortionAmount, setPartnerPortionAmount] = useState("");
   
   // Prefill data from URL params
   const [invoicePrefill, setInvoicePrefill] = useState<{
@@ -79,9 +135,96 @@ const Invoices = () => {
   // Invoice preview ref for PDF export
   const invoicePreviewRef = useRef<HTMLDivElement>(null);
 
+  const draftToInvoicePrefill = (
+    draft: InvoiceDraftFromProject | InvoiceDraftFromCustomer,
+    total?: number,
+  ) => ({
+    customerName: draft.customerName,
+    customerAddress: draft.customerAddress,
+    customerContact: "customerPhone" in draft ? draft.customerPhone : undefined,
+    customerState: draft.customerState,
+    projectId: "projectId" in draft ? draft.projectId : undefined,
+    quotationId: "quotationId" in draft ? draft.quotationId : undefined,
+    total: total && total > 0 ? total : undefined,
+    services: "services" in draft && draft.services?.length ? draft.services : undefined,
+    items:
+      total && total > 0 && !("services" in draft && draft.services?.length)
+        ? [
+            {
+              description: "projectId" in draft ? `Invoice for project` : `Invoice for ${draft.customerName}`,
+              hsn: "85414012",
+              quantity: 1,
+              rate: total,
+              gstRate: 12,
+            },
+          ]
+        : undefined,
+  });
+
   // Handle URL parameters for prefilling invoice from quotation or project
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
+    const createFrom = parseCreateFromParam(searchParams.get("createFrom"));
+
+    if (createFrom?.kind === "proj") {
+      const stored = loadCreateDraft<InvoiceDraftFromProject>("invoice-create-draft");
+      const proj =
+        stored?.projectId === createFrom.id
+          ? projects.find((p) => p.id === createFrom.id)
+          : resolveCreateFromOrToast("proj", createFrom.id, (entityId) =>
+              projects.find((p) => p.id === entityId),
+            );
+      const draft =
+        stored?.projectId === createFrom.id
+          ? stored
+          : proj
+            ? buildProjectToInvoiceDraft(proj, customers.find((c) => c.id === proj.customerId))
+            : null;
+      stripCreateFromParam(searchParams);
+      const remaining = searchParams.toString();
+      if (draft) {
+        setInvoicePrefill(
+          draftToInvoicePrefill(draft, draft.openBalanceSuggestion || proj?.contractAmount),
+        );
+        setIsAddInvoiceOpen(true);
+        toast({ title: "Creating invoice from project", description: draft.customerName });
+      }
+      navigate(`/invoices${remaining ? `?${remaining}` : ""}`, { replace: true });
+      return;
+    }
+
+    if (createFrom?.kind === "customer") {
+      const stored = loadCreateDraft<InvoiceDraftFromCustomer>("invoice-create-draft");
+      const cust =
+        stored?.customerId === createFrom.id
+          ? customers.find((c) => c.id === createFrom.id)
+          : resolveCreateFromOrToast("customer", createFrom.id, (entityId) =>
+              customers.find((c) => c.id === entityId),
+            );
+      const draft =
+        stored?.customerId === createFrom.id ? stored : cust ? buildCustomerToInvoiceDraft(cust) : null;
+      stripCreateFromParam(searchParams);
+      const remaining = searchParams.toString();
+      if (draft) {
+        saveCreateDraft("invoice-create-draft", draft);
+        setInvoicePrefill(draftToInvoicePrefill(draft));
+        setIsAddInvoiceOpen(true);
+      }
+      navigate(`/invoices${remaining ? `?${remaining}` : ""}`, { replace: true });
+      return;
+    }
+
+    if (searchParams.get("create") === "1") {
+      stripQuickCreateParam(searchParams);
+      const remaining = searchParams.toString();
+      if (canCreateInvoice) {
+        setInvoicePrefill(undefined);
+        setIsAddInvoiceOpen(true);
+      }
+      navigate(`/invoices${remaining ? `?${remaining}` : ""}`, { replace: true });
+      return;
+    }
+
     const from = searchParams.get('from');
     const client = searchParams.get('client');
     const amount = searchParams.get('amount');
@@ -151,9 +294,39 @@ const Invoices = () => {
       
       navigate('/invoices', { replace: true });
     }
-  }, [location.search, navigate]);
+  }, [location.search, navigate, canCreateInvoice]);
 
-  const handleInvoiceCreated = (invoice: Invoice) => {
+  useEffect(() => {
+    if (urlDocType === "sale-bill") setDocTypeFilter("sale-bill");
+  }, [urlDocType]);
+
+  // C1: handle `?invoice=<id>` deep link from GlobalSearch / businessAlerts / AuditLogs.
+  // Open the invoice detail sheet; toast if missing; strip the param after handle.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const target = params.get("invoice");
+    if (!target) return;
+    const found =
+      invoices.find((i) => i.id === target) ?? saleBills.find((i) => i.id === target);
+    if (found) {
+      setSelectedInvoice(found);
+      setIsInvoiceDetailOpen(true);
+    } else {
+      toast({
+        title: "Invoice not found",
+        description: `No invoice or sale bill with id ${target}.`,
+        variant: "destructive",
+      });
+    }
+    params.delete("invoice");
+    const remaining = params.toString();
+    navigate(`/invoices${remaining ? `?${remaining}` : ""}`, { replace: true });
+  }, [location.search, invoices, saleBills, navigate]);
+
+  const handleInvoiceCreated = (
+    invoice: Invoice,
+    options?: { highValueJustification?: string },
+  ) => {
     if (invoice.projectId) {
       const proj = projects.find((p) => p.id === invoice.projectId);
       const cap = proj?.contractAmount;
@@ -167,34 +340,58 @@ const Invoices = () => {
       }
     }
     if (invoice.type === "sale-bill") {
-      addSaleBill(invoice);
+      addSaleBill(invoice, options);
     } else {
-      addInvoice(invoice);
+      addInvoice(invoice, options);
     }
     setIsAddInvoiceOpen(false);
     setInvoicePrefill(undefined);
-    toast({ title: "Document created", description: `${invoice.invoiceNumber} has been created` });
+    setLastConfirm({ variant: "success", title: "Document created", description: `${invoice.invoiceNumber} has been created` });
   };
 
   const handleRecordPayment = () => {
     if (!selectedInvoice) {
-      toast({ title: "Error", description: "Select an invoice first.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Select an invoice first" });
       return;
     }
     if (selectedInvoice.status === "draft") {
-      toast({ title: "Finalize draft first", description: "Draft documents cannot receive payments until finalized.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Finalize draft first", description: "Draft documents cannot receive payments until finalized." });
+      return;
+    }
+    if (selectedInvoice.status === "voided") {
+      setLastConfirm({ variant: "error", title: "Invoice voided", description: "Voided invoices cannot receive payments." });
       return;
     }
     if (!paymentAmount) {
-      toast({ title: "Error", description: "Amount is required", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Amount is required" });
       return;
     }
 
     const amount = Number.parseFloat(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      toast({ title: "Invalid Amount", description: "Payment amount must be greater than zero.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid amount", description: "Payment amount must be greater than zero." });
       return;
     }
+    // W5 — partner-routing split + partner-receivable tracking
+    const linkedProject = selectedInvoice.projectId ? projects.find(p => p.id === selectedInvoice.projectId) : undefined;
+    const projectPartnerId = (linkedProject?.scope as { partnerId?: string } | undefined)?.partnerId;
+
+    // Compute MSS / partner portions
+    let mssPortion = amount;
+    let partnerPortion = 0;
+    if (paymentSource === "partner" && projectPartnerId) {
+      mssPortion = 0;
+      partnerPortion = amount;
+    } else if (paymentSource === "split" && projectPartnerId) {
+      partnerPortion = Number.parseFloat(partnerPortionAmount) || 0;
+      if (partnerPortion < 0 || partnerPortion > amount) {
+        setLastConfirm({ variant: "error", title: "Invalid split", description: "Partner portion must be between 0 and total amount." });
+        return;
+      }
+      mssPortion = amount - partnerPortion;
+    }
+
+    // Invoice always reflects FULL collected amount (regardless of routing)
     const newReceived = (selectedInvoice.amountReceived || 0) + amount;
     let newStatus: Invoice["status"];
     if (newReceived > selectedInvoice.total + 0.01) {
@@ -205,10 +402,10 @@ const Invoices = () => {
       newStatus = "partial";
     }
 
-    const patch = { 
-      amountReceived: newReceived, 
-      status: newStatus as Invoice["status"], 
-      receivedIn: paymentMode 
+    const patch = {
+      amountReceived: newReceived,
+      status: newStatus as Invoice["status"],
+      receivedIn: paymentMode
     };
     if ((selectedInvoice.type ?? "invoice") === "sale-bill") {
       updateSaleBill(selectedInvoice.id, patch);
@@ -216,24 +413,96 @@ const Invoices = () => {
       updateInvoice(selectedInvoice.id, patch);
     }
 
-    addPayment({
-      id: generateId('PAY'),
-      date: paymentDate,
-      amount,
-      direction: 'in',
-      paymentMode: paymentMode,
-      counterpartyType: 'customer',
-      counterpartyId: selectedInvoice.customerId,
-      counterpartyName: selectedInvoice.customerName,
-      invoiceId: selectedInvoice.id,
-      projectId: selectedInvoice.projectId || undefined,
-      notes: `Payment for ${selectedInvoice.invoiceNumber}`,
-    });
+    // MSS-side Payment (recorded whenever mssPortion > 0)
+    if (mssPortion > 0) {
+      addPayment({
+        id: generateId('PAY'),
+        date: paymentDate,
+        amount: mssPortion,
+        direction: 'in',
+        paymentMode: paymentMode,
+        counterpartyType: 'customer',
+        counterpartyId: selectedInvoice.customerId,
+        counterpartyName: selectedInvoice.customerName,
+        invoiceId: selectedInvoice.id,
+        projectId: selectedInvoice.projectId || undefined,
+        notes: `Payment for ${selectedInvoice.invoiceNumber}${paymentSource === "split" ? " (MSS portion of split)" : ""}`,
+        paymentSource: paymentSource === "split" ? "split" : "mss",
+        partnerId: paymentSource === "split" ? projectPartnerId : undefined,
+        partnerPortion: paymentSource === "split" ? partnerPortion : undefined,
+      });
+    }
+
+    // Partner-side: separate Payment (counterpartyType=partner) + PartnerTransaction
+    if (partnerPortion > 0 && projectPartnerId) {
+      const partner = partners.find(p => p.id === projectPartnerId);
+      addPayment({
+        id: generateId('PAY'),
+        date: paymentDate,
+        amount: partnerPortion,
+        direction: 'in',
+        paymentMode: paymentMode,
+        counterpartyType: 'partner',
+        counterpartyId: projectPartnerId,
+        counterpartyName: partner?.name ?? "Partner",
+        invoiceId: selectedInvoice.id,
+        projectId: selectedInvoice.projectId || undefined,
+        notes: `Client paid partner on our behalf · Invoice ${selectedInvoice.invoiceNumber}`,
+        paymentSource: "partner",
+        partnerId: projectPartnerId,
+      });
+      addPartnerTransaction({
+        id: generateId('PT'),
+        partnerId: projectPartnerId,
+        partnerName: partner?.name ?? "Partner",
+        date: paymentDate,
+        amount: partnerPortion,
+        type: "Customer Paid Partner",
+        direction: "received",
+        projectId: selectedInvoice.projectId || undefined,
+        notes: `Client paid ${formatCurrency(partnerPortion)} to partner for invoice ${selectedInvoice.invoiceNumber}`,
+      });
+    }
 
     setIsRecordPaymentOpen(false);
     setPaymentAmount("");
     setPaymentMode("");
-    toast({ title: "Payment Recorded", description: `₹${amount.toLocaleString()} has been recorded` });
+    setPaymentSource("mss");
+    setPartnerPortionAmount("");
+    setLastConfirm({
+      variant: "success",
+      title: "Payment recorded",
+      description: paymentSource === "mss"
+        ? `${formatCurrency(amount)} received`
+        : paymentSource === "partner"
+          ? `${formatCurrency(amount)} → partner ledger (Customer Paid Partner)`
+          : `${formatCurrency(mssPortion)} to MSS + ${formatCurrency(partnerPortion)} → partner`,
+    });
+  };
+
+  const handleVoidInvoice = () => {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.status === "voided") {
+      setLastConfirm({ variant: "warning", title: "Already voided", description: "This invoice is already voided." });
+      return;
+    }
+    if ((selectedInvoice.amountReceived ?? 0) > 0) {
+      setLastConfirm({
+        variant: "error",
+        title: "Cannot void",
+        description: "Reverse or adjust payments before voiding this invoice.",
+      });
+      return;
+    }
+    const patch = { status: "voided" as const };
+    if ((selectedInvoice.type ?? "invoice") === "sale-bill") {
+      updateSaleBill(selectedInvoice.id, patch);
+    } else {
+      updateInvoice(selectedInvoice.id, patch);
+    }
+    setSelectedInvoice({ ...selectedInvoice, ...patch });
+    setVoidConfirmOpen(false);
+    setLastConfirm({ variant: "warning", title: "Invoice voided", description: `${selectedInvoice.invoiceNumber} is no longer billable.` });
   };
 
   const handleFinalizeDraft = () => {
@@ -252,7 +521,7 @@ const Invoices = () => {
       updateInvoice(selectedInvoice.id, patch);
     }
     setSelectedInvoice((prev) => (prev && prev.id === selectedInvoice.id ? { ...prev, ...patch } : prev));
-    toast({ title: "Draft finalized", description: `${selectedInvoice.invoiceNumber} is now pending collection.` });
+    setLastConfirm({ variant: "success", title: "Draft finalized", description: `${selectedInvoice.invoiceNumber} is now pending collection.` });
   };
 
   const handleExportPDF = async () => {
@@ -280,7 +549,10 @@ const Invoices = () => {
   };
 
   const allBillingDocuments = useMemo(
-    () => [...invoices, ...saleBills].sort((a, b) => new Date(b.invoiceDate).getTime() - new Date(a.invoiceDate).getTime()),
+    () =>
+      sanitizeBillingDocuments([...invoices, ...saleBills]).sort(
+        (a, b) => new Date(b.invoiceDate).getTime() - new Date(a.invoiceDate).getTime(),
+      ),
     [invoices, saleBills],
   );
 
@@ -301,9 +573,11 @@ const Invoices = () => {
           docTypeFilter === "all" ||
           (docTypeFilter === "invoice" && t === "invoice") ||
           (docTypeFilter === "sale-bill" && t === "sale-bill");
-        return matchesSearch && matchesStatus && matchesDoc;
+        const matchesProject = !urlProjectId || i.projectId === urlProjectId;
+        const matchesCustomer = !urlCustomerId || i.customerId === urlCustomerId;
+        return matchesSearch && matchesStatus && matchesDoc && matchesProject && matchesCustomer;
       }),
-    [allBillingDocuments, searchQuery, statusFilter, docTypeFilter],
+    [allBillingDocuments, searchQuery, statusFilter, docTypeFilter, urlProjectId, urlCustomerId],
   );
 
   const { pagedItems: pagedInvoices, safePage } = usePagedSlice(filteredInvoices, tablePage, tablePageSize);
@@ -356,9 +630,9 @@ const Invoices = () => {
         ]}
         subRow={
           <>
-            <div className="flex w-full min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
-              <div className="relative max-w-full flex-1 sm:max-w-sm">
-                <Search className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <div className="flex w-full min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-x-auto">
+              <div className="relative min-w-[180px] flex-1">
+                <Search className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
                 <Input
                   placeholder="Customer or document #"
                   className="h-9 border-border bg-muted/50 pl-9"
@@ -367,46 +641,45 @@ const Invoices = () => {
                     setSearchQuery(e.target.value);
                     setTablePage(1);
                   }}
+                  aria-label="Search invoices"
                 />
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Select
-                  value={docTypeFilter}
-                  onValueChange={(v) => {
-                    setDocTypeFilter(v as typeof docTypeFilter);
-                    setTablePage(1);
-                  }}
-                >
-                  <SelectTrigger className="h-9 w-[min(100%,150px)] bg-muted/50">
-                    <SelectValue placeholder="Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All types</SelectItem>
-                    <SelectItem value="invoice">Invoice (INV)</SelectItem>
-                    <SelectItem value="sale-bill">Sale bill (SB)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={statusFilter}
-                  onValueChange={(v) => {
-                    setStatusFilter(v);
-                    setTablePage(1);
-                  }}
-                >
-                  <SelectTrigger className="h-9 w-[min(100%,150px)] bg-muted/50">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All status</SelectItem>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="partial">Partial</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="overpaid">Overpaid</SelectItem>
-                    <SelectItem value="overdue">Overdue</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select
+                value={docTypeFilter}
+                onValueChange={(v) => {
+                  setDocTypeFilter(v as typeof docTypeFilter);
+                  setTablePage(1);
+                }}
+              >
+                <SelectTrigger className="h-9 w-[150px] shrink-0 bg-muted/50">
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  <SelectItem value="invoice">Invoice (INV)</SelectItem>
+                  <SelectItem value="sale-bill">Sale bill (SB)</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={statusFilter}
+                onValueChange={(v) => {
+                  setStatusFilter(v);
+                  setTablePage(1);
+                }}
+              >
+                <SelectTrigger className="h-9 w-[150px] shrink-0 bg-muted/50">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All status</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="partial">Partial</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="overpaid">Overpaid</SelectItem>
+                  <SelectItem value="overdue">Overdue</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <InlineKpiStrip
               className="w-full sm:w-auto sm:justify-end"
@@ -421,11 +694,20 @@ const Invoices = () => {
           </>
         }
       >
-        <Button size="sm" onClick={() => setIsAddInvoiceOpen(true)} disabled={!canDo("finance:create_invoice")}>
+        <Button size="sm" onClick={() => setIsAddInvoiceOpen(true)} disabled={!canCreateInvoice}>
           <Plus className="mr-2 h-4 w-4" />
           New
         </Button>
       </StickyPageHeader>
+
+      {lastConfirm && (
+        <InlineConfirmBanner
+          variant={lastConfirm.variant}
+          title={lastConfirm.title}
+          description={lastConfirm.description}
+          onDismiss={() => setLastConfirm(null)}
+        />
+      )}
 
       {/* Invoices Table */}
       <DataTableShell
@@ -460,18 +742,44 @@ const Invoices = () => {
           </TableRow>
         </TableHeader>
         <TableBody>
-            {pagedInvoices.map((invoice) => (
+            {!listReady ? (
+              <ListSkeleton variant="table" count={5} columns={11} />
+            ) : pagedInvoices.map((invoice) => (
               <TableRow key={invoice.id} className="border-border">
                 <TableCell>
                   <Badge variant="outline" className="text-2xs font-normal">
                     {(invoice.type ?? "invoice") === "sale-bill" ? "SB" : "INV"}
                   </Badge>
                 </TableCell>
-                <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                <TableCell>{invoice.customerName}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={() => {
+                        setSelectedInvoice(invoice);
+                        setIsInvoiceDetailOpen(true);
+                      }}
+                    >
+                      {invoice.invoiceNumber}
+                    </button>
+                    <AgingChip signal={getInvoiceOverdueAging(invoice)} />
+                  </div>
+                </TableCell>
+                <TableCell>
+                  {invoice.customerId ? (
+                    <EntityLink
+                      entityType="customer"
+                      entityId={invoice.customerId}
+                      name={invoice.customerName}
+                    />
+                  ) : (
+                    invoice.customerName
+                  )}
+                </TableCell>
                 <TableCell className="text-right">{formatCurrency(invoice.total)}</TableCell>
                 <TableCell className="text-right text-primary">{formatCurrency(invoice.amountReceived)}</TableCell>
-                <TableCell className={`text-right ${invoice.total - (invoice.amountReceived || 0) < -0.01 ? "text-violet-600 font-medium" : "text-amber-500"}`}>
+                <TableCell className={`text-right ${invoice.total - (invoice.amountReceived || 0) < -0.01 ? "text-accent-foreground font-medium" : "text-warning"}`}>
                   {formatCurrency(invoice.total - (invoice.amountReceived || 0))}
                 </TableCell>
                 <TableCell className="text-right text-muted-foreground text-xs">
@@ -502,7 +810,7 @@ const Invoices = () => {
                           setSelectedInvoice(invoice);
                           setIsRecordPaymentOpen(true);
                         }}
-                        disabled={!canDo("finance:record_payment")}
+                        disabled={!canRecordPayment}
                       >
                         <IndianRupee className="h-4 w-4" />
                       </Button>
@@ -537,9 +845,7 @@ const Invoices = () => {
         inventoryItems={inventoryItems}
         servicePresets={servicePresets}
         onCreated={handleInvoiceCreated}
-        onCustomerCreated={(customer) => {
-          addCustomer(customer);
-        }}
+        onCustomerCreated={(customer) => addCustomer(customer)}
         prefill={invoicePrefill}
       />
 
@@ -550,6 +856,30 @@ const Invoices = () => {
             <SheetTitle className="flex items-center justify-between">
               <span>Invoice Details</span>
               <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (!selectedInvoice) return;
+                    // Phase 2.3: Duplicate invoice — open create surface pre-filled with
+                    // items/services only (NOT customer/projectId/dates per builder).
+                    const dup = buildInvoiceDuplicateDraft(selectedInvoice);
+                    saveCreateDraft("invoice-duplicate-draft", dup);
+                    setInvoicePrefill({
+                      items: dup.items as unknown as InvoiceItem[],
+                    });
+                    setIsInvoiceDetailOpen(false);
+                    setTimeout(() => setIsAddInvoiceOpen(true), 100);
+                    toast({
+                      title: "Items copied",
+                      description: dup.banner,
+                    });
+                  }}
+                  title="Open Create Invoice pre-filled with these items"
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Duplicate
+                </Button>
                 <Button variant="outline" size="sm" onClick={handleExportPDF}>
                   <Download className="h-4 w-4 mr-2" />
                   Export PDF
@@ -558,10 +888,45 @@ const Invoices = () => {
                   <Printer className="h-4 w-4 mr-2" />
                   Print
                 </Button>
+                {selectedInvoice && selectedInvoice.status !== "voided" && selectedInvoice.status !== "draft" && canDeleteInvoice && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setVoidConfirmOpen(true)}
+                    disabled={(selectedInvoice.amountReceived ?? 0) > 0}
+                    title={(selectedInvoice.amountReceived ?? 0) > 0 ? "Clear payments before voiding" : undefined}
+                  >
+                    <Ban className="h-4 w-4 mr-2" />
+                    Void
+                  </Button>
+                )}
               </div>
             </SheetTitle>
           </SheetHeader>
           
+          {selectedInvoice?.status === "voided" && (
+            <div className="px-6 pt-4">
+              <LifecycleTerminalBanner
+                variant="voided"
+                title={`${selectedInvoice.invoiceNumber} voided`}
+                description={
+                  <span>
+                    This invoice is no longer billable. Voided invoices cannot receive payments. Create a fresh draft if billing needs to resume.
+                  </span>
+                }
+                primaryActionLabel="Duplicate as draft"
+                onPrimaryAction={() => {
+                  if (!selectedInvoice) return;
+                  const draft = buildInvoiceDuplicateDraft(selectedInvoice);
+                  saveCreateDraft("invoice-create-draft", draft);
+                  setInvoicePrefill(draftToInvoicePrefill(draft, selectedInvoice.total));
+                  setIsInvoiceDetailOpen(false);
+                  setIsAddInvoiceOpen(true);
+                }}
+              />
+            </div>
+          )}
+
           {selectedInvoice && (
             <div ref={invoicePreviewRef} className="bg-background p-6">
               <ExportHeader title="TAX INVOICE" exportedBy={{ name: "Admin", role: "Manager" }} />
@@ -667,7 +1032,7 @@ const Invoices = () => {
                     <span>Received:</span>
                     <span>{formatCurrency(selectedInvoice.amountReceived)}</span>
                   </div>
-                  <div className="flex justify-between font-semibold text-amber-500">
+                  <div className="flex justify-between font-semibold text-warning">
                     <span>Balance:</span>
                     <span>{formatCurrency(selectedInvoice.total - selectedInvoice.amountReceived)}</span>
                   </div>
@@ -678,9 +1043,25 @@ const Invoices = () => {
 
           <SheetFooter className="flex flex-wrap gap-2 sm:justify-end">
             {selectedInvoice?.status === "draft" && (
-              <Button type="button" onClick={handleFinalizeDraft}>
-                Finalize draft
-              </Button>
+              <>
+                {canEditInvoice && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (!selectedInvoice) return;
+                    setEditDraftDueDate(selectedInvoice.dueDate ?? "");
+                    setEditDraftNotes((selectedInvoice as { notes?: string }).notes ?? "");
+                    setIsEditDraftOpen(true);
+                  }}
+                >
+                  Edit draft
+                </Button>
+                )}
+                <Button type="button" onClick={handleFinalizeDraft}>
+                  Finalize draft
+                </Button>
+              </>
             )}
             {selectedInvoice &&
               selectedInvoice.status !== "paid" &&
@@ -689,10 +1070,18 @@ const Invoices = () => {
               <Button
                 type="button"
                 onClick={() => {
+                  if (!selectedInvoice) return;
+                  const draft = buildInvoiceToPaymentDraft(
+                    selectedInvoice,
+                    paymentMode as import("@/types/finance").Payment["mode"],
+                  );
+                  saveCreateDraft("payment-create-draft", draft);
+                  setPaymentAmount(String(draft.amount));
+                  if (draft.mode) setPaymentMode(draft.mode);
                   setIsInvoiceDetailOpen(false);
                   setIsRecordPaymentOpen(true);
                 }}
-                disabled={!canDo("finance:record_payment")}
+                disabled={!canRecordPayment}
               >
                 <IndianRupee className="h-4 w-4 mr-2" />
                 Record Payment
@@ -744,11 +1133,119 @@ const Invoices = () => {
               <Label>Date</Label>
               <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
             </div>
+
+            {/* W5 — Payment-source routing (only when invoice's project has a partner) */}
+            {(() => {
+              const proj = selectedInvoice?.projectId ? projects.find(p => p.id === selectedInvoice.projectId) : undefined;
+              const partnerId = (proj?.scope as { partnerId?: string } | undefined)?.partnerId;
+              if (!partnerId) return null;
+              const partner = partners.find(p => p.id === partnerId);
+              return (
+                <div className="space-y-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
+                  <Label>Who received this payment?</Label>
+                  <p className="text-xs text-muted-foreground">
+                    This project has a partner ({partner?.name ?? "—"}). The client can pay MSS, the partner, or both.
+                  </p>
+                  <Select value={paymentSource} onValueChange={(v) => setPaymentSource(v as "mss" | "partner" | "split")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mss">MSS (us) — default</SelectItem>
+                      <SelectItem value="partner">Partner (on our behalf)</SelectItem>
+                      <SelectItem value="split">Split between MSS and Partner</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {paymentSource === "split" && (
+                    <div className="space-y-1 pt-2">
+                      <Label className="text-xs">Partner portion (₹)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={partnerPortionAmount}
+                        onChange={(e) => setPartnerPortionAmount(e.target.value)}
+                        placeholder="e.g. 5000"
+                      />
+                      <p className="text-2xs text-muted-foreground">
+                        MSS portion = total − partner portion. Total must equal the Amount field above.
+                      </p>
+                    </div>
+                  )}
+                  {paymentSource !== "mss" && (
+                    <p className="text-2xs text-muted-foreground">
+                      Will create a PartnerTransaction (<span className="font-mono">Customer Paid Partner</span>) on {partner?.name ?? "the partner"}'s ledger.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="flex gap-2 pt-4">
               <Button variant="outline" className="flex-1" onClick={() => setIsRecordPaymentOpen(false)}>Cancel</Button>
               <Button className="flex-1" onClick={handleRecordPayment}>Record Payment</Button>
             </div>
           </div>
+        </SheetContent>
+      </Sheet>
+
+      <AlertDialog open={voidConfirmOpen} onOpenChange={setVoidConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Void invoice?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedInvoice
+                ? `${selectedInvoice.invoiceNumber} will be marked voided and excluded from collections. This cannot be undone from the list.`
+                : "This invoice will be marked voided."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleVoidInvoice} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Void invoice
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Sheet open={isEditDraftOpen} onOpenChange={setIsEditDraftOpen}>
+        <SheetContent className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Edit invoice draft</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Due date</Label>
+              <Input
+                type="date"
+                value={editDraftDueDate}
+                onChange={(e) => setEditDraftDueDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Internal notes</Label>
+              <Textarea
+                value={editDraftNotes}
+                onChange={(e) => setEditDraftNotes(e.target.value)}
+                rows={3}
+                placeholder="Optional notes visible only to the team"
+              />
+            </div>
+          </div>
+          <SheetFooter className="mt-6 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsEditDraftOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (!selectedInvoice) return;
+                updateInvoice(selectedInvoice.id, {
+                  dueDate: editDraftDueDate || undefined,
+                  ...(editDraftNotes ? ({ notes: editDraftNotes } as Partial<typeof selectedInvoice>) : {}),
+                });
+                setLastConfirm({ variant: "success", title: "Draft updated", description: selectedInvoice.invoiceNumber });
+                setIsEditDraftOpen(false);
+              }}
+            >
+              Save changes
+            </Button>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
     </PageShell>

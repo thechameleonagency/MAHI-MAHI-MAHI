@@ -52,7 +52,7 @@ describe("ProcurementShortfallService", () => {
     const quotation: Quotation = {
       id: "Q-1",
       quotationNumber: "Q-2026-001",
-      status: "confirmed",
+      status: "converted_to_project",
       quotationType: "solar",
       clientName: "Client",
       clientPhone: "9999999999",

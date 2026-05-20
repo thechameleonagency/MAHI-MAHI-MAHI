@@ -38,6 +38,8 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
 import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
 import { useMasters } from "@/contexts/MastersContext";
 import { ProjectKindService, type ProjectIntakePayload } from "@/application/services/ProjectKindService";
@@ -60,6 +62,15 @@ import { formatINR, formatCapacityKW } from "@/lib/formatCurrency";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getQuotationNoResponseAging } from "@/lib/agingHelpers";
 import { useCan } from "@/hooks/useCan";
+import { useCanAction } from "@/hooks/useCanAction";
+import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
+import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
+import {
+  hasPositiveQuotationAmount,
+  QUOTATION_ZERO_AMOUNT_ERROR,
+  validateQuotationSendOrApprove,
+} from "@/domain/quotation/quotationCommercialAmount";
 
 interface QuotationMaterial {
   id: number;
@@ -117,6 +128,7 @@ const presetMaterials: Record<string, QuotationMaterial[]> = {
 
 const Quotations = () => {
   const projectKindService = new ProjectKindService();
+  const { currentRole } = useAppSession();
   const navigate = useNavigate();
   const location = useLocation();
   const quotationRef = useRef<HTMLDivElement>(null);
@@ -146,6 +158,8 @@ const Quotations = () => {
   const canCreateQuotation = useCan("quotation", "create");
   const canEditQuotation = useCan("quotation", "edit");
   const canDeleteQuotation = useCan("quotation", "delete");
+  const canApproveQuotation = useCan("quotationApprove", "edit");
+  const canCreateProjectFromQuote = useCanAction("project:create_from_quote");
   
   // State for Create Project in edit/create view
   
@@ -375,6 +389,9 @@ const Quotations = () => {
   // Validation errors
   const discountError = discountAmount > systemCost ? "Discount cannot be higher than total cost" : "";
   const totalError = effectivePrice < 0 ? "Total cost cannot be negative" : "";
+  const zeroAmountError =
+    effectivePrice <= 0 && !totalError ? QUOTATION_ZERO_AMOUNT_ERROR : "";
+  const blocksSendApproveActions = !!discountError || !!totalError || !!zeroAmountError;
 
   // Reset form
   const resetForm = () => {
@@ -548,6 +565,15 @@ const Quotations = () => {
         navigate(`/quotations${params.toString() ? `?${params}` : ""}`, { replace: true });
         return;
       }
+      if (enquiry) {
+        const gate = assertCanLinkNewQuotationToEnquiry(enquiry, currentRole);
+        if (!gate.ok) {
+          toast({ title: "Cannot create quotation", description: gate.message, variant: "destructive" });
+          stripCreateFromParam(params);
+          navigate(`/quotations${params.toString() ? `?${params}` : ""}`, { replace: true });
+          return;
+        }
+      }
       resetForm();
       setEditingQuotationId(null);
       setCurrentView("create");
@@ -563,7 +589,7 @@ const Quotations = () => {
       return;
     }
 
-    if (!params.has("create")) return;
+    if (params.get("create") !== "1") return;
     resetForm();
     setEditingQuotationId(null);
     setCurrentView("create");
@@ -949,8 +975,29 @@ const Quotations = () => {
     setIsExportingPdf(false);
   };
 
+  const assertQuotationAmountForTransition = (
+    quotationId: string,
+    liveEffectivePrice?: number,
+  ): string | null => {
+    if (liveEffectivePrice != null) {
+      return liveEffectivePrice > 0 ? null : QUOTATION_ZERO_AMOUNT_ERROR;
+    }
+    const q = savedQuotations.find((x) => x.id === quotationId);
+    if (!q) return "Quotation not found";
+    const check = validateQuotationSendOrApprove(q);
+    return check.ok ? null : check.message;
+  };
+
   // Handle Share to Client
   const handleOpenShareModal = () => {
+    if (blocksSendApproveActions) {
+      toast({
+        title: "Cannot share quotation",
+        description: zeroAmountError || totalError || discountError,
+        variant: "destructive",
+      });
+      return;
+    }
     // Pre-fill with client details
     if (clientPhone) setShareContactValue(clientPhone);
     else if (clientEmail) setShareContactValue(clientEmail);
@@ -975,6 +1022,11 @@ const Quotations = () => {
 
     const quotationId = editingQuotationId || currentQuotation?.id;
     if (quotationId) {
+      const amountError = assertQuotationAmountForTransition(quotationId, effectivePrice);
+      if (amountError) {
+        toast({ title: "Cannot share quotation", description: amountError, variant: "destructive" });
+        return;
+      }
       const existingHistory = currentQuotation?.shareHistory || [];
       const result = await transitionQuotationStatus(quotationId, "sent");
       if (!result.ok) {
@@ -1014,6 +1066,14 @@ const Quotations = () => {
 
   const handleMarkAsSent = async (quotationId: string) => {
     setLastConfirm(null);
+    const amountError = assertQuotationAmountForTransition(
+      quotationId,
+      editingQuotationId === quotationId ? effectivePrice : undefined,
+    );
+    if (amountError) {
+      toast({ title: "Cannot send quotation", description: amountError, variant: "destructive" });
+      return;
+    }
     const result = await transitionQuotationStatus(quotationId, "sent");
     if (!result.ok) {
       toast({ title: "Cannot send quotation", description: result.error || "Status change not allowed", variant: "destructive" });
@@ -1037,6 +1097,14 @@ const Quotations = () => {
 
   const handleMarkAsApproved = async (quotationId: string) => {
     setLastConfirm(null);
+    const amountError = assertQuotationAmountForTransition(
+      quotationId,
+      editingQuotationId === quotationId ? effectivePrice : undefined,
+    );
+    if (amountError) {
+      toast({ title: "Cannot approve quotation", description: amountError, variant: "destructive" });
+      return;
+    }
     const result = await transitionQuotationStatus(quotationId, "approved");
     if (!result.ok) {
       toast({ title: "Cannot approve quotation", description: result.error || "Status change not allowed", variant: "destructive" });
@@ -1071,7 +1139,7 @@ const Quotations = () => {
     toast({ title: "Status Updated", description: "Quotation marked as approved" });
   };
 
-  const _handleDeleteQuotation = (quotation: Quotation) => {
+  const handleDeleteQuotation = (quotation: Quotation) => {
     // Check for related entities
     const relatedEntities: {type: string; id: string; name: string}[] = [];
     
@@ -1135,15 +1203,6 @@ const Quotations = () => {
     setDeleteReason("");
   };
 
-  const _handleCreateInvoice = (quotation: Quotation) => {
-    // Use bankDocumentationAmount for loan files, otherwise clientAgreedAmount or totalAmount
-    const invoiceAmount = quotation.paymentType === "loan" && quotation.bankDocumentationAmount
-      ? quotation.bankDocumentationAmount
-      : (quotation.clientAgreedAmount || quotation.totalAmount);
-    
-    navigate(`/invoices?from=quotation&client=${encodeURIComponent(quotation.clientName)}&amount=${invoiceAmount}&quotationId=${quotation.id}&paymentType=${quotation.paymentType || ""}`);
-  };
-
   // Create Project from Quotation
   const handleCreateProject = (quotation: Quotation) => {
     setSelectedQuotationForProject(quotation);
@@ -1197,7 +1256,11 @@ const Quotations = () => {
 
     const pRow = qPartnerIdForProject ? partners.find((p) => p.id === qPartnerIdForProject) : undefined;
 
-    if (!selectedQuotationForProject.customerId) {
+    const liveQuotation =
+      savedQuotations.find((q) => q.id === selectedQuotationForProject.id) ?? selectedQuotationForProject;
+    const effectiveCustomerId =
+      liveQuotation.customerId ?? selectedQuotationForProject.customerId;
+    if (!effectiveCustomerId) {
       toast({
         title: "Customer required",
         description: "Link this quotation to a customer before creating a project.",
@@ -1239,9 +1302,10 @@ const Quotations = () => {
     const newProjectId = generateId("P");
     const newProject: Project = {
       id: newProjectId,
-      customerId: selectedQuotationForProject.customerId,
-      lifecycleStatus: "Active",
-      executionPhase: "execution",
+      customerId: effectiveCustomerId,
+      lifecycleStatus: "New",
+      executionPhase: "Intake",
+      progressStage: "new",
       projectKind,
       projectKindConfigSnapshot: snap,
       name: `${selectedQuotationForProject.clientName} ${formatCapacityKW(selectedQuotationForProject.systemCapacity)}`,
@@ -1257,8 +1321,6 @@ const Quotations = () => {
         projectKind === "PARTNER_EPC" || projectKind === "FIXED_EPC" || projectKind === "VENDOR_NETWORK"
           ? "partnership"
           : "solo",
-      status: "Ongoing",
-      progressStage: "work-in-progress",
       client: selectedQuotationForProject.clientName,
       clientAddress: selectedQuotationForProject.clientAddress || `${selectedQuotationForProject.clientCity}, ${selectedQuotationForProject.clientState}`,
       clientPhone: selectedQuotationForProject.clientPhone,
@@ -1341,15 +1403,6 @@ const Quotations = () => {
       return;
     }
     const navigateId = created.projectId ?? newProjectId;
-
-    // Link quotation → project + flip status to converted_to_project (single source of truth)
-    if (navigateId) {
-      await updateQuotation(selectedQuotationForProject.id, {
-        linkedProjectId: navigateId,
-        convertedAt: new Date().toISOString().split("T")[0],
-      });
-      await transitionQuotationStatus(selectedQuotationForProject.id, "converted_to_project");
-    }
 
     setLastConfirm(null);
     toast({
@@ -2022,7 +2075,10 @@ const Quotations = () => {
                         variant="outline" 
                         size="sm"
                         onClick={() => { setIsViewQuotationOpen(false); handleOpenShareModal(); }}
-                        disabled={selectedQuotation.status === "rejected"}
+                        disabled={
+                          selectedQuotation.status === "rejected" ||
+                          !hasPositiveQuotationAmount(selectedQuotation)
+                        }
                       >
                         <Share2 className="h-4 w-4 mr-2" />
                         Share
@@ -2059,25 +2115,43 @@ const Quotations = () => {
                             Withdraw
                           </Button>
                         )}
+                      {canDeleteQuotation && !quotationLinkedProjectId(selectedQuotation) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive"
+                          onClick={() => handleDeleteQuotation(selectedQuotation)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
+                        </Button>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2">
                       {/* Send Quotation — draft only */}
                       {selectedQuotation.status === "draft" && (
-                        <Button
+                        <PermissionGatedButton
+                          allowed={canEditQuotation}
+                          deniedHint={PERMISSION_DENIED_HINTS.quotationSend}
                           variant="outline"
                           size="sm"
                           className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
+                          disabled={!hasPositiveQuotationAmount(selectedQuotation)}
                           onClick={() => { void handleMarkAsSent(selectedQuotation.id); setIsViewQuotationOpen(false); }}
                         >
                           <Send className="h-4 w-4 mr-2" />
                           Send Quotation
-                        </Button>
+                        </PermissionGatedButton>
                       )}
 
-                      {/* Reject — draft or sent */}
-                      {(selectedQuotation.status === "draft" || selectedQuotation.status === "sent") && (
-                        <Button
+                      {/* Reject — draft, sent, or approved (state machine allows) */}
+                      {(selectedQuotation.status === "draft" ||
+                        selectedQuotation.status === "sent" ||
+                        selectedQuotation.status === "approved") && (
+                        <PermissionGatedButton
+                          allowed={canEditQuotation}
+                          deniedHint={PERMISSION_DENIED_HINTS.quotationReject}
                           variant="destructive"
                           size="sm"
                           onClick={() => { handleMarkAsRejected(selectedQuotation.id); setIsViewQuotationOpen(false); }}
@@ -2085,32 +2159,38 @@ const Quotations = () => {
                         >
                           <X className="h-4 w-4 mr-2" />
                           Reject
-                        </Button>
+                        </PermissionGatedButton>
                       )}
 
-                      {/* Approve — sent only */}
+                      {/* Approve — sent only (disabled + tooltip when role cannot approve) */}
                       {selectedQuotation.status === "sent" && (
-                        <Button
+                        <PermissionGatedButton
+                          allowed={canApproveQuotation}
+                          deniedHint={PERMISSION_DENIED_HINTS.quotationApprove}
                           variant="outline"
                           size="sm"
                           className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
+                          disabled={!hasPositiveQuotationAmount(selectedQuotation)}
                           onClick={() => { void handleMarkAsApproved(selectedQuotation.id); setIsViewQuotationOpen(false); }}
                         >
                           <CheckCircle className="h-4 w-4 mr-2" />
                           Approve Quotation
-                        </Button>
+                        </PermissionGatedButton>
                       )}
 
                       {/* Convert to Project — approved with no linked project */}
-                      {selectedQuotation.status === "approved" && !quotationLinkedProjectId(selectedQuotation) && (
-                        <Button
+                      {selectedQuotation.status === "approved" &&
+                        !quotationLinkedProjectId(selectedQuotation) && (
+                        <PermissionGatedButton
+                          allowed={canCreateProjectFromQuote}
+                          deniedHint={PERMISSION_DENIED_HINTS.projectFromQuote}
                           size="sm"
                           className="bg-primary text-white"
                           onClick={() => { handleCreateProject(selectedQuotation); setIsViewQuotationOpen(false); }}
                         >
                           <Briefcase className="h-4 w-4 mr-2" />
                           Convert to Project
-                        </Button>
+                        </PermissionGatedButton>
                       )}
 
                       {/* View Project — already converted */}
@@ -2556,6 +2636,9 @@ const Quotations = () => {
                   {totalError && (
                     <p className="text-xs text-destructive">{totalError}</p>
                   )}
+                  {zeroAmountError && (
+                    <p className="text-xs text-destructive">{zeroAmountError}</p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -2736,7 +2819,12 @@ const Quotations = () => {
                   <Eye className="w-4 h-4 mr-2" />
                   Preview
                 </Button>
-                <Button variant="outline" className="w-full" onClick={handleOpenShareModal}>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleOpenShareModal}
+                  disabled={blocksSendApproveActions}
+                >
                   <Share2 className="w-4 h-4 mr-2" />
                   Share to Client
                 </Button>
@@ -2748,26 +2836,32 @@ const Quotations = () => {
 
                     {/* Send Quotation — draft only */}
                     {status === "draft" && (
-                      <Button
+                      <PermissionGatedButton
+                        allowed={canEditQuotation}
+                        deniedHint={PERMISSION_DENIED_HINTS.quotationSend}
                         variant="outline"
                         className="w-full border-primary text-primary hover:bg-primary/10"
+                        disabled={blocksSendApproveActions}
                         onClick={() => { void handleMarkAsSent(editingQuotationId); }}
                       >
                         <Send className="w-4 h-4 mr-2" />
                         Send Quotation
-                      </Button>
+                      </PermissionGatedButton>
                     )}
 
                     {/* Approve Quotation — sent only */}
                     {status === "sent" && (
-                      <Button
+                      <PermissionGatedButton
+                        allowed={canApproveQuotation}
+                        deniedHint={PERMISSION_DENIED_HINTS.quotationApprove}
                         variant="outline"
                         className="w-full border-primary text-primary hover:bg-primary/10"
+                        disabled={blocksSendApproveActions}
                         onClick={() => { void handleMarkAsApproved(editingQuotationId); }}
                       >
                         <CheckCircle className="w-4 h-4 mr-2" />
                         Approve Quotation
-                      </Button>
+                      </PermissionGatedButton>
                     )}
 
                     {/* Convert to Project — approved only (and no linked project yet) */}
@@ -2775,13 +2869,15 @@ const Quotations = () => {
                       const q = savedQuotations.find(qq => qq.id === editingQuotationId);
                       const alreadyLinked = !!(q && quotationLinkedProjectId(q));
                       return !alreadyLinked ? (
-                        <Button
+                        <PermissionGatedButton
+                          allowed={canCreateProjectFromQuote}
+                          deniedHint={PERMISSION_DENIED_HINTS.projectFromQuote}
                           className="w-full bg-primary"
                           onClick={() => { if (q) handleCreateProject(q); }}
                         >
                           <Briefcase className="w-4 h-4 mr-2" />
                           Convert to Project
-                        </Button>
+                        </PermissionGatedButton>
                       ) : (
                         <Button
                           variant="outline"
@@ -2799,7 +2895,9 @@ const Quotations = () => {
 
                     {/* Reject — draft, sent or approved (terminal-but-allowed) */}
                     {(status === "draft" || status === "sent" || status === "approved") && (
-                      <Button
+                      <PermissionGatedButton
+                        allowed={canEditQuotation}
+                        deniedHint={PERMISSION_DENIED_HINTS.quotationReject}
                         variant="outline"
                         className="w-full border-destructive text-destructive hover:bg-destructive/10"
                         onClick={() => {
@@ -2809,7 +2907,7 @@ const Quotations = () => {
                       >
                         <X className="w-4 h-4 mr-2" />
                         Mark as Rejected
-                      </Button>
+                      </PermissionGatedButton>
                     )}
                   </div>
                 )}
@@ -2834,7 +2932,11 @@ const Quotations = () => {
               <Printer className="w-4 h-4 mr-2" />
               Print
             </Button>
-            <Button className="bg-primary text-primary-foreground" onClick={handleOpenShareModal}>
+            <Button
+              className="bg-primary text-primary-foreground"
+              onClick={handleOpenShareModal}
+              disabled={blocksSendApproveActions}
+            >
               <Send className="w-4 h-4 mr-2" />
               Send to Client
             </Button>
@@ -3367,7 +3469,7 @@ const Quotations = () => {
 
           <div className="flex justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsShareModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleConfirmShare}>
+            <Button onClick={handleConfirmShare} disabled={blocksSendApproveActions}>
               {shareMethod === "visit" ? (
                 <>
                   <Check className="h-4 w-4 mr-2" />
@@ -3609,13 +3711,36 @@ const Quotations = () => {
         </SheetContent>
       </Sheet>
 
-      {/* Delete Confirmation Sheet */}
-      <Sheet open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+      <DestructiveConfirmDialog
+        open={isDeleteConfirmOpen && !deleteHasRelations}
+        onOpenChange={(open) => {
+          setIsDeleteConfirmOpen(open);
+          if (!open) {
+            setQuotationToDelete(null);
+            setDeleteReason("");
+          }
+        }}
+        title={
+          quotationToDelete
+            ? `Delete quotation ${quotationToDelete.quotationNumber}?`
+            : "Delete quotation?"
+        }
+        description={
+          quotationToDelete
+            ? `Permanently remove "${quotationToDelete.quotationNumber}". This cannot be undone.`
+            : "This cannot be undone."
+        }
+        confirmLabel="Delete permanently"
+        onConfirm={confirmDeleteQuotation}
+      />
+
+      {/* Delete with related entities — requires reason + admin queue */}
+      <Sheet open={isDeleteConfirmOpen && deleteHasRelations} onOpenChange={setIsDeleteConfirmOpen}>
         <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] border-l-destructive/30 overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              {deleteHasRelations ? "Deletion Request Required" : "Confirm Delete"}
+              Deletion Request Required
             </SheetTitle>
             <SheetDescription>
               {deleteHasRelations ? (
@@ -3641,16 +3766,10 @@ const Quotations = () => {
                     </p>
                   </div>
                 </div>
-              ) : (
-                <p>
-                  Are you sure you want to delete quotation <strong>"{quotationToDelete?.quotationNumber}"</strong>? 
-                  This action cannot be undone.
-                </p>
-              )}
+              ) : null}
             </SheetDescription>
           </SheetHeader>
           
-          {/* Reason field for related entities */}
           {deleteHasRelations && (
             <div className="space-y-2 py-2">
               <Label>Reason for Deletion *</Label>
@@ -3671,11 +3790,8 @@ const Quotations = () => {
             }}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={confirmDeleteQuotation}
-            >
-              {deleteHasRelations ? "Submit Deletion Request" : "Delete Permanently"}
+            <Button variant="destructive" onClick={confirmDeleteQuotation}>
+              Submit Deletion Request
             </Button>
           </SheetFooter>
         </SheetContent>

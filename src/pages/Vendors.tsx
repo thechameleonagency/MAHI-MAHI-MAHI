@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useMemo, useState, useEffect } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Plus,
   Search,
   Store,
-  _Phone,
+
   Mail,
   MapPin,
   Eye,
@@ -15,12 +15,15 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { ListSkeleton } from "@/components/ui/ListSkeleton";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { formatINR } from "@/lib/formatCurrency";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +42,10 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { VENDOR_CATEGORY_OPTIONS } from "@/lib/formCategories";
 import { validateContactPhone } from "@/lib/phoneValidators";
+import { createId } from "@/lib/idFactory";
+import { useCan } from "@/hooks/useCan";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getVendorPayableAging } from "@/lib/agingHelpers";
 
 /** Same normalization as Finance (legacy); finance tab filter keywords are lowercase snippets. */
 type VendorVm = {
@@ -55,7 +62,11 @@ type VendorVm = {
 
 const Vendors = () => {
   const navigate = useNavigate();
-  const { vendors: rawVendors, addVendor, updateVendor, deleteVendor, _generateId, projects } = useAppData();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const canCreateVendor = useCan("vendor", "create");
+  const canEditVendor = useCan("vendor", "edit");
+  const canDeleteVendor = useCan("vendor", "delete");
+  const { vendors: rawVendors, addVendor, updateVendor, deleteVendor, generateId: _generateId, projects, vendorBills } = useAppData();
 
   const vendors: VendorVm[] = useMemo(
     () =>
@@ -73,8 +84,29 @@ const Vendors = () => {
     [rawVendors],
   );
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [vendorCategoryFilter, setVendorCategoryFilter] = useState("all");
+  const [listReady, setListReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setListReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
+  const [vendorCategoryFilter, setVendorCategoryFilter] = useState(() => searchParams.get("category") ?? "all");
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const q = searchQuery.trim();
+        if (q) next.set("q", q);
+        else next.delete("q");
+        if (vendorCategoryFilter !== "all") next.set("category", vendorCategoryFilter);
+        else next.delete("category");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchQuery, vendorCategoryFilter, setSearchParams]);
 
   const [isAddVendorOpen, setIsAddVendorOpen] = useState(false);
   const [isEditVendorOpen, setIsEditVendorOpen] = useState(false);
@@ -109,8 +141,7 @@ const Vendors = () => {
     }
 
     const newVendor: Vendor = {
-      // Vendor.id is a number in the prototype seed. Use timestamp for a stable, unique numeric id.
-      id: Date.now(),
+      id: createId("V"),
       name: vendorName,
       category: vendorCategory.length ? vendorCategory : ["Other"],
       contact: vendorContact,
@@ -177,7 +208,6 @@ const Vendors = () => {
     });
   }, [vendors, searchQuery, vendorCategoryFilter]);
 
-  const formatCurrency = (amount: number) => `₹${amount.toLocaleString("en-IN")}`;
   const totalOutstanding = vendors.reduce((sum, v) => sum + v.outstandingAmount, 0);
   const totalPurchases = vendors.reduce(
     (sum, v) => sum + v.purchaseHistory.reduce((s, p) => s + p.amount, 0),
@@ -190,56 +220,57 @@ const Vendors = () => {
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Vendors" }]}
         subRow={
-          <InlineKpiStrip
-            className="w-full min-w-0 flex-wrap justify-start"
-            items={[
-              { label: "Vendors", value: vendors.length },
-              { label: "Outstanding", value: formatCurrency(totalOutstanding) },
-              { label: "Purchases", value: formatCurrency(totalPurchases) },
-              { label: "With dues", value: withDues },
-            ]}
-          />
+          <div className="flex w-full min-w-0 flex-nowrap items-center gap-3 overflow-x-auto">
+            <div className="relative w-full min-w-[180px] max-w-md flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Input
+                placeholder="Search name, phone, email…"
+                className="h-9 border-border bg-muted/40 pl-9"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label="Search vendors"
+              />
+            </div>
+            <Select value={vendorCategoryFilter} onValueChange={setVendorCategoryFilter}>
+              <SelectTrigger className="h-9 w-[160px] shrink-0 border-border bg-muted/50 text-xs">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                <SelectItem value="solar panels">Solar Panels</SelectItem>
+                <SelectItem value="inverter">Inverter</SelectItem>
+                <SelectItem value="battery">Battery</SelectItem>
+                <SelectItem value="cable">Cable</SelectItem>
+                <SelectItem value="tools">Tools</SelectItem>
+              </SelectContent>
+            </Select>
+            <InlineKpiStrip
+              singleRow
+              className="min-w-0 flex-1"
+              items={[
+                { label: "Vendors", value: vendors.length },
+                { label: "Outstanding", value: formatINR(totalOutstanding) },
+                { label: "Purchases", value: formatINR(totalPurchases) },
+                { label: "With dues", value: withDues },
+              ]}
+            />
+          </div>
         }
       >
-        <Button size="sm" onClick={() => { resetForm(); setIsAddVendorOpen(true); }}>
+        <Button size="sm" onClick={() => { resetForm(); setIsAddVendorOpen(true); }} disabled={!canCreateVendor}>
           <Plus className="mr-2 h-4 w-4" />
           Add vendor
         </Button>
       </StickyPageHeader>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative max-w-md flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search name, phone, email…"
-            className="border-border bg-muted/40 pl-9"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Select value={vendorCategoryFilter} onValueChange={setVendorCategoryFilter}>
-            <SelectTrigger className="w-full border-border bg-muted/50 sm:w-[180px]">
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              <SelectItem value="solar panels">Solar Panels</SelectItem>
-              <SelectItem value="inverter">Inverter</SelectItem>
-              <SelectItem value="battery">Battery</SelectItem>
-              <SelectItem value="cable">Cable</SelectItem>
-              <SelectItem value="tools">Tools</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm" className="w-full shrink-0 sm:w-auto" onClick={() => setIsAddVendorOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add vendor
-          </Button>
-        </div>
-      </div>
-
+      {!listReady ? (
+        <ListSkeleton variant="cards" count={6} />
+      ) : (
+      <>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {filteredVendors.map((vendor) => {
+          const vendorBillRows = vendorBills.filter((b) => String(b.vendorId) === String(vendor.id));
+          const vendorAging = getVendorPayableAging(vendorBillRows);
           const purchaseTotal = vendor.purchaseHistory.reduce((sum, p) => sum + p.amount, 0);
           const lastPurchase =
             vendor.purchaseHistory.length > 0
@@ -255,8 +286,8 @@ const Vendors = () => {
                     {vendor.category.length > 0 ? vendor.category[0] : "Vendor"}
                   </span>
                   {vendor.outstandingAmount > 0 ? (
-                    <Badge className="border-0 bg-amber-500/10 text-xs text-amber-600 dark:text-amber-400">
-                      {formatCurrency(vendor.outstandingAmount)} Due
+                    <Badge className="border-0 bg-warning/10 text-xs text-warning dark:text-warning">
+                      {formatINR(vendor.outstandingAmount)} Due
                     </Badge>
                   ) : (
                     <Badge className="border-0 bg-primary/10 text-xs text-primary">All Clear</Badge>
@@ -268,7 +299,10 @@ const Vendors = () => {
                     <Store className="h-5 w-5 text-primary md:h-6 md:w-6" />
                   </div>
                   <div className="min-w-0">
-                    <p className="font-semibold text-foreground">{vendor.name}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <EntityLink entityType="vendor" entityId={vendor.id} name={vendor.name} className="font-semibold" />
+                      {vendor.outstandingAmount > 0 && vendorAging && <AgingChip signal={vendorAging} />}
+                    </div>
                     <p className="text-xs text-muted-foreground md:text-sm">{vendor.contact}</p>
                     {vendor.linkedProjectId && (
                       <p className="mt-1 text-2xs text-muted-foreground">
@@ -290,20 +324,20 @@ const Vendors = () => {
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="flex justify-between gap-2">
                       <span className="text-muted-foreground">Outstanding</span>
-                      <span className={`font-medium ${vendor.outstandingAmount > 0 ? "text-amber-600" : "text-primary"}`}>
-                        {formatCurrency(vendor.outstandingAmount)}
+                      <span className={`font-medium ${vendor.outstandingAmount > 0 ? "text-warning" : "text-primary"}`}>
+                        {formatINR(vendor.outstandingAmount)}
                       </span>
                     </div>
                     <div className="flex justify-between gap-2">
                       <span className="text-muted-foreground">Purchases</span>
-                      <span className="font-medium text-primary">{formatCurrency(purchaseTotal)}</span>
+                      <span className="font-medium text-primary">{formatINR(purchaseTotal)}</span>
                     </div>
                   </div>
                   <div className="text-2xs text-muted-foreground">({purchaseCount} purchase records)</div>
                   <div className="space-y-1 border-t pt-2">
                     <div className="flex justify-between text-xs">
                       <span className="text-muted-foreground">Total Paid</span>
-                      <span className="font-medium text-primary">{formatCurrency(purchaseTotal - vendor.outstandingAmount)}</span>
+                      <span className="font-medium text-primary">{formatINR(purchaseTotal - vendor.outstandingAmount)}</span>
                     </div>
                     {lastPurchase && (
                       <div className="flex justify-between text-xs">
@@ -315,8 +349,8 @@ const Vendors = () => {
                     )}
                     <div className="flex justify-between pt-1 text-sm font-semibold">
                       <span>Outstanding</span>
-                      <span className={vendor.outstandingAmount > 0 ? "text-amber-600" : "text-primary"}>
-                        {formatCurrency(vendor.outstandingAmount)}
+                      <span className={vendor.outstandingAmount > 0 ? "text-warning" : "text-primary"}>
+                        {formatINR(vendor.outstandingAmount)}
                       </span>
                     </div>
                   </div>
@@ -378,24 +412,6 @@ const Vendors = () => {
                       Record Payment
                     </Button>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="destructive" size="sm" className="flex-1 text-xs" type="button" onClick={() => setVendorPendingDelete(vendor)}>
-                      <Trash2 className="mr-1 h-3 w-3" />
-                      Delete
-                    </Button>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" className="flex-1 text-xs" type="button" onClick={() => openEditVendor(vendor)}>
-                      <Pencil className="mr-1 h-3 w-3" />
-                      Edit
-                    </Button>
-                    <Button variant="outline" size="sm" className="flex-1 text-xs" type="button" asChild>
-                      <Link to={`/vendors/${vendor.id}`}>
-                        <Eye className="mr-1 h-3 w-3" />
-                        Detail
-                      </Link>
-                    </Button>
-                  </div>
                   <Link to={`/vendors/${vendor.id}`} className="block w-full">
                     <Button variant="default" size="sm" className="w-full text-xs">
                       <ExternalLink className="mr-1 h-3 w-3" />
@@ -417,6 +433,8 @@ const Vendors = () => {
           actionLabel="Register vendor"
           onAction={() => { resetForm(); setIsAddVendorOpen(true); }}
         />
+      )}
+      </>
       )}
 
       <Sheet open={isAddVendorOpen} onOpenChange={(v) => { if (!v) resetForm(); setIsAddVendorOpen(v); }}>
@@ -529,7 +547,7 @@ const Vendors = () => {
             <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
             <AlertDialogDescription>
               {vendorPendingDelete
-                ? `Remove ${vendorPendingDelete.name} from the directory. Outstanding: ${formatCurrency(vendorPendingDelete.outstandingAmount)}. Bills and payments in the prototype are not cascade-deleted.`
+                ? `Remove ${vendorPendingDelete.name} from the directory. Outstanding: ${formatINR(vendorPendingDelete.outstandingAmount)}. Bills and payments in the prototype are not cascade-deleted.`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -539,8 +557,10 @@ const Vendors = () => {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
                 if (vendorPendingDelete) {
-                  deleteVendor(vendorPendingDelete.id);
-                  toast({ title: "Vendor removed", description: `${vendorPendingDelete.name} was deleted.` });
+                  const result = deleteVendor(vendorPendingDelete.id);
+                  if (result.ok) {
+                    toast({ title: "Vendor removed", description: `${vendorPendingDelete.name} was deleted.` });
+                  }
                 }
                 setVendorPendingDelete(null);
               }}

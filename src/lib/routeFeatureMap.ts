@@ -1,0 +1,53 @@
+import type { Feature } from "@/domain/policies/featurePermissions";
+
+/**
+ * Maps app route prefixes to a primary feature for `view` permission.
+ * Used by `canAccessPath` — Role Matrix overrides apply to every mapped route (longest-prefix wins).
+ */
+export const ROUTE_VIEW_FEATURE: { prefix: string; feature: Feature }[] = [
+  { prefix: "/enquiries", feature: "enquiry" },
+  { prefix: "/quotations", feature: "quotation" },
+  { prefix: "/projects", feature: "project" },
+  { prefix: "/active-sites", feature: "project" },
+  { prefix: "/customers", feature: "customer" },
+  { prefix: "/agents", feature: "agent" },
+  { prefix: "/invoices", feature: "invoice" },
+  { prefix: "/sale-bills", feature: "saleBill" },
+  { prefix: "/finance", feature: "financeHub" },
+  { prefix: "/partners", feature: "partner" },
+  { prefix: "/vendorship-companies", feature: "partner" },
+  { prefix: "/vendorship/", feature: "partner" },
+  { prefix: "/inc-work-sources", feature: "partner" },
+  { prefix: "/inc-sources/", feature: "partner" },
+  { prefix: "/vendors", feature: "vendor" },
+  { prefix: "/loans", feature: "loan" },
+  { prefix: "/inventory/materials", feature: "inventoryItem" },
+  { prefix: "/inventory/tools", feature: "tool" },
+  { prefix: "/templates", feature: "template" },
+  { prefix: "/presets", feature: "template" },
+  { prefix: "/inventory/presets", feature: "template" },
+  { prefix: "/inventory", feature: "inventoryItem" },
+  { prefix: "/employees", feature: "employee" },
+  { prefix: "/teams", feature: "team" },
+  { prefix: "/attendance", feature: "attendance" },
+  { prefix: "/audit", feature: "auditPage" },
+  { prefix: "/analytics", feature: "analytics" },
+  { prefix: "/calendar", feature: "calendar" },
+  { prefix: "/timeline", feature: "timeline" },
+  { prefix: "/notifications", feature: "notifications" },
+  { prefix: "/settings", feature: "settingsProfile" },
+];
+
+export function featureForPath(pathname: string): Feature | undefined {
+  const path = pathname.split("?")[0].split("#")[0];
+  if (path === "/") return "dashboard";
+  let best: { prefix: string; feature: Feature } | undefined;
+  for (const entry of ROUTE_VIEW_FEATURE) {
+    if (path === entry.prefix || path.startsWith(`${entry.prefix}/`)) {
+      if (!best || entry.prefix.length > best.prefix.length) {
+        best = entry;
+      }
+    }
+  }
+  return best?.feature;
+}

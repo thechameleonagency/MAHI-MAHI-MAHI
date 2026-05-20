@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageShell } from "@/components/layout/PageShell";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
@@ -17,6 +18,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/com
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { Plus, Pencil, Trash2, Building2, MapPin, Code } from "lucide-react";
+import { useCan } from "@/hooks/useCan";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 
 const emptyForm = (): Omit<VendorshipCompany, "id" | "createdAt"> => ({
   name: "",
@@ -28,7 +32,11 @@ const emptyForm = (): Omit<VendorshipCompany, "id" | "createdAt"> => ({
 });
 
 export default function VendorshipCompanies() {
+  const navigate = useNavigate();
   const { vendorshipCompanies, addVendorshipCompany, updateVendorshipCompany, deleteVendorshipCompany, generateId, expenses, projects } = useAppData();
+  const canCreate = useCan("partner", "create");
+  const canEdit = useCan("partner", "edit");
+  const canDelete = useCan("partner", "delete");
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -36,6 +44,7 @@ export default function VendorshipCompanies() {
   const [search, setSearch] = useState("");
   const [gridPage, setGridPage] = useState(1);
   const [gridPageSize, setGridPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [companyToDelete, setCompanyToDelete] = useState<VendorshipCompany | null>(null);
 
   const filtered = (vendorshipCompanies ?? []).filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase())
@@ -70,9 +79,11 @@ export default function VendorshipCompanies() {
     setSheetOpen(false);
   };
 
-  const handleDelete = (c: VendorshipCompany) => {
-    deleteVendorshipCompany(c.id);
-    toast({ title: "Removed", description: `${c.name} has been removed.` });
+  const confirmDelete = () => {
+    if (!companyToDelete) return;
+    deleteVendorshipCompany(companyToDelete.id);
+    toast({ title: "Removed", description: `${companyToDelete.name} has been removed.` });
+    setCompanyToDelete(null);
   };
 
   // Calculate fees paid per company from expenses
@@ -91,37 +102,42 @@ export default function VendorshipCompanies() {
     <PageShell className="space-y-6">
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Vendorship companies" }]}
-        subRow={<p className="text-sm text-muted-foreground">DISCOM registration partners — fee per linked project.</p>}
+        subRow={
+          <div className="flex w-full flex-wrap items-end gap-2">
+            <Input
+              placeholder="Search companies..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setGridPage(1); }}
+              className="h-9 w-full sm:w-72"
+            />
+            <Badge variant="secondary" className="ml-auto">{filtered.length} companies</Badge>
+          </div>
+        }
       >
-        <Button size="sm" onClick={openAdd}>
+        <Button size="sm" onClick={openAdd} disabled={!canCreate}>
           <Plus className="h-4 w-4 mr-2" />
           Add Company
         </Button>
       </StickyPageHeader>
 
-      <div className="flex flex-wrap gap-3 items-center">
-        <Input
-          placeholder="Search companies..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setGridPage(1);
-          }}
-          className="max-w-xs"
-        />
-        <Badge variant="secondary">{filtered.length} companies</Badge>
-      </div>
-
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center border rounded-xl bg-muted/20">
-          <Building2 className="h-10 w-10 text-muted-foreground mb-3" />
-          <p className="font-medium text-muted-foreground">No vendorship code companies yet</p>
-          <p className="text-sm text-muted-foreground mt-1">Add companies whose DISCOM code you use on projects.</p>
-          <Button className="mt-4" onClick={openAdd}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add First Company
-          </Button>
-        </div>
+        <ListEmptyState
+          icon={Building2}
+          title={(vendorshipCompanies ?? []).length === 0 ? "No vendorship companies yet" : "No companies match"}
+          description={
+            (vendorshipCompanies ?? []).length === 0
+              ? "Add companies whose DISCOM registration code you use on projects."
+              : "Try a different search term."
+          }
+          actionLabel={(vendorshipCompanies ?? []).length === 0 && canCreate ? "Add first company" : search ? "Clear search" : undefined}
+          onAction={
+            (vendorshipCompanies ?? []).length === 0 && canCreate
+              ? openAdd
+              : search
+                ? () => { setSearch(""); setGridPage(1); }
+                : undefined
+          }
+        />
       ) : (
         <>
         <DataTableShell variant="inline" maxHeight={listTableViewportMaxHeight(gridPageSize)} scrollResetKey={`${safeGridPage}-${gridPageSize}-${filtered.length}`}>
@@ -141,7 +157,7 @@ export default function VendorshipCompanies() {
               const totalFees = feesByCompany(c.id);
               const linkedProjects = projectsByCompany(c.id);
               return (
-                <TableRow key={c.id}>
+                <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => navigate(`/vendorship/${c.id}`)}>
                   <TableCell>
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
@@ -172,13 +188,13 @@ export default function VendorshipCompanies() {
                   <TableCell className="text-right tabular-nums">{linkedProjects}</TableCell>
                   <TableCell className="text-right tabular-nums font-medium">{formatINR(totalFees)}</TableCell>
                   <TableCell className="hidden xl:table-cell text-sm text-muted-foreground truncate max-w-[200px]">{c.email || "—"}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" type="button" onClick={() => openEdit(c)}>
-                        <Pencil className="h-4 w-4" />
+                      <Button size="icon" variant="ghost" className="h-8 w-8" type="button" aria-label={`Edit ${c.name}`} disabled={!canEdit} onClick={() => openEdit(c)}>
+                        <Pencil className="h-4 w-4" aria-hidden />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" type="button" onClick={() => handleDelete(c)}>
-                        <Trash2 className="h-4 w-4" />
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" type="button" aria-label={`Delete ${c.name}`} disabled={!canDelete} onClick={() => setCompanyToDelete(c)}>
+                        <Trash2 className="h-4 w-4" aria-hidden />
                       </Button>
                     </div>
                   </TableCell>
@@ -239,6 +255,22 @@ export default function VendorshipCompanies() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <DestructiveConfirmDialog
+        open={!!companyToDelete}
+        onOpenChange={(open) => { if (!open) setCompanyToDelete(null); }}
+        title={companyToDelete ? `Delete ${companyToDelete.name}?` : "Delete company?"}
+        description={
+          companyToDelete ? (() => {
+            const linked = projectsByCompany(companyToDelete.id);
+            return linked > 0
+              ? `This company is linked to ${linked} project(s). Removing it cannot be undone.`
+              : "This company has no linked projects. This cannot be undone.";
+          })()
+            : ""
+        }
+        onConfirm={confirmDelete}
+      />
     </PageShell>
   );
 }

@@ -4,6 +4,7 @@ import Sidebar from "./Sidebar";
 import TopHeader from "./TopHeader";
 import RouteAccessGate, { RouteAccessBoundary } from "./RouteAccessGate";
 import { PageHeaderStickyProvider } from "@/contexts/PageHeaderStickyContext";
+import { PageErrorBoundary } from "@/app/shell/PageErrorBoundary";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -18,6 +19,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
   }, [location.pathname, location.search]);
 
   return (
+    <PageErrorBoundary>
     <div className="flex h-screen min-h-0 w-full overflow-hidden bg-canvas">
       {sidebarOpen && (
         <button
@@ -40,6 +42,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
         </PageHeaderStickyProvider>
       </div>
     </div>
+    </PageErrorBoundary>
   );
 };
 

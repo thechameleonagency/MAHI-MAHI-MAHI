@@ -28,7 +28,7 @@ interface FoodOthersExpenseTableProps {
 export default function FoodOthersExpenseTable({
   type,
   expenses,
-  _employees = []
+  employees: _employees = []
 }: FoodOthersExpenseTableProps) {
   const [dateFilter, setDateFilter] = useState("all");
   const [whoPaidFilter, setWhoPaidFilter] = useState("all");
@@ -76,17 +76,17 @@ export default function FoodOthersExpenseTable({
           <CardTitle className="text-base font-medium flex items-center gap-2">
             {type === "food" ? (
               <>
-                <Coffee className="w-4 h-4 text-orange-500" />
+                <Coffee className="w-4 h-4 text-warning" />
                 Food Expenses
               </>
             ) : (
               <>
-                <Package className="w-4 h-4 text-purple-500" />
+                <Package className="w-4 h-4 text-accent-foreground" />
                 Other Expenses
               </>
             )}
           </CardTitle>
-          <Badge variant="outline" className={type === "food" ? "text-orange-600" : "text-purple-600"}>
+          <Badge variant="outline" className={type === "food" ? "text-warning" : "text-accent-foreground"}>
             ₹{total.toLocaleString()}
           </Badge>
         </div>

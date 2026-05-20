@@ -4,7 +4,8 @@ import { ArrowLeft, IndianRupee, Pencil, Receipt, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,15 +29,18 @@ import { DEFAULT_TABLE_PAGE_SIZE, dataTableClasses, listTableViewportMaxHeight }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { toast } from "@/hooks/use-toast";
 import { useAppData } from "@/contexts/AppDataContext";
+import { findByRouteId } from "@/lib/resolveEntityId";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
+import { formatUiDate } from "@/lib/formatUiDate";
 import { formatINR } from "@/lib/formatCurrency";
 import {
   calculateProjectPartnerEarning,
   calculateProjectProfit,
-  _calculateProjectVendorshipFee,
+
   isPartnerCreditTransaction,
   isPartnerDebitTransaction,
-  _partnerProjectLabel,
+
   partnerEconomicsWarningMessage,
 } from "@/domain/partners/derivePartnerEconomics";
 import { projectForbidsAction } from "@/lib/projectDetailTabs";
@@ -70,8 +74,8 @@ const PartnerDetail = () => {
     addPartnerTransaction,
     deletePartnerTransaction,
     generateId,
-    getPartnerById,
     getTransactionsByPartner,
+    partners,
     partnerTransactions,
     projects,
     canDo,
@@ -79,7 +83,7 @@ const PartnerDetail = () => {
     updateProject,
   } = useAppData();
   
-  const partner = id ? getPartnerById(id) : undefined;
+  const partner = findByRouteId(partners, id);
   const txns = id ? getTransactionsByPartner(id) : [];
   
   const [isMovementOpen, setIsMovementOpen] = useState(false);
@@ -92,6 +96,8 @@ const PartnerDetail = () => {
   const [txnPage, setTxnPage] = useState(1);
   const [txnPageSize, setTxnPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [deleteTxnId, setDeleteTxnId] = useState<string | null>(null);
+  const [isEndPartnershipOpen, setIsEndPartnershipOpen] = useState(false);
+  const [endPartnershipReason, setEndPartnershipReason] = useState("");
 
   useEffect(() => {
     const action = searchParams.get("action");
@@ -216,6 +222,22 @@ const PartnerDetail = () => {
     [txns],
   );
   const { pagedItems: pagedTxns, safePage } = usePagedSlice(sortedTxns, txnPage, txnPageSize);
+
+  // Split ledger into project-linked transactions vs personal (no projectId).
+  const projectLedger = useMemo(() => sortedTxns.filter((t) => !!t.projectId), [sortedTxns]);
+  const personalLedger = useMemo(() => sortedTxns.filter((t) => !t.projectId), [sortedTxns]);
+
+  // Net balance per ledger: received - given. Positive => partner owes us, Negative => we owe partner.
+  const ledgerNet = (rows: typeof sortedTxns) =>
+    rows.reduce((acc, t) => {
+      const sign = t.direction === "given" ? -1 : t.direction === "received" ? 1 : 0;
+      return acc + sign * t.amount;
+    }, 0);
+  const projectNet = useMemo(() => ledgerNet(projectLedger), [projectLedger]);
+  const personalNet = useMemo(() => ledgerNet(personalLedger), [personalLedger]);
+  const combinedNet = projectNet + personalNet;
+  const combinedLabel =
+    combinedNet > 0 ? "Owed by partner" : combinedNet < 0 ? "Owed to partner" : "Settled";
 
   const resetMovementForm = () => {
     setMovementType("Given to Partner");
@@ -355,8 +377,50 @@ const PartnerDetail = () => {
             <Pencil className="mr-2 h-4 w-4" />
             Edit profile
           </Button>
+          {partner.endedAt ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                updatePartner(partner.id, { endedAt: undefined, endedReason: undefined });
+                toast({ title: "Partnership reopened" });
+              }}
+            >
+              Reopen partnership
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-muted-foreground"
+              onClick={() => {
+                setEndPartnershipReason("");
+                setIsEndPartnershipOpen(true);
+              }}
+            >
+              End partnership
+            </Button>
+          )}
         </div>
       </StickyPageHeader>
+
+      {partner.endedAt && (
+        <LifecycleTerminalBanner
+          variant="archived"
+          title="Partnership ended"
+          description={
+            <span>
+              Ended on {formatUiDate(partner.endedAt)}
+              {partner.endedReason ? <> · Reason: {partner.endedReason}</> : null}. Transaction history remains — reopen to record new movements.
+            </span>
+          }
+          primaryActionLabel="Reopen partnership"
+          onPrimaryAction={() => {
+            updatePartner(partner.id, { endedAt: undefined, endedReason: undefined });
+            toast({ title: "Partnership reopened" });
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 space-y-6">
@@ -410,10 +474,17 @@ const PartnerDetail = () => {
                     <Link to={`/projects/${lp.project.id}`} className="min-w-0 flex-1 hover:bg-muted/30 sm:rounded-md sm:px-1 sm:py-0.5">
                       <p className="text-sm font-medium">{lp.project.name}</p>
                       <p className="text-2xs text-muted-foreground uppercase tracking-tight">
-                        {lp.projectPartner?.partnerType ?? lp.project.projectKind?.replace(/_/g, " ").toLowerCase() ?? "partner"}
+                        {lp.projectPartner?.partnerType
+                          ?? (lp.project.projectMode === "PARTNER_NETWORK"
+                            ? `Partner Network${lp.project.partnerRole ? ` · ${lp.project.partnerRole.replace(/_/g, " ")}` : ""}`
+                            : lp.project.projectMode === "DIRECT_CLIENT"
+                              ? "Direct Client"
+                              : lp.project.projectMode === "INC_GIVEN_TO_US"
+                                ? "INC Given to Us"
+                                : "Partner")}
                       </p>
                       {lp.projectPartner && partnerEconomicsWarningMessage(lp.projectPartner) && (
-                        <p className="text-2xs text-amber-600 mt-1">{partnerEconomicsWarningMessage(lp.projectPartner)}</p>
+                        <p className="text-2xs text-warning mt-1">{partnerEconomicsWarningMessage(lp.projectPartner)}</p>
                       )}
                     </Link>
                     <div className="flex shrink-0 items-center gap-3">
@@ -456,88 +527,105 @@ const PartnerDetail = () => {
         </div>
 
         <div className="lg:col-span-2 space-y-6">
+          {/* Combined Net Balance */}
           <Card>
-            <CardHeader className="py-4 border-b flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-semibold uppercase tracking-wider">Transaction Ledger</CardTitle>
-              <Badge variant="outline" className="font-normal">{sortedTxns.length} entries</Badge>
-            </CardHeader>
-            <CardContent className="p-0">
-          <DataTableShell
-            variant="inline"
-                maxHeight={listTableViewportMaxHeight(txnPageSize)}
-                scrollResetKey={`${safePage}-${txnPageSize}-${sortedTxns.length}`}
-                footer={
-                  <TablePaginationBar
-                    page={safePage}
-                    pageSize={txnPageSize}
-                    total={sortedTxns.length}
-                    onPageChange={setTxnPage}
-                    onPageSizeChange={(next) => {
-                      setTxnPageSize(next);
-                      setTxnPage(1);
-                    }}
-                  />
-                }
-              >
-                <TableHeader>
-                  <TableRow className={dataTableClasses.headRow}>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Type / Direction</TableHead>
-                    <TableHead>Linked Project</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="w-10"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pagedTxns.map((txn) => (
-                    <TableRow key={txn.id}>
-                      <TableCell>{txn.date}</TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <p className="text-xs font-medium">{txn.type}</p>
-                          <Badge
-                            variant={txn.direction === "given" ? "destructive" : "outline"}
-                            className="text-[9px] h-4 px-1 uppercase"
-                          >
-                            {txn.direction === "given" ? "Paid Out" : "Received"}
-                          </Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {txn.projectId ? projects.find(p => p.id === txn.projectId)?.name || txn.projectId : "-"}
-                      </TableCell>
-                      <TableCell className={`text-right font-mono ${txn.direction === "given" ? "text-destructive" : "text-emerald-600"}`}>
-                        {txn.direction === "given" ? "-" : "+"}{formatINR(txn.amount)}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => setDeleteTxnId(txn.id)}
-                          disabled={!canDo("partner:delete")}
-                          aria-label="Delete transaction"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {sortedTxns.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="p-0">
-                        <ListEmptyState
-                          icon={Receipt}
-                          title="No transactions yet"
-                          description="Settlement movements for this partner will appear here."
-                        />
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </DataTableShell>
+            <CardContent className="flex flex-wrap items-baseline justify-between gap-4 py-4">
+              <div>
+                <p className="text-2xs uppercase tracking-wider text-muted-foreground">Combined net balance</p>
+                <p className={`mt-1 text-2xl font-semibold tabular-nums ${combinedNet > 0 ? "text-success" : combinedNet < 0 ? "text-destructive" : "text-foreground"}`}>
+                  {combinedNet < 0 ? "-" : combinedNet > 0 ? "+" : ""}{formatINR(Math.abs(combinedNet))}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">{combinedLabel}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline" className="text-xs">
+                  Project: <span className={`ml-1 ${projectNet > 0 ? "text-success" : projectNet < 0 ? "text-destructive" : ""}`}>{projectNet < 0 ? "-" : projectNet > 0 ? "+" : ""}{formatINR(Math.abs(projectNet))}</span>
+                </Badge>
+                <Badge variant="outline" className="text-xs">
+                  Personal: <span className={`ml-1 ${personalNet > 0 ? "text-success" : personalNet < 0 ? "text-destructive" : ""}`}>{personalNet < 0 ? "-" : personalNet > 0 ? "+" : ""}{formatINR(Math.abs(personalNet))}</span>
+                </Badge>
+              </div>
             </CardContent>
           </Card>
+
+          {/* Two ledger sections side-by-side on lg, stacked below */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {[
+              { title: "Project transaction ledger", rows: projectLedger, kind: "project" as const },
+              { title: "Personal transaction ledger", rows: personalLedger, kind: "personal" as const },
+            ].map((ledger) => (
+              <Card key={ledger.kind}>
+                <CardHeader className="py-4 border-b flex flex-row items-center justify-between">
+                  <CardTitle className="text-sm font-semibold uppercase tracking-wider">{ledger.title}</CardTitle>
+                  <Badge variant="outline" className="font-normal">{ledger.rows.length} entries</Badge>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <DataTableShell variant="inline" maxHeight={400} scrollResetKey={`${ledger.kind}-${ledger.rows.length}`}>
+                    <TableHeader>
+                      <TableRow className={dataTableClasses.headRow}>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Type</TableHead>
+                        {ledger.kind === "project" && <TableHead>Project</TableHead>}
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead className="w-10"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {ledger.rows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={ledger.kind === "project" ? 5 : 4} className="p-0">
+                            <ListEmptyState
+                              icon={Receipt}
+                              title={`No ${ledger.kind} transactions yet`}
+                              description={ledger.kind === "project"
+                                ? "Project-linked settlements with this partner will appear here."
+                                : "Personal advances, loans, and settlements (not tied to a project) will appear here."}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {ledger.rows.map((txn) => (
+                        <TableRow key={txn.id}>
+                          <TableCell>{txn.date}</TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <p className="text-xs font-medium">{txn.type}</p>
+                              <Badge
+                                variant={txn.direction === "given" ? "destructive" : "outline"}
+                                className="text-2xs h-4 px-1 uppercase"
+                              >
+                                {txn.direction === "given" ? "Paid Out" : "Received"}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                          {ledger.kind === "project" && (
+                            <TableCell className="text-muted-foreground">
+                              {txn.projectId ? projects.find(p => p.id === txn.projectId)?.name || txn.projectId : "-"}
+                            </TableCell>
+                          )}
+                          <TableCell className={`text-right font-mono ${txn.direction === "given" ? "text-destructive" : "text-success"}`}>
+                            {txn.direction === "given" ? "-" : "+"}{formatINR(txn.amount)}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={() => setDeleteTxnId(txn.id)}
+                              disabled={!canDo("partner:delete")}
+                              aria-label="Delete transaction"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </DataTableShell>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -727,6 +815,45 @@ const PartnerDetail = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Sheet open={isEndPartnershipOpen} onOpenChange={setIsEndPartnershipOpen}>
+        <SheetContent className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>End partnership</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Ending the partnership preserves all past transactions and the ledger total. You can reopen it later.
+            </p>
+            <div className="space-y-2">
+              <Label>Reason (optional)</Label>
+              <Textarea
+                value={endPartnershipReason}
+                onChange={(e) => setEndPartnershipReason(e.target.value)}
+                placeholder="e.g. mutual decision, project complete"
+                rows={3}
+              />
+            </div>
+          </div>
+          <SheetFooter className="mt-6 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsEndPartnershipOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                updatePartner(partner.id, {
+                  endedAt: new Date().toISOString(),
+                  endedReason: endPartnershipReason.trim() || undefined,
+                });
+                setIsEndPartnershipOpen(false);
+                setEndPartnershipReason("");
+                toast({ title: "Partnership ended", description: partner.name });
+              }}
+            >
+              End partnership
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </PageShell>
   );
 };

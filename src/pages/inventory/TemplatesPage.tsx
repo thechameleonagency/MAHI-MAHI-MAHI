@@ -19,11 +19,14 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { CreateTemplateModal } from "@/components/templates/CreateTemplateModal";
 import { Button } from "@/components/ui/button";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { toast } from "@/hooks/use-toast";
 import type { SiteChecklistTemplate, TemplateCapacitySegment } from "@/types/templates";
+import { useCan } from "@/hooks/useCan";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 
 const SEGMENT_ICON: Record<TemplateCapacitySegment, JSX.Element> = {
-  residential: <Sun className="h-5 w-5 text-amber-500" />,
+  residential: <Sun className="h-5 w-5 text-warning" />,
   commercial: <Zap className="h-5 w-5 text-primary" />,
   industrial: <Factory className="h-5 w-5 text-primary" />,
   custom: <Package className="h-5 w-5 text-muted-foreground" />,
@@ -45,13 +48,14 @@ const TemplatesPage = () => {
   } = useAppData();
   const [tab, setTab] = useState<"quotation" | "site">("quotation");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [templateToDelete, setTemplateToDelete] = useState<
+    { kind: "quotation" | "site"; id: string; name: string } | null
+  >(null);
+  const canCreateTemplate = useCan("template", "create");
+  const canDeleteTemplate = useCan("template", "delete");
 
   const qtCount = quotationTemplates.length;
   const stCount = siteChecklistTemplates.length;
-  const solarPackageCount = useMemo(
-    () => siteChecklistTemplates.filter((t) => t.subtype === "solar_package").length,
-    [siteChecklistTemplates],
-  );
 
   const segmentBadge = (s: TemplateCapacitySegment) => (
     <Badge variant="outline" className="capitalize">
@@ -59,14 +63,15 @@ const TemplatesPage = () => {
     </Badge>
   );
 
-  const handleDeleteQuotation = (id: string, name: string) => {
-    deleteQuotationTemplate(id);
-    toast({ title: "Template deleted", description: `Removed "${name}"` });
-  };
-
-  const handleDeleteSiteChecklist = (id: string, name: string) => {
-    deleteSiteChecklistTemplate(id);
-    toast({ title: "Template deleted", description: `Removed "${name}"` });
+  const confirmDeleteTemplate = () => {
+    if (!templateToDelete) return;
+    if (templateToDelete.kind === "quotation") {
+      deleteQuotationTemplate(templateToDelete.id);
+    } else {
+      deleteSiteChecklistTemplate(templateToDelete.id);
+    }
+    toast({ title: "Template deleted", description: `Removed "${templateToDelete.name}"` });
+    setTemplateToDelete(null);
   };
 
   const renderRichSiteChecklist = (t: SiteChecklistTemplate) => {
@@ -89,16 +94,18 @@ const TemplatesPage = () => {
             <div className="flex items-center gap-2">
               {segmentBadge(t.segment)}
               {t.capacityKW != null && <Badge variant="outline">{t.capacityKW} kW</Badge>}
-              <Badge className="bg-primary/15 text-primary border-0">Solar package</Badge>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-destructive hover:text-destructive"
-                onClick={() => handleDeleteSiteChecklist(t.id, t.name)}
-                aria-label={`Delete template ${t.name}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              <Badge className="bg-primary/15 text-primary border-0">Site checklist</Badge>
+              {canDeleteTemplate && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setTemplateToDelete({ kind: "site", id: t.id, name: t.name })}
+                  aria-label={`Delete template ${t.name}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -190,15 +197,17 @@ const TemplatesPage = () => {
           <CardTitle className="text-base">{t.name}</CardTitle>
           <div className="flex items-center gap-2">
             {segmentBadge(t.segment)}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-destructive hover:text-destructive"
-              onClick={() => handleDeleteSiteChecklist(t.id, t.name)}
-              aria-label={`Delete template ${t.name}`}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {canDeleteTemplate && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setTemplateToDelete({ kind: "site", id: t.id, name: t.name })}
+                aria-label={`Delete template ${t.name}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
         <CardDescription className="text-xs">
@@ -240,15 +249,17 @@ const TemplatesPage = () => {
                 <CardTitle className="text-base">{t.name}</CardTitle>
                 <div className="flex items-center gap-2">
                   {segmentBadge(t.segment)}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => handleDeleteQuotation(t.id, t.name)}
-                    aria-label={`Delete quotation template ${t.name}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {canDeleteTemplate && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setTemplateToDelete({ kind: "quotation", id: t.id, name: t.name })}
+                      aria-label={`Delete quotation template ${t.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
               <CardDescription className="text-xs">
@@ -311,40 +322,31 @@ const TemplatesPage = () => {
           </Card>
         ))
       ) : (
-        <Card className="bg-card/50 border-dashed">
-          <CardContent className="flex flex-col items-center justify-center py-10 text-muted-foreground">
-            <FileSpreadsheet className="h-10 w-10 mb-4 opacity-20" />
-            <p>No quotation templates found</p>
-            <Button variant="link" onClick={() => setIsModalOpen(true)}>
-              Create your first template
-            </Button>
-          </CardContent>
-        </Card>
+        <ListEmptyState
+          icon={FileSpreadsheet}
+          title="No quotation templates found"
+          description="Create templates to speed up new quotations."
+          actionLabel={canCreateTemplate ? "Create your first template" : undefined}
+          onAction={canCreateTemplate ? () => setIsModalOpen(true) : undefined}
+        />
       ),
-    // handleDeleteQuotation is stable per render (uses context hook), safe to omit
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [quotationTemplates],
+    [quotationTemplates, canCreateTemplate],
   );
 
   const siteTable = useMemo(() => {
     if (siteChecklistTemplates.length === 0) {
       return (
-        <Card className="bg-card/50 border-dashed">
-          <CardContent className="flex flex-col items-center justify-center py-10 text-muted-foreground">
-            <ClipboardList className="h-10 w-10 mb-4 opacity-20" />
-            <p>No site checklist templates found</p>
-            <Button variant="link" onClick={() => setIsModalOpen(true)}>
-              Create your first template
-            </Button>
-          </CardContent>
-        </Card>
+        <ListEmptyState
+          icon={ClipboardList}
+          title="No site checklist templates found"
+          description="Create site checklist templates for repeatable installation packs."
+          actionLabel={canCreateTemplate ? "Create your first template" : undefined}
+          onAction={canCreateTemplate ? () => setIsModalOpen(true) : undefined}
+        />
       );
     }
-    return siteChecklistTemplates.map((t) =>
-      t.subtype === "solar_package" ? renderRichSiteChecklist(t) : renderSimpleSiteChecklist(t),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [siteChecklistTemplates]);
+    return siteChecklistTemplates.map((t) => renderSimpleSiteChecklist(t));
+  }, [siteChecklistTemplates, canCreateTemplate]);
 
   return (
     <PageShell>
@@ -353,33 +355,35 @@ const TemplatesPage = () => {
           <StickyPageHeader
             breadcrumbs={[{ label: "Home", to: "/" }, { label: "Templates" }]}
             subRow={
-              <>
-                <TabsList>
+              <div className="flex w-full min-w-0 flex-nowrap items-center gap-3 overflow-x-auto">
+                <TabsList className="shrink-0">
                   <TabsTrigger value="quotation" className="gap-2">
-                    <FileSpreadsheet className="h-4 w-4" />
+                    <FileSpreadsheet className="h-4 w-4" aria-hidden />
                     Quotation
                   </TabsTrigger>
                   <TabsTrigger value="site" className="gap-2">
-                    <ClipboardList className="h-4 w-4" />
-                    Site checklists
+                    <ClipboardList className="h-4 w-4" aria-hidden />
+                    Site Checklist
                   </TabsTrigger>
                 </TabsList>
                 <InlineKpiStrip
-                  className="w-full min-w-0 flex-wrap justify-start sm:justify-end"
+                  singleRow
+                  className="min-w-0 flex-1"
                   items={[
                     { label: "Quotation", value: qtCount },
-                    { label: "Site", value: stCount },
-                    { label: "Solar package", value: solarPackageCount },
+                    { label: "Site Checklist", value: stCount },
                     { label: "Total", value: qtCount + stCount },
                   ]}
                 />
-              </>
+              </div>
             }
           >
-            <Button onClick={() => setIsModalOpen(true)} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Add Template
-            </Button>
+            {canCreateTemplate && (
+              <Button onClick={() => setIsModalOpen(true)} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Add Template
+              </Button>
+            )}
           </StickyPageHeader>
 
           <TabsContent value="quotation" className="space-y-4 mt-0">
@@ -392,6 +396,22 @@ const TemplatesPage = () => {
       </Tabs>
 
       <CreateTemplateModal open={isModalOpen} onOpenChange={setIsModalOpen} type={tab} />
+
+      <DestructiveConfirmDialog
+        open={!!templateToDelete}
+        onOpenChange={(open) => { if (!open) setTemplateToDelete(null); }}
+        title={
+          templateToDelete
+            ? `Delete ${templateToDelete.kind === "quotation" ? "quotation" : "site checklist"} template?`
+            : "Delete template?"
+        }
+        description={
+          templateToDelete
+            ? `Remove "${templateToDelete.name}" from the catalogue. This cannot be undone.`
+            : ""
+        }
+        onConfirm={confirmDeleteTemplate}
+      />
     </PageShell>
   );
 };

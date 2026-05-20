@@ -1,5 +1,23 @@
-import type { Agent, Customer, Expense, Invoice, Loan, Payment } from "@/types/finance";
-import type { Enquiry, InventoryItem, Project, Quotation, Task } from "@/types/project";
+import type {
+  Agent,
+  Customer,
+  EmployeePayrollRecord,
+  EmployeeWalletLedgerEntry,
+  Expense,
+  Invoice,
+  Loan,
+  Payment,
+} from "@/types/finance";
+import type {
+  AttendanceRecord,
+  Employee,
+  Enquiry,
+  InventoryItem,
+  Project,
+  Quotation,
+  Task,
+} from "@/types/project";
+import type { Blockage } from "@/types/blockage";
 import type {
   MaterialDamage,
   MaterialReservation,
@@ -25,6 +43,11 @@ export interface AnalyticsSlices {
   materialReservations?: MaterialReservation[];
   vendorBills?: VendorBill[];
   loans?: Loan[];
+  employees?: Employee[];
+  attendanceRecords?: AttendanceRecord[];
+  payrollRecords?: EmployeePayrollRecord[];
+  walletLedger?: EmployeeWalletLedgerEntry[];
+  blockages?: Blockage[];
 }
 
 export interface MetricRow {

@@ -86,12 +86,22 @@ describe("canFeature — salesperson scope", () => {
     expect(canFeature("salesperson", "template", "delete")).toBe(false);
   });
 
-  it("cannot touch finance / projects / ops / audit", () => {
+  it("can view materials catalog but not tools or field-ops surfaces", () => {
+    expect(canFeature("salesperson", "inventoryItem", "view")).toBe(true);
+    expect(canFeature("salesperson", "tool", "view")).toBe(false);
+    expect(canFeature("salesperson", "task", "view")).toBe(false);
+  });
+
+  it("cannot open finance hub or finance modules", () => {
+    expect(canFeature("salesperson", "financeHub", "view")).toBe(false);
+    expect(canFeature("salesperson", "invoice", "view")).toBe(false);
+    expect(canFeature("salesperson", "expense", "view")).toBe(false);
+  });
+
+  it("cannot touch finance / commercial projects / audit", () => {
     expect(canFeature("salesperson", "invoice", "view")).toBe(false);
     expect(canFeature("salesperson", "payment", "create")).toBe(false);
     expect(canFeature("salesperson", "projectCommercial", "view")).toBe(false);
-    expect(canFeature("salesperson", "task", "view")).toBe(false);
-    expect(canFeature("salesperson", "inventoryItem", "view")).toBe(false);
     expect(canFeature("salesperson", "auditPage", "view")).toBe(false);
     expect(canFeature("salesperson", "analytics", "view")).toBe(false);
     expect(canFeature("salesperson", "settingsMasters", "view")).toBe(false);
@@ -129,8 +139,8 @@ describe("canFeature — installation_team scope", () => {
     expect(canFeature("installation_team", "settingsMasters", "view")).toBe(false);
   });
 
-  it("can view templates but not create or delete them", () => {
-    expect(canFeature("installation_team", "template", "view")).toBe(true);
+  it("cannot view or mutate BOM templates (sales / management only)", () => {
+    expect(canFeature("installation_team", "template", "view")).toBe(false);
     expect(canFeature("installation_team", "template", "create")).toBe(false);
     expect(canFeature("installation_team", "template", "delete")).toBe(false);
   });
@@ -144,6 +154,12 @@ describe("canFeature — installation_team scope", () => {
 });
 
 describe("canFeature — CEO read-only-plus-Analytics", () => {
+  it("can open finance hub and view finance modules read-only", () => {
+    expect(canFeature("ceo", "financeHub", "view")).toBe(true);
+    expect(canFeature("ceo", "expense", "view")).toBe(true);
+    expect(canFeature("ceo", "expense", "create")).toBe(false);
+  });
+
   it("can view operations + finance + audit + analytics", () => {
     expect(canFeature("ceo", "project", "view")).toBe(true);
     expect(canFeature("ceo", "invoice", "view")).toBe(true);

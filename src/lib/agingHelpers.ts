@@ -1,8 +1,9 @@
-import { differenceInCalendarDays, differenceInHours, parseISO, isValid } from "date-fns";
+import { differenceInCalendarDays, differenceInHours, parseISO, isValid, addMonths, format } from "date-fns";
 import type { Enquiry, Project, Quotation } from "@/types/project";
-import type { Invoice } from "@/types/finance";
+import type { Invoice, Loan, LoanRepayment } from "@/types/finance";
 import type { Blockage } from "@/types/blockage";
 import type { Task } from "@/types/project";
+import type { VendorBill } from "@/types/inventory";
 
 export type AgingTone = "neutral" | "warning" | "danger" | "muted";
 
@@ -63,7 +64,8 @@ export function getQuotationNoResponseAging(q: Quotation): AgingSignal | null {
   };
 }
 
-export function getInvoiceOverdueAging(inv: Invoice): AgingSignal | null {
+export function getInvoiceOverdueAging(inv: Invoice | null | undefined): AgingSignal | null {
+  if (!inv?.status) return null;
   if (inv.status === "paid" || inv.status === "draft" || inv.status === "voided") return null;
   const due = safeParse(inv.dueDate);
   if (!due) return null;
@@ -73,6 +75,34 @@ export function getInvoiceOverdueAging(inv: Invoice): AgingSignal | null {
     label: `Overdue ${days}d`,
     tone: days >= 30 ? "danger" : "warning",
   };
+}
+
+/** Worst overdue signal across open customer bills (for list-row AgingChip). */
+export function getCustomerReceivableAging(
+  bills: Pick<Invoice, "status" | "dueDate" | "total" | "amountReceived">[],
+): AgingSignal | null {
+  const open = bills.filter(
+    (b) =>
+      (b.total - (b.amountReceived ?? 0)) > 0.01 &&
+      b.status !== "paid" &&
+      b.status !== "voided" &&
+      b.status !== "draft",
+  );
+  if (!open.length) return null;
+
+  let best: AgingSignal | null = null;
+  let bestDays = -1;
+  for (const bill of open) {
+    const sig = getInvoiceOverdueAging(bill as Invoice);
+    if (!sig) continue;
+    const m = /(\d+)d/.exec(sig.label);
+    const days = m ? Number(m[1]) : 0;
+    if (days > bestDays) {
+      bestDays = days;
+      best = sig;
+    }
+  }
+  return best;
 }
 
 export function getEnquiryFollowUpAging(e: Enquiry): AgingSignal | null {
@@ -109,5 +139,96 @@ export function getTaskOverdueAging(t: Task): AgingSignal | null {
   return {
     label: `Overdue ${days}d`,
     tone: days >= 2 ? "danger" : "warning",
+  };
+}
+
+/** Days past due for an active loan (EMI schedule, one-time due, or reminder). */
+export function loanDaysOverdue(
+  loan: Pick<Loan, "id" | "status" | "paymentType" | "dueDate" | "startDate" | "outstanding" | "reminderDate">,
+  repayments: Pick<LoanRepayment, "loanId" | "date">[],
+): number {
+  const todayIso = new Date().toISOString().split("T")[0];
+  if (loan.status !== "Active") return 0;
+
+  if (loan.paymentType === "one-time" && loan.dueDate && loan.outstanding > 0.01 && loan.dueDate < todayIso) {
+    return differenceInCalendarDays(parseISO(todayIso), parseISO(loan.dueDate));
+  }
+  if (loan.paymentType === "emi" && loan.startDate && loan.outstanding > 0.01) {
+    const paidCount = repayments.filter((r) => r.loanId === loan.id).length;
+    const nextDueIso = format(addMonths(parseISO(loan.startDate), paidCount + 1), "yyyy-MM-dd");
+    if (nextDueIso < todayIso) {
+      return differenceInCalendarDays(parseISO(todayIso), parseISO(nextDueIso));
+    }
+    return 0;
+  }
+  if (loan.paymentType === "reminder-only" && loan.reminderDate && loan.reminderDate < todayIso) {
+    return differenceInCalendarDays(parseISO(todayIso), parseISO(loan.reminderDate));
+  }
+  return 0;
+}
+
+export function getLoanOverdueAging(
+  loan: Pick<Loan, "id" | "status" | "paymentType" | "dueDate" | "startDate" | "outstanding" | "reminderDate">,
+  repayments: Pick<LoanRepayment, "loanId" | "date">[],
+): AgingSignal | null {
+  const days = loanDaysOverdue(loan, repayments);
+  if (days <= 0) return null;
+  const label =
+    loan.paymentType === "emi"
+      ? `EMI overdue ${days}d`
+      : `Overdue ${days}d`;
+  return {
+    label,
+    tone: days >= 30 ? "danger" : "warning",
+  };
+}
+
+/** Worst overdue signal across open vendor bills (for list-row AgingChip). */
+export function getVendorPayableAging(
+  bills: Pick<VendorBill, "status" | "dueDate" | "total" | "amountPaid">[],
+): AgingSignal | null {
+  const open = bills.filter(
+    (b) =>
+      (b.total - (b.amountPaid ?? 0)) > 0.01 &&
+      b.status !== "paid",
+  );
+  if (!open.length) return null;
+
+  let best: AgingSignal | null = null;
+  let bestDays = -1;
+  for (const bill of open) {
+    const due = safeParse(bill.dueDate ?? bill.billDate);
+    if (!due) continue;
+    const days = daysSince(due);
+    if (days <= 0) continue;
+    const sig: AgingSignal = {
+      label: `Overdue ${days}d`,
+      tone: days >= 30 ? "danger" : "warning",
+    };
+    if (days > bestDays) {
+      bestDays = days;
+      best = sig;
+    }
+  }
+  return best;
+}
+
+/** Partner settlement pending — days since oldest completed linked project (if any). */
+export function getPartnerSettlementPendingAging(
+  pending: number,
+  completedProjectDates: string[],
+): AgingSignal | null {
+  if (pending <= 0.5) return null;
+  const dates = completedProjectDates
+    .map((d) => safeParse(d))
+    .filter((d): d is Date => d !== null);
+  if (!dates.length) {
+    return { label: "Settlement pending", tone: "warning" };
+  }
+  const oldest = new Date(Math.min(...dates.map((d) => d.getTime())));
+  const days = daysSince(oldest);
+  return {
+    label: `Pending ${days}d`,
+    tone: days >= 30 ? "danger" : "warning",
   };
 }

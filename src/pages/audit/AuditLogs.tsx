@@ -15,9 +15,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { ScrollText, Plus, Pencil, Trash2, Download } from "lucide-react";
 import { downloadCSV } from "@/lib/csvExport";
+import { toast } from "@/hooks/use-toast";
 
 const AuditLogs = () => {
-  const { auditLogs } = useAppData();
+  const {
+    auditLogs,
+    projects,
+    employees,
+    customers,
+    partners,
+    agents,
+    vendors,
+    enquiries,
+    quotations,
+    invoices,
+    saleBills,
+    expenses,
+    materialReservations,
+    scheduledInstallations,
+    siteVisits,
+    materialDamageRecords,
+  } = useAppData();
   const navigate = useNavigate();
   const [filterEntity, setFilterEntity] = useState("all");
   const [filterAction, setFilterAction] = useState("all");
@@ -43,7 +61,48 @@ const AuditLogs = () => {
     return Array.from(types);
   }, [auditLogs]);
 
+  const entityExists = (entityType: string, entityId: string): boolean => {
+    const t = entityType.toLowerCase();
+    switch (t) {
+      case "project":
+      case "projectchangerequest":
+        return projects.some((p) => p.id === entityId);
+      case "employee":
+        return employees.some((e) => e.id === entityId);
+      case "customer":
+        return customers.some((c) => c.id === entityId);
+      case "partner":
+        return partners.some((p) => p.id === entityId);
+      case "agent":
+        return agents.some((a) => a.id === entityId);
+      case "vendor":
+        return vendors.some((v) => String(v.id) === String(entityId));
+      case "enquiry":
+        return enquiries.some((e) => e.id === entityId);
+      case "quotation":
+        return quotations.some((q) => q.id === entityId);
+      case "invoice":
+        return [...invoices, ...saleBills].some((i) => i.id === entityId);
+      case "expense":
+        return expenses.some((e) => e.id === entityId);
+      case "materialreservation":
+        return materialReservations.some((r) => r.id === entityId);
+      case "scheduledinstallation":
+        return scheduledInstallations.some((s) => s.id === entityId);
+      case "sitevisit":
+        return (
+          siteVisits.some((v) => v.id === entityId) ||
+          projects.some((p) => p.id === entityId)
+        );
+      case "materialdamage":
+        return materialDamageRecords.some((d) => d.id === entityId);
+      default:
+        return true;
+    }
+  };
+
   const navigateToEntity = (entityType: string, entityId: string) => {
+    if (!entityId) return;
     const routes: Record<string, string> = {
       project: `/projects/${entityId}`,
       employee: `/employees/${entityId}`,
@@ -51,20 +110,33 @@ const AuditLogs = () => {
       partner: `/partners/${entityId}`,
       agent: `/agents/${entityId}`,
       vendor: `/vendors/${entityId}`,
-      enquiry: `/enquiries`,
-      quotation: `/quotations`,
-      invoice: `/finance`,
+      enquiry: `/enquiries?open=${entityId}`,
+      quotation: `/quotations?quotation=${entityId}`,
+      invoice: `/invoices?invoice=${entityId}`,
       expense: `/finance`,
+      materialreservation: `/inventory/materials`,
+      scheduledinstallation: `/calendar`,
+      sitevisit: `/projects/${entityId}`,
+      projectchangerequest: `/projects/${entityId}`,
+      materialdamage: `/inventory/materials`,
     };
-    if (!entityId) return;
     const route = routes[entityType.toLowerCase()];
-    if (route) navigate(route);
+    if (!route) return;
+    if (!entityExists(entityType, entityId)) {
+      toast({
+        title: "Entity no longer exists",
+        description: "This record may have been deleted.",
+        variant: "destructive",
+      });
+      return;
+    }
+    navigate(route);
   };
 
   const actionIcon = (action: string) => {
     switch (action) {
       case "create": return <Plus className="w-3 h-3 text-primary" />;
-      case "update": return <Pencil className="w-3 h-3 text-orange-500" />;
+      case "update": return <Pencil className="w-3 h-3 text-warning" />;
       case "delete": return <Trash2 className="w-3 h-3 text-destructive" />;
       default: return null;
     }

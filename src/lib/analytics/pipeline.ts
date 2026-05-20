@@ -28,7 +28,11 @@ export function computePipelineMetrics(
   }
 
   const withQuotation = enquiriesInPeriod.filter(
-    (e) => e.quotationId || e.status === "quotation_sent" || e.status === "converted",
+    (e) =>
+      e.quotationId ||
+      e.status === "quotation_sent" ||
+      e.status === "quotation_rejected" ||
+      e.status === "converted",
   );
   const enquiryToQuotationPct =
     enquiriesInPeriod.length === 0

@@ -18,6 +18,7 @@ import { Download } from "lucide-react";
 import { downloadCSV } from "@/lib/csvExport";
 import { formatINR } from "@/lib/formatCurrency";
 import { toast } from "@/hooks/use-toast";
+import { applyRunningBalance, buildCashBankEntries } from "@/lib/audit";
 
 const CashBankLedger = () => {
   const { payments, expenses, incomes, vendorPayments, loanRepayments } = useAppData();
@@ -26,102 +27,27 @@ const CashBankLedger = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
-  const normalizeMode = (mode?: string): string => {
-    if (!mode) return "Other";
-    const m = mode.toLowerCase();
-    if (m.includes("cash")) return "Cash";
-    if (m.includes("bank") || m.includes("transfer") || m.includes("neft") || m.includes("rtgs")) return "Bank";
-    if (m.includes("upi")) return "UPI";
-    if (m.includes("cheque")) return "Cheque";
-    return "Other";
-  };
+  const allEntries = useMemo(
+    () =>
+      buildCashBankEntries({
+        payments,
+        expenses,
+        incomes,
+        vendorPayments,
+        loanRepayments,
+      }),
+    [payments, expenses, incomes, vendorPayments, loanRepayments],
+  );
 
   const ledgerEntries = useMemo(() => {
-    const entries: { date: string; description: string; account: string; debit: number; credit: number; reference: string; type: string }[] = [];
+    if (accountFilter === "all") return allEntries;
+    return allEntries.filter((e) => e.account === accountFilter);
+  }, [allEntries, accountFilter]);
 
-    // Payments received
-    payments.filter(p => p.direction === "in").forEach(p => {
-      entries.push({
-        date: p.date, description: `Payment from ${p.counterpartyName || "Customer"}`,
-        account: normalizeMode(p.paymentMode), debit: p.amount, credit: 0,
-        reference: p.invoiceId || p.id, type: "payment_received",
-      });
-    });
-
-    // Payments paid
-    payments.filter(p => p.direction === "out").forEach(p => {
-      entries.push({
-        date: p.date, description: `Payment to ${p.counterpartyName || "Vendor"}`,
-        account: normalizeMode(p.paymentMode), debit: 0, credit: p.amount,
-        reference: p.id, type: "payment_paid",
-      });
-    });
-
-    // Expenses
-    expenses.forEach(e => {
-      entries.push({
-        date: e.date, description: `Expense: ${e.category}${e.projectName ? ` (${e.projectName})` : ""}`,
-        account: normalizeMode(e.paymentMode), debit: 0, credit: e.amount,
-        reference: e.id, type: "expense",
-      });
-    });
-
-    // Incomes (non-outgoing)
-    incomes.filter(i => !i.isOutgoing).forEach(i => {
-      entries.push({
-        date: i.date, description: `Income: ${i.category}${i.projectName ? ` (${i.projectName})` : ""}`,
-        account: normalizeMode(i.paymentMode), debit: i.amount, credit: 0,
-        reference: i.id, type: "income",
-      });
-    });
-
-    // Outgoing incomes (loans given, etc.)
-    incomes.filter(i => i.isOutgoing).forEach(i => {
-      entries.push({
-        date: i.date, description: `Outgoing: ${i.category}`,
-        account: normalizeMode(i.paymentMode), debit: 0, credit: i.amount,
-        reference: i.id, type: "outgoing",
-      });
-    });
-
-    // Vendor payments
-    vendorPayments.forEach(vp => {
-      entries.push({
-        date: vp.date, description: `Vendor payment: ${vp.vendorName || "Vendor"}`,
-        account: normalizeMode(vp.paymentMode), debit: 0, credit: vp.amount,
-        reference: vp.billNumber || vp.id, type: "vendor_payment",
-      });
-    });
-
-    // Loan repayments
-    loanRepayments.forEach(lr => {
-      entries.push({
-        date: lr.date, description: `Loan repayment: ${lr.loanSource}`,
-        account: "Bank", debit: 0, credit: lr.totalPaid,
-        reference: lr.loanId, type: "loan_repayment",
-      });
-    });
-
-    // Sort by date desc
-    entries.sort((a, b) => b.date.localeCompare(a.date));
-
-    // Filter
-    if (accountFilter !== "all") {
-      return entries.filter(e => e.account === accountFilter);
-    }
-    return entries;
-  }, [payments, expenses, incomes, vendorPayments, loanRepayments, accountFilter]);
-
-  // Running balance
-  const entriesWithBalance = useMemo(() => {
-    const sorted = [...ledgerEntries].reverse();
-    let balance = openingBalance;
-    const result = sorted.map(e => {
-      balance += e.debit - e.credit;
-      return { ...e, balance };
-    });
-    return result.reverse();
-  }, [ledgerEntries, openingBalance]);
+  const entriesWithBalance = useMemo(
+    () => applyRunningBalance(ledgerEntries, openingBalance),
+    [ledgerEntries, openingBalance],
+  );
 
   useEffect(() => {
     setPage(1);
@@ -144,9 +70,9 @@ const CashBankLedger = () => {
           { label: "Cash & bank" },
         ]}
         subRow={
-          <>
+          <div className="flex w-full min-w-0 flex-nowrap items-center gap-3 overflow-x-auto">
             <Select value={accountFilter} onValueChange={setAccountFilter}>
-              <SelectTrigger className="h-8 w-36 text-xs">
+              <SelectTrigger className="h-8 w-36 shrink-0 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -157,7 +83,7 @@ const CashBankLedger = () => {
                 <SelectItem value="Cheque">Cheque</SelectItem>
               </SelectContent>
             </Select>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Opening balance</Label>
               <Input
                 type="number"
@@ -167,14 +93,15 @@ const CashBankLedger = () => {
               />
             </div>
             <InlineKpiStrip
-              className="w-full min-w-0 sm:justify-end"
+              singleRow
+              className="min-w-0 flex-1"
               items={[
                 { label: "Debit (inflow)", value: formatINR(totals.totalDebit) },
                 { label: "Credit (outflow)", value: formatINR(totals.totalCredit) },
                 { label: "Net", value: formatINR(totals.net) },
               ]}
             />
-          </>
+          </div>
         }
       >
         <Button

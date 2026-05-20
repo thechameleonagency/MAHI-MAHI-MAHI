@@ -1,6 +1,7 @@
 import type { Command } from "@/application/commands/types";
 import type { CommandBus } from "@/application/commands/CommandBus";
 import type { PermissionService } from "@/application/services/PermissionService";
+import { assertCommandPermission } from "@/application/commands/commandPermission";
 import type { AuditService } from "@/application/services/AuditService";
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
 import { canTransitionQuotationStatus, type QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
@@ -8,6 +9,10 @@ import type { AppAction } from "@/domain/policies/permissionMatrix";
 import type { Quotation } from "@/types/project";
 import type { Customer } from "@/types/finance";
 import { applyQuotationPatch } from "@/domain/quotation/applyQuotationPatch";
+import { propagateQuotationDeathToEnquiry } from "@/lib/enquiryQuotationPropagation";
+import { validateQuotationSendOrApprove } from "@/domain/quotation/quotationCommercialAmount";
+import { buildEnquiryQuotationLinkUpdate } from "@/lib/enquiryQuotationHistory";
+import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
 
 type TransitionQuotationPayload = {
   quotationId: string;
@@ -34,7 +39,7 @@ export const registerQuotationCommands = (
   auditService: AuditService,
 ): void => {
   commandBus.register<Command<CreateQuotationPayload>, { quotationId: string }>(CREATE_QUOTATION_COMMAND, (command) => {
-    permissionService.assertCanPerformAction(command.actorRole, "quotation:create");
+    assertCommandPermission(permissionService, command, "quotation:create");
     const { quotation } = command.payload;
     if (repositories.quotationRepository.getById(quotation.id)) {
       return {
@@ -43,18 +48,38 @@ export const registerQuotationCommands = (
         message: "A quotation with this id already exists",
       };
     }
-    repositories.quotationRepository.add(quotation);
-    
-    // Link to enquiry if applicable
+
+    let enquiryLink:
+      | {
+          enquiryId: string;
+          enquiry: NonNullable<ReturnType<typeof repositories.enquiryRepository.getById>>;
+          nextStatus: "quotation_sent";
+        }
+      | undefined;
+
     if (quotation.enquiryId) {
       const enquiry = repositories.enquiryRepository.getById(quotation.enquiryId);
       if (!enquiry) {
         return { ok: false, errorCode: "ENQUIRY_NOT_FOUND", message: `Enquiry ${quotation.enquiryId} not found` };
       }
-      repositories.enquiryRepository.update(quotation.enquiryId, {
-        quotationId: quotation.id,
-        status: "quotation_sent",
-        updatedAt: new Date().toISOString()
+      const gate = assertCanLinkNewQuotationToEnquiry(enquiry, command.actorRole);
+      if (!gate.ok) {
+        return {
+          ok: false,
+          errorCode: "ENQUIRY_TERMINAL_FOR_QUOTATION",
+          message: gate.message,
+        };
+      }
+      enquiryLink = { enquiryId: quotation.enquiryId, enquiry, nextStatus: gate.nextStatus };
+    }
+
+    repositories.quotationRepository.add(quotation);
+
+    if (enquiryLink) {
+      repositories.enquiryRepository.update(enquiryLink.enquiryId, {
+        ...buildEnquiryQuotationLinkUpdate(enquiryLink.enquiry, quotation.id),
+        status: enquiryLink.nextStatus,
+        updatedAt: new Date().toISOString(),
       });
     }
 
@@ -75,9 +100,12 @@ export const registerQuotationCommands = (
   commandBus.register<Command<TransitionQuotationPayload>, { quotationId: string; nextStatus: QuotationStatus }>(
     TRANSITION_QUOTATION_STATUS_COMMAND,
     (command) => {
+      const next = command.payload.nextStatus;
       const action: AppAction =
-        command.payload.nextStatus === "converted_to_project" ? "quotation:confirm" : "quotation:create";
-      permissionService.assertCanPerformAction(command.actorRole, action);
+        next === "approved" || next === "converted_to_project"
+          ? "quotation:confirm"
+          : "quotation:create";
+      assertCommandPermission(permissionService, command, action);
       const quotation = repositories.quotationRepository.getById(command.payload.quotationId);
       if (!quotation) {
         return {
@@ -104,6 +132,17 @@ export const registerQuotationCommands = (
             ok: false,
             errorCode: "QUOTATION_SEND_VALIDATION_FAILED",
             message: "Sent quotation requires customer and at least one line item",
+          };
+        }
+      }
+
+      if (nextStatus === "sent" || nextStatus === "approved") {
+        const amountCheck = validateQuotationSendOrApprove(quotation);
+        if (!amountCheck.ok) {
+          return {
+            ok: false,
+            errorCode: "QUOTATION_ZERO_AMOUNT",
+            message: amountCheck.message,
           };
         }
       }
@@ -153,7 +192,15 @@ export const registerQuotationCommands = (
           status: nextStatus,
           ...(nextStatus === "sent" ? { sentAt: today } : {}),
           ...(nextStatus === "rejected" ? { rejectedAt: today } : {}),
+          ...(nextStatus === "withdrawn" ? { withdrawnAt: today } : {}),
           ...(nextStatus === "converted_to_project" ? { convertedAt: today } : {}),
+        });
+      }
+
+      if (nextStatus === "rejected" || nextStatus === "withdrawn") {
+        propagateQuotationDeathToEnquiry(repositories, {
+          ...quotation,
+          status: nextStatus,
         });
       }
 
@@ -179,7 +226,7 @@ export const registerQuotationCommands = (
   );
 
   commandBus.register<Command<UpdateQuotationPayload>, { quotationId: string }>(UPDATE_QUOTATION_COMMAND, (command) => {
-    permissionService.assertCanPerformAction(command.actorRole, "quotation:create");
+    assertCommandPermission(permissionService, command, "quotation:create");
     const existing = repositories.quotationRepository.getById(command.payload.quotationId);
     if (!existing) {
       return { ok: false, errorCode: "QUOTATION_NOT_FOUND", message: "Quotation not found" };

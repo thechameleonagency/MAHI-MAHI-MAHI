@@ -22,6 +22,10 @@ import {
 import type { Income } from "@/types/finance";
 import { UnifiedFinanceValidationService } from "@/application/services/UnifiedFinanceValidationService";
 import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
+import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
+import { requireDateNotBefore } from "@/lib/dateSanity";
+
+const INCOME_MODAL_DRAFT_KEY = "income-sheet-modal";
 
 const MAIN_CAT_ICONS: Record<string, React.ReactNode> = {
   project: <Briefcase className="w-5 h-5" />,
@@ -124,7 +128,38 @@ export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectI
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFillClient]);
 
+  useEffect(() => {
+    if (!isOpen || prefillProjectId) return;
+    const d = loadFormDraft<{
+      v: 1;
+      step?: Step;
+      amount?: string;
+      date?: string;
+      notes?: string;
+      mainCategory?: MainIncomeCategory | "";
+    }>(INCOME_MODAL_DRAFT_KEY);
+    if (d?.v !== 1) return;
+    if (d.step) setStep(d.step);
+    if (d.mainCategory != null) setMainCategory(d.mainCategory);
+    if (d.amount != null) setAmount(d.amount);
+    if (d.date != null) setDate(d.date);
+    if (d.notes != null) setNotes(d.notes);
+  }, [isOpen, prefillProjectId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    saveFormDraft(INCOME_MODAL_DRAFT_KEY, {
+      v: 1,
+      step,
+      mainCategory,
+      amount,
+      date,
+      notes,
+    });
+  }, [isOpen, step, mainCategory, amount, date, notes]);
+
   const resetForm = () => {
+    clearFormDraft(INCOME_MODAL_DRAFT_KEY);
     setStep("main-category");
     setMainCategory(prefillProjectId ? "project" : "");
     setCategory("");
@@ -164,6 +199,14 @@ export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectI
         if (needsLoan && !selectedLoanId) return false;
         if (needsPersonName && !udharPersonName) return false;
         if (needsBankName && !bankName) return false;
+        if (interestRate.trim()) {
+          const rate = Number.parseFloat(interestRate);
+          if (!Number.isFinite(rate) || rate < 0) return false;
+        }
+        if (tenure.trim()) {
+          const months = Number.parseInt(tenure, 10);
+          if (!Number.isFinite(months) || months < 0) return false;
+        }
         return true;
       case "confirm": return true;
       default: return true;
@@ -174,6 +217,27 @@ export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectI
   const goBack = () => { const idx = steps.indexOf(step); if (idx > 0) setStep(steps[idx - 1]); };
 
   const handleSubmit = () => {
+    if (interestRate.trim()) {
+      const rate = Number.parseFloat(interestRate);
+      if (!Number.isFinite(rate) || rate < 0) {
+        toast({ title: "Invalid interest rate", description: "Enter a non-negative number.", variant: "destructive" });
+        return;
+      }
+    }
+    if (tenure.trim()) {
+      const months = Number.parseInt(tenure, 10);
+      if (!Number.isFinite(months) || months < 0) {
+        toast({ title: "Invalid tenure", description: "Enter whole months (0 or more).", variant: "destructive" });
+        return;
+      }
+    }
+    if (udharExpectedReturnDate) {
+      const err = requireDateNotBefore("Expected return", udharExpectedReturnDate, "Income date", date);
+      if (err) {
+        toast({ title: "Invalid date", description: err, variant: "destructive" });
+        return;
+      }
+    }
     const taxonomyMap: Record<string, "project_income" | "loans_borrowing" | "partner_income" | "employee_repayments" | "company_income"> = {
       project: "project_income",
       loan: "loans_borrowing",

@@ -7,8 +7,9 @@ import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Customer } from "@/types/finance";
+import { normalizePhoneDigits } from "@/lib/phoneNormalize";
 
-interface ClientSelectionModalProps {
+interface ClientSelectionSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   customers: Customer[];
@@ -17,14 +18,14 @@ interface ClientSelectionModalProps {
   onAddNew: () => void;
 }
 
-export function ClientSelectionModal({
+export function ClientSelectionSheet({
   open,
   onOpenChange,
   customers,
   searchValue = "",
   onSelect,
   onAddNew,
-}: ClientSelectionModalProps) {
+}: ClientSelectionSheetProps) {
   const [search, setSearch] = useState(searchValue);
 
   // Filter and sort customers based on search
@@ -34,10 +35,11 @@ export function ClientSelectionModal({
     }
 
     const searchLower = search.toLowerCase();
+    const searchDigits = normalizePhoneDigits(search);
     return customers
       .filter(c => 
         c.name.toLowerCase().includes(searchLower) ||
-        c.phone.includes(search) ||
+        (searchDigits.length >= 2 && normalizePhoneDigits(c.phone).includes(searchDigits)) ||
         c.email.toLowerCase().includes(searchLower)
       )
       .slice(0, 20);
@@ -48,10 +50,11 @@ export function ClientSelectionModal({
     if (!search.trim() || search.length < 2) return [];
     
     const searchLower = search.toLowerCase();
+    const searchDigits = normalizePhoneDigits(search);
     return customers
       .filter(c => 
         c.name.toLowerCase().startsWith(searchLower) ||
-        c.phone.startsWith(search)
+        (searchDigits.length >= 2 && normalizePhoneDigits(c.phone).startsWith(searchDigits))
       )
       .slice(0, 3);
   }, [customers, search]);

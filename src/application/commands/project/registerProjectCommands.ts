@@ -2,9 +2,17 @@ import type { CommandBus } from "@/application/commands/CommandBus";
 import type { Command } from "@/application/commands/types";
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
 import type { PermissionService } from "@/application/services/PermissionService";
+import { assertCommandPermission } from "@/application/commands/commandPermission";
 import type { AuditService } from "@/application/services/AuditService";
 import { ProjectKindService, type ProjectIntakePayload } from "@/application/services/ProjectKindService";
+import { buildProjectShellFromDirectException } from "@/domain/project/buildProjectShellFromDirectException";
+import { buildProjectShellFromQuotation } from "@/domain/project/buildProjectShellFromQuotation";
 import { commercialBaselineFromIntake, commercialBaselineFromQuotation } from "@/domain/project/commercialBaseline";
+import {
+  ProjectInvariantService,
+  type ProjectCreateInvariantInput,
+  type ProjectInvariantValidationResult,
+} from "@/domain/project/ProjectInvariantService";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import type { Project } from "@/types/project";
 import { isQuotationConverted } from "@/lib/quotationSelectors";
@@ -38,6 +46,15 @@ export const CREATE_PROJECT_INTAKE_COMMAND = "project.create_intake";
 const makeProjectId = () =>
   `P-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
 
+const projectInvariantService = new ProjectInvariantService();
+
+function rejectProjectCreateInvariants(
+  input: ProjectCreateInvariantInput,
+): ProjectInvariantValidationResult | null {
+  const check = projectInvariantService.validateProjectCreate(input);
+  return check.ok ? null : check;
+}
+
 export const registerProjectCommands = (
   commandBus: CommandBus,
   repositories: AppRepositoryContext,
@@ -47,20 +64,17 @@ export const registerProjectCommands = (
   const projectKindService = new ProjectKindService();
 
   commandBus.register<Command<CreateProjectFromQuotationPayload>, { projectId: string }>(CREATE_PROJECT_FROM_QUOTATION_COMMAND, (command) => {
-    permissionService.assertCanPerformAction(command.actorRole, "project:create_from_quote");
+    assertCommandPermission(permissionService, command, "project:create_from_quote");
 
     const quotation = repositories.quotationRepository.getById(command.payload.quotationId);
     if (!quotation) {
       return { ok: false, errorCode: "QUOTATION_NOT_FOUND", message: "Quotation not found" };
     }
-    if (quotation.status !== "confirmed" && quotation.status !== "approved") {
-      return { ok: false, errorCode: "QUOTATION_NOT_CONFIRMED", message: "Project can only be created from an approved or confirmed quotation" };
+    if (quotation.status !== "approved") {
+      return { ok: false, errorCode: "QUOTATION_NOT_APPROVED", message: "Project can only be created from an approved quotation" };
     }
     if (isQuotationConverted(quotation)) {
       return { ok: false, errorCode: "QUOTATION_ALREADY_CONVERTED", message: "This quotation is already converted to a project" };
-    }
-    if (quotation.status === "approved") {
-      repositories.quotationRepository.update(quotation.id, { status: "confirmed" });
     }
 
     const intakeValidation = projectKindService.validateIntake(command.payload.intake);
@@ -69,6 +83,13 @@ export const registerProjectCommands = (
     }
 
     if (command.payload.project) {
+      const createInvariant = rejectProjectCreateInvariants({
+        project: command.payload.project,
+        quotationId: command.payload.quotationId,
+      });
+      if (createInvariant) {
+        return createInvariant;
+      }
       const p = command.payload.project;
       if (p.quotationId !== command.payload.quotationId) {
         return { ok: false, errorCode: "QUOTATION_PROJECT_MISMATCH", message: "Project quotationId must match command quotationId" };
@@ -102,33 +123,31 @@ export const registerProjectCommands = (
     }
 
     const projectId = makeProjectId();
+    const built = buildProjectShellFromQuotation({
+      quotation,
+      intake: command.payload.intake,
+      projectName: command.payload.projectName,
+      projectId,
+    });
+    if (!built.ok) {
+      return {
+        ok: false,
+        errorCode: built.errorCode,
+        message: built.message,
+      };
+    }
+
+    const shellInvariant = rejectProjectCreateInvariants({
+      project: built.project,
+      quotationId: command.payload.quotationId,
+    });
+    if (shellInvariant) {
+      return shellInvariant;
+    }
+
     const { baseline, executionLineItems } = commercialBaselineFromQuotation(quotation);
     repositories.projectRepository.add({
-      id: projectId,
-      name: command.payload.projectName,
-      type: "EPC",
-      projectType: "Residential",
-      projectCategory: "solar",
-      ownerType: "solo",
-      lifecycleStatus: "Active",
-      executionPhase: "Intake",
-      progressStage: "new",
-      projectKind: "SOLO_EPC",
-      projectKindConfigSnapshot: projectKindConfigSnapshot("SOLO_EPC"),
-      client: quotation.clientName,
-      customerId: quotation.customerId,
-      capacity: quotation.systemCapacity || "N/A",
-      location: `${quotation.clientCity}, ${quotation.clientState}`,
-      assignees: [],
-      onSite: 0,
-      contractAmount: quotation.clientAgreedAmount || quotation.totalAmount,
-      totalCost: 0,
-      amountReceived: 0,
-      quotationId: quotation.id,
-      photos: 0,
-      startDate: new Date().toISOString().split("T")[0],
-      endDate: null,
-      createdAt: new Date().toISOString().split("T")[0],
+      ...built.project,
       commercialBaseline: baseline,
       executionLineItems,
     });
@@ -153,26 +172,15 @@ export const registerProjectCommands = (
   });
 
   commandBus.register<Command<CreateProjectIntakePayload>, { projectId: string }>(CREATE_PROJECT_INTAKE_COMMAND, (command) => {
-    permissionService.assertCanPerformAction(command.actorRole, "project:create_from_quote");
+    assertCommandPermission(permissionService, command, "project:create_from_quote");
     const { project, intake, quotationId } = command.payload;
-    const kind = project.projectKind ?? "SOLO_EPC";
 
-    if ((project.partners?.length ?? 0) > 1) {
-      return {
-        ok: false,
-        errorCode: "PARTNER_COUNT",
-        message: "At most one external partner per project.",
-      };
+    const createInvariant = rejectProjectCreateInvariants({ project, quotationId });
+    if (createInvariant) {
+      return createInvariant;
     }
 
     if (!quotationId) {
-      if (kind === "SOLO_EPC") {
-        return {
-          ok: false,
-          errorCode: "QUOTATION_REQUIRED",
-          message: "Solo EPC projects require a confirmed quotation. Choose another project kind to proceed without a quotation.",
-        };
-      }
       const intakeValidation = projectKindService.validateIntake(intake);
       if (!intakeValidation.ok) {
         return { ok: false, errorCode: "PROJECT_INTAKE_INVALID", message: intakeValidation.errors.join(", ") };
@@ -208,14 +216,11 @@ export const registerProjectCommands = (
     if (!quotation) {
       return { ok: false, errorCode: "QUOTATION_NOT_FOUND", message: "Quotation not found" };
     }
-    if (quotation.status !== "confirmed" && quotation.status !== "approved") {
-      return { ok: false, errorCode: "QUOTATION_NOT_CONFIRMED", message: "Project can only be created from an approved or confirmed quotation" };
+    if (quotation.status !== "approved") {
+      return { ok: false, errorCode: "QUOTATION_NOT_APPROVED", message: "Project can only be created from an approved quotation" };
     }
     if (isQuotationConverted(quotation)) {
       return { ok: false, errorCode: "QUOTATION_ALREADY_CONVERTED", message: "This quotation is already converted to a project" };
-    }
-    if (quotation.status === "approved") {
-      repositories.quotationRepository.update(quotation.id, { status: "confirmed" });
     }
     const intakeValidation = projectKindService.validateIntake(intake);
     if (!intakeValidation.ok) {
@@ -251,21 +256,45 @@ export const registerProjectCommands = (
   });
 
   commandBus.register<Command<CreateDirectProjectExceptionPayload>, { projectId: string }>(CREATE_DIRECT_PROJECT_EXCEPTION_COMMAND, (command) => {
-    permissionService.assertCanPerformAction(command.actorRole, "project:create_direct_exception");
+    assertCommandPermission(permissionService, command, "project:create_direct_exception");
 
     const intakeValidation = projectKindService.validateIntake(command.payload.intake);
     if (!intakeValidation.ok) {
       return { ok: false, errorCode: "PROJECT_INTAKE_INVALID", message: intakeValidation.errors.join(", ") };
     }
-    if (!command.payload.reason?.trim()) {
-      return { ok: false, errorCode: "REASON_REQUIRED", message: "Direct project exception requires reason" };
+
+    const createInvariant = rejectProjectCreateInvariants({
+      directExceptionReason: command.payload.reason,
+    });
+    if (createInvariant) {
+      return createInvariant;
     }
 
     const projectId = makeProjectId();
     const intake = command.payload.intake;
-    const kind = intake.kind;
     const cid = command.payload.customerId?.trim() || "";
-    const contractAmt = Number(intake.commercial.contractAmount || 0);
+
+    const built = buildProjectShellFromDirectException({
+      intake,
+      projectName: command.payload.projectName,
+      projectId,
+      reason: command.payload.reason,
+      customerId: cid,
+    });
+    if (!built.ok) {
+      return {
+        ok: false,
+        errorCode: built.errorCode,
+        message: built.message,
+      };
+    }
+
+    const shellInvariant = rejectProjectCreateInvariants({ project: built.project });
+    if (shellInvariant) {
+      return shellInvariant;
+    }
+
+    const contractAmt = built.project.contractAmount ?? 0;
     const { baseline, executionLineItems } = cid
       ? commercialBaselineFromIntake({
           projectId,
@@ -274,37 +303,11 @@ export const registerProjectCommands = (
           customerId: cid,
         })
       : { baseline: undefined, executionLineItems: undefined };
-    const snapshot = projectKindConfigSnapshot(kind);
-    const clientName = intake.parties.customer || intake.parties.channelPartner || intake.parties.externalNetwork || "Unknown";
+
     repositories.projectRepository.add({
-      id: projectId,
-      name: command.payload.projectName,
-      projectKind: kind,
-      projectKindConfigSnapshot: snapshot,
-      type: kind === "INC_GIVEN" || kind === "INC" ? "INC" : "EPC",
-      projectType: "Commercial",
-      projectCategory: "solar",
-      ownerType: "solo",
-      lifecycleStatus: "Active",
-      executionPhase: "Intake",
-      progressStage: "exception_review",
-      client: clientName,
-      customerId: cid || undefined,
-      capacity: "N/A",
-      location: "Pending",
-      assignees: [],
-      onSite: 0,
-      contractAmount: contractAmt,
-      totalCost: 0,
-      amountReceived: 0,
-      photos: 0,
-      startDate: new Date().toISOString().split("T")[0],
-      endDate: null,
-      createdAt: new Date().toISOString().split("T")[0],
-      directCreationReason: command.payload.reason,
+      ...built.project,
       commercialBaseline: baseline,
       executionLineItems,
-      paymentType: (intake.commercial.paymentType as Project["paymentType"]) || "",
     });
 
     auditService.write(command, {

@@ -430,7 +430,7 @@ const Analytics = () => {
       </StickyPageHeader>
 
       {/* Project Distribution & Top Performers */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         <Card className="bg-card border-border">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-medium">Project Distribution</CardTitle>

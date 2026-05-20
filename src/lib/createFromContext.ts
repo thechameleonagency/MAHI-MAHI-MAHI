@@ -115,6 +115,31 @@ export function stripCreateFromParam(params: URLSearchParams): void {
   params.delete("createFrom");
 }
 
+/** Top-header quick-add and list pages use `?create=1` to auto-open the create surface. */
+export const QUICK_CREATE_PARAM = "create";
+export const QUICK_CREATE_VALUE = "1";
+
+export function isQuickCreateIntent(search: string | URLSearchParams): boolean {
+  const params =
+    typeof search === "string"
+      ? new URLSearchParams(search.startsWith("?") ? search : `?${search}`)
+      : search;
+  return params.get(QUICK_CREATE_PARAM) === QUICK_CREATE_VALUE;
+}
+
+export function stripQuickCreateParam(params: URLSearchParams): void {
+  params.delete(QUICK_CREATE_PARAM);
+}
+
+/** Build a route path that opens the target page's create sheet on load. */
+export function quickCreatePath(routePath: string): string {
+  const [pathname, query = ""] = routePath.split("?");
+  const params = new URLSearchParams(query);
+  params.set(QUICK_CREATE_PARAM, QUICK_CREATE_VALUE);
+  const qs = params.toString();
+  return qs ? `${pathname}?${qs}` : `${pathname}?${QUICK_CREATE_PARAM}=${QUICK_CREATE_VALUE}`;
+}
+
 /**
  * Each create surface has a draft key (e.g. "quotation-create-draft"). Keeping
  * the URL handoff orthogonal to the draft means the user can refresh and the

@@ -22,6 +22,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 import { DEFAULT_TABLE_PAGE_SIZE, listTableViewportMaxHeight } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/businessAlerts";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 type _LiveAlert = {
   id: string;
@@ -66,8 +67,8 @@ const Notifications = () => {
     vendors,
   } = useAppData();
 
-  const vendorNamesByNumericId = useMemo(
-    () => new Map(vendors.map((v) => [v.id, v.name] as const)),
+  const vendorNamesById = useMemo(
+    () => new Map(vendors.map((v) => [String(v.id), v.name] as const)),
     [vendors],
   );
 
@@ -81,7 +82,7 @@ const Notifications = () => {
       projects,
       projectTimelineByProjectId,
       vendorBills,
-      vendorNamesByNumericId,
+      vendorNamesById,
     });
     return rows.map((r) => ({
       id: r.id,
@@ -100,7 +101,7 @@ const Notifications = () => {
     projects,
     projectTimelineByProjectId,
     vendorBills,
-    vendorNamesByNumericId,
+    vendorNamesById,
   ]);
 
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
@@ -114,23 +115,52 @@ const Notifications = () => {
 
   const { pagedItems: pagedAlerts, safePage } = usePagedSlice(visible, page, pageSize);
 
+  const dismissAll = () => {
+    setDismissed(new Set(alerts.map((a) => a.id)));
+  };
+  const restoreAll = () => {
+    setDismissed(new Set());
+  };
+
   return (
     <PageShell>
       <div className="space-y-6">
-        <StickyPageHeader breadcrumbs={[{ label: "Home", to: "/" }, { label: "Notifications" }]} />
-        <InlineKpiStrip
-          items={[
-            { label: "Open alerts", value: String(visible.length) },
-            { label: "High priority", value: String(visible.filter((a) => a.severity === "high").length) },
-          ]}
-        />
+        <StickyPageHeader
+          breadcrumbs={[{ label: "Home", to: "/" }, { label: "Notifications" }]}
+          subRow={
+            <InlineKpiStrip
+              singleRow
+              className="min-w-0 flex-1"
+              items={[
+                { label: "Open alerts", value: String(visible.length) },
+                { label: "High priority", value: String(visible.filter((a) => a.severity === "high").length) },
+              ]}
+            />
+          }
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            onClick={dismissAll}
+            disabled={visible.length === 0}
+          >
+            Mark all read
+          </Button>
+          {dismissed.size > 0 ? (
+            <Button variant="ghost" size="sm" type="button" onClick={restoreAll}>
+              Restore dismissed ({dismissed.size})
+            </Button>
+          ) : null}
+        </StickyPageHeader>
         <Card>
           <CardContent className="pt-6">
             {visible.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
-                <Bell className="w-10 h-10 opacity-30" />
-                <p className="text-sm">No alerts right now. Invoices, EMIs, stock, and project signals will appear here.</p>
-              </div>
+              <ListEmptyState
+                icon={Bell}
+                title="No alerts right now"
+                description="Invoices, EMIs, stock, and project signals will appear here when action is needed."
+              />
             ) : (
               <DataTableShell
                 variant="inline"

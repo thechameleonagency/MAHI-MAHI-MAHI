@@ -117,7 +117,7 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
               </Link>
             )}
             {linkedQuotation && (
-              <Link to={`/quotations?highlight=${linkedQuotation.id}`} onClick={() => onOpenChange(false)}>
+              <Link to={`/quotations?open=${linkedQuotation.id}`} onClick={() => onOpenChange(false)}>
                 <Button variant="outline" size="sm" className="gap-1">
                   <Receipt className="h-3 w-3" />
                   Quotation
@@ -143,7 +143,11 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
     const customerInvoices = getCustomerInvoices(customer.id);
     const customerSaleBills = getCustomerSaleBills(customer.id);
     const customerProjects = projects.filter((p) => p.customerId === customer.id);
-    const customerQuotations = quotations.filter(q => q.clientName === customer.name);
+    const customerQuotations = quotations.filter(q =>
+      q.customerId
+        ? q.customerId === customer.id
+        : q.clientName === customer.name,
+    );
 
     return (
       <div className="space-y-4">

@@ -39,6 +39,8 @@ import { cn } from "@/lib/utils";
 import { procurementNeedLineKey } from "@/types/operations";
 import type { ProcurementNeedLine } from "@/types/operations";
 import { formatINR } from "@/lib/formatCurrency";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type NeedToGetSheetProps = {
   open: boolean;
@@ -204,6 +206,7 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
     canDo,
   } = useAppData();
   const navigate = useNavigate();
+  const { currentRole } = useAppSession();
   const service = useMemo(() => new NeedToGetService(), []);
 
   const allRows = useMemo(
@@ -220,6 +223,8 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
   }, [procurementNeedLines]);
 
   const canAssignVendor = canDo("vendor:record_bill");
+  const procurementHandoffOnly =
+    currentRole === "installation_team" && !canAssignVendor;
 
   const activeSitesPerProject = useMemo(() => countActiveSitesByProjectId(sites), [sites]);
 
@@ -443,9 +448,10 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
     setPage(1);
   };
 
-  const assignVendorToRow = (r: NeedToGetViewRow, vendorId: string) => {
+  const assignVendorToRow = async (r: NeedToGetViewRow, vendorId: string) => {
     const lineKey = rowLineKey(r);
     const existing = procurementByLineKey.get(lineKey);
+    const previous = existing ? { ...existing } : null;
     const line: ProcurementNeedLine = {
       id: existing?.id ?? generateId("PNL"),
       lineKey,
@@ -464,13 +470,27 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
       acquiredRate: existing?.acquiredRate,
       notes: existing?.notes,
     };
-    upsertProcurementNeedLine(line);
-    toast({
-      title: vendorId ? "Vendor assigned" : "Vendor cleared",
-      description: vendorId
-        ? `${vendors.find((v) => String(v.id) === vendorId)?.name ?? "Vendor"} — ${r.materialName}`
-        : r.materialName,
-    });
+    try {
+      await Promise.resolve();
+      upsertProcurementNeedLine(line);
+      toast({
+        title: vendorId ? "Vendor assigned" : "Vendor cleared",
+        description: vendorId
+          ? `${vendors.find((v) => String(v.id) === vendorId)?.name ?? "Vendor"} — ${r.materialName}`
+          : r.materialName,
+      });
+    } catch (err) {
+      if (previous) {
+        upsertProcurementNeedLine(previous);
+      } else if (existing) {
+        upsertProcurementNeedLine({ ...line, vendorId: undefined });
+      }
+      toast({
+        title: "Vendor update failed",
+        description: err instanceof Error ? err.message : "Could not save vendor assignment.",
+        variant: "destructive",
+      });
+    }
   };
 
   const filterTriggerClass =
@@ -535,6 +555,14 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
             }
           />
 
+          {procurementHandoffOnly && (
+            <Alert className="print:hidden">
+              <AlertTitle>Hand off to procurement</AlertTitle>
+              <AlertDescription>
+                You can export this list for procurement. Vendor assignment and billing require the procurement role.
+              </AlertDescription>
+            </Alert>
+          )}
           <p className="text-xs text-muted-foreground print:hidden">
             Multi-site projects show the site in &ldquo;Where&rdquo;; single-site projects show the project name. Filters: pick projects first, then
             sites. Assign a vendor per line so shared lists show where to buy each item. Status-only checklist lines (no SKU) show qty &ldquo;—&rdquo;.
@@ -752,8 +780,31 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
             </Popover>
           </div>
 
+          <div className="space-y-2 md:hidden print:hidden">
+            {pageRows.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">No shortfalls for current filters.</p>
+            ) : (
+              pageRows.map((r, idx) => (
+                <div
+                  key={`mobile-${r.materialId}-${r.displayWhere}-${idx}`}
+                  className="rounded-lg border border-border bg-card p-3 space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-medium text-sm">{r.materialName}</p>
+                    <Badge variant="outline" className="shrink-0 tabular-nums">
+                      Short {r.rowKind === "nonMaterial" ? "—" : r.qtyShort}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{r.displayWhere}</p>
+                  <p className="text-xs">Need by: {r.needByDate}</p>
+                </div>
+              ))
+            )}
+          </div>
+
           <DataTableShell
-            variant="inline" className="print:border-0"
+            variant="inline"
+            className="hidden md:block print:border-0"
             maxHeight={listTableViewportMaxHeight(pageSize)}
             scrollResetKey={`${page}-${pageSize}-${displayRows.length}`}
             footer={
@@ -853,14 +904,16 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
                         <TableCell className="align-top print:hidden">
                           {isNonMaterial ? (
                             <span className="text-2xs text-muted-foreground">—</span>
+                          ) : procurementHandoffOnly ? (
+                            <span className="text-2xs text-muted-foreground">Procurement</span>
                           ) : canAssignVendor && vendorsSorted.length > 0 ? (
                             <Select
                               value={
                                 procurementByLineKey.get(rowLineKey(r))?.vendorId ?? "__none__"
                               }
-                              onValueChange={(v) =>
-                                assignVendorToRow(r, v === "__none__" ? "" : v)
-                              }
+                              onValueChange={(v) => {
+                                void assignVendorToRow(r, v === "__none__" ? "" : v);
+                              }}
                             >
                               <SelectTrigger className="h-8 text-xs">
                                 <SelectValue placeholder="Select vendor" />

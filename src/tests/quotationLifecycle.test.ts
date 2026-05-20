@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { CommandBus } from "@/application/commands/CommandBus";
-import { registerQuotationCommands, TRANSITION_QUOTATION_STATUS_COMMAND } from "@/application/commands/quotation/registerQuotationCommands";
+import {
+  registerQuotationCommands,
+  TRANSITION_QUOTATION_STATUS_COMMAND,
+} from "@/application/commands/quotation/registerQuotationCommands";
 import { PermissionService } from "@/application/services/PermissionService";
 import { AuditService } from "@/application/services/AuditService";
 import { LocalStorageJsonRepository } from "@/infrastructure/repositories/localStorage/LocalStorageJsonRepository";
@@ -68,7 +71,89 @@ describe("Quotation lifecycle command", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("blocks direct draft -> confirmed transition", async () => {
+  it("blocks draft -> sent when total amount is zero", async () => {
+    const repositories = createRepositories([
+      {
+        id: "Q0",
+        quotationNumber: "Q-000",
+        status: "draft",
+        quotationType: "solar",
+        clientName: "Zero Co",
+        clientPhone: "1",
+        clientEmail: "z@a.com",
+        clientCity: "Jaipur",
+        clientState: "Rajasthan",
+        paymentType: "cash",
+        totalAmount: 0,
+        isConverted: false,
+        createdAt: "2026-01-01",
+        presetSnapshot: [{ id: 1, name: "Panel", quantity: 1, unit: "pcs", rate: 0 }],
+      },
+    ] as Quotation[]);
+
+    const commandBus = new CommandBus();
+    registerQuotationCommands(
+      commandBus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+
+    const result = await commandBus.execute({
+      type: TRANSITION_QUOTATION_STATUS_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { quotationId: "Q0", nextStatus: "sent" },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errorCode).toBe("QUOTATION_ZERO_AMOUNT");
+    }
+  });
+
+  it("blocks sent -> approved when total amount is zero", async () => {
+    const repositories = createRepositories([
+      {
+        id: "Q0S",
+        quotationNumber: "Q-001S",
+        status: "sent",
+        quotationType: "solar",
+        clientName: "Zero Co",
+        clientPhone: "1",
+        clientEmail: "z@a.com",
+        clientCity: "Jaipur",
+        clientState: "Rajasthan",
+        paymentType: "cash",
+        totalAmount: 0,
+        isConverted: false,
+        createdAt: "2026-01-01",
+        presetSnapshot: [{ id: 1, name: "Panel", quantity: 1, unit: "pcs", rate: 0 }],
+      },
+    ] as Quotation[]);
+
+    const commandBus = new CommandBus();
+    registerQuotationCommands(
+      commandBus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+
+    const result = await commandBus.execute({
+      type: TRANSITION_QUOTATION_STATUS_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { quotationId: "Q0S", nextStatus: "approved" },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errorCode).toBe("QUOTATION_ZERO_AMOUNT");
+    }
+  });
+
+  it("blocks direct draft -> converted_to_project transition", async () => {
     const repositories = createRepositories([
       {
         id: "Q2",
@@ -94,7 +179,7 @@ describe("Quotation lifecycle command", () => {
       type: TRANSITION_QUOTATION_STATUS_COMMAND,
       actorUserId: "admin",
       actorRole: "admin",
-      payload: { quotationId: "Q2", nextStatus: "confirmed" },
+      payload: { quotationId: "Q2", nextStatus: "converted_to_project" },
     });
 
     expect(result.ok).toBe(false);

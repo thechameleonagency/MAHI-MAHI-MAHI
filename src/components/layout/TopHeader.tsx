@@ -1,5 +1,7 @@
-import { Menu, Bell, Settings, Sparkles, Pin, PinOff } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Menu, Bell, Settings, Sparkles, Pin, PinOff, Search } from "lucide-react";
+import { useState } from "react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -15,9 +17,13 @@ import { ROLE_LABELS, USER_ROLES, type UserRole } from "@/domain/entities/identi
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { toast } from "@/hooks/use-toast";
+import { prunePinnedPathsForRole } from "@/lib/navPins";
+import { routeAccessDeniedToastContent } from "@/lib/routeAccessDenied";
+import { quickCreatePath } from "@/lib/createFromContext";
 import GlobalSearch from "./GlobalSearch";
 import { usePageHeaderSticky } from "@/contexts/PageHeaderStickyContext";
 import { useDerivedAlertCount } from "@/hooks/useDerivedAlertCount";
+import { useRoleMatrixOverride } from "@/contexts/RoleMatrixContext";
 
 type TopHeaderProps = {
   onOpenSidebar: () => void;
@@ -27,12 +33,15 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
   const { currentRole, setCurrentRole } = useAppSession();
   const { permissionService } = useFoundation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const roleMatrixOverride = useRoleMatrixOverride();
   const notificationCount = useDerivedAlertCount();
 
   const can = (a: Parameters<typeof permissionService.canPerformAction>[1]) =>
-    permissionService.canPerformAction(currentRole, a);
+    permissionService.canPerformAction(currentRole, a, roleMatrixOverride);
 
   const { stickyPageHeader, setStickyPageHeader, breadcrumbs } = usePageHeaderSticky();
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-stretch justify-between border-b border-border/80 bg-card/90 shadow-sm supports-[backdrop-filter]:backdrop-blur-md w-full">
@@ -73,9 +82,19 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
 
       {/* Right side: Search and actions */}
       <div className="flex shrink-0 flex-1 items-center justify-end gap-2 px-3 md:gap-4 md:px-5">
-        <div className="min-w-0 w-full max-w-[280px]">
+        <div className="hidden min-w-0 w-full max-w-[280px] md:block">
           <GlobalSearch />
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 shrink-0 md:hidden"
+          aria-label="Search"
+          onClick={() => setMobileSearchOpen(true)}
+        >
+          <Search className="h-4 w-4" />
+        </Button>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -120,27 +139,27 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
             <DropdownMenuLabel>Create</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {can("enquiry:create") && (
-              <DropdownMenuItem onSelect={() => navigate("/enquiries")}>
+              <DropdownMenuItem onSelect={() => navigate(quickCreatePath("/enquiries"))}>
                 New enquiry
               </DropdownMenuItem>
             )}
             {can("quotation:create") && (
-              <DropdownMenuItem onSelect={() => navigate("/quotations?create")}>
+              <DropdownMenuItem onSelect={() => navigate(quickCreatePath("/quotations"))}>
                 New quotation
               </DropdownMenuItem>
             )}
             {can("project:create_from_quote") && (
-              <DropdownMenuItem onSelect={() => navigate("/projects")}>
+              <DropdownMenuItem onSelect={() => navigate(quickCreatePath("/projects"))}>
                 New project
               </DropdownMenuItem>
             )}
             {can("finance:create_invoice") && (
-              <DropdownMenuItem onSelect={() => navigate("/invoices")}>
+              <DropdownMenuItem onSelect={() => navigate(quickCreatePath("/invoices"))}>
                 New invoice
               </DropdownMenuItem>
             )}
             {can("inventory:material_movement") && (
-              <DropdownMenuItem onSelect={() => navigate("/inventory/materials")}>
+              <DropdownMenuItem onSelect={() => navigate(quickCreatePath("/inventory/materials"))}>
                 Materials &amp; issue
               </DropdownMenuItem>
             )}
@@ -154,7 +173,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {permissionService.canAccessPath(currentRole, "/notifications") && (
+        {permissionService.canAccessPath(currentRole, "/notifications", roleMatrixOverride) && (
           <Button type="button" variant="outline" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9" asChild>
             <Link to="/notifications" aria-label="Notifications">
               <Bell className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
@@ -167,7 +186,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           </Button>
         )}
 
-        {permissionService.canAccessPath(currentRole, "/settings") && (
+        {permissionService.canAccessPath(currentRole, "/settings", roleMatrixOverride) && (
           <Button
             type="button"
             variant="ghost"
@@ -185,11 +204,41 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           value={currentRole}
           onValueChange={(role) => {
             const next = role as UserRole;
+            const removedPins = prunePinnedPathsForRole((path) =>
+              permissionService.canAccessPath(next, path, roleMatrixOverride),
+            );
             setCurrentRole(next);
-            toast({
-              title: "Role updated",
-              description: `Navigation and actions now follow ${ROLE_LABELS[next]} permissions.`,
-            });
+            const currentPageDenied = !permissionService.canAccessPath(
+              next,
+              location.pathname,
+              roleMatrixOverride,
+            );
+            if (currentPageDenied) {
+              navigate("/", {
+                replace: true,
+                state: { routeAccessDeniedPath: location.pathname },
+              });
+            }
+            const deniedCopy = currentPageDenied
+              ? routeAccessDeniedToastContent(location.pathname, next)
+              : null;
+            if (removedPins.length > 0) {
+              toast({
+                title: deniedCopy?.title ?? "Role updated",
+                description: deniedCopy
+                  ? deniedCopy.description
+                  : `${removedPins.length} pinned link(s) removed for ${ROLE_LABELS[next]}. Navigation now follows ${ROLE_LABELS[next]} permissions.`,
+                variant: deniedCopy ? "destructive" : undefined,
+              });
+            } else {
+              toast({
+                title: deniedCopy?.title ?? "Role updated",
+                description:
+                  deniedCopy?.description ??
+                  `Navigation and actions now follow ${ROLE_LABELS[next]} permissions.`,
+                variant: deniedCopy ? "destructive" : undefined,
+              });
+            }
           }}
         >
           <SelectTrigger className="h-8 w-[min(140px,30vw)] text-xs sm:h-9 sm:w-[min(160px,28vw)] sm:text-sm">
@@ -204,6 +253,17 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           </SelectContent>
         </Select>
       </div>
+
+      <Sheet open={mobileSearchOpen} onOpenChange={setMobileSearchOpen}>
+        <SheetContent side="top" className="pt-12">
+          <SheetHeader>
+            <SheetTitle>Search</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4">
+            <GlobalSearch onNavigate={() => setMobileSearchOpen(false)} />
+          </div>
+        </SheetContent>
+      </Sheet>
     </header>
   );
 };

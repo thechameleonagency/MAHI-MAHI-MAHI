@@ -1,14 +1,20 @@
 import type { UserRole } from "@/domain/entities/identity";
 
-export type EnquiryStatus = "new" | "contacted" | "meeting-scheduled" | "quotation-sent" | "converted" | "lost";
+export type EnquiryStatus =
+  | "new"
+  | "meeting_scheduled"
+  | "quotation_sent"
+  | "quotation_rejected"
+  | "converted"
+  | "lost";
 
 const baseTransitions: Record<EnquiryStatus, EnquiryStatus[]> = {
-  new: ["contacted", "lost"],
-  contacted: ["meeting-scheduled", "quotation-sent", "converted", "lost"],
-  "meeting-scheduled": ["quotation-sent", "converted", "lost"],
-  "quotation-sent": ["converted", "lost"],
+  new: ["meeting_scheduled", "quotation_sent", "lost"],
+  meeting_scheduled: ["quotation_sent", "lost"],
+  quotation_sent: ["converted", "lost", "quotation_rejected"],
+  quotation_rejected: ["quotation_sent", "lost"],
   converted: [],
-  lost: [], // Admin/super_admin can reopen lost enquiries via the explicit override below
+  lost: [],
 };
 
 export const canTransitionEnquiryStatus = (
@@ -17,14 +23,14 @@ export const canTransitionEnquiryStatus = (
   actorRole: UserRole,
   reason?: string,
 ): boolean => {
-  // Intentional rescue path: admins can reopen lost enquiries to re-engage the lead
-  if (from === "lost" && to === "contacted") {
+  // Admins/super-admins can reopen lost enquiries back to "new" with a reason.
+  if (from === "lost" && to === "new") {
     return ["super_admin", "admin"].includes(actorRole) && Boolean(reason?.trim());
   }
 
-  if (from === "quotation-sent" && to === "lost") {
+  if ((from === "quotation_sent" || from === "quotation_rejected") && to === "lost") {
     return (reason?.trim().length ?? 0) >= 3;
   }
 
-  return baseTransitions[from].includes(to);
+  return baseTransitions[from]?.includes(to) ?? false;
 };

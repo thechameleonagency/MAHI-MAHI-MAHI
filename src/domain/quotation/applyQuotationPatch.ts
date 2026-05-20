@@ -21,7 +21,7 @@ export const QUOTATION_LOCKED_FIELDS: (keyof Quotation)[] = [
 ];
 
 export const isQuotationCommerciallyLocked = (quotation: Quotation) =>
-  quotation.status === "approved" || quotation.status === "confirmed";
+  quotation.status === "approved";
 
 export const createCommercialSnapshot = (quotation: Quotation): NonNullable<Quotation["commercialSnapshot"]> => ({
   capturedAt: new Date().toISOString(),
@@ -74,14 +74,9 @@ export function applyQuotationPatch(quotation: Quotation, updates: Partial<Quota
 
   const nextQuotation: Quotation = { ...quotation, ...updates };
   const isStatusTransitionToSent = quotation.status !== "sent" && nextQuotation.status === "sent";
-  const isStatusTransitionToConfirmed = quotation.status !== "confirmed" && nextQuotation.status === "confirmed";
 
-  if ((isStatusTransitionToSent || isStatusTransitionToConfirmed) && !nextQuotation.commercialSnapshot) {
+  if (isStatusTransitionToSent && !nextQuotation.commercialSnapshot) {
     nextQuotation.commercialSnapshot = createCommercialSnapshot(nextQuotation);
-  }
-
-  if (isStatusTransitionToConfirmed) {
-    nextQuotation.confirmedAt = nextQuotation.confirmedAt || new Date().toISOString().split("T")[0];
   }
 
   return { ok: true, quotation: nextQuotation };

@@ -6,6 +6,9 @@ import {
   buildQuotationToProjectDraft,
   resolveCreateFromOrToast,
   stripCreateFromParam,
+  stripQuickCreateParam,
+  isQuickCreateIntent,
+  quickCreatePath,
   saveCreateDraft,
   loadCreateDraft,
   clearCreateDraft,
@@ -114,6 +117,31 @@ describe("createFromContext", () => {
       stripCreateFromParam(params);
       expect(params.get("createFrom")).toBeNull();
       expect(params.get("create")).toBe("1");
+    });
+  });
+
+  describe("quick create URL contract", () => {
+    it("builds ?create=1 paths for top-header quick-add", () => {
+      expect(quickCreatePath("/enquiries")).toBe("/enquiries?create=1");
+      expect(quickCreatePath("/quotations")).toBe("/quotations?create=1");
+      expect(quickCreatePath("/projects")).toBe("/projects?create=1");
+      expect(quickCreatePath("/invoices")).toBe("/invoices?create=1");
+      expect(quickCreatePath("/inventory/materials")).toBe("/inventory/materials?create=1");
+      expect(quickCreatePath("/invoices?status=draft")).toBe("/invoices?status=draft&create=1");
+    });
+
+    it("detects quick-create intent only for create=1", () => {
+      expect(isQuickCreateIntent("?create=1")).toBe(true);
+      expect(isQuickCreateIntent(new URLSearchParams("create=1"))).toBe(true);
+      expect(isQuickCreateIntent("?create")).toBe(false);
+      expect(isQuickCreateIntent("?create=true")).toBe(false);
+    });
+
+    it("stripQuickCreateParam removes create without touching createFrom", () => {
+      const params = new URLSearchParams("create=1&createFrom=enq:1");
+      stripQuickCreateParam(params);
+      expect(params.get("create")).toBeNull();
+      expect(params.get("createFrom")).toBe("enq:1");
     });
   });
 

@@ -77,7 +77,11 @@ const typeConfig = {
   template: { icon: LayoutTemplate, label: "Template", color: "bg-accent/20 text-accent-foreground" },
 };
 
-const GlobalSearch = () => {
+type GlobalSearchProps = {
+  onNavigate?: () => void;
+};
+
+const GlobalSearch = ({ onNavigate }: GlobalSearchProps) => {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -268,7 +272,7 @@ const GlobalSearch = () => {
           name: team.name,
           type: "team",
           subtitle: team.status,
-          path: `/teams`,
+          path: `/teams/${team.id}`,
         });
       }
     });
@@ -308,7 +312,7 @@ const GlobalSearch = () => {
           name: c.name,
           type: "vendorship_company",
           subtitle: c.registrationCode,
-          path: `/vendorship-companies`,
+          path: `/vendorship/${c.id}`,
         });
       }
     });
@@ -321,7 +325,7 @@ const GlobalSearch = () => {
           name: c.name,
           type: "inc_source",
           subtitle: c.phone,
-          path: `/inc-work-sources`,
+          path: `/inc-sources/${c.id}`,
         });
       }
     });
@@ -416,6 +420,7 @@ const GlobalSearch = () => {
     navigate(result.path);
     setQuery("");
     setIsOpen(false);
+    onNavigate?.();
   };
 
   return (

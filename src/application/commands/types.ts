@@ -1,8 +1,11 @@
 import type { ActorContext } from "@/domain/entities/identity";
+import type { FeaturePermissionMatrix } from "@/domain/policies/featurePermissions";
 
 export interface Command<TPayload = unknown> extends ActorContext {
   type: string;
   payload: TPayload;
+  /** When set (from Role Matrix UI), command handlers use this for permission checks. */
+  matrixOverride?: Partial<FeaturePermissionMatrix>;
 }
 
 export type CommandSuccess<TResult> = {

@@ -242,7 +242,8 @@ export interface Project {
   scope?: ProjectScopeConfig;
   
   // Status tracking (Unified)
-  lifecycleStatus: "Draft" | "Active" | "On Hold" | "Completed";
+  /** Canonical machine label is `"New"`; legacy rows may still use `"Draft"` / `"Active"`. */
+  lifecycleStatus: "New" | "Draft" | "Active" | "In Progress" | "On Hold" | "Completed";
   executionPhase?: string; // Replaces progressStage for specific phases
   /** Free-form field notes from the Execution tab (prototype). */
   executionNotes?: string;
@@ -715,7 +716,11 @@ export interface Tool {
   id: string;
   name: string;
   assignedTo: string;
+  /** FK to employees.id when issued to a person. */
+  assignedToEmployeeId?: string;
   site: string;
+  /** FK to sites.id when issued to a site. */
+  assignedToSiteId?: string;
   status: "In Use" | "Available" | "Under Repair" | "Retired";
   lastUpdated: string;
   condition: "Good" | "Fair" | "Poor" | "Damaged";
@@ -756,13 +761,16 @@ export interface Enquiry {
   systemCapacity: string;
   estimatedBudget: number;
   requirements: string;
-  status: "new" | "meeting_scheduled" | "quotation_sent" | "converted" | "lost";
+  status: "new" | "meeting_scheduled" | "quotation_sent" | "quotation_rejected" | "converted" | "lost";
   priority: "low" | "medium" | "high";
   assignedTo: string;
   meetingDate?: string;
   meetingNotes?: string;
   followUpDate?: string;
+  /** Latest linked quotation (mirrors last entry in `quotationIds`). */
   quotationId?: string;
+  /** All quotations created for this enquiry, oldest → newest. */
+  quotationIds?: string[];
   customerId?: string;
   lostReason?: string;
   createdAt: string;

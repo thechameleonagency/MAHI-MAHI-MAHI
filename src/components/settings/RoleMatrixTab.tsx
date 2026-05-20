@@ -52,6 +52,7 @@ const DOMAIN_GROUPS: { id: string; label: string; features: Feature[] }[] = [
     id: "finance",
     label: "Finance",
     features: [
+      "financeHub",
       "invoice",
       "saleBill",
       "payment",
@@ -118,6 +119,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   tool: "Tool",
   toolMovement: "Tool movement (issue/return/reverse)",
   template: "Quotation / site checklist templates",
+  financeHub: "Finance Hub (/finance)",
   invoice: "Invoice",
   saleBill: "Sale bill",
   payment: "Payment",
@@ -246,10 +248,11 @@ export function RoleMatrixTab() {
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <div>
-            <p className="font-medium text-foreground">UI overrides only</p>
+            <p className="font-medium text-foreground">Effective permissions</p>
             <p className="text-xs">
-              Saved matrix changes apply to <code className="text-xs">useCan</code>-gated controls. Route access and
-              command permissions still use the built-in permission matrix until fully wired (M11).
+              Saved matrix changes apply to <code className="text-xs">useCan</code>-gated buttons and to route access
+              (sidebar, pins, deep links) via each page&apos;s <strong>View</strong> column. Action verbs (Create / Edit /
+              Delete) gate commands and forms.
             </p>
           </div>
         </div>

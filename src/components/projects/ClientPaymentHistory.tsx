@@ -227,9 +227,9 @@ export function ClientPaymentHistory({
             <p className="text-xs text-muted-foreground">Total Received</p>
             <p className="text-lg font-semibold text-primary">{formatINR(totalReceived)}</p>
           </div>
-          <div className={`p-3 rounded-lg ${pendingAmount > 0 ? 'bg-orange-500/10' : 'bg-primary/10'}`}>
+          <div className={`p-3 rounded-lg ${pendingAmount > 0 ? 'bg-warning/10' : 'bg-primary/10'}`}>
             <p className="text-xs text-muted-foreground">Pending</p>
-            <p className={`text-lg font-semibold ${pendingAmount > 0 ? 'text-orange-600' : 'text-primary'}`}>
+            <p className={`text-lg font-semibold ${pendingAmount > 0 ? 'text-warning' : 'text-primary'}`}>
               {formatINR(pendingAmount)}
             </p>
           </div>

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 const toneClass: Record<AgingTone, string> = {
   neutral: "border-border text-muted-foreground bg-muted/40",
   muted: "border-border/70 text-muted-foreground bg-muted/30",
-  warning: "border-amber-500/40 text-amber-800 bg-amber-500/10",
+  warning: "border-warning/40 text-warning bg-warning/10",
   danger: "border-destructive/40 text-destructive bg-destructive/10",
 };
 

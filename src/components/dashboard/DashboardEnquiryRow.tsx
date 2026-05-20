@@ -2,7 +2,11 @@ import { Link } from "react-router-dom";
 import { Calendar, FileText, Send, Check, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import type { Enquiry } from "@/types/project";
+import { enquiryAllowsNewQuotation } from "@/lib/enquiryQuotationCreateGate";
+import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
+import { useCan } from "@/hooks/useCan";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getEnquiryFollowUpAging } from "@/lib/agingHelpers";
 import { format } from "date-fns";
@@ -20,6 +24,8 @@ export function DashboardEnquiryRow({
   onConvert: () => void;
   onCreateQuotation: () => void;
 }) {
+  const canUpdateEnquiry = useCan("enquiry", "create");
+  const canCreateQuotation = useCan("quotation", "create");
   const aging = getEnquiryFollowUpAging(enquiry);
   return (
     <div className="rounded-xl border border-border/60 bg-card px-3 py-3 space-y-2">
@@ -36,7 +42,7 @@ export function DashboardEnquiryRow({
             </Badge>
             {aging && <AgingChip signal={aging} />}
             {enquiry.priority === "high" && (
-              <Badge variant="outline" className="text-2xs border-amber-500/40 text-amber-700">
+              <Badge variant="outline" className="text-2xs border-warning/40 text-warning">
                 High priority
               </Badge>
             )}
@@ -51,27 +57,54 @@ export function DashboardEnquiryRow({
       <div className="flex flex-wrap gap-1.5">
         {(enquiry.status === "new" || enquiry.status === "meeting_scheduled") && (
           <>
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onScheduleMeeting}>
+            <PermissionGatedButton
+              allowed={canUpdateEnquiry}
+              deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={onScheduleMeeting}
+            >
               <Calendar className="mr-1 h-3 w-3" />
               Schedule
-            </Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onSendQuotation}>
+            </PermissionGatedButton>
+            <PermissionGatedButton
+              allowed={canUpdateEnquiry}
+              deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={onSendQuotation}
+            >
               <Send className="mr-1 h-3 w-3" />
               Mark quote sent
-            </Button>
+            </PermissionGatedButton>
           </>
         )}
         {enquiry.status === "quotation_sent" && (
-          <Button size="sm" className="h-7 text-xs" onClick={onConvert}>
+          <PermissionGatedButton
+            allowed={canUpdateEnquiry}
+            deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
+            size="sm"
+            className="h-7 text-xs"
+            onClick={onConvert}
+          >
             <Check className="mr-1 h-3 w-3" />
             Mark converted
-          </Button>
+          </PermissionGatedButton>
         )}
-        {enquiry.status === "converted" && !enquiry.quotationId && (
-          <Button size="sm" className="h-7 text-xs" onClick={onCreateQuotation}>
+        {enquiry.status === "quotation_rejected" && enquiryAllowsNewQuotation(enquiry) && (
+          <PermissionGatedButton
+            allowed={canCreateQuotation}
+            deniedHint={PERMISSION_DENIED_HINTS.enquiryCreateQuotation}
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={onCreateQuotation}
+          >
             <FileText className="mr-1 h-3 w-3" />
-            Create quotation
-          </Button>
+            Create new quotation
+          </PermissionGatedButton>
         )}
       </div>
     </div>

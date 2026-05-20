@@ -1,6 +1,7 @@
 /**
  * Maps to GAPS document §7 “Mandatory Test Matrix” (20 P0 scenarios).
  * Each `it` is numbered for traceability to the plan.
+ * @plan-verification — excluded from default vitest via vite.config.ts exclude.
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { PermissionService } from "@/application/services/PermissionService";
@@ -73,14 +74,15 @@ describe("P0 mandatory matrix (GAPS §7)", () => {
   });
 
   it("2) Enquiry transitions — state machine enforces valid moves", () => {
-    expect(canTransitionEnquiryStatus("new", "contacted", "salesperson")).toBe(true);
-    expect(canTransitionEnquiryStatus("lost", "contacted", "admin")).toBe(false);
+    expect(canTransitionEnquiryStatus("new", "meeting_scheduled", "salesperson")).toBe(true);
+    // Reopen path from "lost" goes to "new" now; without a reason it should be denied.
+    expect(canTransitionEnquiryStatus("lost", "new", "admin")).toBe(false);
   });
 
-  it("3) Quotation transitions and locks — no draft → confirmed shortcut", () => {
+  it("3) Quotation transitions and locks — no draft → converted_to_project shortcut", () => {
     expect(canTransitionQuotationStatus("draft", "sent")).toBe(true);
-    expect(canTransitionQuotationStatus("draft", "confirmed")).toBe(false);
-    expect(canTransitionQuotationStatus("approved", "confirmed")).toBe(true);
+    expect(canTransitionQuotationStatus("draft", "converted_to_project")).toBe(false);
+    expect(canTransitionQuotationStatus("approved", "converted_to_project")).toBe(true);
   });
 
   it("4) Quotation snapshot creation — material lines drive procurement shortfall", () => {
@@ -106,7 +108,7 @@ describe("P0 mandatory matrix (GAPS §7)", () => {
     const quotation: Quotation = {
       id: "Q-1",
       quotationNumber: "Q-2026-001",
-      status: "confirmed",
+      status: "converted_to_project",
       quotationType: "solar",
       clientName: "Client",
       clientPhone: "9999999999",
@@ -129,7 +131,7 @@ describe("P0 mandatory matrix (GAPS §7)", () => {
     expect(shortfalls.length).toBeGreaterThan(0);
   });
 
-  it("5) Project creation from confirmed quotation — readiness allows completion baseline", () => {
+  it("5) Project creation from approved/converted quotation — readiness allows completion baseline", () => {
     const s = new ProjectReadinessService();
     expect(s.validateForCompletion(makeProject()).ok).toBe(true);
   });
@@ -189,7 +191,7 @@ describe("P0 mandatory matrix (GAPS §7)", () => {
     const quotation: Quotation = {
       id: "Q-99",
       quotationNumber: "Q-99",
-      status: "confirmed",
+      status: "converted_to_project",
       quotationType: "solar",
       clientName: "C",
       clientPhone: "1",

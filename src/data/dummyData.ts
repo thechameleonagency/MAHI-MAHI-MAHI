@@ -1,3 +1,4 @@
+/** Prototype shim: re-exports seed slices for legacy repository tests — canonical state is AppDataContext + appSeedBuilder. */
 import { normalizeProject } from "@/lib/projectNormalize";
 import type {
   AttendanceRecord,
@@ -52,8 +53,8 @@ import {
   seedIncomes,
   seedAgents,
   seedAuditLogs,
-  _seedQuotationTemplates,
-  _seedSiteChecklistTemplates,
+
+
   seedTeams,
   seedReviewQueue,
   seedVouchers,

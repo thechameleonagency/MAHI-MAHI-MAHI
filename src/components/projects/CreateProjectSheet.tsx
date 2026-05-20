@@ -474,6 +474,15 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
       return;
     }
 
+    if (finalContractAmount <= 0) {
+      toast({
+        title: "Invalid contract amount",
+        description: "Contract amount and partner rates must be greater than zero.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (commissionRatePct?.trim()) {
       const cr = Number.parseFloat(commissionRatePct);
       if (!Number.isFinite(cr) || cr < 0 || cr > 100) {
@@ -551,7 +560,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
       type: projectKind === "INC_GIVEN" ? "INC" : "EPC",
       projectType: finalProjectType,
       projectCategory: "solar",
-      lifecycleStatus: "Active",
+      lifecycleStatus: "New",
       client: finalClientName,
       customerId: finalCustomerId,
       capacity: finalCapacity.toLowerCase().includes("kw") ? finalCapacity : `${finalCapacity} kW`,

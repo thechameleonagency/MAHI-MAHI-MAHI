@@ -17,15 +17,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { User, Building2, Shield, Palette, Users, Mail, Phone, MapPin, Globe, Camera, Database, Check, AlertCircle, Sun, Zap, Factory, Edit, Trash2, RotateCcw, Layout } from "lucide-react";
+import { User, Building2, Shield, Palette, Users, Mail, Phone, MapPin, Globe, Camera, Database, Check, AlertCircle, RotateCcw, Layout, Boxes, KeyRound } from "lucide-react";
+import { MastersTab } from "@/components/settings/MastersTab";
+import { RoleMatrixTab } from "@/components/settings/RoleMatrixTab";
+import { QuotationStaticSectionsTab } from "@/components/settings/QuotationStaticSectionsTab";
+import { useCan } from "@/hooks/useCan";
 import { ToastAction } from "@/components/ui/toast";
 import { useAppData } from "@/contexts/AppDataContext";
-import type { SolarPackagePreset, SettingsTeamMember } from "@/types/project";
+import type { SettingsTeamMember } from "@/types/project";
 import { toast } from "@/hooks/use-toast";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { DesignSystem } from "@/pages/DesignSystem";
+import { ROLE_LABELS, USER_ROLES } from "@/domain/entities/identity";
 
 const LS_PROFILE = "mss.settings.profile";
 const LS_COMPANY = "mss.settings.company";
@@ -34,11 +41,11 @@ const LS_ACCENT = "mss.settings.accent";
 const LS_2FA = "mss.settings.2fa";
 
 const ACCENT_COLORS = [
-  { label: "Blue", cls: "bg-blue-500", value: "blue" },
-  { label: "Green", cls: "bg-green-600", value: "green" },
-  { label: "Purple", cls: "bg-purple-500", value: "purple" },
-  { label: "Amber", cls: "bg-amber-500", value: "amber" },
-  { label: "Red", cls: "bg-red-500", value: "red" },
+  { label: "Blue", cls: "bg-primary", value: "blue" },
+  { label: "Green", cls: "bg-success", value: "green" },
+  { label: "Purple", cls: "bg-accent", value: "purple" },
+  { label: "Amber", cls: "bg-warning", value: "amber" },
+  { label: "Red", cls: "bg-destructive", value: "red" },
 ];
 
 const Settings = () => {
@@ -46,12 +53,21 @@ const Settings = () => {
   const navigate = useNavigate();
   const {
     resetToDefaults,
-    solarPackagePresets,
-    replaceSolarPackagePresets,
+    loadDemoDataset,
     settingsTeamMembers,
     replaceSettingsTeamMembers,
   } = useAppData();
+  const canViewMasters = useCan("settingsMasters", "view");
+  const canViewRoleMatrix = useCan("settingsRoleMatrix", "view");
+  const canViewCompany = useCan("settingsCompany", "view");
+  const canViewTeam = useCan("settingsTeam", "view");
+  const canViewTheme = useCan("settingsTheme", "view");
+  const canViewSecurity = useCan("settingsSecurity", "view");
+  const canViewData = useCan("settingsData", "view");
+  const canResetPrototype = useCan("resetPrototype", "create");
   const [activeTab, setActiveTab] = useState("profile");
+  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
+  const [isResetDataConfirmOpen, setIsResetDataConfirmOpen] = useState(false);
 
   useEffect(() => {
     const tabParam = new URLSearchParams(location.search).get("tab");
@@ -59,6 +75,32 @@ const Settings = () => {
       setActiveTab("design");
     }
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    const restricted: Record<string, boolean> = {
+      company: !canViewCompany,
+      team: !canViewTeam,
+      appearance: !canViewTheme,
+      security: !canViewSecurity,
+      design: !canViewTheme,
+      data: !canViewData,
+      masters: !canViewMasters,
+      roles: !canViewRoleMatrix,
+      "quotation-sections": !canViewMasters,
+    };
+    if (restricted[activeTab]) {
+      setActiveTab("profile");
+    }
+  }, [
+    activeTab,
+    canViewCompany,
+    canViewTeam,
+    canViewTheme,
+    canViewSecurity,
+    canViewData,
+    canViewMasters,
+    canViewRoleMatrix,
+  ]);
 
   const handleTabChange = (v: string) => {
     setActiveTab(v);
@@ -114,12 +156,12 @@ const Settings = () => {
 
   const handleSaveProfile = () => {
     localStorage.setItem(LS_PROFILE, JSON.stringify({ firstName: profileFirstName, lastName: profileLastName, email: profileEmail, phone: profilePhone, role: profileRole }));
-    toast({ title: "Profile saved", description: "Your profile has been updated." });
+    setLastConfirm({ variant: "success", title: "Profile saved", description: "Your profile has been updated." });
   };
 
   const handleSaveCompany = () => {
     localStorage.setItem(LS_COMPANY, JSON.stringify({ companyName, gstNumber: companyGst, panNumber: companyPan, address: companyAddress, website: companyWebsite, industry: companyIndustry, companyState }));
-    toast({ title: "Company info saved", description: "Company details have been updated." });
+    setLastConfirm({ variant: "success", title: "Company info saved", description: "Company details have been updated." });
   };
 
   const handleUpdatePassword = () => {
@@ -132,14 +174,14 @@ const Settings = () => {
       return;
     }
     setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
-    toast({ title: "Password updated", description: "Your password has been changed successfully." });
+    setLastConfirm({ variant: "success", title: "Password updated", description: "Your password has been changed successfully." });
   };
 
   const handleToggle2FA = () => {
     const next = !twoFAEnabled;
     setTwoFAEnabled(next);
     localStorage.setItem(LS_2FA, String(next));
-    toast({ title: next ? "2FA Enabled" : "2FA Disabled", description: next ? "Two-factor authentication is now active." : "Two-factor authentication has been disabled." });
+    setLastConfirm({ variant: next ? "success" : "warning", title: next ? "2FA enabled" : "2FA disabled", description: next ? "Two-factor authentication is now active." : "Two-factor authentication has been disabled." });
   };
   
   // Modal states
@@ -151,77 +193,8 @@ const Settings = () => {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("");
 
-  const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
-  const [editingPreset, setEditingPreset] = useState<SolarPackagePreset | null>(null);
-  const [presetForm, setPresetForm] = useState({
-    name: "",
-    category: "residential" as 'residential' | 'commercial' | 'industrial',
-    capacityKW: 0,
-    panelBrand: "",
-    panelWattage: 0,
-    panelCount: 0,
-    inverterBrand: "",
-    inverterCapacity: "",
-    structureType: "",
-    estimatedCost: 0,
-  });
-
-  const handleAddPreset = (category: 'residential' | 'commercial' | 'industrial') => {
-    setEditingPreset(null);
-    setPresetForm({
-      name: "",
-      category,
-      capacityKW: 0,
-      panelBrand: "",
-      panelWattage: 0,
-      panelCount: 0,
-      inverterBrand: "",
-      inverterCapacity: "",
-      structureType: "",
-      estimatedCost: 0,
-    });
-    setIsPresetModalOpen(true);
-  };
-
-  const handleEditPreset = (preset: SolarPackagePreset) => {
-    setEditingPreset(preset);
-    setPresetForm({ ...preset });
-    setIsPresetModalOpen(true);
-  };
-
-  const handleSavePreset = () => {
-    if (editingPreset) {
-      replaceSolarPackagePresets(
-        solarPackagePresets.map((p) =>
-          p.id === editingPreset.id ? { ...(presetForm as SolarPackagePreset), id: editingPreset.id } : p,
-        ),
-      );
-      toast({ title: "Preset Updated", description: `"${presetForm.name}" has been updated` });
-    } else {
-      const newPreset = { ...(presetForm as SolarPackagePreset), id: `preset-${Date.now()}` };
-      replaceSolarPackagePresets([newPreset, ...solarPackagePresets]);
-      toast({ title: "Preset Added", description: `"${presetForm.name}" has been created` });
-    }
-    setIsPresetModalOpen(false);
-  };
-
-  const handleDeletePreset = (presetId: string, presetName: string) => {
-    replaceSolarPackagePresets(solarPackagePresets.filter((p) => p.id !== presetId));
-    toast({ title: "Preset Deleted", description: `"${presetName}" has been removed` });
-  };
-
-  const _getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'residential': return <Sun className="h-5 w-5 text-amber-500" />;
-      case 'commercial': return <Zap className="h-5 w-5 text-primary" />;
-      case 'industrial': return <Factory className="h-5 w-5 text-primary" />;
-      default: return <Sun className="h-5 w-5" />;
-    }
-  };
-
-  const _formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
-  };
+  // Solar package preset state & handlers removed (Task 5). Templates are now exactly 2 types
+  // managed under Inventory → Templates: Quotation templates + Site Checklist (fixed-items) templates.
 
   const handleRoleChange = (memberId: number, newRole: string) => {
     const member = settingsTeamMembers.find((m) => m.id === memberId);
@@ -242,8 +215,9 @@ const Settings = () => {
           m.id === pendingRoleChange.memberId ? { ...m, role: pendingRoleChange.newRole } : m,
         ),
       );
-      toast({
-        title: "Role Updated",
+      setLastConfirm({
+        variant: "success",
+        title: "Role updated",
         description: `Role has been changed to ${pendingRoleChange.newRole}`,
       });
     }
@@ -261,8 +235,9 @@ const Settings = () => {
         status: "Pending",
       };
       replaceSettingsTeamMembers([...settingsTeamMembers, newMember]);
-      toast({
-        title: "Invitation Sent",
+      setLastConfirm({
+        variant: "success",
+        title: "Invitation sent",
         description: `Invitation sent to ${inviteEmail}`,
       });
       setInviteEmail("");
@@ -273,10 +248,11 @@ const Settings = () => {
 
   const handleRemoveMember = (memberId: number) => {
     const member = settingsTeamMembers.find((m) => m.id === memberId);
-    if (member?.role === "Admin") return;
+    if (member?.role === "super_admin" || member?.role === "Admin") return;
     replaceSettingsTeamMembers(settingsTeamMembers.filter((m) => m.id !== memberId));
-    toast({
-      title: "Member Removed",
+    setLastConfirm({
+      variant: "warning",
+      title: "Member removed",
       description: "Team member has been removed",
     });
   };
@@ -290,6 +266,8 @@ const Settings = () => {
     security: "Security",
     design: "Design system",
     data: "Data",
+    masters: "Masters",
+    roles: "Role Matrix",
   };
 
   return (
@@ -303,11 +281,19 @@ const Settings = () => {
               { label: "View", value: settingsTabTitle[activeTab] ?? activeTab },
               { label: "Team", value: settingsTeamMembers.length },
               { label: "Active", value: teamActive },
-              { label: "Solar presets", value: solarPackagePresets.length },
             ]}
           />
         }
       />
+
+      {lastConfirm && (
+        <InlineConfirmBanner
+          variant={lastConfirm.variant}
+          title={lastConfirm.title}
+          description={lastConfirm.description}
+          onDismiss={() => setLastConfirm(null)}
+        />
+      )}
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="flex gap-6">
         <TabsList className="flex-col h-auto bg-transparent p-0 justify-start w-[200px] shrink-0">
@@ -315,30 +301,60 @@ const Settings = () => {
             <User className="h-4 w-4" />
             Profile
           </TabsTrigger>
-          <TabsTrigger value="company" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
-            <Building2 className="h-4 w-4" />
-            Company
-          </TabsTrigger>
-          <TabsTrigger value="team" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
-            <Users className="h-4 w-4" />
-            Team
-          </TabsTrigger>
-          <TabsTrigger value="appearance" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
-            <Palette className="h-4 w-4" />
-            Appearance
-          </TabsTrigger>
-          <TabsTrigger value="security" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
-            <Shield className="h-4 w-4" />
-            Security
-          </TabsTrigger>
-          <TabsTrigger value="design" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
-            <Layout className="h-4 w-4" />
-            Design system
-          </TabsTrigger>
-          <TabsTrigger value="data" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
-            <Database className="h-4 w-4" />
-            Data
-          </TabsTrigger>
+          {canViewCompany && (
+            <TabsTrigger value="company" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <Building2 className="h-4 w-4" />
+              Company
+            </TabsTrigger>
+          )}
+          {canViewTeam && (
+            <TabsTrigger value="team" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <Users className="h-4 w-4" />
+              Team
+            </TabsTrigger>
+          )}
+          {canViewTheme && (
+            <TabsTrigger value="appearance" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <Palette className="h-4 w-4" />
+              Appearance
+            </TabsTrigger>
+          )}
+          {canViewSecurity && (
+            <TabsTrigger value="security" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <Shield className="h-4 w-4" />
+              Security
+            </TabsTrigger>
+          )}
+          {canViewTheme && (
+            <TabsTrigger value="design" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <Layout className="h-4 w-4" />
+              Design system
+            </TabsTrigger>
+          )}
+          {canViewData && (
+            <TabsTrigger value="data" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <Database className="h-4 w-4" />
+              Data
+            </TabsTrigger>
+          )}
+          {canViewMasters && (
+            <TabsTrigger value="masters" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <Boxes className="h-4 w-4" />
+              Masters
+            </TabsTrigger>
+          )}
+          {canViewRoleMatrix && (
+            <TabsTrigger value="roles" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <KeyRound className="h-4 w-4" />
+              Role matrix
+            </TabsTrigger>
+          )}
+          {canViewMasters && (
+            <TabsTrigger value="quotation-sections" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <Layout className="h-4 w-4" />
+              Quotation sections
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <div className="flex-1">
@@ -354,8 +370,8 @@ const Settings = () => {
                     <Avatar className="h-20 w-20">
                       <AvatarFallback className="text-xl bg-primary/10 text-primary">JD</AvatarFallback>
                     </Avatar>
-                    <Button size="icon" variant="outline" className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full">
-                      <Camera className="h-4 w-4" />
+                    <Button size="icon" variant="outline" className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full" aria-label="Change profile photo">
+                      <Camera className="h-4 w-4" aria-hidden />
                     </Button>
                   </div>
                   <div>
@@ -402,6 +418,7 @@ const Settings = () => {
             </Card>
           </TabsContent>
 
+          {canViewCompany && (
           <TabsContent value="company" className="mt-0 space-y-6">
             <Card className="bg-card border-border">
               <CardHeader>
@@ -462,62 +479,15 @@ const Settings = () => {
               </CardContent>
             </Card>
 
-            <Card className="bg-card border-border">
-              <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <CardTitle className="text-base font-medium">Solar package quick-picks</CardTitle>
-                  <CardDescription>
-                    Saved in prototype data for quick reference in proposals. Full site checklist + BOM templates are under{" "}
-                    <span className="font-medium text-foreground">Inventory → Templates</span>.
-                  </CardDescription>
-                </div>
-                <div className="flex flex-wrap gap-2 shrink-0">
-                  <Button type="button" size="sm" variant="outline" className="gap-1" onClick={() => handleAddPreset("residential")}>
-                    <Sun className="h-4 w-4" /> Add residential
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" className="gap-1" onClick={() => handleAddPreset("commercial")}>
-                    <Zap className="h-4 w-4" /> Add commercial
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" className="gap-1" onClick={() => handleAddPreset("industrial")}>
-                    <Factory className="h-4 w-4" /> Add industrial
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {solarPackagePresets.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No presets yet. Use the buttons above to add one.</p>
-                ) : (
-                  <div className="rounded-md border divide-y">
-                    {solarPackagePresets.map((p) => (
-                      <div key={p.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="min-w-0 space-y-1">
-                          <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
-                          <p className="text-xs text-muted-foreground capitalize">
-                            {p.category} · {p.capacityKW} kW · {p.panelBrand} {p.panelWattage}W × {p.panelCount} · ₹{p.estimatedCost.toLocaleString("en-IN")}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 gap-1">
-                          <Button type="button" size="sm" variant="outline" className="gap-1" onClick={() => handleEditPreset(p)}>
-                            <Edit className="h-4 w-4" /> Edit
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="text-destructive hover:text-destructive gap-1"
-                            onClick={() => handleDeletePreset(p.id, p.name)}
-                          >
-                            <Trash2 className="h-4 w-4" /> Delete
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            {/*
+              Solar package quick-picks Card removed (Task 5). The app's template model is
+              now exactly 2 types — Quotation templates + Site Checklist (fixed-items) templates,
+              both managed under Inventory → Templates. No third "solar package preset" surface.
+            */}
           </TabsContent>
+          )}
 
+          {canViewTeam && (
           <TabsContent value="team" className="mt-0 space-y-6">
             <Card className="bg-card border-border">
               <CardHeader>
@@ -546,7 +516,7 @@ const Settings = () => {
                             <div className="flex items-center gap-2">
                               <p className="text-sm font-medium text-foreground">{member.name}</p>
                               {member.status === "Pending" && (
-                                <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-500">Pending</Badge>
+                                <Badge variant="outline" className="text-xs bg-warning/10 text-warning">Pending</Badge>
                               )}
                             </div>
                             <p className="text-xs text-muted-foreground">{member.email}</p>
@@ -555,19 +525,20 @@ const Settings = () => {
                         <div className="flex items-center gap-4">
                           <Select 
                             value={member.role.toLowerCase()}
-                            onValueChange={(val) => handleRoleChange(member.id, val.charAt(0).toUpperCase() + val.slice(1))}
+                            onValueChange={(val) => handleRoleChange(member.id, val)}
                           >
                             <SelectTrigger className="w-[120px] h-8 text-xs bg-muted/50 border-border">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="admin">Admin</SelectItem>
-                              <SelectItem value="manager">Manager</SelectItem>
-                              <SelectItem value="accountant">Accountant</SelectItem>
-                              <SelectItem value="supervisor">Supervisor</SelectItem>
+                              {USER_ROLES.map((role) => (
+                                <SelectItem key={role} value={role}>
+                                  {ROLE_LABELS[role]}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
-                          {member.role === "Admin" ? (
+                          {member.role === "super_admin" || member.role === "Admin" ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button 
@@ -587,7 +558,7 @@ const Settings = () => {
                             <Button 
                               variant="ghost" 
                               size="sm" 
-                              className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
                               onClick={() => handleRemoveMember(member.id)}
                             >
                               Remove
@@ -601,9 +572,9 @@ const Settings = () => {
               </CardContent>
             </Card>
           </TabsContent>
+          )}
 
-
-
+          {canViewTheme && (
           <TabsContent value="appearance" className="mt-0 space-y-6">
             <Card className="bg-card border-border">
               <CardHeader>
@@ -650,7 +621,9 @@ const Settings = () => {
               </CardContent>
             </Card>
           </TabsContent>
+          )}
 
+          {canViewSecurity && (
           <TabsContent value="security" className="mt-0 space-y-6">
             <Card className="bg-card border-border">
               <CardHeader>
@@ -686,49 +659,85 @@ const Settings = () => {
               </CardContent>
             </Card>
           </TabsContent>
+          )}
 
+          {canViewTheme && (
           <TabsContent value="design" className="mt-0 max-h-[calc(100vh-10rem)] min-h-0 overflow-y-auto pr-1">
             <DesignSystem embedded />
           </TabsContent>
+          )}
 
+          {canViewData && (
           <TabsContent value="data" className="mt-0 space-y-6">
             <Card className="bg-card border-border">
               <CardHeader>
-                <CardTitle className="text-base font-medium">Prototype data</CardTitle>
+                <CardTitle className="text-base font-medium">App data</CardTitle>
                 <CardDescription>
-                  Restore the built-in demo dataset in memory. This does not clear your browser cache; it replaces app state for this session.
+                  The app boots with zero business rows (masters only). Load the demo dataset when you need sample projects and finance data for testing.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Use this after errors or ad-hoc testing to get back to a known-good list of projects, quotations, and enquiries. You can also reach this from the error screen in Settings.
+                  Reset wipes localStorage and reloads an empty workspace. Demo load fills memory with the sequenced seed without a full page reload.
                 </p>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  className="gap-2"
-                  onClick={() => {
-                    toast({
-                      title: "Reset all demo data?",
-                      description: "In-memory data will be replaced. Unsaved work will be lost. This cannot be undone.",
-                      variant: "destructive",
-                      action: (
-                        <ToastAction altText="Reset Data" onClick={() => {
-                          resetToDefaults();
-                          toast({ title: "Demo data reset", description: "Default data has been loaded." });
-                        }}>
-                          Reset Data
-                        </ToastAction>
-                      )
-                    });
-                  }}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  Reset all demo data
-                </Button>
+                {canResetPrototype && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="gap-2"
+                      onClick={() => {
+                        loadDemoDataset();
+                        setLastConfirm({
+                          variant: "success",
+                          title: "Demo dataset loaded",
+                          description: "Sample projects, quotations, and related rows are now available.",
+                        });
+                      }}
+                    >
+                      Load demo dataset
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => window.open("/prototype-wipe.html", "_blank", "noopener,noreferrer")}
+                    >
+                      Open full storage wipe (localStorage)
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="gap-2"
+                      onClick={() => setIsResetDataConfirmOpen(true)}
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      Reset to empty workspace
+                    </Button>
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
+          )}
+
+          {canViewMasters && (
+            <TabsContent value="masters" className="mt-0 h-[calc(100vh-14rem)]">
+              <MastersTab />
+            </TabsContent>
+          )}
+
+          {canViewRoleMatrix && (
+            <TabsContent value="roles" className="mt-0 h-[calc(100vh-14rem)] overflow-y-auto">
+              <RoleMatrixTab />
+            </TabsContent>
+          )}
+
+          {canViewMasters && (
+            <TabsContent value="quotation-sections" className="mt-0 h-[calc(100vh-14rem)] overflow-y-auto">
+              <QuotationStaticSectionsTab />
+            </TabsContent>
+          )}
         </div>
       </Tabs>
 
@@ -757,10 +766,11 @@ const Settings = () => {
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Admin">Admin</SelectItem>
-                  <SelectItem value="Manager">Manager</SelectItem>
-                  <SelectItem value="Accountant">Accountant</SelectItem>
-                  <SelectItem value="Supervisor">Supervisor</SelectItem>
+                  {USER_ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {ROLE_LABELS[role]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -785,8 +795,8 @@ const Settings = () => {
             <SheetTitle>Confirm Role Change</SheetTitle>
           </SheetHeader>
           <div className="py-4">
-            <div className="flex items-center gap-3 p-4 bg-amber-500/10 rounded-lg">
-              <AlertCircle className="h-5 w-5 text-amber-500" />
+            <div className="flex items-center gap-3 p-4 bg-warning/10 rounded-lg">
+              <AlertCircle className="h-5 w-5 text-warning" />
               <p className="text-sm">
                 Are you sure you want to change the role from <strong>{pendingRoleChange?.currentRole}</strong> to <strong>{pendingRoleChange?.newRole}</strong>?
               </p>
@@ -802,124 +812,20 @@ const Settings = () => {
         </SheetContent>
       </Sheet>
 
-      {/* Add/Edit Preset Modal */}
-      <Sheet open={isPresetModalOpen} onOpenChange={setIsPresetModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
-          <SheetHeader>
-            <SheetTitle>{editingPreset ? 'Edit Preset' : 'Add New Preset'}</SheetTitle>
-          </SheetHeader>
-          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
-            <div className="space-y-2">
-              <Label>Preset Name</Label>
-              <Input 
-                placeholder="e.g., Standard 5kW System" 
-                value={presetForm.name}
-                onChange={(e) => setPresetForm(prev => ({ ...prev, name: e.target.value }))}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Category</Label>
-                <Select 
-                  value={presetForm.category} 
-                  onValueChange={(v: 'residential' | 'commercial' | 'industrial') => setPresetForm(prev => ({ ...prev, category: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="residential">Residential</SelectItem>
-                    <SelectItem value="commercial">Commercial</SelectItem>
-                    <SelectItem value="industrial">Industrial</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Capacity (kW)</Label>
-                <Input 
-                  type="number"
-                  placeholder="e.g., 5" 
-                  value={presetForm.capacityKW || ''}
-                  onChange={(e) => setPresetForm(prev => ({ ...prev, capacityKW: Number(e.target.value) }))}
-                />
-              </div>
-            </div>
-            <Separator />
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Panel Brand</Label>
-                <Input 
-                  placeholder="e.g., Waaree" 
-                  value={presetForm.panelBrand}
-                  onChange={(e) => setPresetForm(prev => ({ ...prev, panelBrand: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Panel Wattage</Label>
-                <Input 
-                  type="number"
-                  placeholder="e.g., 540" 
-                  value={presetForm.panelWattage || ''}
-                  onChange={(e) => setPresetForm(prev => ({ ...prev, panelWattage: Number(e.target.value) }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Number of Panels</Label>
-                <Input 
-                  type="number"
-                  placeholder="e.g., 10" 
-                  value={presetForm.panelCount || ''}
-                  onChange={(e) => setPresetForm(prev => ({ ...prev, panelCount: Number(e.target.value) }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Inverter Brand</Label>
-                <Input 
-                  placeholder="e.g., Growatt" 
-                  value={presetForm.inverterBrand}
-                  onChange={(e) => setPresetForm(prev => ({ ...prev, inverterBrand: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Inverter Capacity</Label>
-                <Input 
-                  placeholder="e.g., 5kW" 
-                  value={presetForm.inverterCapacity}
-                  onChange={(e) => setPresetForm(prev => ({ ...prev, inverterCapacity: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Structure Type</Label>
-                <Input 
-                  placeholder="e.g., Elevated GI" 
-                  value={presetForm.structureType}
-                  onChange={(e) => setPresetForm(prev => ({ ...prev, structureType: e.target.value }))}
-                />
-              </div>
-            </div>
-            <Separator />
-            <div className="space-y-2">
-              <Label>Estimated Cost (₹)</Label>
-              <Input 
-                type="number"
-                placeholder="e.g., 250000" 
-                value={presetForm.estimatedCost || ''}
-                onChange={(e) => setPresetForm(prev => ({ ...prev, estimatedCost: Number(e.target.value) }))}
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={() => setIsPresetModalOpen(false)}>Cancel</Button>
-            <Button 
-              className="bg-primary text-primary-foreground" 
-              onClick={handleSavePreset}
-              disabled={!presetForm.name || !presetForm.capacityKW}
-            >
-              {editingPreset ? 'Update Preset' : 'Add Preset'}
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
+      {/* Solar package preset Sheet removed (Task 5). 2-template model lives under Inventory → Templates. */}
+
+      <DestructiveConfirmDialog
+        open={isResetDataConfirmOpen}
+        onOpenChange={setIsResetDataConfirmOpen}
+        title="Reset to empty workspace?"
+        description="All localStorage app data will be deleted and the page will reload with zero business rows (masters reload from code). Unsaved work will be lost."
+        typedConfirmation="RESET"
+        confirmLabel="Reset data"
+        onConfirm={() => {
+          resetToDefaults();
+          /* resetToDefaults reloads the page */
+        }}
+      />
     </PageShell>
   );
 };

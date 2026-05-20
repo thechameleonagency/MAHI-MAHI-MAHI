@@ -8,15 +8,32 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ShieldCheck } from "lucide-react";
-import BankReconciliationModal from "@/components/audit/BankReconciliationModal";
+import { ShieldCheck, Users as UsersIcon, Store } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import BankReconciliationSheet from "@/components/audit/BankReconciliationSheet";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO } from "date-fns";
-import { PrototypeFinanceNotice } from "@/components/prototype/PrototypeFinanceNotice";
 import { formatINR } from "@/lib/formatCurrency";
+import { computeLedgerTotals } from "@/lib/audit/ledgerTotals";
+import { computeProfitLoss } from "@/lib/audit";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { toast } from "@/hooks/use-toast";
+import { Info } from "lucide-react";
 
+/** Audit pages are route-gated today; when write actions ship, gate each control with `useCan` for the matching feature. */
 const AuditDashboard = () => {
-  const { invoices, saleBills, expenses, _incomes, vendorBills, inventoryItems, _customers, _vendors } = useAppData();
+  const {
+    invoices,
+    saleBills,
+    expenses,
+    incomes,
+    vendorBills,
+    inventoryItems,
+    customers,
+    vendors: _vendors,
+    materialDamageRecords,
+    payments,
+  } = useAppData();
   const navigate = useNavigate();
   const [period, setPeriod] = useState("current");
   const [showReconciliation, setShowReconciliation] = useState(false);
@@ -41,20 +58,39 @@ const AuditDashboard = () => {
     const range = getDateRange(period);
     const allInvoices = [...invoices, ...saleBills];
     const periodInvoices = allInvoices.filter(i => inRange(i.invoiceDate, range));
-    
-    const monthlyRevenue = periodInvoices.reduce((s, i) => s + i.total, 0);
+
+    const ledger = computeLedgerTotals(
+      { invoices, saleBills, expenses, vendorBills, inventoryItems, materialDamageRecords },
+      (dateStr) => inRange(dateStr, range),
+    );
     const gstCollected = periodInvoices.reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
     const gstInput = vendorBills.filter(b => inRange(b.billDate, range)).reduce((s, b) => s + (b.gst || 0), 0);
     const gstPayable = gstCollected - gstInput;
-    const inventoryValue = inventoryItems.reduce((s, item) => s + item.stock * item.buyPrice, 0);
-    const receivables = allInvoices.filter(i => i.status !== "paid").reduce((s, i) => s + (i.total - i.amountReceived), 0);
-    const payables = vendorBills.filter(b => b.status !== "paid").reduce((s, b) => s + (b.total - b.amountPaid), 0);
-    const periodExpenses = expenses.filter(e => inRange(e.date, range)).reduce((s, e) => s + e.amount, 0);
-    const periodPurchases = vendorBills.filter(b => inRange(b.billDate, range)).reduce((s, b) => s + b.total, 0);
-    const netProfit = monthlyRevenue - periodExpenses - periodPurchases;
+    const pl = computeProfitLoss(
+      {
+        invoices,
+        saleBills,
+        expenses,
+        incomes,
+        vendorBills,
+        inventoryItems,
+        materialDamageRecords,
+        payments,
+      },
+      (dateStr) => inRange(dateStr, range),
+      "accrual",
+    );
 
-    return { monthlyRevenue, gstCollected, gstPayable, inventoryValue, receivables, payables, netProfit };
-  }, [invoices, saleBills, expenses, vendorBills, inventoryItems, period]);
+    return {
+      monthlyRevenue: ledger.revenueAccrual,
+      gstCollected,
+      gstPayable,
+      inventoryValue: ledger.inventoryValueCost,
+      receivables: ledger.receivablesOpen,
+      payables: ledger.payablesOpen,
+      netProfit: pl.netProfit,
+    };
+  }, [invoices, saleBills, expenses, incomes, vendorBills, inventoryItems, materialDamageRecords, payments, period]);
 
   const kpiCards = [
     { label: "Revenue", value: stats.monthlyRevenue },
@@ -68,36 +104,71 @@ const AuditDashboard = () => {
 
   // Monthly chart data (last 6 months)
   const chartData = useMemo(() => {
+    const plInput = {
+      invoices,
+      saleBills,
+      expenses,
+      incomes,
+      vendorBills,
+      inventoryItems,
+      materialDamageRecords,
+      payments,
+    };
     return Array.from({ length: 6 }, (_, i) => {
       const month = subMonths(now, 5 - i);
       const range = { start: startOfMonth(month), end: endOfMonth(month) };
-      const allInv = [...invoices, ...saleBills];
-      const rev = allInv.filter(inv => inRange(inv.invoiceDate, range)).reduce((s, inv) => s + inv.total, 0);
-      const exp = expenses.filter(e => inRange(e.date, range)).reduce((s, e) => s + e.amount, 0);
-      const purchases = vendorBills.filter(b => inRange(b.billDate, range)).reduce((s, b) => s + b.total, 0);
+      const pl = computeProfitLoss(plInput, (dateStr) => inRange(dateStr, range), "accrual");
+      const opex =
+        pl.totalDirect + pl.totalIndirect + pl.totalFinanceCost + pl.totalTax;
       return {
         month: format(month, "MMM yy"),
-        Revenue: rev,
-        Expenses: exp,
-        Purchases: purchases,
-        Profit: rev - exp,
+        Revenue: pl.revenueTotal,
+        Expenses: opex,
+        Purchases: pl.cogs,
+        Profit: pl.netProfit,
       };
     });
-  }, [invoices, saleBills, expenses, vendorBills]);
+  }, [invoices, saleBills, expenses, incomes, vendorBills, inventoryItems, materialDamageRecords, payments]);
 
   // Top customers
   const topCustomers = useMemo(() => {
     const allInv = [...invoices, ...saleBills];
     const customerMap = new Map<string, { name: string; id: string; total: number; count: number }>();
     allInv.forEach(inv => {
-      if (!inv.customerName) return;
-      const existing = customerMap.get(inv.customerName) || { name: inv.customerName, id: inv.customerId || "", total: 0, count: 0 };
+      if (!inv.customerName && !inv.customerId) return;
+      const key = inv.customerId || `name:${inv.customerName}`;
+      const existing = customerMap.get(key) || {
+        name: inv.customerName || "Unknown",
+        id: inv.customerId || "",
+        total: 0,
+        count: 0,
+      };
       existing.total += inv.total;
       existing.count += 1;
-      customerMap.set(inv.customerName, existing);
+      customerMap.set(key, existing);
     });
     return Array.from(customerMap.values()).sort((a, b) => b.total - a.total).slice(0, 5);
   }, [invoices, saleBills]);
+
+  const openCustomer = (customerId: string, customerName: string) => {
+    if (!customerId) {
+      toast({
+        title: "Customer not linked",
+        description: `"${customerName}" has no customer record ID on file.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!customers.some((c) => c.id === customerId)) {
+      toast({
+        title: "Customer not found",
+        description: "This customer may have been removed.",
+        variant: "destructive",
+      });
+      return;
+    }
+    navigate(`/customers/${customerId}`);
+  };
 
   // Top vendors
   const topVendors = useMemo(() => {
@@ -150,7 +221,14 @@ const AuditDashboard = () => {
         </div>
       </StickyPageHeader>
 
-      <PrototypeFinanceNotice />
+      <Alert>
+        <Info className="h-4 w-4" />
+        <AlertTitle>Operational totals (prototype)</AlertTitle>
+        <AlertDescription>
+          KPIs and charts roll up invoices, expenses, and vendor bills directly. Posted accounting vouchers are stored
+          separately and are not included in these figures — use Chart of Accounts for voucher posting rules.
+        </AlertDescription>
+      </Alert>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -199,10 +277,16 @@ const AuditDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {topCustomers.length === 0 && <p className="text-sm text-muted-foreground">No customer data</p>}
+              {topCustomers.length === 0 && (
+                <ListEmptyState
+                  icon={UsersIcon}
+                  title="No customer activity yet"
+                  description="No invoiced customers in this period."
+                />
+              )}
               {topCustomers.map((c, i) => (
-                <div key={c.name} className="flex items-center justify-between cursor-pointer hover:bg-muted/50 p-2 rounded-lg transition-colors"
-                  onClick={() => c.id && navigate(`/customers/${c.id}`)}>
+                <div key={c.id || c.name} className="flex items-center justify-between cursor-pointer hover:bg-muted/50 p-2 rounded-lg transition-colors"
+                  onClick={() => openCustomer(c.id, c.name)}>
                   <div className="flex items-center gap-3">
                     <Badge variant="outline" className="w-6 h-6 flex items-center justify-center text-xs p-0">{i + 1}</Badge>
                     <div>
@@ -223,7 +307,13 @@ const AuditDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {topVendors.length === 0 && <p className="text-sm text-muted-foreground">No vendor data</p>}
+              {topVendors.length === 0 && (
+                <ListEmptyState
+                  icon={Store}
+                  title="No vendor activity yet"
+                  description="No vendor bills in this period."
+                />
+              )}
               {topVendors.map((v, i) => (
                 <div key={v.name} className="flex items-center justify-between cursor-pointer hover:bg-muted/50 p-2 rounded-lg transition-colors"
                   onClick={() => navigate(`/vendors/${v.id}`)}>
@@ -241,7 +331,7 @@ const AuditDashboard = () => {
           </CardContent>
         </Card>
       </div>
-      <BankReconciliationModal open={showReconciliation} onOpenChange={setShowReconciliation} />
+      <BankReconciliationSheet open={showReconciliation} onOpenChange={setShowReconciliation} />
     </PageShell>
   );
 };

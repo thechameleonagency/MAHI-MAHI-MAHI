@@ -5,7 +5,7 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
@@ -13,15 +13,15 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { differenceInDays, parseISO } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { downloadCSV } from "@/lib/csvExport";
 import { toast } from "@/hooks/use-toast";
 import { formatINR } from "@/lib/formatCurrency";
+import { debtorCreditorSummary } from "@/lib/audit";
 
 const DebtorsCreditors = () => {
-  const { invoices, saleBills, vendorBills } = useAppData();
+  const { invoices, saleBills, vendorBills, customers } = useAppData();
   const navigate = useNavigate();
   const [dcTab, setDcTab] = useState("debtors");
   const [debPage, setDebPage] = useState(1);
@@ -29,64 +29,28 @@ const DebtorsCreditors = () => {
   const [credPage, setCredPage] = useState(1);
   const [credSize, setCredSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
-  const debtors = useMemo(() => {
-    const asOf = new Date();
-    const allInv = [...invoices, ...saleBills].filter(i => i.status !== "paid");
-    return allInv.map(inv => {
-      const outstanding = inv.total - inv.amountReceived;
-      const agingDays =
-        inv.dueDate
-          ? Math.max(0, differenceInDays(asOf, parseISO(inv.dueDate)))
-          : inv.status !== "paid" && inv.invoiceDate
-            ? Math.max(0, differenceInDays(asOf, parseISO(inv.invoiceDate)))
-            : 0;
-      return { ...inv, outstanding, daysOverdue: agingDays };
-    }).sort((a, b) => b.outstanding - a.outstanding);
-  }, [invoices, saleBills]);
+  const dcSummary = useMemo(
+    () => debtorCreditorSummary(invoices, saleBills, vendorBills),
+    [invoices, saleBills, vendorBills],
+  );
+  const { debtors, creditors, totalReceivables, totalPayables, overdueReceivables, overduePayables, debtorBuckets, creditorBuckets } =
+    dcSummary;
+  const stats = {
+    totalReceivables,
+    overdueReceivables,
+    totalPayables,
+    overduePayables,
+  };
 
-  const creditors = useMemo(() => {
-    const asOf = new Date();
-    return vendorBills.filter(b => b.status !== "paid").map(bill => {
-      const outstanding = bill.total - bill.amountPaid;
-      const agingDays =
-        bill.dueDate
-          ? Math.max(0, differenceInDays(asOf, parseISO(bill.dueDate)))
-          : bill.billDate
-            ? Math.max(0, differenceInDays(asOf, parseISO(bill.billDate)))
-            : 0;
-      return { ...bill, outstanding, daysOverdue: agingDays };
-    }).sort((a, b) => b.outstanding - a.outstanding);
-  }, [vendorBills]);
-
-  const stats = useMemo(() => {
-    const totalReceivables = debtors.reduce((s, d) => s + d.outstanding, 0);
-    const overdueReceivables = debtors.filter(d => d.daysOverdue > 0).reduce((s, d) => s + d.outstanding, 0);
-    const totalPayables = creditors.reduce((s, c) => s + c.outstanding, 0);
-    const overduePayables = creditors.filter(c => c.daysOverdue > 0).reduce((s, c) => s + c.outstanding, 0);
-    return { totalReceivables, overdueReceivables, totalPayables, overduePayables };
-  }, [debtors, creditors]);
-
-  // Aging data
-  const agingData = useMemo(() => {
-    const calcAging = (items: { outstanding: number; daysOverdue: number }[]) => {
-      const buckets = { "0-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
-      items.forEach(item => {
-        if (item.daysOverdue <= 30) buckets["0-30"] += item.outstanding;
-        else if (item.daysOverdue <= 60) buckets["31-60"] += item.outstanding;
-        else if (item.daysOverdue <= 90) buckets["61-90"] += item.outstanding;
-        else buckets["90+"] += item.outstanding;
-      });
-      return buckets;
-    };
-    const debtorAging = calcAging(debtors);
-    const creditorAging = calcAging(creditors);
-    return [
-      { bucket: "0-30 days", Receivables: debtorAging["0-30"], Payables: creditorAging["0-30"] },
-      { bucket: "31-60 days", Receivables: debtorAging["31-60"], Payables: creditorAging["31-60"] },
-      { bucket: "61-90 days", Receivables: debtorAging["61-90"], Payables: creditorAging["61-90"] },
-      { bucket: "90+ days", Receivables: debtorAging["90+"], Payables: creditorAging["90+"] },
-    ];
-  }, [debtors, creditors]);
+  const agingData = useMemo(
+    () =>
+      debtorBuckets.map((b, i) => ({
+        bucket: b.label,
+        Receivables: b.amount,
+        Payables: creditorBuckets[i]?.amount ?? 0,
+      })),
+    [debtorBuckets, creditorBuckets],
+  );
 
   const { pagedItems: pagedDebtors, safePage: safeDeb } = usePagedSlice(debtors, debPage, debSize);
   const { pagedItems: pagedCreditors, safePage: safeCred } = usePagedSlice(creditors, credPage, credSize);
@@ -100,6 +64,26 @@ const DebtorsCreditors = () => {
     if (dcTab === "debtors") setDebPage(1);
     else setCredPage(1);
   }, [dcTab]);
+
+  const openCustomer = (customerId: string | undefined, customerName: string) => {
+    if (!customerId) {
+      toast({
+        title: "Customer not linked",
+        description: `"${customerName}" has no customer record ID on file.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!customers.some((c) => c.id === customerId)) {
+      toast({
+        title: "Customer not found",
+        description: "This customer may have been removed.",
+        variant: "destructive",
+      });
+      return;
+    }
+    navigate(`/customers/${customerId}`);
+  };
 
   return (
     <PageShell className="space-y-6">
@@ -239,7 +223,7 @@ const DebtorsCreditors = () => {
                     <TableRow key={d.id}>
                       <TableCell
                         className="cursor-pointer font-medium text-primary hover:underline"
-                        onClick={() => d.customerId && navigate(`/customers/${d.customerId}`)}
+                        onClick={() => openCustomer(d.customerId, d.customerName)}
                       >
                         {d.customerName}
                       </TableCell>
@@ -256,18 +240,7 @@ const DebtorsCreditors = () => {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={
-                            d.status === "overdue"
-                              ? "destructive"
-                              : d.status === "partial"
-                                ? "secondary"
-                                : "outline"
-                          }
-                          className="text-xs"
-                        >
-                          {d.status}
-                        </Badge>
+                        <StatusBadge status={d.status} className="text-xs" />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -338,9 +311,7 @@ const DebtorsCreditors = () => {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={c.status === "pending" ? "secondary" : "outline"} className="text-xs">
-                          {c.status}
-                        </Badge>
+                        <StatusBadge status={c.status} className="text-xs" />
                       </TableCell>
                     </TableRow>
                   ))}

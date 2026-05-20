@@ -33,7 +33,6 @@ import {
   PinOff,
   FileStack,
   HardHat,
-  IndianRupee,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +43,7 @@ import {
   readPinnedPaths,
   writePinnedPaths,
   togglePinnedPath,
+  prunePinnedPathsForRole,
   NAV_PINS_STORAGE_KEY,
   NAV_PINS_CHANGED_EVENT,
 } from "@/lib/navPins";
@@ -52,7 +52,6 @@ interface NavItem {
   label: string;
   icon: React.ElementType;
   path: string;
-  showDot?: boolean;
   badge?: number;
 }
 
@@ -76,8 +75,9 @@ const navSections: NavSection[] = [
       { label: "Enquiries", icon: FileText, path: "/enquiries" },
       { label: "Quotations", icon: FileStack, path: "/quotations" },
       { label: "Projects", icon: Building2, path: "/projects" },
-      { label: "Active sites", icon: MapPin, path: "/active-sites", showDot: true },
+      { label: "Active sites", icon: MapPin, path: "/active-sites" },
       { label: "Timeline", icon: Clock, path: "/timeline" },
+      { label: "Calendar", icon: Calendar, path: "/calendar" },
     ],
   },
   {
@@ -97,7 +97,6 @@ const navSections: NavSection[] = [
       { label: "Employees", icon: Users, path: "/employees" },
       { label: "Teams", icon: Layers, path: "/teams" },
       { label: "Agents", icon: UserCheck, path: "/agents" },
-      { label: "Agent commissions", icon: IndianRupee, path: "/agents/commissions/ledger" },
     ],
   },
   {
@@ -173,6 +172,11 @@ const Sidebar = ({ mobileOpen, onMobileClose }: SidebarProps) => {
     };
   }, [refreshPins]);
 
+  useEffect(() => {
+    prunePinnedPathsForRole((path) => permissionService.canAccessPath(currentRole, path));
+    refreshPins();
+  }, [currentRole, permissionService, refreshPins]);
+
   const handlePinToggle = (path: string) => {
     const next = togglePinnedPath(path, pinnedPaths);
     writePinnedPaths(next);
@@ -218,7 +222,6 @@ const Sidebar = ({ mobileOpen, onMobileClose }: SidebarProps) => {
         >
           <item.icon className="h-4 w-4 shrink-0 opacity-90" />
           <span className="min-w-0 flex-1 truncate leading-snug">{item.label}</span>
-          {item.showDot && <span className="h-2 w-2 shrink-0 rounded-full bg-primary animate-pulse" title="Live" />}
           {item.badge && item.badge > 0 && (
             <Badge variant="destructive" className="h-5 min-w-[20px] px-1.5 text-xs">
               {item.badge}

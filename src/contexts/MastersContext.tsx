@@ -45,15 +45,27 @@ import {
   inverterBrands,
   structureTypes,
   systemCapacities,
-  _quotationPresetCategories,
+
   quotationMaterialCategories,
   quotationChecklistItems,
   payerTypes,
   partnerTypes,
   partnerTransactionTypes,
   siteChecklistPresets,
+  quotationStaticSections,
   type SiteChecklistPreset,
 } from "@/data/masters";
+import {
+  chartOfAccountGroups,
+  chartOfAccountLeaves,
+  voucherTypes,
+  plLineMapping,
+  expenseToAccountMapping,
+  incomeToAccountMapping,
+  gstRateByHsnSac,
+  inventoryValuationMethod,
+  blockedItcItems,
+} from "@/data/auditBooksMasters";
 
 // Grouped master categories for Settings display
 export interface MasterGroup {
@@ -154,6 +166,23 @@ export const masterGroups: MasterGroup[] = [
     description: "System-level configurations (read-only)",
     categories: ["invoiceStatuses", "toolStatuses", "transactionTypes", "industryTypes"],
   },
+  {
+    id: "audit-books",
+    label: "Audit & Books",
+    icon: "BookOpen",
+    description: "Chart of Accounts, P&L mappings, GST treatment (Indian accounting standards)",
+    categories: [
+      "chartOfAccountGroups",
+      "chartOfAccountLeaves",
+      "voucherTypes",
+      "plLineMapping",
+      "expenseToAccountMapping",
+      "incomeToAccountMapping",
+      "gstRateByHsnSac",
+      "inventoryValuationMethod",
+      "blockedItcItems",
+    ],
+  },
 ];
 
 interface MastersContextType {
@@ -207,6 +236,18 @@ interface MastersContextType {
   getQuotationMaterialCategories: () => MasterItem[];
   getQuotationChecklistItems: () => MasterItem[];
   getSiteChecklistPresets: () => SiteChecklistPreset[];
+  getQuotationStaticSections: () => MasterItem[];
+  updateQuotationStaticSection: (value: string, updates: Partial<MasterItem>) => void;
+  // Audit & Books (W2)
+  getChartOfAccountGroups: () => MasterItem[];
+  getChartOfAccountLeaves: () => MasterItem[];
+  getVoucherTypes: () => MasterItem[];
+  getPlLineMapping: () => MasterItem[];
+  getExpenseToAccountMapping: () => MasterItem[];
+  getIncomeToAccountMapping: () => MasterItem[];
+  getGstRateByHsnSac: () => MasterItem[];
+  getInventoryValuationMethod: () => MasterItem[];
+  getBlockedItcItems: () => MasterItem[];
   getAllMasterCategories: () => MasterCategory[];
   getMasterGroups: () => MasterGroup[];
   getCategoryById: (categoryId: string) => { items: MasterItem[]; isEditable: boolean; label: string; parentCategoryId?: string };
@@ -265,6 +306,7 @@ export const MastersProvider = ({ children }: { children: ReactNode }) => {
   const [quotationMaterialCategoriesState, setQuotationMaterialCategoriesState] = useState<MasterItem[]>(quotationMaterialCategories);
   const [quotationChecklistItemsState, setQuotationChecklistItemsState] = useState<MasterItem[]>(quotationChecklistItems);
   const [siteChecklistPresetsState, setSiteChecklistPresetsState] = useState<SiteChecklistPreset[]>(siteChecklistPresets);
+  const [quotationStaticSectionsState, setQuotationStaticSectionsState] = useState<MasterItem[]>(quotationStaticSections);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -312,6 +354,7 @@ export const MastersProvider = ({ children }: { children: ReactNode }) => {
         if (data.quotationMaterialCategories) setQuotationMaterialCategoriesState(data.quotationMaterialCategories);
         if (data.quotationChecklistItems) setQuotationChecklistItemsState(data.quotationChecklistItems);
         if (data.siteChecklistPresets) setSiteChecklistPresetsState(data.siteChecklistPresets);
+        if (data.quotationStaticSections) setQuotationStaticSectionsState(data.quotationStaticSections);
       } catch (error) {
         console.error("Failed to load masters from localStorage:", error);
       }
@@ -361,6 +404,7 @@ export const MastersProvider = ({ children }: { children: ReactNode }) => {
       quotationMaterialCategories: quotationMaterialCategoriesState,
       quotationChecklistItems: quotationChecklistItemsState,
       siteChecklistPresets: siteChecklistPresetsState,
+      quotationStaticSections: quotationStaticSectionsState,
     };
     localStorage.setItem(MASTERS_STORAGE_KEY, JSON.stringify(data));
   };
@@ -476,6 +520,20 @@ export const MastersProvider = ({ children }: { children: ReactNode }) => {
   const getQuotationMaterialCategories = () => quotationMaterialCategoriesState;
   const getQuotationChecklistItems = () => quotationChecklistItemsState;
   const getSiteChecklistPresets = () => siteChecklistPresetsState;
+  const getQuotationStaticSections = () => quotationStaticSectionsState;
+  const updateQuotationStaticSection = (value: string, updates: Partial<MasterItem>) => {
+    setQuotationStaticSectionsState((prev) => prev.map((row) => (row.value === value ? { ...row, ...updates } : row)));
+  };
+  // Audit & Books (W2) — read-only seeds; future round may add editable state + localStorage.
+  const getChartOfAccountGroups = () => chartOfAccountGroups;
+  const getChartOfAccountLeaves = () => chartOfAccountLeaves;
+  const getVoucherTypes = () => voucherTypes;
+  const getPlLineMapping = () => plLineMapping;
+  const getExpenseToAccountMapping = () => expenseToAccountMapping;
+  const getIncomeToAccountMapping = () => incomeToAccountMapping;
+  const getGstRateByHsnSac = () => gstRateByHsnSac;
+  const getInventoryValuationMethod = () => inventoryValuationMethod;
+  const getBlockedItcItems = () => blockedItcItems;
   const getMasterGroups = () => masterGroups;
 
   const getAllMasterCategories = (): MasterCategory[] => {
@@ -613,6 +671,16 @@ export const MastersProvider = ({ children }: { children: ReactNode }) => {
       systemCapacities: { items: systemCapacitiesState, isEditable: true, label: "System Capacities" },
       quotationMaterialCategories: { items: quotationMaterialCategoriesState, isEditable: true, label: "Quotation Material Categories" },
       quotationChecklistItems: { items: quotationChecklistItemsState, isEditable: true, label: "Quotation Checklist Items" },
+      // Audit & Books (W2) — seeded read-only
+      chartOfAccountGroups: { items: chartOfAccountGroups, isEditable: false, label: "Chart of Account Groups" },
+      chartOfAccountLeaves: { items: chartOfAccountLeaves, isEditable: false, label: "Chart of Account Leaves" },
+      voucherTypes: { items: voucherTypes, isEditable: false, label: "Voucher Types" },
+      plLineMapping: { items: plLineMapping, isEditable: false, label: "P&L Line Mapping" },
+      expenseToAccountMapping: { items: expenseToAccountMapping, isEditable: false, label: "Expense → Account Mapping" },
+      incomeToAccountMapping: { items: incomeToAccountMapping, isEditable: false, label: "Income → Account Mapping" },
+      gstRateByHsnSac: { items: gstRateByHsnSac, isEditable: false, label: "GST Rate by HSN/SAC" },
+      inventoryValuationMethod: { items: inventoryValuationMethod, isEditable: false, label: "Inventory Valuation Method" },
+      blockedItcItems: { items: blockedItcItems, isEditable: false, label: "Blocked ITC Items (Sec 17(5))" },
     };
     return categoryMap[categoryId] || { items: [], isEditable: false, label: categoryId };
   };
@@ -746,6 +814,17 @@ export const MastersProvider = ({ children }: { children: ReactNode }) => {
         getQuotationMaterialCategories,
         getQuotationChecklistItems,
         getSiteChecklistPresets,
+        getQuotationStaticSections,
+        updateQuotationStaticSection,
+        getChartOfAccountGroups,
+        getChartOfAccountLeaves,
+        getVoucherTypes,
+        getPlLineMapping,
+        getExpenseToAccountMapping,
+        getIncomeToAccountMapping,
+        getGstRateByHsnSac,
+        getInventoryValuationMethod,
+        getBlockedItcItems,
         getAllMasterCategories,
         getMasterGroups,
         getCategoryById,

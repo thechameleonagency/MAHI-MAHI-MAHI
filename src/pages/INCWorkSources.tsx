@@ -1,4 +1,5 @@
-import { useState } from "react";
+﻿import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageShell } from "@/components/layout/PageShell";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
@@ -6,7 +7,6 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { DEFAULT_TABLE_PAGE_SIZE, dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
 import { formatINR } from "@/lib/formatCurrency";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { toast } from "@/hooks/use-toast";
 import type { INCGiverCompany } from "@/types/finance";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,9 +14,13 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { Plus, Pencil, Trash2, HardHat } from "lucide-react";
+import { useCan } from "@/hooks/useCan";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 
 const emptyForm = (): Omit<INCGiverCompany, "id" | "createdAt"> => ({
   name: "",
@@ -27,7 +31,11 @@ const emptyForm = (): Omit<INCGiverCompany, "id" | "createdAt"> => ({
 });
 
 export default function INCWorkSources() {
+  const navigate = useNavigate();
   const { incGiverCompanies, addINCGiverCompany, updateINCGiverCompany, deleteINCGiverCompany, generateId, projects } = useAppData();
+  const canCreate = useCan("partner", "create");
+  const canEdit = useCan("partner", "edit");
+  const canDelete = useCan("partner", "delete");
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -35,6 +43,8 @@ export default function INCWorkSources() {
   const [search, setSearch] = useState("");
   const [gridPage, setGridPage] = useState(1);
   const [gridPageSize, setGridPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
+  const [companyToDelete, setCompanyToDelete] = useState<INCGiverCompany | null>(null);
 
   const filtered = (incGiverCompanies ?? []).filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase())
@@ -56,22 +66,24 @@ export default function INCWorkSources() {
 
   const handleSave = () => {
     if (!form.name || !form.phone) {
-      toast({ title: "Name and phone are required.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Name and phone are required." });
       return;
     }
     if (editingId) {
       updateINCGiverCompany(editingId, form);
-      toast({ title: "Updated", description: `${form.name} has been updated.` });
+      setLastConfirm({ variant: "success", title: "INC Work Source updated", description: form.name });
     } else {
       addINCGiverCompany({ id: generateId("IG"), createdAt: new Date().toISOString(), ...form });
-      toast({ title: "Added", description: `${form.name} added to INC Work Sources.` });
+      setLastConfirm({ variant: "success", title: "INC Work Source added", description: form.name });
     }
     setSheetOpen(false);
   };
 
-  const handleDelete = (c: INCGiverCompany) => {
-    deleteINCGiverCompany(c.id);
-    toast({ title: "Removed", description: `${c.name} has been removed.` });
+  const confirmDelete = () => {
+    if (!companyToDelete) return;
+    deleteINCGiverCompany(companyToDelete.id);
+    setLastConfirm({ variant: "success", title: "INC Work Source removed", description: companyToDelete.name });
+    setCompanyToDelete(null);
   };
 
   // Projects given by this INC source
@@ -89,40 +101,50 @@ export default function INCWorkSources() {
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "INC work sources" }]}
         subRow={
-          <p className="text-sm text-muted-foreground">
-            Companies that give us installation &amp; commissioning work. We execute; they pay after completion.
-          </p>
+          <div className="flex w-full flex-wrap items-end gap-2">
+            <Input
+              placeholder="Search companies..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setGridPage(1); }}
+              className="h-9 w-full sm:w-72"
+            />
+            <Badge variant="secondary" className="ml-auto">{filtered.length} companies</Badge>
+          </div>
         }
       >
-        <Button size="sm" onClick={openAdd}>
+        <Button size="sm" onClick={openAdd} disabled={!canCreate}>
           <Plus className="h-4 w-4 mr-2" />
           Add Company
         </Button>
       </StickyPageHeader>
 
-      <div className="flex flex-wrap gap-3 items-center">
-        <Input
-          placeholder="Search companies..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setGridPage(1);
-          }}
-          className="max-w-xs"
+      {lastConfirm && (
+        <InlineConfirmBanner
+          variant={lastConfirm.variant}
+          title={lastConfirm.title}
+          description={lastConfirm.description}
+          onDismiss={() => setLastConfirm(null)}
         />
-        <Badge variant="secondary">{filtered.length} companies</Badge>
-      </div>
+      )}
 
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center border rounded-xl bg-muted/20">
-          <HardHat className="h-10 w-10 text-muted-foreground mb-3" />
-          <p className="font-medium text-muted-foreground">No INC work sources yet</p>
-          <p className="text-sm text-muted-foreground mt-1">Add companies that give you INC installation work.</p>
-          <Button className="mt-4" onClick={openAdd}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add First Company
-          </Button>
-        </div>
+        <ListEmptyState
+          icon={HardHat}
+          title={(incGiverCompanies ?? []).length === 0 ? "No INC work sources yet" : "No companies match"}
+          description={
+            (incGiverCompanies ?? []).length === 0
+              ? "Add companies that give you INC installation work."
+              : "Try a different search term."
+          }
+          actionLabel={(incGiverCompanies ?? []).length === 0 && canCreate ? "Add first company" : search ? "Clear search" : undefined}
+          onAction={
+            (incGiverCompanies ?? []).length === 0 && canCreate
+              ? openAdd
+              : search
+                ? () => { setSearch(""); setGridPage(1); }
+                : undefined
+          }
+        />
       ) : (
         <>
         <DataTableShell variant="inline" maxHeight={listTableViewportMaxHeight(gridPageSize)} scrollResetKey={`${safeGridPage}-${gridPageSize}-${filtered.length}`}>
@@ -145,11 +167,11 @@ export default function INCWorkSources() {
               const pending = toCollect - collected;
               const completedProjects = linked.filter((p) => p.status === "Completed" || p.status === "Closed").length;
               return (
-                <TableRow key={c.id}>
+                <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => navigate(`/inc-sources/${c.id}`)}>
                   <TableCell>
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className="h-8 w-8 rounded-md bg-orange-500/10 flex items-center justify-center shrink-0">
-                        <HardHat className="h-4 w-4 text-orange-600" />
+                      <div className="h-8 w-8 rounded-md bg-warning/10 flex items-center justify-center shrink-0">
+                        <HardHat className="h-4 w-4 text-warning" />
                       </div>
                       <div className="min-w-0">
                         <p className="font-medium truncate">{c.name}</p>
@@ -160,15 +182,15 @@ export default function INCWorkSources() {
                   <TableCell className="text-right tabular-nums">{linked.length}</TableCell>
                   <TableCell className="text-right tabular-nums hidden sm:table-cell">{completedProjects}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{formatINR(toCollect)}</TableCell>
-                  <TableCell className="text-right tabular-nums text-green-700 font-medium">{formatINR(collected)}</TableCell>
-                  <TableCell className={`text-right tabular-nums font-medium ${pending > 0 ? "text-amber-700" : ""}`}>{formatINR(pending)}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right tabular-nums text-success font-medium">{formatINR(collected)}</TableCell>
+                  <TableCell className={`text-right tabular-nums font-medium ${pending > 0 ? "text-warning" : ""}`}>{formatINR(pending)}</TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" type="button" onClick={() => openEdit(c)}>
-                        <Pencil className="h-4 w-4" />
+                      <Button size="icon" variant="ghost" className="h-8 w-8" type="button" aria-label={`Edit ${c.name}`} disabled={!canEdit} onClick={() => openEdit(c)}>
+                        <Pencil className="h-4 w-4" aria-hidden />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" type="button" onClick={() => handleDelete(c)}>
-                        <Trash2 className="h-4 w-4" />
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" type="button" aria-label={`Delete ${c.name}`} disabled={!canDelete} onClick={() => setCompanyToDelete(c)}>
+                        <Trash2 className="h-4 w-4" aria-hidden />
                       </Button>
                     </div>
                   </TableCell>
@@ -225,6 +247,22 @@ export default function INCWorkSources() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <DestructiveConfirmDialog
+        open={!!companyToDelete}
+        onOpenChange={(open) => { if (!open) setCompanyToDelete(null); }}
+        title={companyToDelete ? `Delete ${companyToDelete.name}?` : "Delete INC work source?"}
+        description={
+          companyToDelete ? (() => {
+            const linked = projectsForCompany(companyToDelete.id).length;
+            return linked > 0
+              ? `This source is linked to ${linked} project(s). Removing it cannot be undone.`
+              : "This source has no linked projects. This cannot be undone.";
+          })()
+            : ""
+        }
+        onConfirm={confirmDelete}
+      />
     </PageShell>
   );
 }

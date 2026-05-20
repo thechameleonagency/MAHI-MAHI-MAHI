@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, useState, useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, Plus, Search, Users, Pencil, Trash2 } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { ListSkeleton } from "@/components/ui/ListSkeleton";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -37,13 +39,39 @@ import type { PartnerType } from "@/types/finance";
 import { formatINR } from "@/lib/formatCurrency";
 import { PARTNER_TYPES_ORDERED, PARTNER_TYPE_PURPOSE } from "@/domain/partners/partnerConfig";
 import { getIndianFyBoundsForReferenceDate, isProjectDateInIndianFy } from "@/lib/indianFiscalYear";
+import { useCan } from "@/hooks/useCan";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getPartnerSettlementPendingAging } from "@/lib/agingHelpers";
 
 const formatCurrency = (amount: number) => formatINR(Math.round(amount || 0));
 
 const Partners = () => {
-  const { partners, projects, partnerTransactions, addPartner, updatePartner, deletePartner, generateId, canDo } = useAppData();
+  const { partners, projects, partnerTransactions, addPartner, updatePartner, deletePartner, generateId } = useAppData();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const canCreatePartner = useCan("partner", "create");
+  const canEditPartner = useCan("partner", "edit");
+  const canDeletePartner = useCan("partner", "delete");
   const fyLabel = useMemo(() => getIndianFyBoundsForReferenceDate(new Date()).label, []);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [listReady, setListReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setListReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const q = searchQuery.trim();
+        if (q) next.set("q", q);
+        else next.delete("q");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchQuery, setSearchParams]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -162,38 +190,37 @@ const Partners = () => {
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Partners" }]}
         subRow={
-          <InlineKpiStrip
-            className="w-full min-w-0 flex-wrap justify-start"
-            items={[
-              { label: "Partners", value: partners.length },
-              { label: "Lifetime earned", value: formatCurrency(totals.earned) },
-              { label: `Earned (FY ${fyLabel})`, value: formatCurrency(totals.earnedFy) },
-              { label: "Paid to partners", value: formatCurrency(totals.paid) },
-              { label: "Pending amount", value: formatCurrency(totals.pending) },
-            ]}
-          />
+          <div className="flex w-full flex-wrap items-end gap-2">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search partner name, phone, or email"
+                className="h-9 pl-9"
+                value={searchQuery}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+            <InlineKpiStrip
+              className="ml-auto flex-wrap"
+              items={[
+                { label: "Partners", value: partners.length },
+                { label: "Lifetime earned", value: formatCurrency(totals.earned) },
+                { label: `Earned (FY ${fyLabel})`, value: formatCurrency(totals.earnedFy) },
+                { label: "Paid to partners", value: formatCurrency(totals.paid) },
+                { label: "Pending amount", value: formatCurrency(totals.pending) },
+              ]}
+            />
+          </div>
         }
       >
-        <Button size="sm" onClick={() => { resetForm(); setIsAddOpen(true); }} disabled={!canDo("partner:update")}>
+        <Button size="sm" onClick={() => { resetForm(); setIsAddOpen(true); }} disabled={!canCreatePartner}>
           <Plus className="mr-2 h-4 w-4" />
           Add partner
         </Button>
       </StickyPageHeader>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative max-w-md flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search partner name, phone, or email"
-            className="pl-9"
-            value={searchQuery}
-            onChange={(event) => {
-              setSearchQuery(event.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-      </div>
 
       <DataTableShell
         maxHeight={listTableViewportMaxHeight(pageSize)}
@@ -228,7 +255,9 @@ const Partners = () => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {filteredSummaries.length === 0 ? (
+          {!listReady ? (
+            <ListSkeleton variant="table" count={5} columns={8} />
+          ) : filteredSummaries.length === 0 ? (
             <TableRow>
               <TableCell colSpan={8} className="p-0">
                 {partners.length === 0 ? (
@@ -248,11 +277,20 @@ const Partners = () => {
               </TableCell>
             </TableRow>
           ) : (
-          pagedItems.map(({ partner, linkedProjects, earned, earnedFy, paid, pending }) => (
+          pagedItems.map(({ partner, linkedProjects, earned, earnedFy, paid, pending }) => {
+            const completedDates = linkedProjects
+              .filter((p) => p.status === "Completed" || p.status === "Closed")
+              .map((p) => p.endDate ?? p.startDate ?? "")
+              .filter(Boolean);
+            const partnerAging = getPartnerSettlementPendingAging(pending, completedDates);
+            return (
             <TableRow key={partner.id} className="align-top">
               <TableCell>
                 <div className="space-y-1">
-                  <p className="font-medium text-primary">{partner.name}</p>
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <EntityLink entityType="partner" entityId={partner.id} name={partner.name} />
+                    {pending > 0.5 && partnerAging && <AgingChip signal={partnerAging} />}
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {partner.phone}
                     {partner.email ? ` - ${partner.email}` : ""}
@@ -286,10 +324,10 @@ const Partners = () => {
                       <Link to={`/partners/${partner.id}?action=record-payment`}>Pay</Link>
                     </Button>
                   )}
-                  <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" title="Delete partner" disabled={!canDo("partner:delete")} type="button" onClick={() => setPartnerToDelete({ id: partner.id, name: partner.name })}>
-                    <Trash2 className="h-3.5 w-3.5" />
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" aria-label={`Delete partner ${partner.name}`} title="Delete partner" disabled={!canDeletePartner} type="button" onClick={() => setPartnerToDelete({ id: partner.id, name: partner.name })}>
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
                   </Button>
-                  <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit partner" onClick={() => {
+                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Edit partner ${partner.name}`} title="Edit partner" disabled={!canEditPartner} onClick={() => {
                     setPartnerName(partner.name);
                     setPartnerPhone(partner.phone);
                     setPartnerEmail(partner.email ?? "");
@@ -311,7 +349,9 @@ const Partners = () => {
                 </div>
               </TableCell>
             </TableRow>
-          )))}
+            );
+          })
+          )}
         </TableBody>
       </DataTableShell>
 

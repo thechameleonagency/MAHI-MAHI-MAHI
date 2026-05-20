@@ -10,9 +10,8 @@ export class ProjectReadinessService {
     const errors: string[] = [];
     const requiredDocuments = project.projectKindConfigSnapshot?.requiredDocuments || [];
     const hasDocumentEvidence = Boolean(project.documents?.length);
-    const hasBillingTab =
-      !project.projectKindConfigSnapshot ||
-      project.projectKindConfigSnapshot.visibleTabs.includes("billing");
+    const visibleTabs = project.projectKindConfigSnapshot?.visibleTabs ?? [];
+    const hasBillingTab = !project.projectKindConfigSnapshot || visibleTabs.includes("billing");
 
     if (requiredDocuments.length > 0 && !hasDocumentEvidence) {
       errors.push("Required project documents are not uploaded");

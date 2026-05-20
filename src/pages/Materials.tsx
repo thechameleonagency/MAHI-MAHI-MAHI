@@ -1,17 +1,25 @@
-import { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
-import { Plus, Search, Package, AlertTriangle, History, Edit, ArrowRight, Trash2, Check, RotateCcw, AlertCircle, ChevronDown, ChevronRight, Layers, Eye, Truck, User, CheckCircle2, Recycle, Download, Printer } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Plus, Search, Package, AlertTriangle, History, Edit, ArrowRight, Trash2, Check, RotateCcw, AlertCircle, Eye, Truck, User, CheckCircle2, Recycle, Download, Printer } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { ListSkeleton } from "@/components/ui/ListSkeleton";
+import { TablePaginationBar, DEFAULT_TABLE_PAGE_SIZE } from "@/components/data-table/TablePaginationBar";
+import { dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import type { InventoryItem } from "@/types/project";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
@@ -20,10 +28,13 @@ import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { useMasters } from "@/hooks/useMasters";
 import { NeedToGetService } from "@/application/services/NeedToGetService";
 import { ProcurementShortfallService } from "@/application/services/ProcurementShortfallService";
-import { NeedToGetModal } from "@/components/need-to-get/NeedToGetModal";
+import { NeedToGetSheet } from "@/components/need-to-get/NeedToGetSheet";
 import { format } from "date-fns";
 import { downloadCSV } from "@/lib/csvExport";
 import { MATERIAL_CATEGORY_ORDER, materialCategorySortKey } from "@/lib/formCategories";
+import { useCan } from "@/hooks/useCan";
+import { formatINR } from "@/lib/formatCurrency";
+import { stripQuickCreateParam } from "@/lib/createFromContext";
 
 function escapeHtmlMat(s: string) {
   return s
@@ -37,14 +48,77 @@ const UNIT_OPTIONS = ["pcs", "foot", "meter", "kg"] as const;
 const UNIT_LABELS: Record<string, string> = { pcs: "Pcs/Nos", foot: "Foot", meter: "Meter", kg: "Kg" };
 
 const Materials = () => {
-  const { inventoryItems, projects, sites, employees, addTask, generateId, vendorBills, recordWarehouseInventoryMovement, addInventoryItem, returnItemFromSite, getProjectQuotation, getSiteChecklistTemplateById, vendors } = useAppData();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const canCreateItem = useCan("inventoryItem", "create");
+  const canEditItem = useCan("inventoryItem", "edit");
+  const canDeleteItem = useCan("inventoryItem", "delete");
+  const canIssueReturn = useCan("inventoryMovement", "create");
+  const { currentRole } = useAppSession();
+  const {
+    inventoryItems,
+    projects,
+    sites,
+    employees,
+    addTask,
+    generateId,
+    vendorBills,
+    recordWarehouseInventoryMovement,
+    addInventoryItem,
+    updateInventoryItem,
+    deleteInventoryItem,
+    reverseInventoryMovement,
+    returnItemFromSite,
+    getProjectQuotation,
+    getSiteChecklistTemplateById,
+    vendors,
+    materialDamageRecords,
+    materialReservations,
+    getReservationsForItem,
+    getDamageByItem,
+    canDo,
+  } = useAppData();
+  const procurementHandoffOnly =
+    currentRole === "installation_team" && !canDo("vendor:record_bill");
+  const [pageView, setPageView] = useState<"stock" | "damage">(() => {
+    const v = searchParams.get("view");
+    return v === "damage" ? "damage" : "stock";
+  });
+  const [damageProjectFilter, setDamageProjectFilter] = useState("all");
+  const [damageStageFilter, setDamageStageFilter] = useState("all");
   const _masters = useMasters();
   const needToGetService = useMemo(() => new NeedToGetService(), []);
   const [needToGetOpen, setNeedToGetOpen] = useState(false);
+  const [needToGetExpanded, setNeedToGetExpanded] = useState(false);
+  const [procurementExpanded, setProcurementExpanded] = useState(false);
   
-  const [searchQuery, setSearchQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [groupByCategory, setGroupByCategory] = useState(true);
+  const [listReady, setListReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setListReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
+  const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get("category") ?? "all");
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const q = searchQuery.trim();
+        if (q) next.set("q", q);
+        else next.delete("q");
+        if (categoryFilter !== "all") next.set("category", categoryFilter);
+        else next.delete("category");
+        if (pageView !== "stock") next.set("view", pageView);
+        else next.delete("view");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchQuery, categoryFilter, pageView, setSearchParams]);
+
+  const [tablePage, setTablePage] = useState(1);
+  const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   
   // Modal states
   const [isAddItemOpen, setIsAddItemOpen] = useState(false);
@@ -66,9 +140,12 @@ const Materials = () => {
   const [selectedItemForEdit, setSelectedItemForEdit] = useState<InventoryItem | null>(null);
   const [selectedItemForDetail, setSelectedItemForDetail] = useState<InventoryItem | null>(null);
   const [itemToDelete, setItemToDelete] = useState<InventoryItem | null>(null);
+  const [deactivateItemTarget, setDeactivateItemTarget] = useState<InventoryItem | null>(null);
+  const [reverseMovementTarget, setReverseMovementTarget] = useState<{ itemId: string; recordId: string } | null>(null);
+  const [reverseMovementReason, setReverseMovementReason] = useState("");
   
   // Issue to site state
-  const [selectedItemsToIssue, setSelectedItemsToIssue] = useState<Record<number, number>>({});
+  const [selectedItemsToIssue, setSelectedItemsToIssue] = useState<Record<string, number>>({});
   const [selectedSiteForIssue, setSelectedSiteForIssue] = useState("");
   const [issueSearchQuery, setIssueSearchQuery] = useState("");
   
@@ -85,8 +162,8 @@ const Materials = () => {
   // Return from site state
   const [selectedSiteForReturn, setSelectedSiteForReturn] = useState("");
   const [returnAction, setReturnAction] = useState<"return" | "transfer">("return");
-  const [returnQuantities, setReturnQuantities] = useState<Record<number, string>>({});
-  const [returnErrors, _setReturnErrors] = useState<Record<number, string>>({});
+  const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({});
+  const [returnErrors, _setReturnErrors] = useState<Record<string, string>>({});
   
   // Add item form state
   const [newItemName, setNewItemName] = useState("");
@@ -115,15 +192,14 @@ const Materials = () => {
   const [editAddStockQty, setEditAddStockQty] = useState("");
   
   // Category collapse state
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
 
   // Scrap state
-  const SCRAP_ELIGIBLE_IDS = [7, 6, 10, 15]; // Raftor, Leg Pipe, Perline Channel, Two Support C-Channel
+  const SCRAP_ELIGIBLE_NAME_KEYS = ["Raftor", "Leg Pipe", "Perline", "Two Support"]; // structure scrap-eligible
   const [isAddToScrapOpen, setIsAddToScrapOpen] = useState(false);
   const [isViewScrapOpen, setIsViewScrapOpen] = useState(false);
-  const [scrapQuantities, setScrapQuantities] = useState<Record<number, string>>({});
-  const [scrapStock, setScrapStock] = useState<Record<number, number>>({});
-  const [scrapConvertBack, setScrapConvertBack] = useState<Record<number, string>>({});
+  const [scrapQuantities, setScrapQuantities] = useState<Record<string, string>>({});
+  const [scrapStock, setScrapStock] = useState<Record<string, number>>({});
+  const [scrapConvertBack, setScrapConvertBack] = useState<Record<string, string>>({});
 
   // Get unique categories
   const categories = useMemo(() => {
@@ -140,23 +216,24 @@ const Materials = () => {
     });
   }, [inventoryItems, searchQuery, categoryFilter]);
 
-  // Group items by category
-  const groupedItems = useMemo(() => {
-    if (!groupByCategory) return { "All Items": filteredItems };
-    const groups: Record<string, InventoryItem[]> = {};
-    for (const item of filteredItems) {
-      if (!groups[item.category]) groups[item.category] = [];
-      groups[item.category].push(item);
-    }
-    const sorted: Record<string, InventoryItem[]> = {};
-    for (const cat of [...MATERIAL_CATEGORY_ORDER]) {
-      if (groups[cat]) sorted[cat] = groups[cat];
-    }
-    for (const cat in groups) {
-      if (!sorted[cat]) sorted[cat] = groups[cat];
-    }
-    return sorted;
-  }, [filteredItems, groupByCategory]);
+  const tableSortedItems = useMemo(() => {
+    return [...filteredItems].sort((a, b) => {
+      const cat = materialCategorySortKey(a.category) - materialCategorySortKey(b.category);
+      if (cat !== 0) return cat;
+      return a.name.localeCompare(b.name);
+    });
+  }, [filteredItems]);
+
+  const tableTotalPages = Math.max(1, Math.ceil(tableSortedItems.length / tablePageSize) || 1);
+  const safeTablePage = Math.min(tablePage, tableTotalPages);
+
+  useEffect(() => {
+    setTablePage(1);
+  }, [searchQuery, categoryFilter]);
+  const pagedTableItems = tableSortedItems.slice(
+    (safeTablePage - 1) * tablePageSize,
+    safeTablePage * tablePageSize,
+  );
 
   // Issue modal filtered items
   const filteredIssueItems = useMemo(() => {
@@ -166,15 +243,20 @@ const Materials = () => {
     );
   }, [inventoryItems, issueSearchQuery]);
 
-  const formatCurrency = (amount: number) => `₹${amount.toLocaleString()}`;
-
   // Stats
   const totalValue = inventoryItems.reduce((sum, item) => sum + (item.stock * item.buyPrice), 0);
   const lowStockItems = inventoryItems.filter(item => item.stock <= item.minStock);
   const totalItems = inventoryItems.reduce((sum, item) => sum + item.stock, 0);
   const needToGetRows = useMemo(
-    () => needToGetService.buildRows(sites, projects, inventoryItems, vendorBills),
-    [needToGetService, sites, projects, inventoryItems, vendorBills],
+    () =>
+      needToGetService.buildRows(
+        sites,
+        projects,
+        inventoryItems,
+        vendorBills,
+        materialReservations ?? [],
+      ),
+    [needToGetService, sites, projects, inventoryItems, vendorBills, materialReservations],
   );
   const procurementShortfallService = useMemo(() => new ProcurementShortfallService(), []);
   const procurementShortfalls = useMemo(
@@ -184,8 +266,16 @@ const Materials = () => {
         inventoryItems,
         getProjectQuotation,
         getSiteChecklistTemplateById,
+        materialReservations: materialReservations ?? [],
       }),
-    [procurementShortfallService, projects, inventoryItems, getProjectQuotation, getSiteChecklistTemplateById],
+    [
+      procurementShortfallService,
+      projects,
+      inventoryItems,
+      getProjectQuotation,
+      getSiteChecklistTemplateById,
+      materialReservations,
+    ],
   );
 
   const vendorsSorted = useMemo(() => [...vendors].sort((a, b) => a.name.localeCompare(b.name)), [vendors]);
@@ -229,7 +319,7 @@ const Materials = () => {
       )
       .join("");
     w.document.write(
-      `<!DOCTYPE html><html><head><title>Materials</title><style>body{font-family:system-ui;padding:16px;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px}th{background:#f3f3f3}.num{text-align:right}</style></head><body><h1>Materials register</h1><table><thead><tr><th>Name</th><th>Category</th><th>Stock</th><th>Unit</th><th>Buy ₹</th><th>Min</th></tr></thead><tbody>${rows}</tbody></table></body></html>`,
+      `<!DOCTYPE html><html><head><title>Materials</title><style>body{font-family:system-ui;padding:16px;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px}th{background:#f3f3f3}.num{text-align:right}</style></head><body><h1>Materials register</h1><table><thead><tr><th>Name</th><th>Category</th><th>Stock</th><th>Unit</th><th>Buy (INR)</th><th>Min</th></tr></thead><tbody>${rows}</tbody></table></body></html>`,
     );
     w.document.close();
     w.onload = () => {
@@ -238,17 +328,20 @@ const Materials = () => {
     };
   };
 
-  const toggleCategory = (cat: string) => {
-    setCollapsedCategories(prev => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat);
-      else next.add(cat);
-      return next;
+  const filteredDamageLog = useMemo(() => {
+    return (materialDamageRecords ?? []).filter((d) => {
+      if (damageProjectFilter !== "all" && d.projectId !== damageProjectFilter) return false;
+      if (damageStageFilter !== "all" && d.stage !== damageStageFilter) return false;
+      return true;
     });
-  };
+  }, [materialDamageRecords, damageProjectFilter, damageStageFilter]);
+
+  const damageItemName = (itemId: string) =>
+    inventoryItems.find((i) => i.id === itemId)?.name ?? `Item #${itemId}`;
+
 
   // Handlers
-  const handleItemSelectForIssue = (itemId: number, checked: boolean) => {
+  const handleItemSelectForIssue = (itemId: string, checked: boolean) => {
     if (checked) {
       setSelectedItemsToIssue(prev => ({ ...prev, [itemId]: 1 }));
     } else {
@@ -258,11 +351,11 @@ const Materials = () => {
     }
   };
 
-  const handleQuantityChange = (itemId: number, qty: number) => {
+  const handleQuantityChange = (itemId: string, qty: number) => {
     setSelectedItemsToIssue(prev => ({ ...prev, [itemId]: qty }));
   };
 
-  const _handleReturnQuantityChange = (itemId: number, value: string) => {
+  const _handleReturnQuantityChange = (itemId: string, value: string) => {
     setReturnQuantities(prev => ({ ...prev, [itemId]: value }));
   };
 
@@ -274,6 +367,17 @@ const Materials = () => {
     setNewItemSize(""); setNewItemPerPieceWeight(""); setNewItemPerPieceLength("");
     setNewItemAllowDecimal(false);
   };
+
+  useEffect(() => {
+    if (searchParams.get("create") !== "1") return;
+    const next = new URLSearchParams(searchParams);
+    stripQuickCreateParam(next);
+    setSearchParams(next, { replace: true });
+    if (!canCreateItem) return;
+    setPageView("stock");
+    resetAddItemForm();
+    setIsAddItemOpen(true);
+  }, [searchParams, setSearchParams, canCreateItem]);
 
   const handleAddItemSave = () => {
     if (!newItemName || !newItemCategory) {
@@ -367,7 +471,7 @@ const Materials = () => {
       
       addTask({
         id: generateId("TASK"),
-        employeeId: parseInt(issueTaskAssignee),
+        employeeId: issueTaskAssignee,
         projectId: site?.projectId || "",
         siteId: selectedSiteForIssue,
         siteName: site?.name || "Site",
@@ -387,7 +491,7 @@ const Materials = () => {
     
     // Handle expense
     if (addIssueExpense && parseFloat(issueExpenseAmount) > 0) {
-      toast({ title: "Expense Added", description: `₹${parseFloat(issueExpenseAmount).toLocaleString()} ${issueExpenseType} expense recorded` });
+      toast({ title: "Expense Added", description: `${formatINR(parseFloat(issueExpenseAmount))} ${issueExpenseType} expense recorded` });
     }
     
     setIsIssueToSiteOpen(false);
@@ -411,7 +515,7 @@ const Materials = () => {
     Object.entries(returnQuantities).forEach(([itemIdStr, qtyStr]) => {
       const qty = parseFloat(qtyStr) || 0;
       if (qty > 0) {
-        returnItemFromSite(parseInt(itemIdStr), selectedSiteForReturn, siteRecord?.name ?? selectedSiteForReturn, qty, dateStr);
+        returnItemFromSite(itemIdStr, selectedSiteForReturn, siteRecord?.name ?? selectedSiteForReturn, qty, dateStr);
       }
     });
     setIsReturnFromSiteOpen(false);
@@ -420,7 +524,8 @@ const Materials = () => {
 
   const handleDeleteItem = () => {
     if (!itemToDelete) return;
-    toast({ title: "Item Deleted", description: `${itemToDelete.name} has been removed from inventory.` });
+    deleteInventoryItem(itemToDelete.id);
+    toast({ title: "Item deleted", description: `${itemToDelete.name} has been removed from inventory.` });
     setIsDeleteItemConfirmOpen(false);
     setItemToDelete(null);
   };
@@ -493,7 +598,9 @@ const Materials = () => {
   };
 
   // Scrap handlers
-  const scrapEligibleItems = inventoryItems.filter(item => SCRAP_ELIGIBLE_IDS.includes(item.id));
+  const scrapEligibleItems = inventoryItems.filter((item) =>
+    SCRAP_ELIGIBLE_NAME_KEYS.some((key) => item.name.includes(key)),
+  );
 
   const handleAddToScrap = () => {
     let added = false;
@@ -518,7 +625,7 @@ const Materials = () => {
     }
   };
 
-  const handleConvertBackToInventory = (itemId: number) => {
+  const handleConvertBackToInventory = (itemId: string) => {
     const qty = parseFloat(scrapConvertBack[itemId] || "0");
     const available = scrapStock[itemId] || 0;
     if (qty > 0 && qty <= available) {
@@ -534,7 +641,7 @@ const Materials = () => {
     }
   };
 
-  const handleDeleteScrap = (itemId: number) => {
+  const handleDeleteScrap = (itemId: string) => {
     setScrapStock(prev => {
       const next = { ...prev };
       delete next[itemId];
@@ -563,64 +670,6 @@ const Materials = () => {
       </div>
     </div>
   );
-
-  // Item card component - clickable, clean, no unnecessary badges
-  const ItemCard = ({ item }: { item: InventoryItem }) => {
-    const isLowStock = item.stock <= item.minStock;
-    return (
-      <Card 
-        className={`transition-all hover:border-primary/30 cursor-pointer group ${isLowStock ? "border-destructive/30 bg-destructive/5" : ""}`}
-        onClick={() => { setSelectedItemForDetail(item); setIsDetailOpen(true); }}
-      >
-        <CardContent className="p-3 sm:p-4">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-sm truncate">{item.name}</h3>
-              {item.size && (
-                <span className="text-xs text-muted-foreground">{item.size}</span>
-              )}
-            </div>
-            <div className="text-right shrink-0">
-              <div className="flex items-baseline gap-1 justify-end">
-                <span className={`text-lg font-bold ${isLowStock ? "text-destructive" : "text-foreground"}`}>
-                  {item.stock}
-                </span>
-                <span className="text-xs text-muted-foreground">{item.unit}</span>
-              </div>
-              {isLowStock && (
-                <Badge className="bg-destructive/10 text-destructive border-0 text-2xs">Low</Badge>
-              )}
-              {item.alert && isLowStock && (
-                <Badge variant="outline" className="text-2xs border-amber-500/50 text-amber-800">Alert</Badge>
-              )}
-            </div>
-          </div>
-          
-          {/* Prices */}
-          <div className="flex items-center justify-between mt-2 pt-2 border-t text-xs">
-            <div className="flex gap-3">
-              <span className="text-muted-foreground">Buy: <span className="text-foreground font-medium">{formatCurrency(item.buyPrice)}</span></span>
-              <span className="text-muted-foreground">Sale: <span className="text-foreground font-medium">{formatCurrency(item.salePrice)}</span></span>
-            </div>
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Button 
-                variant="ghost" size="icon" className="h-7 w-7"
-                onClick={(e) => { e.stopPropagation(); setSelectedItemForHistory(item); setIsItemHistoryOpen(true); }}
-              >
-                <History className="h-3.5 w-3.5" />
-              </Button>
-              <Button 
-                variant="ghost" size="icon" className="h-7 w-7"
-                onClick={(e) => { e.stopPropagation(); openEditModal(item); }}
-              >
-                <Edit className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
 
   return (
     <PageShell className="space-y-4 md:space-y-6">
@@ -656,15 +705,6 @@ const Materials = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
-                  variant={groupByCategory ? "default" : "outline"}
-                  size="sm"
-                  className="h-9"
-                  onClick={() => setGroupByCategory(!groupByCategory)}
-                >
-                  <Layers className="mr-1 h-4 w-4" />
-                  Group
-                </Button>
               </div>
             </div>
             <InlineKpiStrip
@@ -672,7 +712,7 @@ const Materials = () => {
               items={[
                 { label: "SKUs", value: inventoryItems.length },
                 { label: "Units", value: totalItems.toLocaleString() },
-                { label: "Value", value: formatCurrency(totalValue) },
+                { label: "Value", value: formatINR(totalValue) },
                 { label: "Low", value: lowStockItems.length },
                 { label: "Match", value: filteredItems.length },
               ]}
@@ -681,22 +721,24 @@ const Materials = () => {
         }
       >
         <div className="flex flex-wrap justify-end gap-1.5">
-          <Button size="sm" variant="outline" type="button" onClick={exportMaterialsCsv}>
-            <Download className="mr-1.5 h-4 w-4" />
-            Export CSV
+          <Button size="sm" variant={pageView === "stock" ? "default" : "outline"} onClick={() => setPageView("stock")}>
+            Stock
           </Button>
-          <Button size="sm" variant="outline" type="button" onClick={printMaterialsList}>
-            <Printer className="mr-1.5 h-4 w-4" />
-            Print
+          <Button size="sm" variant={pageView === "damage" ? "default" : "outline"} onClick={() => setPageView("damage")}>
+            Damage log
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setIsIssueToSiteOpen(true)}>
-            <ArrowRight className="mr-1.5 h-4 w-4" />
-            Issue
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setIsReturnFromSiteOpen(true)}>
-            <RotateCcw className="mr-1.5 h-4 w-4" />
-            Return
-          </Button>
+          {canIssueReturn && (
+            <Button size="sm" variant="outline" onClick={() => setIsIssueToSiteOpen(true)} disabled={pageView === "damage"}>
+              <ArrowRight className="mr-1.5 h-4 w-4" />
+              Issue
+            </Button>
+          )}
+          {canIssueReturn && (
+            <Button size="sm" variant="outline" onClick={() => setIsReturnFromSiteOpen(true)} disabled={pageView === "damage"}>
+              <RotateCcw className="mr-1.5 h-4 w-4" />
+              Return
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => { setScrapQuantities({}); setIsAddToScrapOpen(true); }}>
             <Recycle className="mr-1.5 h-4 w-4" />
             Scrap
@@ -705,13 +747,90 @@ const Materials = () => {
             <Eye className="mr-1.5 h-4 w-4" />
             Scrap log
           </Button>
-          <Button size="sm" onClick={() => setIsAddItemOpen(true)}>
+          <Button size="sm" onClick={() => setIsAddItemOpen(true)} disabled={!canCreateItem}>
             <Plus className="mr-1.5 h-4 w-4" />
             Add
           </Button>
         </div>
       </StickyPageHeader>
 
+      {pageView === "damage" && (
+        <Card>
+          <CardContent className="p-4 space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Select value={damageProjectFilter} onValueChange={setDamageProjectFilter}>
+                <SelectTrigger className="h-9 w-[200px]">
+                  <SelectValue placeholder="Project" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All projects</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={damageStageFilter} onValueChange={setDamageStageFilter}>
+                <SelectTrigger className="h-9 w-[160px]">
+                  <SelectValue placeholder="Stage" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All stages</SelectItem>
+                  <SelectItem value="transport">Transport</SelectItem>
+                  <SelectItem value="installation">Installation</SelectItem>
+                  <SelectItem value="storage">Storage</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DataTableShell variant="inline">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Item</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead>Stage</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Cost (INR)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredDamageLog.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      No damage records match filters.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredDamageLog.map((d) => (
+                    <TableRow key={d.id}>
+                      <TableCell>{format(new Date(d.reportedAt), "dd MMM yyyy")}</TableCell>
+                      <TableCell>{damageItemName(d.itemId)}</TableCell>
+                      <TableCell>
+                        {d.projectId ? (
+                          <Link to={`/projects/${d.projectId}`} className="text-primary hover:underline">
+                            {projects.find((p) => p.id === d.projectId)?.name ?? d.projectId}
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell className="capitalize">{d.stage}</TableCell>
+                      <TableCell className="text-right">{d.qty}</TableCell>
+                      <TableCell className="text-right">
+                        {d.costImpact ? formatINR(d.costImpact) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </DataTableShell>
+          </CardContent>
+        </Card>
+      )}
+
+      {pageView === "stock" && (
+        <>
       {/* Low Stock Alert */}
       {lowStockItems.length > 0 && (
         <Card className="bg-destructive/10 border-destructive/20">
@@ -738,17 +857,38 @@ const Materials = () => {
       <Card className="bg-card border-border">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-amber-600" />
-              <p className="font-medium text-sm">Need-to-Get (active sites)</p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-warning" />
+                <p className="font-medium text-sm">Need-to-Get (site checklists)</p>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground pl-6">
+                Live site checklist lines vs warehouse stock — dispatch / procurement handoff.
+              </p>
             </div>
             <Badge variant="outline">{needToGetRows.length} open</Badge>
           </div>
+          {procurementHandoffOnly && needToGetRows.length > 0 && (
+            <Alert>
+              <AlertTitle>Hand off to procurement</AlertTitle>
+              <AlertDescription>
+                Vendor assignment and billing are handled by procurement.{" "}
+                <button
+                  type="button"
+                  className="font-medium text-primary underline underline-offset-2"
+                  onClick={() => setNeedToGetOpen(true)}
+                >
+                  Open Need-to-Get report to export
+                </button>
+                .
+              </AlertDescription>
+            </Alert>
+          )}
           {needToGetRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">No shortfalls: site checklist demand is covered by current stock.</p>
           ) : (
             <div className="space-y-2">
-              {needToGetRows.slice(0, 10).map((row) => (
+              {needToGetRows.slice(0, needToGetExpanded ? 8 : 4).map((row) => (
                 <div
                   key={`${row.projectId}-${row.siteId}-${row.materialId}-${row.needByDate}-${row.rowKind ?? "material"}`}
                   className="border rounded-lg p-3"
@@ -757,7 +897,14 @@ const Materials = () => {
                     <div>
                       <p className="text-sm font-medium">{row.materialName}</p>
                       <p className="text-xs text-muted-foreground">
-                        {row.projectName} · {row.siteName}
+                        {row.projectId ? (
+                          <Link to={`/projects/${row.projectId}`} className="text-primary hover:underline">
+                            {row.projectName}
+                          </Link>
+                        ) : (
+                          row.projectName
+                        )}{" "}
+                        · {row.siteName}
                       </p>
                       {row.rowKind === "nonMaterial" ? (
                         <Badge variant="outline" className="mt-1 text-2xs font-normal">
@@ -772,10 +919,14 @@ const Materials = () => {
                   <div className="mt-2 text-xs text-muted-foreground flex flex-wrap gap-3">
                     <span>Need-by: {row.needByDate}</span>
                     {row.rowKind === "nonMaterial" ? null : (
-                      <span>Last purch. rate: {formatCurrency(row.lastPurchaseRate)}</span>
+                      <span>Last purch. rate: {formatINR(row.lastPurchaseRate)}</span>
                     )}
                   </div>
-                  {row.rowKind !== "nonMaterial" && row.materialId > 0 && vendorsSorted.length > 0 ? (
+                  {row.rowKind !== "nonMaterial" &&
+                  row.materialId != null &&
+                  !String(row.materialId).startsWith("nm:") &&
+                  !procurementHandoffOnly &&
+                  vendorsSorted.length > 0 ? (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {vendorsSorted.slice(0, 4).map((v) => (
                         <Button key={v.id} variant="secondary" size="sm" className="h-7 text-2xs" asChild>
@@ -797,119 +948,218 @@ const Materials = () => {
               ))}
             </div>
           )}
-          <Button className="w-full" type="button" onClick={() => setNeedToGetOpen(true)}>
-            Open full Need-to-Get report
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {needToGetRows.length > 4 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs"
+                onClick={() => setNeedToGetExpanded((v) => !v)}
+              >
+                {needToGetExpanded ? "Show less" : `Show ${Math.min(8, needToGetRows.length) - 4} more`}
+              </Button>
+            )}
+            <Button className="ml-auto" type="button" size="sm" onClick={() => setNeedToGetOpen(true)}>
+              Open full Need-to-Get report
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
-      {/* Quotation / preset shortfall (issued vs required) — ProcurementShortfallService */}
-      <Card className="bg-card border-border">
+      {/* BOM / template shortfall (quotation preset vs issued) — distinct from Need-to-Get */}
+      <Card className="bg-card border-border border-dashed">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Layers className="h-4 w-4 text-primary" />
-              <p className="font-medium text-sm">Preset / quotation shortfall (issued vs required)</p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <p className="font-medium text-sm">BOM shortfall (quotation / template)</p>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground pl-6">
+                Required from approved quotation or site template minus already issued to the project — not live site checklist rows.
+              </p>
             </div>
-            <Badge variant="outline">{procurementShortfalls.length} lines</Badge>
+            <Badge variant="secondary">{procurementShortfalls.length} lines</Badge>
           </div>
           {procurementShortfalls.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No gaps: ongoing projects either have no preset/quotation material list, or issued quantities cover requirements.
+              No BOM gaps: issued quantities meet template requirements for linked projects.
             </p>
           ) : (
             <div className="space-y-2">
-              {procurementShortfalls.slice(0, 8).map((row) => (
-                <div key={`${row.projectId}-${row.itemId}`} className="border rounded-lg p-3">
+              {procurementShortfalls.slice(0, procurementExpanded ? 8 : 4).map((row) => (
+                <div
+                  key={`${row.projectId}-${row.itemId}`}
+                  className="rounded-lg border border-dashed p-3"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium">{row.itemName}</p>
-                      <p className="text-xs text-muted-foreground">{row.projectName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        <Link to={`/projects/${row.projectId}`} className="text-primary hover:underline">
+                          {row.projectName}
+                        </Link>
+                      </p>
                     </div>
-                    <Badge className="bg-amber-500/10 text-amber-700 border-0 dark:text-amber-400">Short {row.shortfallQty}</Badge>
+                    <Badge variant="outline" className="border-warning/40 text-warning shrink-0">
+                      Short {row.shortfallQty}
+                    </Badge>
                   </div>
-                  <div className="mt-2 text-xs text-muted-foreground flex flex-wrap gap-3">
-                    <span>
-                      Req {row.requiredQty} · Issued {row.issuedQty} · Stock {row.availableStock}
-                    </span>
-                    <span>Need-by: {row.needByDate}</span>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>Required {row.requiredQty}</span>
+                    <span>Issued {row.issuedQty}</span>
+                    <span>Stock (eff.) {row.availableStock}</span>
+                    {row.reservedForOthers > 0 ? (
+                      <span>Reserved elsewhere {row.reservedForOthers}</span>
+                    ) : null}
+                    <span>Need-by {row.needByDate}</span>
                   </div>
-                  {vendorsSorted.length > 0 ? (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {vendorsSorted.slice(0, 3).map((v) => (
-                        <Button key={v.id} variant="secondary" size="sm" className="h-7 text-2xs" asChild>
-                          <Link
-                            to={`/vendors/${v.id}?action=add-purchase&inventoryItemId=${row.itemId}&qty=${encodeURIComponent(String(row.shortfallQty))}&projectId=${encodeURIComponent(row.projectId)}`}
-                          >
-                            Bill · {v.name.length > 14 ? `${v.name.slice(0, 14)}…` : v.name}
-                          </Link>
-                        </Button>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
               ))}
             </div>
           )}
-          <Button className="w-full" type="button" variant="outline" onClick={() => setNeedToGetOpen(true)}>
-            Open Need-to-Get (checklist + site view)
-          </Button>
+          {procurementShortfalls.length > 4 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+              onClick={() => setProcurementExpanded((v) => !v)}
+            >
+              {procurementExpanded ? "Show less" : `Show ${Math.min(8, procurementShortfalls.length) - 4} more`}
+            </Button>
+          )}
         </CardContent>
       </Card>
 
-      {/* Materials Cards - Grouped by Category */}
-      <div className="space-y-4">
-        {Object.entries(groupedItems).map(([category, items]) => {
-          const isCollapsed = collapsedCategories.has(category);
-          const categoryLowStock = items.filter(i => i.stock <= i.minStock).length;
-          
-          if (groupByCategory) {
-            return (
-              <Collapsible key={category} open={!isCollapsed} onOpenChange={() => toggleCategory(category)}>
-                <CollapsibleTrigger asChild>
-                  <div className="flex items-center justify-between p-3 bg-muted/40 rounded-lg cursor-pointer hover:bg-muted/60 transition-colors">
-                    <div className="flex items-center gap-3">
-                      {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      <h2 className="font-semibold text-sm">{category}</h2>
-                      <Badge variant="secondary" className="text-xs">{items.length}</Badge>
-                      {categoryLowStock > 0 && (
-                        <Badge className="bg-destructive/10 text-destructive border-0 text-xs">
-                          {categoryLowStock} low
-                        </Badge>
-                      )}
+      <DataTableShell
+        maxHeight={listTableViewportMaxHeight(tablePageSize)}
+        scrollResetKey={`${safeTablePage}-${tablePageSize}-${tableSortedItems.length}`}
+        footer={
+          <TablePaginationBar
+            page={safeTablePage}
+            pageSize={tablePageSize}
+            total={tableSortedItems.length}
+            onPageChange={setTablePage}
+            onPageSizeChange={(n) => {
+              setTablePageSize(n);
+              setTablePage(1);
+            }}
+          />
+        }
+      >
+        <TableHeader>
+          <TableRow className={dataTableClasses.headRow}>
+            <TableHead>Material</TableHead>
+            <TableHead>Category</TableHead>
+            <TableHead>Size</TableHead>
+            <TableHead className="text-right">Stock</TableHead>
+            <TableHead>Unit</TableHead>
+            <TableHead className="text-right">Buy</TableHead>
+            <TableHead className="text-right">Sale</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {!listReady ? (
+            <ListSkeleton variant="table" count={5} columns={9} />
+          ) : pagedTableItems.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={9} className="p-0">
+                <ListEmptyState
+                  icon={Package}
+                  title="No materials found"
+                  description="Adjust search or category filters, or add a new SKU."
+                  actionLabel="Add material"
+                  onAction={() => setIsAddItemOpen(true)}
+                />
+              </TableCell>
+            </TableRow>
+          ) : (
+            pagedTableItems.map((item) => {
+              const isLowStock = item.stock <= item.minStock;
+              return (
+                <TableRow
+                  key={item.id}
+                  className="cursor-pointer hover:bg-muted/40"
+                  onClick={() => {
+                    setSelectedItemForDetail(item);
+                    setIsDetailOpen(true);
+                  }}
+                >
+                  <TableCell className="font-medium">{getDisplayName(item)}</TableCell>
+                  <TableCell className="text-muted-foreground">{item.category}</TableCell>
+                  <TableCell className="text-muted-foreground">{item.size ?? "—"}</TableCell>
+                  <TableCell className={`text-right font-semibold tabular-nums ${isLowStock ? "text-destructive" : ""}`}>
+                    {item.stock}
+                  </TableCell>
+                  <TableCell>{item.unit}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatINR(item.buyPrice)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatINR(item.salePrice)}</TableCell>
+                  <TableCell>
+                    {isLowStock ? (
+                      <Badge className="bg-destructive/10 text-destructive border-0">Low</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground">OK</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="History"
+                        onClick={() => {
+                          setSelectedItemForHistory(item);
+                          setIsItemHistoryOpen(true);
+                        }}
+                      >
+                        <History className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="Edit"
+                        onClick={() => openEditModal(item)}
+                        disabled={!canEditItem}
+                      >
+                        <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                      {canEditItem && (item.deactivatedAt ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Reactivate"
+                          onClick={() => updateInventoryItem(item.id, { deactivatedAt: undefined })}
+                        >
+                          Reactivate
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Deactivate"
+                          className="text-muted-foreground"
+                          onClick={() => setDeactivateItemTarget(item)}
+                        >
+                          Deactivate
+                        </Button>
+                      ))}
                     </div>
-                    <span className="text-xs text-muted-foreground">
-                      {items.reduce((s, i) => s + i.stock, 0)} total units
-                    </span>
-                  </div>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-3">
-                    {items.map(item => (
-                      <ItemCard key={item.id} item={item} />
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            );
-          }
-          
-          return (
-            <div key={category} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {items.map(item => (
-                <ItemCard key={item.id} item={item} />
-              ))}
-            </div>
-          );
-        })}
-        
-        {filteredItems.length === 0 && (
-          <div className="text-center py-12">
-            <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground">No materials found</p>
-          </div>
-        )}
-      </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </DataTableShell>
+
+        </>
+      )}
 
       {/* Item Detail View Modal */}
       <Sheet open={isDetailOpen} onOpenChange={setIsDetailOpen}>
@@ -932,11 +1182,11 @@ const Materials = () => {
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3 bg-muted/30 rounded-lg">
                   <p className="text-xs text-muted-foreground">Buy Price</p>
-                  <p className="font-medium">{formatCurrency(selectedItemForDetail.buyPrice)}</p>
+                  <p className="font-medium">{formatINR(selectedItemForDetail.buyPrice)}</p>
                 </div>
                 <div className="p-3 bg-muted/30 rounded-lg">
                   <p className="text-xs text-muted-foreground">Sale Price</p>
-                  <p className="font-medium">{formatCurrency(selectedItemForDetail.salePrice)}</p>
+                  <p className="font-medium">{formatINR(selectedItemForDetail.salePrice)}</p>
                 </div>
                 <div className="p-3 bg-muted/30 rounded-lg">
                   <p className="text-xs text-muted-foreground">HSN Code</p>
@@ -972,7 +1222,7 @@ const Materials = () => {
                 </div>
                 <div className="p-3 bg-muted/30 rounded-lg">
                   <p className="text-xs text-muted-foreground">Stock Value</p>
-                  <p className="font-medium">{formatCurrency(selectedItemForDetail.stock * selectedItemForDetail.buyPrice)}</p>
+                  <p className="font-medium">{formatINR(selectedItemForDetail.stock * selectedItemForDetail.buyPrice)}</p>
                 </div>
               </div>
               {selectedItemForDetail.notes && (
@@ -981,16 +1231,77 @@ const Materials = () => {
                   <p className="text-sm">{selectedItemForDetail.notes}</p>
                 </div>
               )}
+              {(() => {
+                const itemReservations = getReservationsForItem(selectedItemForDetail.id);
+                const itemDamage = getDamageByItem(selectedItemForDetail.id);
+                if (itemReservations.length === 0 && itemDamage.length === 0) return null;
+                return (
+                  <div className="space-y-3 border-t border-border/60 pt-4">
+                    {itemReservations.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold">Active reservations</p>
+                        {itemReservations.map((res) => {
+                          const proj = res.projectId ? projects.find((p) => p.id === res.projectId) : undefined;
+                          return (
+                            <div
+                              key={res.id}
+                              className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm"
+                            >
+                              <span className="tabular-nums font-medium">{res.qty} reserved</span>
+                              {res.projectId ? (
+                                <Link to={`/projects/${res.projectId}`} className="text-primary hover:underline truncate">
+                                  {proj?.name ?? res.projectId}
+                                </Link>
+                              ) : (
+                                <span className="text-muted-foreground">Manual / unassigned</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {itemDamage.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold">Damage history</p>
+                        {itemDamage.slice(0, 5).map((dmg) => {
+                          const proj = dmg.projectId ? projects.find((p) => p.id === dmg.projectId) : undefined;
+                          return (
+                            <div
+                              key={dmg.id}
+                              className="flex items-center justify-between gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm"
+                            >
+                              <span>
+                                {dmg.qty} · <span className="capitalize">{dmg.stage}</span>
+                              </span>
+                              {dmg.projectId ? (
+                                <Link to={`/projects/${dmg.projectId}`} className="text-primary hover:underline truncate">
+                                  {proj?.name ?? dmg.projectId}
+                                </Link>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="flex gap-2 pt-2">
+                {canEditItem && (
                 <Button variant="outline" className="flex-1" onClick={() => { setIsDetailOpen(false); openEditModal(selectedItemForDetail); }}>
                   <Edit className="h-4 w-4 mr-2" /> Edit
                 </Button>
+                )}
                 <Button variant="outline" className="flex-1" onClick={() => { setIsDetailOpen(false); setSelectedItemForHistory(selectedItemForDetail); setIsItemHistoryOpen(true); }}>
                   <History className="h-4 w-4 mr-2" /> History
                 </Button>
-                <Button variant="destructive" size="icon" onClick={() => { setItemToDelete(selectedItemForDetail); setIsDetailOpen(false); setIsDeleteItemConfirmOpen(true); }}>
-                  <Trash2 className="h-4 w-4" />
+                {canDeleteItem && (
+                <Button variant="destructive" size="icon" aria-label="Delete material" onClick={() => { setItemToDelete(selectedItemForDetail); setIsDetailOpen(false); setIsDeleteItemConfirmOpen(true); }}>
+                  <Trash2 className="h-4 w-4" aria-hidden />
                 </Button>
+                )}
               </div>
             </div>
           )}
@@ -1035,11 +1346,11 @@ const Materials = () => {
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Purchase Rate (₹)</Label>
+                <Label>Purchase rate (INR)</Label>
                 <Input type="number" value={newItemBuyPrice} onChange={(e) => setNewItemBuyPrice(e.target.value)} placeholder="0" />
               </div>
               <div className="space-y-2">
-                <Label>Sale Rate (₹)</Label>
+                <Label>Sale rate (INR)</Label>
                 <Input type="number" value={newItemSalePrice} onChange={(e) => setNewItemSalePrice(e.target.value)} placeholder="0" />
               </div>
             </div>
@@ -1176,11 +1487,11 @@ const Materials = () => {
               
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Purchase Rate (₹)</Label>
+                  <Label>Purchase rate (INR)</Label>
                   <Input type="number" defaultValue={selectedItemForEdit.buyPrice} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Sale Rate (₹)</Label>
+                  <Label>Sale rate (INR)</Label>
                   <Input type="number" defaultValue={selectedItemForEdit.salePrice} />
                 </div>
               </div>
@@ -1322,30 +1633,27 @@ const Materials = () => {
         </SheetContent>
       </Sheet>
 
-      {/* Delete Item Confirmation */}
-      <Sheet open={isDeleteItemConfirmOpen} onOpenChange={setIsDeleteItemConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="w-5 h-5" /> Delete Item
-            </SheetTitle>
-          </SheetHeader>
-          <div className="space-y-4">
-            <p className="text-muted-foreground">
-              Are you sure you want to delete <span className="font-semibold text-foreground">{itemToDelete?.name}</span>?
-            </p>
-            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-              <p className="text-sm text-destructive font-medium">
-                This action cannot be undone. All history and records for this item will be permanently removed.
-              </p>
-            </div>
-          </div>
-          <SheetFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => { setIsDeleteItemConfirmOpen(false); setItemToDelete(null); }}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeleteItem}><Trash2 className="w-4 h-4 mr-2" /> Delete Item</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+      <DestructiveConfirmDialog
+        open={isDeleteItemConfirmOpen}
+        onOpenChange={(open) => {
+          setIsDeleteItemConfirmOpen(open);
+          if (!open) setItemToDelete(null);
+        }}
+        title={itemToDelete ? `Delete ${itemToDelete.name}?` : "Delete item?"}
+        description={
+          itemToDelete ? (
+            <>
+              Permanently remove SKU <strong>{itemToDelete.id}</strong> ({itemToDelete.name}) from inventory. Movement
+              history for this item will no longer appear in lists.
+            </>
+          ) : (
+            "Permanently remove this inventory item."
+          )
+        }
+        typedConfirmation={itemToDelete?.id}
+        confirmLabel="Delete item"
+        onConfirm={handleDeleteItem}
+      />
 
       {/* Item History Modal */}
       <Sheet open={isItemHistoryOpen} onOpenChange={setIsItemHistoryOpen}>
@@ -1368,21 +1676,38 @@ const Materials = () => {
                       : "Adjustment";
               const isIn = record.type === "return" || record.type === "purchase" || record.type === "adjustment";
               return (
-                <div key={record.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                  <div>
+                <div key={record.id} className="flex items-center justify-between gap-3 p-3 bg-muted/30 rounded-lg">
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium text-sm">{action}</p>
                     <p className="text-xs text-muted-foreground">
                       {record.siteName ?? "—"}
                       {record.employeeName ? ` • ${record.employeeName}` : ""}
                     </p>
+                    {record.reversedAt && (
+                      <p className="text-xs text-destructive">
+                        Reversed {record.reversedAt.slice(0, 10)}{record.reversalReason ? ` — ${record.reversalReason}` : ""}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right">
-                    <p className={`font-medium text-sm ${isIn ? "text-primary" : "text-amber-600"}`}>
+                    <p className={`font-medium text-sm ${record.reversedAt ? "line-through text-muted-foreground" : isIn ? "text-primary" : "text-warning"}`}>
                       {isIn ? "+" : "-"}
                       {record.qty}
                     </p>
                     <p className="text-xs text-muted-foreground">{record.date}</p>
                   </div>
+                  {!record.reversedAt && selectedItemForHistory && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setReverseMovementTarget({ itemId: selectedItemForHistory.id, recordId: record.id });
+                        setReverseMovementReason("");
+                      }}
+                    >
+                      Reverse
+                    </Button>
+                  )}
                 </div>
               );
             })}
@@ -1475,7 +1800,7 @@ const Materials = () => {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-xs">Amount (₹)</Label>
+                      <Label className="text-xs">Amount (INR)</Label>
                       <Input type="number" className="h-8" placeholder="0" value={issueExpenseAmount} onChange={(e) => setIssueExpenseAmount(e.target.value)} />
                     </div>
                   </div>
@@ -1701,7 +2026,72 @@ const Materials = () => {
         </SheetContent>
       </Sheet>
 
-      <NeedToGetModal open={needToGetOpen} onOpenChange={setNeedToGetOpen} />
+      <NeedToGetSheet open={needToGetOpen} onOpenChange={setNeedToGetOpen} />
+
+      <DestructiveConfirmDialog
+        open={!!deactivateItemTarget}
+        onOpenChange={(open) => { if (!open) setDeactivateItemTarget(null); }}
+        title={`Deactivate "${deactivateItemTarget?.name}"?`}
+        description="It will be hidden from new procurement and sale flows. You can reactivate it later."
+        confirmLabel="Deactivate"
+        onConfirm={() => {
+          if (deactivateItemTarget) {
+            updateInventoryItem(deactivateItemTarget.id, { deactivatedAt: new Date().toISOString() });
+            setDeactivateItemTarget(null);
+          }
+        }}
+      />
+
+      <Sheet
+        open={!!reverseMovementTarget}
+        onOpenChange={(open) => { if (!open) { setReverseMovementTarget(null); setReverseMovementReason(""); } }}
+      >
+        <SheetContent className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Reverse inventory movement</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Reversing a movement restores the original on-hand quantity and is logged as a super-admin action.
+              The original record stays in the audit trail, marked as reversed.
+            </p>
+            <div className="space-y-2">
+              <Label>Reversal reason</Label>
+              <Textarea
+                value={reverseMovementReason}
+                onChange={(e) => setReverseMovementReason(e.target.value)}
+                placeholder="e.g. wrong item issued, qty entered as 100 instead of 10"
+                rows={3}
+                autoFocus
+              />
+            </div>
+          </div>
+          <SheetFooter className="mt-6 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setReverseMovementTarget(null); setReverseMovementReason(""); }}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (!reverseMovementTarget) return;
+                const res = reverseInventoryMovement(
+                  reverseMovementTarget.itemId,
+                  reverseMovementTarget.recordId,
+                  reverseMovementReason.trim() || undefined,
+                );
+                if (!res.ok) {
+                  toast({ variant: "destructive", title: "Cannot reverse", description: res.error });
+                  return;
+                }
+                setReverseMovementTarget(null);
+                setReverseMovementReason("");
+              }}
+            >
+              Reverse movement
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </PageShell>
   );
 };

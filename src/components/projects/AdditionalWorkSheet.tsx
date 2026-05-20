@@ -61,10 +61,19 @@ export function AdditionalWorkSheet({
     };
 
     const lines = [...(project.additionalWorkLines ?? []), line];
-    updateProject(project.id, {
+    const nextContract = (project.contractAmount ?? 0) + previewTotal;
+    const saved = updateProject(project.id, {
       additionalWorkLines: lines,
-      contractAmount: (project.contractAmount ?? 0) + previewTotal,
+      contractAmount: nextContract,
     });
+    if (!saved) {
+      toast({
+        title: "Could not save additional work",
+        description: "You may not have permission to update this project, or the project could not be saved.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     toast({
       title: "Additional work added",

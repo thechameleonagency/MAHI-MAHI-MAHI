@@ -12,6 +12,32 @@ export interface MasterItem {
   requiresVendorSelect?: boolean;
   context?: 'site' | 'company' | 'employee';
   unit?: string;
+  // Audit-books fields (optional; populated for audit-books master categories)
+  /** For chartOfAccountLeaves: which group this leaf rolls into (asset/liability/income/expense). */
+  nature?: 'asset' | 'liability' | 'income' | 'expense';
+  /** For expense/income mappings: target Chart-of-Accounts leaf value. */
+  coaLeaf?: string;
+  /** For expense/income mappings: P&L line bucket. */
+  plLine?:
+    | 'revenue'
+    | 'direct'
+    | 'indirect'
+    | 'finance-cost'
+    | 'tax'
+    | 'non-pl-capital'
+    | 'non-pl-drawings'
+    | 'non-pl-liability'
+    | 'non-pl-asset';
+  /** For expense/income mappings: GST treatment classification. */
+  gstTreatment?: 'itc-eligible' | 'itc-blocked' | 'rcm' | 'no-gst';
+  /** For Vehicle EMI / Loan Repayment style entries: split into interest (P&L) + principal (BS). */
+  requiresInterestPrincipalSplit?: boolean;
+  /** For inventory items: WAC | FIFO. */
+  valuationMethod?: 'wac' | 'fifo';
+  /** For HSN/SAC code masters: applicable GST rate (numeric percent). */
+  gstRate?: number;
+  /** Long-form body content (used by `quotationStaticSections`). Plain text; newline-separated bullets supported. */
+  bodyText?: string;
 }
 
 export interface MasterCategory {
@@ -907,4 +933,35 @@ export const defaultBankAccounts: MasterItem[] = [
   { value: "hdfc-1234", label: "HDFC Bank - 1234", isEditable: true },
   { value: "sbi-5678", label: "SBI - 5678", isEditable: true },
   { value: "icici-9012", label: "ICICI - 9012", isEditable: true },
+];
+
+/**
+ * Default static sections rendered in every quotation (create + preview).
+ * Editable from Settings → Quotation Static Sections.
+ */
+export const quotationStaticSections: MasterItem[] = [
+  {
+    value: "why-choose-mss",
+    label: "Why Choose MSS?",
+    order: 1,
+    isEditable: true,
+    bodyText:
+      "10+ years of solar EPC experience across residential, commercial, and industrial rooftops.\n" +
+      "Tier-1 panels (Waaree / Adani / Vikram) and inverters (Sungrow / Growatt / Solis) only.\n" +
+      "DISCOM-empanelled installer — full liaison for net-metering & subsidy paperwork.\n" +
+      "5-year on-site workmanship warranty + 25-year manufacturer panel warranty (linear).\n" +
+      "Transparent BOQ pricing, no hidden charges. Pay-as-you-progress milestones.",
+  },
+  {
+    value: "benefits",
+    label: "Benefits of going solar with MSS",
+    order: 2,
+    isEditable: true,
+    bodyText:
+      "Save ₹70–90 per unit on grid tariff from day one — typical payback 4–6 years.\n" +
+      "Eligible for central + state subsidy (₹14,588/kW up to 3 kW; ₹7,294/kW for 3–10 kW slab).\n" +
+      "Net metering: export surplus units; credit adjusted against night-time imports.\n" +
+      "Reduce carbon footprint by ~1.2 tonnes CO₂ per kW per year.\n" +
+      "Hedge against future tariff hikes — your generation cost is locked in.",
+  },
 ];

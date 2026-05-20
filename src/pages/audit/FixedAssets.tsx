@@ -76,9 +76,9 @@ const FixedAssets = () => {
           { label: "Fixed assets" },
         ]}
         subRow={
-          <>
+          <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
             <Select value={method} onValueChange={(v) => setMethod(v as "wdv" | "slm")}>
-              <SelectTrigger className="h-8 w-48 text-xs">
+              <SelectTrigger className="h-8 w-48 shrink-0 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -86,43 +86,42 @@ const FixedAssets = () => {
                 <SelectItem value="slm">Straight Line (SLM)</SelectItem>
               </SelectContent>
             </Select>
-            <div className="flex flex-wrap items-end gap-3 border-l border-border pl-3">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">WDV % / yr</Label>
-                <Input
-                  type="number"
-                  className="h-8 w-20 text-xs"
-                  min={1}
-                  max={100}
-                  value={wdvPercent}
-                  onChange={(e) => setWdvPercent(Math.min(100, Math.max(1, parseFloat(e.target.value) || 0)))}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">SLM life (yrs)</Label>
-                <Input
-                  type="number"
-                  className="h-8 w-20 text-xs"
-                  min={1}
-                  max={60}
-                  value={slmLifeYears}
-                  onChange={(e) => setSlmLifeYears(Math.min(60, Math.max(1, parseInt(e.target.value, 10) || 1)))}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Residual % of cost</Label>
-                <Input
-                  type="number"
-                  className="h-8 w-20 text-xs"
-                  min={0}
-                  max={50}
-                  value={residualPercent}
-                  onChange={(e) => setResidualPercent(Math.min(50, Math.max(0, parseFloat(e.target.value) || 0)))}
-                />
-              </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Label className="whitespace-nowrap text-2xs uppercase tracking-wider text-muted-foreground">WDV%</Label>
+              <Input
+                type="number"
+                className="h-8 w-16 text-xs"
+                min={1}
+                max={100}
+                value={wdvPercent}
+                onChange={(e) => setWdvPercent(Math.min(100, Math.max(1, parseFloat(e.target.value) || 0)))}
+              />
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Label className="whitespace-nowrap text-2xs uppercase tracking-wider text-muted-foreground">SLM yrs</Label>
+              <Input
+                type="number"
+                className="h-8 w-16 text-xs"
+                min={1}
+                max={60}
+                value={slmLifeYears}
+                onChange={(e) => setSlmLifeYears(Math.min(60, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+              />
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Label className="whitespace-nowrap text-2xs uppercase tracking-wider text-muted-foreground">Residual%</Label>
+              <Input
+                type="number"
+                className="h-8 w-16 text-xs"
+                min={0}
+                max={50}
+                value={residualPercent}
+                onChange={(e) => setResidualPercent(Math.min(50, Math.max(0, parseFloat(e.target.value) || 0)))}
+              />
             </div>
             <InlineKpiStrip
-              className="w-full min-w-0 sm:justify-end"
+              singleRow
+              className="min-w-0 flex-1"
               items={[
                 { label: "Asset cost", value: formatINR(stats.totalCost) },
                 { label: "Depreciation", value: formatINR(stats.totalDepreciation) },
@@ -130,7 +129,7 @@ const FixedAssets = () => {
                 { label: "Assets", value: stats.count },
               ]}
             />
-          </>
+          </div>
         }
       >
         <Button
@@ -207,7 +206,7 @@ const FixedAssets = () => {
                   </TableCell>
                   <TableCell >{asset.purchaseDate || "-"}</TableCell>
                   <TableCell className="text-right">{formatINR(asset.cost)}</TableCell>
-                  <TableCell className="text-right text-orange-600">{formatINR(asset.accumulatedDepreciation)}</TableCell>
+                  <TableCell className="text-right text-warning">{formatINR(asset.accumulatedDepreciation)}</TableCell>
                   <TableCell className="text-right font-medium">{formatINR(asset.bookValue)}</TableCell>
                   <TableCell>
                     <Badge variant={asset.status === "In Use" ? "default" : "secondary"} className="text-xs">

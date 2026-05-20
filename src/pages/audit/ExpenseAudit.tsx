@@ -21,10 +21,12 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
+import { findExpenseIntegrityIssues } from "@/lib/audit";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 function CategoryExpenseLinesTable({
   entries,
-  _fmt,
+  fmt: _fmt,
   onProjectClick,
 }: {
   entries: Expense[];
@@ -90,10 +92,10 @@ function CategoryExpenseLinesTable({
 const MAIN_CATEGORIES = [
   { key: "company", label: "Company", color: "bg-primary" },
   { key: "employee", label: "Employee", color: "bg-primary" },
-  { key: "office", label: "Office", color: "bg-purple-500" },
-  { key: "site", label: "Site/Project", color: "bg-orange-500" },
-  { key: "owner", label: "Owner (MK)", color: "bg-red-500" },
-  { key: "partner", label: "Partner", color: "bg-yellow-500" },
+  { key: "office", label: "Office", color: "bg-accent" },
+  { key: "site", label: "Site/Project", color: "bg-warning" },
+  { key: "owner", label: "Owner (MK)", color: "bg-destructive" },
+  { key: "partner", label: "Partner", color: "bg-warning" },
 ];
 
 const ExpenseAudit = () => {
@@ -133,6 +135,8 @@ const ExpenseAudit = () => {
   }, [expenses, filteredExpenses, selectedMain]);
 
   // Group by mainCategory then by category
+  const integrityIssues = useMemo(() => findExpenseIntegrityIssues(expenses), [expenses]);
+
   const grouped = useMemo(() => {
     const groups: Record<string, Record<string, typeof expenses>> = {};
     filteredExpenses.forEach(e => {
@@ -154,9 +158,9 @@ const ExpenseAudit = () => {
           { label: "Expenses" },
         ]}
         subRow={
-          <>
+          <div className="flex w-full min-w-0 flex-nowrap items-center gap-3 overflow-x-auto">
             <Select value={selectedMain} onValueChange={setSelectedMain}>
-              <SelectTrigger className="h-8 w-40 text-xs">
+              <SelectTrigger className="h-8 w-40 shrink-0 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -169,7 +173,8 @@ const ExpenseAudit = () => {
               </SelectContent>
             </Select>
             <InlineKpiStrip
-              className="w-full min-w-0 sm:justify-end"
+              singleRow
+              className="min-w-0 flex-1"
               items={[
                 { label: "Total", value: formatINR(stats.total) },
                 { label: "Top category", value: stats.highestCat },
@@ -177,7 +182,7 @@ const ExpenseAudit = () => {
                 { label: "Site", value: formatINR(stats.siteTotal) },
               ]}
             />
-          </>
+          </div>
         }
       >
         <Button
@@ -210,6 +215,17 @@ const ExpenseAudit = () => {
           Export CSV
         </Button>
       </StickyPageHeader>
+
+      {integrityIssues.length > 0 && (
+        <Alert variant="destructive">
+          <AlertTitle>Data integrity ({integrityIssues.length})</AlertTitle>
+          <AlertDescription className="text-xs space-y-1 max-h-32 overflow-y-auto">
+            {integrityIssues.slice(0, 8).map((row) => (
+              <p key={row.id}>{row.date}: {row.issue} — {formatINR(row.amount)}</p>
+            ))}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Category Chart */}
       <Card>

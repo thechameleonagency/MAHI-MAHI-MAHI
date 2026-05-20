@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useCan } from "@/hooks/useCan";
 import { Plus, Search, Wrench, User, MapPin, Check, RotateCcw, ArrowRight, History, Edit, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,10 +21,15 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { toast } from "@/hooks/use-toast";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { TOOL_CATEGORY_SELECT_ITEMS } from "@/lib/formCategories";
+import { formatINR } from "@/lib/formatCurrency";
 
 const Tools = () => {
-  const { tools, employees, projects, addTool, updateTool, deleteTool, issueTool, returnTool, _generateId } = useAppData();
+  const { tools, employees, sites, addTool, updateTool, deleteTool, reverseToolMovement, issueTool, returnTool, generateId: _generateId } = useAppData();
+  const canCreateTool = useCan("tool", "create");
+  const canEditTool = useCan("tool", "edit");
+  const canDeleteTool = useCan("tool", "delete");
   
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -72,10 +78,29 @@ const Tools = () => {
   const [editToolPurchaseDate, setEditToolPurchaseDate] = useState("");
   const [editToolCondition, setEditToolCondition] = useState<Tool["condition"]>("Good");
   const [editToolConditionNotes, setEditToolConditionNotes] = useState("");
+
+  // Retire / reverse dialog state
+  const [retireToolTarget, setRetireToolTarget] = useState<Tool | null>(null);
+  const [retireReason, setRetireReason] = useState("");
+  const [reverseTarget, setReverseTarget] = useState<{ toolId: number; recordId: string } | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
   
-  // Get sites from projects
-  const sites = projects.map(p => ({ id: p.id, name: p.name }));
-  
+  const siteLabelForTool = (tool: Tool) => {
+    if (tool.assignedToSiteId) {
+      const site = sites.find((s) => String(s.id) === tool.assignedToSiteId);
+      return site?.name ?? tool.site;
+    }
+    return tool.site || "—";
+  };
+
+  const assigneeLabelForTool = (tool: Tool) => {
+    if (tool.assignedToEmployeeId) {
+      const emp = employees.find((e) => String(e.id) === tool.assignedToEmployeeId);
+      return emp?.name ?? tool.assignedTo;
+    }
+    return tool.assignedTo || "—";
+  };
+
   // Get unique categories
   const categories = [...new Set(tools.map(tool => tool.category))];
 
@@ -92,8 +117,6 @@ const Tools = () => {
 
   const { pagedItems: pagedTools, safePage } = usePagedSlice(filteredTools, tablePage, tablePageSize);
 
-  const formatCurrency = (amount: number) => `₹${amount.toLocaleString()}`;
-
   // Stats
   const totalTools = tools.length;
   const inUse = tools.filter(t => t.status === "In Use").length;
@@ -107,7 +130,7 @@ const Tools = () => {
     const styles: Record<string, string> = {
       "In Use": "bg-primary/10 text-primary border-0",
       "Available": "bg-primary/10 text-primary border-0",
-      "Under Repair": "bg-amber-500/10 text-amber-500 border-0",
+      "Under Repair": "bg-warning/10 text-warning border-0",
     };
     return <Badge className={styles[status] || ""}>{status}</Badge>;
   };
@@ -115,7 +138,7 @@ const Tools = () => {
   const getConditionBadge = (condition: string) => {
     const styles: Record<string, string> = {
       "Good": "bg-primary/10 text-primary border-0",
-      "Fair": "bg-amber-500/10 text-amber-500 border-0",
+      "Fair": "bg-warning/10 text-warning border-0",
       "Poor": "bg-destructive/10 text-destructive border-0",
       "Damaged": "bg-destructive/15 text-destructive border-0",
     };
@@ -163,10 +186,10 @@ const Tools = () => {
       return;
     }
     // B10 — actually persist to context
-    const site = sites.find(s => s.id === issueSiteId);
-    const emp = employees.find(e => e.id.toString() === issuePersonId);
+    const site = sites.find((s) => String(s.id) === issueSiteId);
+    const emp = employees.find((e) => e.id.toString() === issuePersonId);
     issueTool(
-      parseInt(selectedToolId),
+      selectedToolId,
       issueSiteId,
       site?.name ?? issueSiteId,
       issueDate,
@@ -188,7 +211,7 @@ const Tools = () => {
     }
     // B11 — actually persist to context
     returnTool(
-      parseInt(returnToolId),
+      returnToolId,
       returnCondition,
       new Date().toISOString().split("T")[0],
       returnNotes || undefined,
@@ -209,61 +232,59 @@ const Tools = () => {
           { label: "Tools" },
         ]}
         subRow={
-          <>
-            <div className="flex w-full min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="relative max-w-full flex-1 sm:max-w-sm">
-                <Search className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search tools"
-                  className="h-9 border-border bg-muted/50 pl-9"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setTablePage(1);
-                  }}
-                />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Select
-                  value={statusFilter}
-                  onValueChange={(v) => {
-                    setStatusFilter(v);
-                    setTablePage(1);
-                  }}
-                >
-                  <SelectTrigger className="h-9 w-[min(100%,150px)] bg-muted/50">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All status</SelectItem>
-                    <SelectItem value="Available">Available</SelectItem>
-                    <SelectItem value="In Use">In use</SelectItem>
-                    <SelectItem value="Under Repair">Under repair</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={categoryFilter}
-                  onValueChange={(v) => {
-                    setCategoryFilter(v);
-                    setTablePage(1);
-                  }}
-                >
-                  <SelectTrigger className="h-9 w-[min(100%,200px)] bg-muted/50">
-                    <SelectValue placeholder="Category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All categories</SelectItem>
-                    {categories.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {cat}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+          <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
+            <div className="relative min-w-[180px] flex-1">
+              <Search className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Input
+                placeholder="Search tools"
+                className="h-9 border-border bg-muted/50 pl-9"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setTablePage(1);
+                }}
+                aria-label="Search tools"
+              />
             </div>
+            <Select
+              value={statusFilter}
+              onValueChange={(v) => {
+                setStatusFilter(v);
+                setTablePage(1);
+              }}
+            >
+              <SelectTrigger className="h-9 w-[150px] shrink-0 bg-muted/50">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All status</SelectItem>
+                <SelectItem value="Available">Available</SelectItem>
+                <SelectItem value="In Use">In use</SelectItem>
+                <SelectItem value="Under Repair">Under repair</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={categoryFilter}
+              onValueChange={(v) => {
+                setCategoryFilter(v);
+                setTablePage(1);
+              }}
+            >
+              <SelectTrigger className="h-9 w-[200px] shrink-0 bg-muted/50">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {categories.map((cat) => (
+                  <SelectItem key={cat} value={cat}>
+                    {cat}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <InlineKpiStrip
-              className="w-full sm:w-auto sm:justify-end"
+              singleRow
+              className="min-w-0 flex-1"
               items={[
                 { label: "Total", value: totalTools },
                 { label: "Avail", value: available },
@@ -272,7 +293,7 @@ const Tools = () => {
                 { label: "Match", value: filteredTools.length },
               ]}
             />
-          </>
+          </div>
         }
       >
         <div className="flex flex-wrap justify-end gap-1.5">
@@ -284,7 +305,7 @@ const Tools = () => {
             <RotateCcw className="mr-1.5 h-4 w-4" />
             Return
           </Button>
-          <Button size="sm" onClick={() => setIsAddToolOpen(true)}>
+          <Button size="sm" onClick={() => setIsAddToolOpen(true)} disabled={!canCreateTool}>
             <Plus className="mr-1.5 h-4 w-4" />
             Add
           </Button>
@@ -329,10 +350,10 @@ const Tools = () => {
                   <Badge variant="outline">{tool.category}</Badge>
                 </TableCell>
                 <TableCell>
-                  {tool.assignedTo !== "-" ? (
+                  {assigneeLabelForTool(tool) !== "—" && assigneeLabelForTool(tool) !== "-" ? (
                     <div className="flex items-center gap-1">
                       <User className="h-3 w-3 text-muted-foreground" />
-                      <span>{tool.assignedTo}</span>
+                      <span>{assigneeLabelForTool(tool)}</span>
                     </div>
                   ) : (
                     <span className="text-muted-foreground">-</span>
@@ -341,13 +362,13 @@ const Tools = () => {
                 <TableCell>
                   <div className="flex items-center gap-1">
                     <MapPin className="h-3 w-3 text-muted-foreground" />
-                    <span>{tool.site}</span>
+                    <span>{siteLabelForTool(tool)}</span>
                   </div>
                 </TableCell>
                 <TableCell>{getStatusBadge(tool.status)}</TableCell>
                 <TableCell>{getConditionBadge(tool.condition)}</TableCell>
                 <TableCell className="text-muted-foreground">{tool.lastUpdated}</TableCell>
-                <TableCell className="text-right">{formatCurrency(tool.purchaseRate)}</TableCell>
+                <TableCell className="text-right">{formatINR(tool.purchaseRate)}</TableCell>
                 <TableCell>
                   <div className="flex items-center justify-center gap-1">
                     <Button 
@@ -362,10 +383,11 @@ const Tools = () => {
                     >
                       <History className="h-4 w-4" />
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-7 w-7" 
+                    {canEditTool && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
                       title="Edit"
                       onClick={() => {
                         setSelectedToolForEdit(tool);
@@ -380,6 +402,30 @@ const Tools = () => {
                     >
                       <Edit className="h-4 w-4" />
                     </Button>
+                    )}
+                    {canDeleteTool && (tool.status === "Retired" ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Reinstate"
+                        onClick={() => updateTool(tool.id, { status: "Available", retiredAt: undefined, retiredReason: undefined })}
+                      >
+                        Reinstate
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Retire"
+                        className="text-muted-foreground"
+                        onClick={() => {
+                          setRetireReason("");
+                          setRetireToolTarget(tool);
+                        }}
+                      >
+                        Retire
+                      </Button>
+                    ))}
                   </div>
                 </TableCell>
               </TableRow>
@@ -522,7 +568,10 @@ const Tools = () => {
                 {issueToolAction === "transfer" && (
                   <p className="text-sm text-muted-foreground mt-1">
                     Current Location: <span className="font-medium text-foreground">
-                      {tools.find(t => t.id.toString() === selectedToolId)?.site}
+                      {(() => {
+                        const t = tools.find((x) => x.id.toString() === selectedToolId);
+                        return t ? siteLabelForTool(t) : "";
+                      })()}
                     </span>
                   </p>
                 )}
@@ -536,7 +585,10 @@ const Tools = () => {
                 </SelectTrigger>
                 <SelectContent>
                   {sites.map((site) => (
-                    <SelectItem key={site.id} value={site.id.toString()}>{site.name}</SelectItem>
+                    <SelectItem key={`${site.projectId}-${site.id}`} value={String(site.id)}>
+                      {site.name}
+                      {site.projectName ? ` (${site.projectName})` : ""}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -692,7 +744,7 @@ const Tools = () => {
                   <div className="flex-1">
                     <p className="font-medium text-sm">Added to Inventory</p>
                     <p className="text-xs text-muted-foreground">{selectedToolForHistory?.purchaseDate}</p>
-                    <p className="text-xs text-muted-foreground">Purchase Rate: ₹{selectedToolForHistory?.purchaseRate?.toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">Purchase rate: {formatINR(selectedToolForHistory?.purchaseRate ?? 0)}</p>
                   </div>
                 </div>
                 {/* Real movement history — B14 fix */}
@@ -702,10 +754,12 @@ const Tools = () => {
                 {(selectedToolForHistory?.movementHistory ?? []).map((rec, idx) => (
                   <div key={rec.id ?? idx} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
                     <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                      {rec.type === "issue" ? <ArrowRight className="h-4 w-4 text-amber-500" /> : <RotateCcw className="h-4 w-4 text-primary" />}
+                      {rec.type === "issue" ? <ArrowRight className="h-4 w-4 text-warning" /> : <RotateCcw className="h-4 w-4 text-primary" />}
                     </div>
                     <div className="flex-1">
-                      <p className="font-medium text-sm">{rec.type === "issue" ? `Issued to ${rec.siteName ?? "site"}` : "Returned to Warehouse"}</p>
+                      <p className={`font-medium text-sm ${rec.reversedAt ? "line-through text-muted-foreground" : ""}`}>
+                        {rec.type === "issue" ? `Issued to ${rec.siteName ?? "site"}` : "Returned to Warehouse"}
+                      </p>
                       <p className="text-xs text-muted-foreground">{rec.date}{rec.employeeName ? ` • ${rec.employeeName}` : ""}</p>
                       {rec.condition && <Badge variant="outline" className="mt-1 text-xs">Condition: {rec.condition}</Badge>}
                       {(rec.conditionNotes ?? rec.notes)?.trim() ? (
@@ -713,7 +767,24 @@ const Tools = () => {
                           Notes: <span className="text-foreground">{rec.conditionNotes ?? rec.notes}</span>
                         </p>
                       ) : null}
+                      {rec.reversedAt && (
+                        <p className="mt-1 text-xs text-destructive">
+                          Reversed {rec.reversedAt.slice(0, 10)}{rec.reversalReason ? ` — ${rec.reversalReason}` : ""}
+                        </p>
+                      )}
                     </div>
+                    {!rec.reversedAt && selectedToolForHistory && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setReverseReason("");
+                          setReverseTarget({ toolId: selectedToolForHistory!.id, recordId: rec.id });
+                        }}
+                      >
+                        Reverse
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -818,6 +889,41 @@ const Tools = () => {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* Retire Tool Dialog */}
+      <DestructiveConfirmDialog
+        open={!!retireToolTarget}
+        onOpenChange={(open) => { if (!open) setRetireToolTarget(null); }}
+        title={`Retire "${retireToolTarget?.name}"?`}
+        description="It will be excluded from issue/return flows. You can reinstate it later."
+        confirmLabel="Retire"
+        onConfirm={() => {
+          if (retireToolTarget) {
+            updateTool(retireToolTarget.id, {
+              status: "Retired",
+              retiredAt: new Date().toISOString(),
+              retiredReason: retireReason.trim() || undefined,
+            });
+            setRetireToolTarget(null);
+          }
+        }}
+      />
+
+      {/* Reverse Movement Dialog */}
+      <DestructiveConfirmDialog
+        open={!!reverseTarget}
+        onOpenChange={(open) => { if (!open) setReverseTarget(null); }}
+        title="Reverse this movement?"
+        description="This will undo the selected issue or return record."
+        confirmLabel="Reverse"
+        onConfirm={() => {
+          if (reverseTarget) {
+            const res = reverseToolMovement(reverseTarget.toolId, reverseTarget.recordId, reverseReason.trim() || undefined);
+            if (!res.ok) toast({ variant: "destructive", title: "Cannot reverse", description: res.error });
+            setReverseTarget(null);
+          }
+        }}
+      />
     </PageShell>
   );
 };

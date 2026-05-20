@@ -58,9 +58,39 @@ const BANK_CHARGE_KEYWORDS = [
   "gst on charge", "folio charge", "debit card fee", "atm charge",
 ];
 
-const parseCSV = (content: string): BankTransaction[] => {
+const normalizeDate = (dateStr: string): string => {
+  if (!dateStr) return "";
+  const formats = [
+    /^(\d{2})[/-](\d{2})[/-](\d{4})$/,
+    /^(\d{4})[/-](\d{2})[/-](\d{2})$/,
+  ];
+
+  const m1 = dateStr.match(formats[0]);
+  if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
+
+  const m2 = dateStr.match(formats[1]);
+  if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+
+  return dateStr;
+};
+
+const parseBankAmount = (raw: string | undefined): number => {
+  if (!raw?.trim()) return 0;
+  const cleaned = raw.replace(/[₹Rs.\s]/gi, "").replace(/,/g, "");
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const isValidBankDate = (dateStr: string): boolean => {
+  const normalized = normalizeDate(dateStr);
+  if (!normalized) return false;
+  const d = parseISO(normalized);
+  return isValid(d);
+};
+
+const parseCSV = (content: string): { transactions: BankTransaction[]; skippedInvalid: number } => {
   const lines = content.trim().split("\n");
-  if (lines.length < 2) return [];
+  if (lines.length < 2) return { transactions: [], skippedInvalid: 0 };
 
   const header = lines[0].toLowerCase();
   const headers = header.split(",").map(h => h.trim().replace(/"/g, ""));
@@ -72,51 +102,42 @@ const parseCSV = (content: string): BankTransaction[] => {
   const balIdx = headers.findIndex(h => h.includes("balance") || h.includes("closing"));
   const refIdx = headers.findIndex(h => h.includes("ref") || h.includes("chq") || h.includes("utr"));
 
+  const mapRow = (cols: string[], rawLine: string): BankTransaction | null => {
+    const date = dateIdx >= 0 ? cols[dateIdx] || "" : cols[0] || "";
+    if (!isValidBankDate(date)) return null;
+    return {
+      date,
+      description: (descIdx >= 0 ? cols[descIdx] : cols[1]) || "",
+      debit: debitIdx >= 0 ? parseBankAmount(cols[debitIdx]) : parseBankAmount(cols[2]),
+      credit: creditIdx >= 0 ? parseBankAmount(cols[creditIdx]) : parseBankAmount(cols[3]),
+      balance: balIdx >= 0 ? parseBankAmount(cols[balIdx]) : parseBankAmount(cols[4]),
+      reference: refIdx >= 0 ? cols[refIdx] : cols[5] || "",
+      rawLine,
+    };
+  };
+
+  let skippedInvalid = 0;
+  const dataLines = lines.slice(1).filter((l) => l.trim());
+
   if (dateIdx === -1 || descIdx === -1) {
-    // Fallback: assume standard format Date, Description, Debit, Credit, Balance
-    return lines.slice(1).filter(l => l.trim()).map(line => {
-      const cols = line.split(",").map(c => c.trim().replace(/"/g, ""));
-      return {
-        date: cols[0] || "",
-        description: cols[1] || "",
-        debit: parseFloat(cols[2]?.replace(/,/g, "")) || 0,
-        credit: parseFloat(cols[3]?.replace(/,/g, "")) || 0,
-        balance: parseFloat(cols[4]?.replace(/,/g, "")) || 0,
-        reference: cols[5] || "",
-        rawLine: line,
-      };
-    });
+    const transactions: BankTransaction[] = [];
+    for (const line of dataLines) {
+      const cols = line.split(",").map((c) => c.trim().replace(/"/g, ""));
+      const row = mapRow(cols, line);
+      if (row) transactions.push(row);
+      else skippedInvalid += 1;
+    }
+    return { transactions, skippedInvalid };
   }
 
-  return lines.slice(1).filter(l => l.trim()).map(line => {
-    const cols = line.split(",").map(c => c.trim().replace(/"/g, ""));
-    return {
-      date: cols[dateIdx] || "",
-      description: cols[descIdx] || "",
-      debit: debitIdx >= 0 ? (parseFloat(cols[debitIdx]?.replace(/,/g, "")) || 0) : 0,
-      credit: creditIdx >= 0 ? (parseFloat(cols[creditIdx]?.replace(/,/g, "")) || 0) : 0,
-      balance: balIdx >= 0 ? (parseFloat(cols[balIdx]?.replace(/,/g, "")) || 0) : 0,
-      reference: refIdx >= 0 ? cols[refIdx] : "",
-      rawLine: line,
-    };
-  });
-};
-
-const normalizeDate = (dateStr: string): string => {
-  if (!dateStr) return "";
-  // Try common Indian bank formats: DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD
-  const formats = [
-    /^(\d{2})[/-](\d{2})[/-](\d{4})$/, // DD/MM/YYYY or DD-MM-YYYY
-    /^(\d{4})[/-](\d{2})[/-](\d{2})$/, // YYYY-MM-DD
-  ];
-  
-  const m1 = dateStr.match(formats[0]);
-  if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
-  
-  const m2 = dateStr.match(formats[1]);
-  if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
-  
-  return dateStr;
+  const transactions: BankTransaction[] = [];
+  for (const line of dataLines) {
+    const cols = line.split(",").map((c) => c.trim().replace(/"/g, ""));
+    const row = mapRow(cols, line);
+    if (row) transactions.push(row);
+    else skippedInvalid += 1;
+  }
+  return { transactions, skippedInvalid };
 };
 
 interface Props {
@@ -135,11 +156,17 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
     if (open) setStatements((bankReconciliationStatements ?? []) as UploadedStatement[]);
   }, [open, bankReconciliationStatements]);
 
-  // Persist on close — the modal acts as its own "Save" gesture.
-  const handleOpenChange = useCallback((next: boolean) => {
-    if (!next) setBankReconciliationStatements?.(statements);
-    onOpenChange(next);
-  }, [statements, setBankReconciliationStatements, onOpenChange]);
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      onOpenChange(next);
+    },
+    [onOpenChange],
+  );
+
+  const handleSave = useCallback(() => {
+    setBankReconciliationStatements?.(statements);
+    toast({ title: "Reconciliation saved", description: "Uploaded statements are stored for this session." });
+  }, [statements, setBankReconciliationStatements]);
 
   /** B2.16: min/max statement dates from uploaded CSVs (prototype “period” for sanity checks). */
   const statementDateWindow = useMemo(() => {
@@ -329,11 +356,25 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
       }
 
       const content = await file.text();
-      const transactions = parseCSV(content);
+      const { transactions, skippedInvalid } = parseCSV(content);
 
       if (transactions.length === 0) {
-        toast({ title: `${file.name}: No transactions found. Check CSV format.`, variant: "destructive" });
+        toast({
+          title: `${file.name}: No valid transactions`,
+          description:
+            skippedInvalid > 0
+              ? `${skippedInvalid} row(s) skipped — check date format (DD/MM/YYYY or YYYY-MM-DD).`
+              : "Check CSV format and column headers.",
+          variant: "destructive",
+        });
         continue;
+      }
+
+      if (skippedInvalid > 0) {
+        toast({
+          title: `${file.name}: ${skippedInvalid} row(s) skipped`,
+          description: "Rows with unparseable dates were not imported.",
+        });
       }
 
       const parsedDates = transactions
@@ -671,6 +712,15 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
             </ScrollArea>
           </TabsContent>
         </Tabs>
+
+        <div className="flex justify-end gap-2 border-t pt-3 shrink-0">
+          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+            Close
+          </Button>
+          <Button type="button" onClick={handleSave} disabled={!setBankReconciliationStatements}>
+            Save
+          </Button>
+        </div>
       </AppSheetContent>
     </Sheet>
   );

@@ -21,13 +21,16 @@ import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { format, getDaysInMonth } from "date-fns";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { toast } from "@/hooks/use-toast";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { formatINR } from "@/lib/formatCurrency";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import { PayrollPolicyService } from "@/application/services/PayrollPolicyService";
+import { downloadCSV } from "@/lib/csvExport";
 
 // Shared instance — service is stateless, this avoids re-instantiating per render.
 const payrollPolicyService = new PayrollPolicyService();
@@ -47,7 +50,7 @@ const EmployeeProfile = () => {
     getTasksByEmployee = () => [],
     updateTask,
     employeePaidHolidays = [],
-    _employees,
+    employees: _employees,
     getEmployeeById,
     updateEmployee,
     updateExpense,
@@ -59,10 +62,14 @@ const EmployeeProfile = () => {
     canDo,
     getEmployeeWalletLedger,
     addEmployeeWalletLedgerEntry,
+    siteVisits = [],
+    scheduledInstallations = [],
+    projects: appProjects = [],
   } = useAppData();
   const { currentRole } = useAppSession();
   const isSuperAdmin = currentRole === "super_admin";
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [showTerminateDialog, setShowTerminateDialog] = useState(false);
   const [expandedMonths, setExpandedMonths] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState("attendance");
   
@@ -86,6 +93,22 @@ const EmployeeProfile = () => {
   const [uploadedAadhar, setUploadedAadhar] = useState<UploadedDoc | null>(null);
   const [uploadedPhoto, setUploadedPhoto] = useState<UploadedDoc | null>(null);
   const [uploadedOthers, setUploadedOthers] = useState<UploadedDoc | null>(null);
+
+  // Prototype document picker: opens an ephemeral <input type="file"> so the upload buttons
+  // below are not "dead" — preview is local-only until backend persistence is wired up.
+  const pickDocument = (setter: (doc: UploadedDoc | null) => void) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => setter({ name: file.name, preview: String(reader.result ?? "") });
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editAadhar, setEditAadhar] = useState("");
@@ -95,7 +118,7 @@ const EmployeeProfile = () => {
   const [editJoiningDate, setEditJoiningDate] = useState("");
   const [editAddress, setEditAddress] = useState("");
 
-  const employeeId = parseInt(id || "1");
+  const employeeId = (id || "").trim();
   const contextEmployee = getEmployeeById(employeeId);
 
   const walletLedgerRows = useMemo(
@@ -123,8 +146,8 @@ const EmployeeProfile = () => {
       address: "Not specified", // Default value
       altPhone: "", // Default value
       docs: {
-        aadhar: contextEmployee.aadhar ? { name: "aadhar.jpg", preview: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=150&h=100&fit=crop" } : null,
-        photo: { name: "photo.jpg", preview: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=100&fit=crop" },
+        aadhar: null,
+        photo: null,
         others: null,
       }
     };
@@ -372,8 +395,8 @@ const EmployeeProfile = () => {
             items={[
               { label: "Role", value: employee.role },
               { label: "Status", value: employee.status },
-              { label: "Salary", value: `₹${employee.salary.toLocaleString()}` },
-              { label: "Wallet", value: `₹${employee.wallet.toLocaleString()}` },
+              { label: "Salary", value: formatINR(employee.salary) },
+              { label: "Wallet", value: formatINR(employee.wallet) },
             ]}
           />
         }
@@ -382,7 +405,44 @@ const EmployeeProfile = () => {
           <Edit className="w-4 h-4 mr-2" />
           Edit Profile
         </Button>
+        {employee.terminatedAt ? (
+          <Button
+            variant="outline"
+            onClick={() => updateEmployee(employee.id, { status: "Active", terminatedAt: undefined, terminationReason: undefined })}
+            disabled={!canDo("hr:update_employee")}
+          >
+            Reinstate
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            className="text-muted-foreground"
+            onClick={() => setShowTerminateDialog(true)}
+            disabled={!canDo("hr:update_employee")}
+          >
+            Terminate
+          </Button>
+        )}
       </StickyPageHeader>
+
+      {employee.terminatedAt && (
+        <LifecycleTerminalBanner
+          variant="terminated"
+          title="Employment terminated"
+          description={
+            <span>
+              Terminated on {formatUiDate(employee.terminatedAt)}
+              {employee.terminationReason ? <> · Reason: {employee.terminationReason}</> : null}. Payroll and attendance history remain — reinstate to assign new work.
+            </span>
+          }
+          primaryActionLabel="Reinstate"
+          onPrimaryAction={() => {
+            if (!canDo("hr:update_employee")) return;
+            updateEmployee(employee.id, { status: "Active", terminatedAt: undefined, terminationReason: undefined });
+            toast({ title: "Employee reinstated", description: employee.name });
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Profile Card */}
@@ -451,7 +511,7 @@ const EmployeeProfile = () => {
                 <IndianRupee className="w-4 h-4 text-muted-foreground" />
                 <div>
                   <p className="text-xs text-muted-foreground">Salary</p>
-                  <p className="text-sm font-medium text-primary">₹{employee.salary.toLocaleString()} / month</p>
+                  <p className="text-sm font-medium text-primary">{formatINR(employee.salary)} / month</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -468,7 +528,7 @@ const EmployeeProfile = () => {
         {/* Right Column */}
         <div className="lg:col-span-2 space-y-6">
           {reimbursementPending.length > 0 && (
-            <Card className="border-amber-500/30 bg-amber-500/5">
+            <Card className="border-warning/30 bg-warning/5">
               <CardHeader>
                 <CardTitle className="text-base font-medium">Pending reimbursements</CardTitle>
               </CardHeader>
@@ -580,7 +640,13 @@ const EmployeeProfile = () => {
                     <TabsTrigger value="attendance" className="flex-1 sm:flex-none">Attendance</TabsTrigger>
                     <TabsTrigger value="tasks" className="flex-1 sm:flex-none">
                       <ClipboardList className="w-3 h-3 mr-1" />
-                      Tasks ({getTasksByEmployee(parseInt(id || "1")).length})
+                      Tasks ({getTasksByEmployee(employeeId).length})
+                    </TabsTrigger>
+                    <TabsTrigger value="visits" className="flex-1 sm:flex-none">
+                      Site visits ({siteVisits.filter((v) => v.visitedBy === id).length})
+                    </TabsTrigger>
+                    <TabsTrigger value="schedule" className="flex-1 sm:flex-none">
+                      Schedule ({scheduledInstallations.filter((s) => (s.employeeIds ?? []).includes(id)).length})
                     </TabsTrigger>
                     <TabsTrigger value="expenses" className="flex-1 sm:flex-none">Expenses</TabsTrigger>
                     <TabsTrigger value="wallet" className="flex-1 sm:flex-none">
@@ -613,14 +679,14 @@ const EmployeeProfile = () => {
                       <div>
                         <span className="text-muted-foreground">Until Last Month: </span>
                         <span className={`font-semibold ${previousRunningTotals.pending >= 0 ? "text-foreground" : "text-primary"}`}>
-                          ₹{Math.abs(previousRunningTotals.pending).toLocaleString()}
+                          {formatINR(Math.abs(previousRunningTotals.pending))}
                           {previousRunningTotals.pending < 0 && " (Extra)"}
                         </span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Current Total: </span>
                         <span className={`font-semibold ${runningTotals.pending >= 0 ? "text-foreground" : "text-primary"}`}>
-                          ₹{Math.abs(runningTotals.pending).toLocaleString()}
+                          {formatINR(Math.abs(runningTotals.pending))}
                           {runningTotals.pending < 0 && " (Extra)"}
                         </span>
                       </div>
@@ -658,16 +724,16 @@ const EmployeeProfile = () => {
                         <span className="text-primary">{row.present}P</span>
                         <span className="text-destructive">{row.absent}A</span>
                         <span className="text-muted-foreground">{row.holiday}H</span>
-                        <span className="text-primary font-medium">₹{row.salaryEarned.toLocaleString()}</span>
+                        <span className="text-primary font-medium">{formatINR(row.salaryEarned)}</span>
                       </div>
                       <span className="hidden md:block text-center text-primary font-medium text-sm">{row.present}P</span>
                       <span className="hidden md:block text-center text-destructive font-medium text-sm">{row.absent}A</span>
                       <span className="hidden md:block text-center text-muted-foreground text-sm">{row.holiday}H</span>
-                      <span className="hidden md:block text-right text-primary font-medium text-sm">₹{row.salaryEarned.toLocaleString()}</span>
+                      <span className="hidden md:block text-right text-primary font-medium text-sm">{formatINR(row.salaryEarned)}</span>
                       <span className="hidden md:block text-center text-sm">
                         {row.advances.length > 0 ? (
-                          <span className="text-amber-600">
-                            {row.advances.map(a => `₹${a.amount.toLocaleString()}`).join(", ")}
+                          <span className="text-warning">
+                            {row.advances.map(a => formatINR(a.amount)).join(", ")}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">-</span>
@@ -675,9 +741,9 @@ const EmployeeProfile = () => {
                       </span>
                       <span className="hidden md:block text-right text-sm">
                         {row.netPending < 0 ? (
-                          <span className="text-primary font-semibold">₹{Math.abs(row.netPending).toLocaleString()} Extra</span>
+                          <span className="text-primary font-semibold">{formatINR(Math.abs(row.netPending))} Extra</span>
                         ) : row.netPending > 0 ? (
-                          <span className="font-semibold">₹{row.netPending.toLocaleString()}</span>
+                          <span className="font-semibold">{formatINR(row.netPending)}</span>
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}
@@ -693,8 +759,8 @@ const EmployeeProfile = () => {
                           <p className="text-xs font-medium text-muted-foreground mb-2">Advances Paid:</p>
                           <div className="flex flex-wrap gap-2">
                             {row.advances.map((adv, idx) => (
-                              <Badge key={idx} variant="outline" className="text-amber-600 border-amber-600/30">
-                                {adv.date}: ₹{adv.amount.toLocaleString()}
+                              <Badge key={idx} variant="outline" className="text-warning border-warning/30">
+                                {adv.date}: {formatINR(adv.amount)}
                               </Badge>
                             ))}
                           </div>
@@ -754,11 +820,11 @@ const EmployeeProfile = () => {
                   <div className="flex flex-wrap gap-6">
                     <div>
                       <p className="text-xs text-muted-foreground">Total Salary Earned</p>
-                      <p className="text-lg font-semibold text-primary">₹{totalSalaryEarned.toLocaleString()}</p>
+                      <p className="text-lg font-semibold text-primary">{formatINR(totalSalaryEarned)}</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Total Advances</p>
-                      <p className="text-lg font-semibold text-amber-600">₹{totalAdvances.toLocaleString()}</p>
+                      <p className="text-lg font-semibold text-warning">{formatINR(totalAdvances)}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -766,7 +832,7 @@ const EmployeeProfile = () => {
                       {totalNetPending >= 0 ? "Total Pending" : "Extra Paid"}
                     </p>
                     <p className={`text-xl font-bold ${totalNetPending >= 0 ? "text-foreground" : "text-primary"}`}>
-                      ₹{Math.abs(totalNetPending).toLocaleString()}
+                      {formatINR(Math.abs(totalNetPending))}
                       {totalNetPending < 0 && <span className="text-sm font-normal ml-1">(Extra)</span>}
                     </p>
                   </div>
@@ -805,22 +871,22 @@ const EmployeeProfile = () => {
               {activeTab === "tasks" && (
                 <>
                   <div className="space-y-3">
-                    {getTasksByEmployee(parseInt(id || "1")).length === 0 ? (
+                    {getTasksByEmployee(employeeId).length === 0 ? (
                       <ListEmptyState
                         icon={ClipboardList}
                         title="No tasks assigned yet"
                         description="Tasks from the field roster will show here when assigned."
                       />
                     ) : (
-                      getTasksByEmployee(parseInt(id || "1")).map(task => (
+                      getTasksByEmployee(employeeId).map(task => (
                         <div key={task.id} className="p-4 bg-muted/30 rounded-lg space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Badge className={
                                 task.status === "done" ? "bg-primary/10 text-primary" :
                                 task.status === "started" ? "bg-primary/10 text-primary" :
-                                task.status === "checked" ? "bg-purple-500/10 text-purple-500" :
-                                task.status === "sent" || task.status === "created" ? "bg-amber-500/10 text-amber-500" :
+                                task.status === "checked" ? "bg-accent/30 text-accent-foreground" :
+                                task.status === "sent" || task.status === "created" ? "bg-warning/10 text-warning" :
                                 "bg-muted text-muted-foreground"
                               }>
                                 {/* Merge created and sent - show as Sent */}
@@ -878,6 +944,53 @@ const EmployeeProfile = () => {
                     )}
                   </div>
                 </>
+              )}
+
+              {activeTab === "visits" && (
+                <div className="space-y-2">
+                  {siteVisits.filter((v) => v.visitedBy === id).length === 0 ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">No site visits recorded for this employee.</p>
+                  ) : (
+                    siteVisits
+                      .filter((v) => v.visitedBy === id)
+                      .map((v) => {
+                        const proj = appProjects.find((p) => p.id === v.projectId);
+                        return (
+                          <div key={v.id} className="rounded-lg border border-border/60 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-medium text-sm">{proj?.name ?? v.projectId}</p>
+                              <span className="text-xs text-muted-foreground">{v.visitDate}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Items: {v.items.length}{v.blockers ? ` · Blockers: ${v.blockers}` : ""}</p>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+              )}
+
+              {activeTab === "schedule" && (
+                <div className="space-y-2">
+                  {scheduledInstallations.filter((s) => (s.employeeIds ?? []).includes(id)).length === 0 ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">No scheduled installations for this employee.</p>
+                  ) : (
+                    scheduledInstallations
+                      .filter((s) => (s.employeeIds ?? []).includes(id))
+                      .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))
+                      .map((s) => {
+                        const proj = appProjects.find((p) => p.id === s.projectId);
+                        return (
+                          <div key={s.id} className="rounded-lg border border-border/60 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-medium text-sm">{proj?.name ?? s.projectId}</p>
+                              <span className="text-xs text-muted-foreground">{s.scheduledDate}</span>
+                            </div>
+                            <p className="text-xs capitalize text-muted-foreground">{s.status}{s.notes ? ` — ${s.notes}` : ""}</p>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
               )}
 
               {activeTab === "wallet" && (
@@ -1026,7 +1139,27 @@ const EmployeeProfile = () => {
                         className="w-[140px]"
                       />
                     </div>
-                    <Button variant="outline" size="sm" className="ml-auto">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="ml-auto"
+                      disabled={filteredExpenses.length === 0}
+                      onClick={() => {
+                        downloadCSV(
+                          `${employee?.name ?? "employee"}-expenses`,
+                          filteredExpenses.map((e) => ({
+                            Date: e.date,
+                            Category: e.category,
+                            Description: e.description ?? "",
+                            Amount: e.amount,
+                            Project: e.project ?? "",
+                          })),
+                          ["Date", "Category", "Description", "Amount", "Project"],
+                        );
+                        toast({ title: "Export ready", description: `${filteredExpenses.length} rows downloaded.` });
+                      }}
+                    >
                       <Download className="w-4 h-4 mr-2" />
                       Export
                     </Button>
@@ -1068,7 +1201,7 @@ const EmployeeProfile = () => {
                               </TableCell>
                               <TableCell>{expense.description}</TableCell>
                               <TableCell className="text-muted-foreground">{expense.project}</TableCell>
-                              <TableCell className="text-right font-medium">₹{expense.amount.toLocaleString()}</TableCell>
+                              <TableCell className="text-right font-medium">{formatINR(expense.amount)}</TableCell>
                             </TableRow>
                           ))
                         ) : (
@@ -1087,7 +1220,7 @@ const EmployeeProfile = () => {
                       <Receipt className="w-5 h-5 text-primary" />
                       <span className="text-sm font-medium">Total Expenses ({filteredExpenses.length} items)</span>
                     </div>
-                    <span className="text-xl font-bold text-primary">₹{totalFilteredExpenses.toLocaleString()}</span>
+                    <span className="text-xl font-bold text-primary">{formatINR(totalFilteredExpenses)}</span>
                   </div>
                 </>
               )}
@@ -1210,7 +1343,12 @@ const EmployeeProfile = () => {
                       </button>
                     </div>
                   ) : (
-                    <Button variant="outline" className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary mt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary mt-1"
+                      onClick={() => pickDocument(setUploadedAadhar)}
+                    >
                       <Upload className="w-5 h-5" />
                       <span className="text-xs">Upload Aadhar</span>
                     </Button>
@@ -1234,7 +1372,12 @@ const EmployeeProfile = () => {
                       </button>
                     </div>
                   ) : (
-                    <Button variant="outline" className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary mt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary mt-1"
+                      onClick={() => pickDocument(setUploadedPhoto)}
+                    >
                       <Upload className="w-5 h-5" />
                       <span className="text-xs">Upload Photo</span>
                     </Button>
@@ -1258,7 +1401,12 @@ const EmployeeProfile = () => {
                       </button>
                     </div>
                   ) : (
-                    <Button variant="outline" className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary mt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary mt-1"
+                      onClick={() => pickDocument(setUploadedOthers)}
+                    >
                       <Upload className="w-5 h-5" />
                       <span className="text-xs">Upload Others</span>
                     </Button>
@@ -1294,6 +1442,24 @@ const EmployeeProfile = () => {
           </div>
         </SheetContent>
       </Sheet>
+
+      <DestructiveConfirmDialog
+        open={showTerminateDialog}
+        onOpenChange={setShowTerminateDialog}
+        title={`Terminate ${employee?.name ?? "employee"}?`}
+        description="They will be marked inactive and excluded from new task assignments. This action is permanent."
+        confirmLabel="Terminate"
+        typedConfirmation={employee?.name}
+        onConfirm={() => {
+          if (employee) {
+            updateEmployee(employee.id, {
+              status: "Inactive",
+              terminatedAt: new Date().toISOString(),
+            } as any);
+            setShowTerminateDialog(false);
+          }
+        }}
+      />
     </PageShell>
   );
 };

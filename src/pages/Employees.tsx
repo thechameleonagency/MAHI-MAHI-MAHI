@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, User, Briefcase, Upload, X, ChevronLeft, ChevronRight, IndianRupee, AlertCircle, Check, Filter, ClipboardList } from "lucide-react";
+import { Plus, User, Briefcase, Upload, X, ChevronLeft, ChevronRight, IndianRupee, AlertCircle, Check, Filter, ClipboardList, Users } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -15,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { format, addDays, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameDay } from "date-fns";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
@@ -25,9 +26,11 @@ import type { EmployeePayrollRecord } from "@/types/finance";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
-import { UnifiedExpenseModal } from "@/components/expenses/UnifiedExpenseModal";
-import { TaskAssignmentModal } from "@/components/employees/TaskAssignmentModal";
-import { EntityLink } from "@/components/shared/EntityInfoModal";
+import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
+import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import { useCan } from "@/hooks/useCan";
+import { formatINR } from "@/lib/formatCurrency";
 
 // Data is pulled from AppDataContext and MastersContext
 
@@ -38,6 +41,10 @@ interface UploadedDoc {
 
 const Employees = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const canCreateEmployee = useCan("employee", "create");
+  const canEditEmployee = useCan("employee", "edit");
+  const canCreatePayroll = useCan("payroll", "create");
   const { employees: contextEmployees, attendanceRecords, expenses: contextExpenses, sites, addEmployee, addEmployeePayrollRecord, updateEmployee, addExpense, generateId } = useAppData();
 
   // Use context employees with extended fields for display
@@ -56,7 +63,7 @@ const Employees = () => {
 
   const refMonthPrefix = format(new Date(), "yyyy-MM");
   const payrollRowExtras = useMemo(() => {
-    const map = new Map<number, { currentSite: string; hoursThisMonth: number }>();
+    const map = new Map<string, { currentSite: string; hoursThisMonth: number }>();
     for (const emp of contextEmployees) {
       const monthRecs = attendanceRecords.filter((r) => r.employeeId === emp.id && r.date.startsWith(refMonthPrefix));
       let hours = 0;
@@ -102,7 +109,10 @@ const Employees = () => {
     return months;
   }, []);
 
-  const [activeTab, setActiveTab] = useState("payroll");
+  const [activeTab, setActiveTab] = useState(() => {
+    const t = searchParams.get("tab");
+    return t === "deployment" ? "deployment" : "payroll";
+  });
   const [isAddEmployeeOpen, setIsAddEmployeeOpen] = useState(false);
   const [isEmployeeSavedOpen, setIsEmployeeSavedOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
@@ -185,7 +195,26 @@ const Employees = () => {
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
   
   // Employee filter for deployment board
-  const [selectedEmployeeFilters, setSelectedEmployeeFilters] = useState<number[]>([]);
+  const [selectedEmployeeFilters, setSelectedEmployeeFilters] = useState<number[]>(() => {
+    const raw = searchParams.get("emp");
+    if (!raw) return [];
+    return raw.split(",").map((s) => Number(s)).filter((n) => !Number.isNaN(n));
+  });
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (activeTab !== "payroll") next.set("tab", activeTab);
+        else next.delete("tab");
+        const emp = selectedEmployeeFilters.join(",");
+        if (emp) next.set("emp", emp);
+        else next.delete("emp");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [activeTab, selectedEmployeeFilters, setSearchParams]);
 
   const [payrollPage, setPayrollPage] = useState(1);
   const [payrollPageSize, setPayrollPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -199,9 +228,30 @@ const Employees = () => {
   }, []);
   
   // Upload docs state
-  const [uploadedAadhar, setUploadedAadhar] = useState<UploadedDoc | null>({ name: "aadhar_front.jpg", preview: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=150&h=100&fit=crop" });
-  const [uploadedPhoto, setUploadedPhoto] = useState<UploadedDoc | null>({ name: "profile_photo.jpg", preview: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=100&fit=crop" });
+  const [uploadedAadhar, setUploadedAadhar] = useState<UploadedDoc | null>(null);
+  const [uploadedPhoto, setUploadedPhoto] = useState<UploadedDoc | null>(null);
   const [uploadedOthers, setUploadedOthers] = useState<UploadedDoc | null>(null);
+
+  // Prototype document picker. Opens an ephemeral <input type="file"> via the browser so the
+  // upload buttons below are not "dead" — selected images are previewed locally without leaving
+  // the browser. Replace with the real backend upload once persistence is in place.
+  const pickDocument = (setter: (doc: UploadedDoc | null) => void, label: string) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        setter({ name: file.name, preview: String(reader.result ?? "") });
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+    // `label` is currently informational; kept on the call sites so future toast/audit can read it.
+    void label;
+  };
 
   // Generate week days
   const generateWeekDays = () => {
@@ -283,6 +333,10 @@ const Employees = () => {
   };
 
   const handlePaySalary = (emp: typeof employees[0]) => {
+    if (!canCreatePayroll) {
+      toast({ title: "Not allowed", description: "You do not have permission to record payroll.", variant: "destructive" });
+      return;
+    }
     setSelectedEmployeeForPayment(emp);
     // Default to current month
     const now = new Date();
@@ -397,7 +451,7 @@ const Employees = () => {
           />
         }
       >
-        <Button size="sm" className="bg-primary text-primary-foreground" onClick={() => setIsAddEmployeeOpen(true)}>
+        <Button size="sm" className="bg-primary text-primary-foreground" onClick={() => setIsAddEmployeeOpen(true)} disabled={!canCreateEmployee}>
           <Plus className="mr-2 h-4 w-4" />
           Add
         </Button>
@@ -469,8 +523,12 @@ const Employees = () => {
                 ))
               ) : pagedEmployees.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
-                    No employees found.
+                  <TableCell colSpan={10} className="p-0">
+                    <ListEmptyState
+                      icon={Users}
+                      title="No employees found"
+                      description="Adjust filters or add team members in Settings."
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -488,7 +546,7 @@ const Employees = () => {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">₹{emp.salary.toLocaleString()}</TableCell>
+                    <TableCell className="text-right">{formatINR(emp.salary)}</TableCell>
                     <TableCell className="text-center text-primary font-medium">{emp.daysPresent}</TableCell>
                     <TableCell className="text-center text-destructive font-medium">{emp.daysAbsent}</TableCell>
                     <TableCell className="text-center text-muted-foreground">{emp.holidays}</TableCell>
@@ -501,19 +559,20 @@ const Employees = () => {
                     <TableCell className="text-right">
                       {emp.pendingAmount < 0 ? (
                         <div className="flex items-center justify-end gap-2">
-                          <span className="text-primary font-semibold text-sm">₹{Math.abs(emp.pendingAmount).toLocaleString()}</span>
+                          <span className="text-primary font-semibold text-sm">{formatINR(Math.abs(emp.pendingAmount))}</span>
                           <Badge className="bg-primary/10 text-primary border-0 text-xs">Extra</Badge>
                         </div>
                       ) : (
-                        <span className="font-semibold text-sm">₹{emp.pendingAmount.toLocaleString()}</span>
+                        <span className="font-semibold text-sm">{formatINR(emp.pendingAmount)}</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right text-muted-foreground">₹{emp.advancePaid.toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">{formatINR(emp.advancePaid)}</TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
                         <Button 
                           size="sm" 
                           className="h-8 bg-primary text-primary-foreground text-xs"
+                          disabled={!canCreatePayroll}
                           onClick={() => handlePaySalary(emp)}
                         >
                           <IndianRupee className="w-3 h-3 mr-1" />
@@ -599,20 +658,24 @@ const Employees = () => {
                 </SelectContent>
               </Select>
               
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={handlePrevWeek}>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={handlePrevWeek} aria-label="Previous week">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="text-sm font-medium px-2 min-w-[100px] text-center">
                 {format(currentWeekStart, 'MMM yyyy')}
               </span>
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleNextWeek}>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleNextWeek} aria-label="Next week">
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
           </div>
 
+          <p className="text-xs text-muted-foreground mb-2 md:hidden">
+            Deployment board is desktop-first; swipe horizontally to see all days.
+          </p>
+
           <DataTableShell
-            className="min-w-[700px]"
+            className="min-w-0 md:min-w-[700px]"
             maxHeight={listTableViewportMaxHeight(deploymentPageSize)}
             scrollResetKey={`${safeDeploymentPage}-${deploymentPageSize}-${filteredDeploymentData.length}-${currentWeekStart.getTime()}`}
             footer={
@@ -652,23 +715,24 @@ const Employees = () => {
                 ))
               ) : pagedDeploymentData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={weekDays.length + 1} className="text-center py-12 text-muted-foreground">
-                    No deployment data found.
+                  <TableCell colSpan={weekDays.length + 1} className="p-0">
+                    <ListEmptyState
+                      icon={ClipboardList}
+                      title="No deployment rows"
+                      description="No employees match this week or filter."
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
                 pagedDeploymentData.map((emp) => (
                       <TableRow key={emp.id}>
-                        <TableCell className="sticky left-0 bg-card z-10">
-                          <div 
-                            className="flex items-center gap-3 cursor-pointer" 
-                            onClick={() => handleEmployeeClick(emp.id)}
-                          >
+                        <TableCell className="sticky left-0 bg-card z-10" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-3">
                             <Avatar className="h-8 w-8">
                               <AvatarFallback className="bg-primary/10 text-primary text-sm">{emp.avatar}</AvatarFallback>
                             </Avatar>
                             <div>
-                              <p className="font-medium text-sm hover:text-primary">{emp.name}</p>
+                              <EntityLink entityType="employee" entityId={emp.id} name={emp.name} />
                               <p className="text-xs text-muted-foreground">{emp.role}</p>
                             </div>
                           </div>
@@ -678,7 +742,7 @@ const Employees = () => {
                           return (
                             <TableCell key={idx} className="text-center">
                               {schedule === "Holiday" ? (
-                                <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-0">
+                                <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-0">
                                   Holiday
                                 </Badge>
                               ) : schedule === "-" ? (
@@ -809,7 +873,12 @@ const Employees = () => {
                       </button>
                     </div>
                   ) : (
-                    <Button variant="outline" className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary"
+                      onClick={() => pickDocument(setUploadedAadhar, "Aadhar")}
+                    >
                       <Upload className="w-5 h-5" />
                       <span className="text-xs">Upload Aadhar</span>
                     </Button>
@@ -832,7 +901,12 @@ const Employees = () => {
                       </button>
                     </div>
                   ) : (
-                    <Button variant="outline" className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary"
+                      onClick={() => pickDocument(setUploadedPhoto, "Photo")}
+                    >
                       <Upload className="w-5 h-5" />
                       <span className="text-xs">Upload Photo</span>
                     </Button>
@@ -855,7 +929,12 @@ const Employees = () => {
                       </button>
                     </div>
                   ) : (
-                    <Button variant="outline" className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-24 w-full flex-col gap-2 border-dashed border-primary text-primary"
+                      onClick={() => pickDocument(setUploadedOthers, "Others")}
+                    >
                       <Upload className="w-5 h-5" />
                       <span className="text-xs">Upload Others</span>
                     </Button>
@@ -912,15 +991,15 @@ const Employees = () => {
               <div className="grid grid-cols-2 gap-4 p-4 bg-muted/20 rounded-lg">
                 <div>
                   <p className="text-xs text-muted-foreground">Monthly Salary</p>
-                  <p className="font-semibold">₹{selectedEmployeeForPayment.salary.toLocaleString()}</p>
+                  <p className="font-semibold">{formatINR(selectedEmployeeForPayment.salary)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Total Pending</p>
                   <p className={`font-semibold ${selectedEmployeeForPayment.pendingAmount < 0 ? 'text-primary' : ''}`}>
                     {selectedEmployeeForPayment.pendingAmount < 0 ? (
-                      <>₹{Math.abs(selectedEmployeeForPayment.pendingAmount).toLocaleString()} (Extra)</>
+                      <>{formatINR(Math.abs(selectedEmployeeForPayment.pendingAmount))} (Extra)</>
                     ) : (
-                      <>₹{selectedEmployeeForPayment.pendingAmount.toLocaleString()}</>
+                      <>{formatINR(selectedEmployeeForPayment.pendingAmount)}</>
                     )}
                   </p>
                 </div>
@@ -943,13 +1022,13 @@ const Employees = () => {
                         </label>
                       </div>
                       <span className={`text-sm ${month.pending > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
-                        {month.pending > 0 ? `₹${month.pending.toLocaleString()}` : 'Paid'}
+                        {month.pending > 0 ? formatINR(month.pending) : 'Paid'}
                       </span>
                     </div>
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Selected: ₹{getTotalSelectedPending().toLocaleString()} pending
+                  Selected: {formatINR(getTotalSelectedPending())} pending
                 </p>
               </div>
 
@@ -971,12 +1050,12 @@ const Employees = () => {
                     const computed = Math.round(totalPresent * (emp.salary / 26));
                     return (
                       <p className="text-xs text-muted-foreground">
-                        Auto-computed: {totalPresent} days × ₹{Math.round(emp.salary / 26).toLocaleString()}/day = <span className="font-medium text-foreground">₹{computed.toLocaleString()}</span>
+                        Auto-computed: {totalPresent} days × {formatINR(Math.round(emp.salary / 26))}/day = <span className="font-medium text-foreground">{formatINR(computed)}</span>
                       </p>
                     );
                   })()}
                   {isAmountExceedsPending() && (
-                    <div className="flex items-center gap-2 p-2 bg-amber-500/10 rounded text-amber-600 text-xs">
+                    <div className="flex items-center gap-2 p-2 bg-warning/10 rounded text-warning text-xs">
                       <AlertCircle className="w-4 h-4" />
                       Amount exceeds computed salary. Please verify.
                     </div>
@@ -1013,8 +1092,8 @@ const Employees = () => {
 
           <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsPaySalaryOpen(false)}>Cancel</Button>
-            <Button className="bg-primary text-primary-foreground" disabled={!paymentAmount || !selectedEmployeeForPayment} onClick={() => {
-              if (!selectedEmployeeForPayment) return;
+            <Button className="bg-primary text-primary-foreground" disabled={!canCreatePayroll || !paymentAmount || !selectedEmployeeForPayment} onClick={() => {
+              if (!canCreatePayroll || !selectedEmployeeForPayment) return;
               const net = parseFloat(paymentAmount) || 0;
               const daysForPayroll = selectedMonths.reduce((sum, mv) => {
                 return sum + attendanceRecords.filter(
@@ -1042,7 +1121,7 @@ const Employees = () => {
               updateEmployee(selectedEmployeeForPayment.id, {
                 pendingAmount: Math.max(0, (selectedEmployeeForPayment.pendingAmount || 0) - net),
               });
-              toast({ title: "Salary recorded", description: `Net ₹${net.toLocaleString("en-IN")} saved for ${selectedEmployeeForPayment.name}.` });
+              toast({ title: "Salary recorded", description: `Net ${formatINR(net)} saved for ${selectedEmployeeForPayment.name}.` });
               setIsPaySalaryOpen(false);
               setPaymentAmount(""); setPaymentNotes("");
             }}>
@@ -1218,7 +1297,7 @@ const Employees = () => {
                 {expenseCostAllocation === "reimburse" && !isSameEmployeePaidAndReimbursed() ? (
                   <Check className="w-5 h-5 text-primary" />
                 ) : expenseCostAllocation === "deduct" ? (
-                  <AlertCircle className="w-5 h-5 text-amber-500" />
+                  <AlertCircle className="w-5 h-5 text-warning" />
                 ) : (
                   <Check className="w-5 h-5 text-muted-foreground" />
                 )}
@@ -1233,7 +1312,7 @@ const Employees = () => {
               
               {expenseAmount && (
                 <div className="text-sm">
-                  <strong>Amount:</strong> ₹{parseFloat(expenseAmount).toLocaleString()}
+                  <strong>Amount:</strong> {formatINR(parseFloat(expenseAmount))}
                 </div>
               )}
               
@@ -1276,7 +1355,7 @@ const Employees = () => {
       </Sheet>
 
       {/* Unified Expense Modal */}
-      <UnifiedExpenseModal
+      <UnifiedExpenseSheet
         isOpen={isAddExpenseOpen}
         onClose={() => setIsAddExpenseOpen(false)}
         employeeId={selectedEmployeeForExpense?.id}
@@ -1285,7 +1364,7 @@ const Employees = () => {
 
       {/* Task Assignment Modal */}
       {selectedEmployeeForTask && (
-        <TaskAssignmentModal
+        <TaskAssignmentSheet
           isOpen={isTaskModalOpen}
           onClose={() => {
             setIsTaskModalOpen(false);

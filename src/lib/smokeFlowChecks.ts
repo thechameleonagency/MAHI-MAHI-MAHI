@@ -14,9 +14,11 @@ export function sortProjectsOpenFirst(projects: Project[]): Project[] {
 
 export function filterProjectsForList(
   projects: Project[],
-  opts: { hideCompleted: boolean },
+  opts: { hideCompleted: boolean; includeArchived?: boolean },
 ): Project[] {
-  const base = opts.hideCompleted ? projects.filter(isProjectOpen) : projects;
+  const includeArchived = opts.includeArchived ?? false;
+  const archiveFiltered = includeArchived ? projects : projects.filter((p) => !p.archivedAt);
+  const base = opts.hideCompleted ? archiveFiltered.filter(isProjectOpen) : archiveFiltered;
   return sortProjectsOpenFirst(base);
 }
 
@@ -30,7 +32,12 @@ export function filterActiveSiteProjects(projects: Project[]): Project[] {
   return projects.filter((p) => {
     if (p.lifecycleStatus === "Completed") return false;
     if (p.status === "Completed" || p.status === "Closed") return false;
-    return p.status === "Ongoing" || p.lifecycleStatus === "Active" || p.lifecycleStatus === "On Hold";
+    return (
+      p.status === "Ongoing" ||
+      p.lifecycleStatus === "Active" ||
+      p.lifecycleStatus === "In Progress" ||
+      p.lifecycleStatus === "On Hold"
+    );
   });
 }
 

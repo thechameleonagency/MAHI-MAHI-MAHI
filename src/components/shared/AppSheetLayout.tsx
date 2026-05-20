@@ -2,6 +2,11 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 
+/**
+ * Standard sheet widths — prefer `AppSheetContent` + `size` over raw `SheetContent` classes:
+ * `sm` confirm, `md` narrow forms, `lg`/`xl` tables, `xxl`/`wide` finance & BOM sheets.
+ * Use `layout="document"` when the body owns scroll (tables); `form` for long single-column forms.
+ */
 /** Standard max-width tokens for app modals (same family as Need-to-Get / large tables / forms). */
 export const APP_DIALOG_SIZE_CLASS = {
   xs: "sm:max-w-sm",

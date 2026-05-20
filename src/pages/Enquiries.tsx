@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Plus, Search, Phone, Mail, MapPin, Calendar, _User, UserPlus, FileText,
-  Send, Eye, Edit, _Trash2, Check, Clock, _AlertCircle, MessageCircle,
+  Plus, Search, Phone, Mail, MapPin, Calendar, UserPlus, FileText,
+  Send, Eye, Edit, Check, Clock, MessageCircle,
   Building2, IndianRupee, Filter, ChevronDown, Zap, Share2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { getPriorityColor } from "@/lib/statusColors";
 import { formatINR } from "@/lib/formatCurrency";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar, DEFAULT_TABLE_PAGE_SIZE } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
@@ -23,22 +23,113 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "@/hooks/use-toast";
+import { useFormDraft } from "@/hooks/useFormDraft";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
-import type { Enquiry } from "@/types/project";
+import type { Enquiry, Quotation } from "@/types/project";
+import {
+  getCurrentEnquiryQuotationId,
+  getEnquiryQuotationIds,
+} from "@/lib/enquiryQuotationHistory";
+import { assertCanLinkNewQuotationToEnquiry, enquiryAllowsNewQuotation } from "@/lib/enquiryQuotationCreateGate";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import { getEnquiryFollowUpAging } from "@/lib/agingHelpers";
+import { useCan } from "@/hooks/useCan";
+import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
+import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
+import {
+  buildAgentToEnquiryDraft,
+  buildEnquiryToQuotationDraft,
+  parseCreateFromParam,
+  resolveCreateFromOrToast,
+  stripCreateFromParam,
+  stripQuickCreateParam,
+  saveCreateDraft,
+} from "@/lib/createFromContext";
+
+const ENQUIRY_CREATE_DRAFT_KEY = "enquiry-create-v1";
+
+type EnquiryCreateFormData = {
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  customerAddress: string;
+  customerType: "individual" | "company";
+  source: Enquiry["source"];
+  agentId: string;
+  systemCapacity: string;
+  estimatedBudget: string;
+  requirements: string;
+  priority: Enquiry["priority"];
+  followUpDate: string;
+};
+
+const emptyEnquiryCreateForm = (): EnquiryCreateFormData => ({
+  customerName: "",
+  customerPhone: "",
+  customerEmail: "",
+  customerAddress: "",
+  customerType: "individual",
+  source: "phone",
+  agentId: "",
+  systemCapacity: "",
+  estimatedBudget: "",
+  requirements: "",
+  priority: "medium",
+  followUpDate: "",
+});
 
 const Enquiries = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { enquiries, addEnquiry, updateEnquiry, transitionEnquiryStatus, convertEnquiryToCustomer, employees, agents, _generateId, canDo, customers } = useAppData();
+  const {
+    enquiries,
+    quotations,
+    addEnquiry,
+    updateEnquiry,
+    transitionEnquiryStatus,
+    convertEnquiryToCustomer,
+    employees,
+    agents,
+    generateId: _generateId,
+    customers,
+  } = useAppData();
+  const { currentRole } = useAppSession();
+  const canCreateEnquiry = useCan("enquiry", "create");
+  const canEditEnquiry = useCan("enquiry", "edit");
+  const canUpdateEnquiry = useCan("enquiry", "create");
+  const canCreateQuotation = useCan("quotation", "create");
   
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
   // Default to "open" so already-converted enquiries don't clutter the list (audit B12).
-  const [statusFilter, setStatusFilter] = useState("open");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "open");
+  const [priorityFilter, setPriorityFilter] = useState(() => searchParams.get("priority") ?? "all");
+  const [assigneeFilter, setAssigneeFilter] = useState(() => searchParams.get("assignee") ?? "all");
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const q = searchQuery.trim();
+        if (q) next.set("q", q);
+        else next.delete("q");
+        if (statusFilter !== "open") next.set("status", statusFilter);
+        else next.delete("status");
+        if (priorityFilter !== "all") next.set("priority", priorityFilter);
+        else next.delete("priority");
+        if (assigneeFilter !== "all") next.set("assignee", assigneeFilter);
+        else next.delete("assignee");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchQuery, statusFilter, priorityFilter, assigneeFilter, setSearchParams]);
 
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -57,21 +148,11 @@ const Enquiries = () => {
   const [reopenReasonText, setReopenReasonText] = useState("");
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
   
-  // Form states
-  const [formData, setFormData] = useState({
-    customerName: "",
-    customerPhone: "",
-    customerEmail: "",
-    customerAddress: "",
-    customerType: "individual" as "individual" | "company",
-    source: "phone" as Enquiry["source"],
-    agentId: "",
-    systemCapacity: "",
-    estimatedBudget: "",
-    requirements: "",
-    priority: "medium" as Enquiry["priority"],
-    followUpDate: "",
-  });
+  const { value: createFormData, setValue: setCreateFormData, clearDraft: clearCreateDraft } = useFormDraft(
+    ENQUIRY_CREATE_DRAFT_KEY,
+    emptyEnquiryCreateForm(),
+  );
+  const [editFormData, setEditFormData] = useState<EnquiryCreateFormData>(emptyEnquiryCreateForm);
   const [assignTo, setAssignTo] = useState("");
   const [noteText, setNoteText] = useState("");
   const [notePersonId, setNotePersonId] = useState("");
@@ -95,7 +176,7 @@ const Enquiries = () => {
       );
       return;
     }
-    setFormData((fd) => ({
+    setCreateFormData((fd) => ({
       ...fd,
       customerName: c.name,
       customerPhone: c.phone || "",
@@ -114,24 +195,56 @@ const Enquiries = () => {
     );
   }, [searchParams, customers, setSearchParams]);
 
+  useEffect(() => {
+    const parsed = parseCreateFromParam(searchParams.get("createFrom"));
+    if (parsed?.kind !== "agent") return;
+    const agent = resolveCreateFromOrToast("agent", parsed.id, (entityId) =>
+      agents.find((a) => a.id === entityId),
+    );
+    if (!agent) {
+      setSearchParams((p) => {
+        const n = new URLSearchParams(p);
+        stripCreateFromParam(n);
+        return n;
+      }, { replace: true });
+      return;
+    }
+    const draft = buildAgentToEnquiryDraft(agent);
+    setCreateFormData((fd) => ({
+      ...fd,
+      agentId: draft.agentId,
+      customerPhone: draft.customerPhone || fd.customerPhone,
+      source: draft.source,
+      requirements: draft.notes ?? fd.requirements,
+    }));
+    setIsAddEnquiryOpen(true);
+    setSearchParams((p) => {
+      const n = new URLSearchParams(p);
+      stripCreateFromParam(n);
+      return n;
+    }, { replace: true });
+  }, [searchParams, agents, setSearchParams]);
+
   // Get employee list for assignment
   const _assignableEmployees = employees.map(e => ({ id: e.id, name: e.name }));
 
-  const resetForm = () => {
-    setFormData({
-      customerName: "",
-      customerPhone: "",
-      customerEmail: "",
-      customerAddress: "",
-      customerType: "individual",
-      source: "phone",
-      agentId: "",
-      systemCapacity: "",
-      estimatedBudget: "",
-      requirements: "",
-      priority: "medium",
-      followUpDate: "",
-    });
+  const resetCreateForm = () => {
+    clearCreateDraft();
+    setSelectedEnquiry(null);
+  };
+
+  useEffect(() => {
+    if (searchParams.get("create") !== "1") return;
+    const next = new URLSearchParams(searchParams);
+    stripQuickCreateParam(next);
+    setSearchParams(next, { replace: true });
+    if (!canCreateEnquiry) return;
+    resetCreateForm();
+    setIsAddEnquiryOpen(true);
+  }, [searchParams, setSearchParams, canCreateEnquiry]);
+
+  const resetEditForm = () => {
+    setEditFormData(emptyEnquiryCreateForm());
     setSelectedEnquiry(null);
   };
 
@@ -144,13 +257,17 @@ const Enquiries = () => {
     const matchesStatus =
       statusFilter === "all"
         ? true
-        : statusFilter === "open"
-          ? e.status !== "converted" && e.status !== "lost"
-          : e.status === statusFilter;
+        : statusFilter === "archived"
+          ? !!e.archivedAt
+          : statusFilter === "open"
+            ? !e.archivedAt && e.status !== "converted" && e.status !== "lost"
+            : !e.archivedAt && e.status === statusFilter;
     const matchesPriority = priorityFilter === "all" || e.priority === priorityFilter;
-    const matchesAssignee = assigneeFilter === "all" || e.assignedTo === assigneeFilter || 
+    const matchesAssignee = assigneeFilter === "all" || e.assignedTo === assigneeFilter ||
       (assigneeFilter === "unassigned" && !e.assignedTo);
-    return matchesSearch && matchesStatus && matchesPriority && matchesAssignee;
+    // For "all" hide archived unless explicitly selected.
+    const hideArchived = statusFilter === "all" ? !e.archivedAt : true;
+    return matchesSearch && matchesStatus && matchesPriority && matchesAssignee && hideArchived;
   });
 
   const enquiryTotalPages = Math.max(1, Math.ceil(filteredEnquiries.length / tablePageSize) || 1);
@@ -197,7 +314,9 @@ const Enquiries = () => {
   const stats = {
     total: enquiries.length,
     new: enquiries.filter(e => e.status === "new").length,
-    inProgress: enquiries.filter(e => ["contacted", "meeting-scheduled", "quotation-sent"].includes(e.status)).length,
+    meetingScheduled: enquiries.filter(e => e.status === "meeting_scheduled").length,
+    quotationSent: enquiries.filter(e => e.status === "quotation_sent").length,
+    quotationRejected: enquiries.filter(e => e.status === "quotation_rejected").length,
     converted: enquiries.filter(e => e.status === "converted").length,
     highPriority: enquiries.filter(e => e.priority === "high" && e.status !== "converted" && e.status !== "lost").length,
   };
@@ -213,9 +332,9 @@ const formatCapacityInput = (capacity: string) => {
 
   const enquiryStatusLabels: Record<Enquiry["status"], string> = {
     new: "New",
-    contacted: "Contacted",
-    "meeting-scheduled": "Meeting Scheduled",
-    "quotation-sent": "Quotation Sent",
+    meeting_scheduled: "Meeting Scheduled",
+    quotation_sent: "Quotation Sent",
+    quotation_rejected: "Quotation Rejected",
     converted: "Converted",
     lost: "Lost",
   };
@@ -232,30 +351,30 @@ const formatCapacityInput = (capacity: string) => {
 
   // Handlers
   const handleAddEnquiry = async () => {
-    if (!formData.customerName || !formData.customerPhone) {
+    if (!createFormData.customerName || !createFormData.customerPhone) {
       toast({ title: "Error", description: "Name and phone are required", variant: "destructive" });
       return;
     }
-    const phAdd = validateContactPhone(formData.customerPhone);
+    const phAdd = validateContactPhone(createFormData.customerPhone);
     if (!phAdd.ok) {
       toast({ title: "Invalid phone", description: (phAdd as { message: string }).message, variant: "destructive" });
       return;
     }
 
-    if (formData.source === "referral" && !formData.agentId) {
+    if (createFormData.source === "referral" && !createFormData.agentId) {
       toast({ title: "Error", description: "Please select an agent for the referral", variant: "destructive" });
       return;
     }
 
-    const finalCapacity = formatCapacityInput(formData.systemCapacity);
+    const finalCapacity = formatCapacityInput(createFormData.systemCapacity);
 
     const newEnquiry: Enquiry = {
       id: `ENQ-${new Date().getFullYear()}-${String(enquiries.length + 1).padStart(3, '0')}`,
-      ...formData,
-      agentId: formData.agentId || undefined,
+      ...createFormData,
+      agentId: createFormData.agentId || undefined,
       systemCapacity: finalCapacity,
-      estimatedBudget: parseFloat(formData.estimatedBudget) || 0,
-      followUpDate: formData.followUpDate || undefined,
+      estimatedBudget: parseFloat(createFormData.estimatedBudget) || 0,
+      followUpDate: createFormData.followUpDate || undefined,
       status: "new",
       assignedTo: "",
       createdAt: new Date().toISOString().split('T')[0],
@@ -269,52 +388,52 @@ const formatCapacityInput = (capacity: string) => {
       return;
     }
     setIsAddEnquiryOpen(false);
-    resetForm();
+    resetCreateForm();
     toast({ title: "Enquiry Added", description: `${newEnquiry.id} has been created` });
   };
 
   const handleSaveEdit = () => {
-    if (!selectedEnquiry || !formData.customerName || !formData.customerPhone) {
+    if (!selectedEnquiry || !editFormData.customerName || !editFormData.customerPhone) {
       toast({ title: "Error", description: "Name and phone are required", variant: "destructive" });
       return;
     }
-    const phEdit = validateContactPhone(formData.customerPhone);
+    const phEdit = validateContactPhone(editFormData.customerPhone);
     if (!phEdit.ok) {
       toast({ title: "Invalid phone", description: (phEdit as { message: string }).message, variant: "destructive" });
       return;
     }
     
-    if (formData.source === "referral" && !formData.agentId) {
+    if (editFormData.source === "referral" && !editFormData.agentId) {
       toast({ title: "Error", description: "Please select an agent for the referral", variant: "destructive" });
       return;
     }
 
-    const finalCapacity = formatCapacityInput(formData.systemCapacity);
+    const finalCapacity = formatCapacityInput(editFormData.systemCapacity);
 
     updateEnquiry(selectedEnquiry.id, {
-      customerName: formData.customerName,
-      customerPhone: formData.customerPhone,
-      customerEmail: formData.customerEmail,
-      customerAddress: formData.customerAddress,
-      customerType: formData.customerType,
-      source: formData.source,
-      agentId: formData.agentId || undefined,
+      customerName: editFormData.customerName,
+      customerPhone: editFormData.customerPhone,
+      customerEmail: editFormData.customerEmail,
+      customerAddress: editFormData.customerAddress,
+      customerType: editFormData.customerType,
+      source: editFormData.source,
+      agentId: editFormData.agentId || undefined,
       systemCapacity: finalCapacity,
-      estimatedBudget: parseFloat(formData.estimatedBudget) || 0,
-      requirements: formData.requirements,
-      priority: formData.priority,
-      followUpDate: formData.followUpDate || undefined,
+      estimatedBudget: parseFloat(editFormData.estimatedBudget) || 0,
+      requirements: editFormData.requirements,
+      priority: editFormData.priority,
+      followUpDate: editFormData.followUpDate || undefined,
       updatedAt: new Date().toISOString().split('T')[0],
     });
 
     setIsEditEnquiryOpen(false);
-    resetForm();
+    resetEditForm();
     toast({ title: "Enquiry Updated", description: "Changes have been saved" });
   };
 
   const handleOpenEdit = (enquiry: Enquiry) => {
     setSelectedEnquiry(enquiry);
-    setFormData({
+    setEditFormData({
       customerName: enquiry.customerName,
       customerPhone: enquiry.customerPhone,
       customerEmail: enquiry.customerEmail,
@@ -339,9 +458,8 @@ const formatCapacityInput = (capacity: string) => {
       updatedAt: new Date().toISOString().split('T')[0] 
     });
 
-    if (selectedEnquiry.status === "new") {
-      await transitionEnquiryStatus(selectedEnquiry.id, "contacted");
-    }
+    // Assigning no longer auto-transitions status; "new" stays "new" until a meeting is scheduled,
+    // a quotation is sent, or the lead is converted/lost.
     
     setIsAssignOpen(false);
     setAssignTo("");
@@ -377,7 +495,10 @@ const formatCapacityInput = (capacity: string) => {
 
   const handleMarkAsLost = () => {
     if (!selectedEnquiry) return;
-    if (selectedEnquiry.status === "quotation-sent") {
+    if (
+      selectedEnquiry.status === "quotation_sent" ||
+      selectedEnquiry.status === "quotation_rejected"
+    ) {
       setLostReasonText("");
       setIsMarkLostReasonOpen(true);
       return;
@@ -416,9 +537,9 @@ const formatCapacityInput = (capacity: string) => {
       toast({ title: "Reason required", description: "Provide a reason (at least 3 characters) for reopening.", variant: "destructive" });
       return;
     }
-    const result = await transitionEnquiryStatus(selectedEnquiry.id, "contacted", trimmed);
+    const result = await transitionEnquiryStatus(selectedEnquiry.id, "new", trimmed);
     if (result.ok) {
-      toast({ title: "Enquiry Reopened", description: "Lead has been moved back to Contacted." });
+      toast({ title: "Enquiry Reopened", description: "Lead has been moved back to New." });
       setIsReopenEnquiryOpen(false);
       setReopenReasonText("");
     } else {
@@ -434,7 +555,7 @@ const formatCapacityInput = (capacity: string) => {
       meetingNotes, 
       updatedAt: new Date().toISOString().split('T')[0] 
     });
-    await transitionEnquiryStatus(selectedEnquiry.id, "meeting-scheduled");
+    await transitionEnquiryStatus(selectedEnquiry.id, "meeting_scheduled");
     
     setIsScheduleMeetingOpen(false);
     setMeetingDate("");
@@ -459,7 +580,23 @@ const formatCapacityInput = (capacity: string) => {
   };
 
   const handleCreateQuotation = (enquiry: Enquiry) => {
-    navigate(`/quotations?create&from=enquiry&enquiryId=${enquiry.id}&client=${encodeURIComponent(enquiry.customerName)}&phone=${encodeURIComponent(enquiry.customerPhone)}&address=${encodeURIComponent(enquiry.customerAddress)}&capacity=${encodeURIComponent(enquiry.systemCapacity)}&agentId=${encodeURIComponent(enquiry.agentId || "")}&customerId=${encodeURIComponent(enquiry.customerId || "")}`);
+    const gate = assertCanLinkNewQuotationToEnquiry(enquiry, currentRole);
+    if (!gate.ok) {
+      toast({ title: "Cannot create quotation", description: gate.message, variant: "destructive" });
+      return;
+    }
+    const draft = buildEnquiryToQuotationDraft(enquiry);
+    saveCreateDraft("quotation-create-draft", draft);
+    navigate(`/quotations?createFrom=enq:${enquiry.id}`);
+  };
+
+  const handleSendQuotation = async (enquiry: Enquiry) => {
+    const result = await transitionEnquiryStatus(enquiry.id, "quotation_sent");
+    if (!result.ok) {
+      toast({ title: "Could not update", description: result.error || "Invalid transition", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Marked as Quotation Sent", description: "Mark the lead as Converted once the customer confirms." });
   };
 
   const handleConvertEnquiry = async (enquiry: Enquiry) => {
@@ -473,20 +610,9 @@ const formatCapacityInput = (capacity: string) => {
       return;
     }
     
-    toast({ 
-      title: "Enquiry Converted", 
-      description: `Enquiry has been marked as converted. You can now create a quotation.` 
-    });
-    
-    // After conversion, we can optionally navigate to create a quotation with the customerId
     toast({
-      title: "Enquiry Converted",
-      description: "Would you like to create a Quotation for this customer now?",
-      action: (
-        <ToastAction altText="Create Quotation" onClick={() => navigate(`/quotations?create&from=enquiry&customerId=${result.customerId}&client=${encodeURIComponent(enquiry.customerName)}&phone=${encodeURIComponent(enquiry.customerPhone)}&address=${encodeURIComponent(enquiry.customerAddress)}&capacity=${encodeURIComponent(enquiry.systemCapacity)}&agentId=${encodeURIComponent(enquiry.agentId || "")}`)}>
-          Create Quotation
-        </ToastAction>
-      )
+      title: "Enquiry converted",
+      description: "Marked as converted. Start a project from an approved quotation on the Projects page.",
     });
   };
 
@@ -532,11 +658,12 @@ const formatCapacityInput = (capacity: string) => {
                   <SelectItem value="open">Open (default)</SelectItem>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="new">New</SelectItem>
-                  <SelectItem value="contacted">Contacted</SelectItem>
-                  <SelectItem value="meeting-scheduled">Meeting Scheduled</SelectItem>
-                  <SelectItem value="quotation-sent">Quotation Sent</SelectItem>
+                  <SelectItem value="meeting_scheduled">Meeting Scheduled</SelectItem>
+                  <SelectItem value="quotation_sent">Quotation Sent</SelectItem>
+                  <SelectItem value="quotation_rejected">Quotation Rejected</SelectItem>
                   <SelectItem value="converted">Converted</SelectItem>
                   <SelectItem value="lost">Lost</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
                 </SelectContent>
               </Select>
               <Select
@@ -578,33 +705,45 @@ const formatCapacityInput = (capacity: string) => {
             <InlineKpiStrip
               className="w-full sm:w-auto sm:justify-end"
               items={[
-                { 
-                  label: "Total", 
-                  value: stats.total, 
+                {
+                  label: "Total",
+                  value: stats.total,
                   active: statusFilter === "all" && priorityFilter === "all",
                   onClick: () => { setStatusFilter("all"); setPriorityFilter("all"); }
                 },
-                { 
-                  label: "New", 
-                  value: stats.new, 
+                {
+                  label: "New",
+                  value: stats.new,
                   active: statusFilter === "new",
                   onClick: () => { setStatusFilter("new"); setPriorityFilter("all"); }
                 },
-                { 
-                  label: "In progress", 
-                  value: stats.inProgress, 
-                  active: ["contacted", "meeting-scheduled", "quotation-sent"].includes(statusFilter),
-                  onClick: () => { setStatusFilter("contacted"); setPriorityFilter("all"); } // Default to contacted or keep as group
+                {
+                  label: "Meeting scheduled",
+                  value: stats.meetingScheduled,
+                  active: statusFilter === "meeting_scheduled",
+                  onClick: () => { setStatusFilter("meeting_scheduled"); setPriorityFilter("all"); }
                 },
-                { 
-                  label: "Converted", 
-                  value: stats.converted, 
+                {
+                  label: "Quotation sent",
+                  value: stats.quotationSent,
+                  active: statusFilter === "quotation_sent",
+                  onClick: () => { setStatusFilter("quotation_sent"); setPriorityFilter("all"); }
+                },
+                {
+                  label: "Quote rejected",
+                  value: stats.quotationRejected,
+                  active: statusFilter === "quotation_rejected",
+                  onClick: () => { setStatusFilter("quotation_rejected"); setPriorityFilter("all"); }
+                },
+                {
+                  label: "Converted",
+                  value: stats.converted,
                   active: statusFilter === "converted",
                   onClick: () => { setStatusFilter("converted"); setPriorityFilter("all"); }
                 },
-                { 
-                  label: "High priority", 
-                  value: stats.highPriority, 
+                {
+                  label: "High priority",
+                  value: stats.highPriority,
                   active: priorityFilter === "high",
                   onClick: () => { setPriorityFilter("high"); setStatusFilter("all"); }
                 },
@@ -613,7 +752,7 @@ const formatCapacityInput = (capacity: string) => {
           </>
         }
       >
-        <Button size="sm" onClick={() => { resetForm(); setIsAddEnquiryOpen(true); }} disabled={!canDo("enquiry:create")}>
+        <Button size="sm" onClick={() => { resetCreateForm(); setIsAddEnquiryOpen(true); }} disabled={!canCreateEnquiry}>
           <Plus className="h-4 w-4 mr-2" />
           Add enquiry
         </Button>
@@ -667,11 +806,41 @@ const formatCapacityInput = (capacity: string) => {
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0">
-                        <p className="font-medium truncate">{enquiry.customerName}</p>
+                        <div className="flex items-center gap-2 min-w-0">
+                          {enquiry.customerId ? (
+                            <EntityLink
+                              entityType="customer"
+                              entityId={enquiry.customerId}
+                              name={enquiry.customerName}
+                              className="truncate"
+                            />
+                          ) : (
+                            <p className="font-medium truncate">{enquiry.customerName}</p>
+                          )}
+                          <AgingChip signal={getEnquiryFollowUpAging(enquiry)} />
+                        </div>
                         {enquiry.customerAddress && (
                           <p className="text-xs text-muted-foreground truncate" title={enquiry.customerAddress}>
                             {enquiry.customerAddress}
                           </p>
+                        )}
+                        {enquiry.status === "quotation_rejected" && (
+                          <div
+                            className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md border border-orange-200/80 bg-orange-50/90 px-2 py-1 text-xs text-orange-900"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span>Previous quote rejected or withdrawn — re-quote when ready.</span>
+                            <PermissionGatedButton
+                              allowed={canCreateQuotation}
+                              deniedHint={PERMISSION_DENIED_HINTS.enquiryCreateQuotation}
+                              type="button"
+                              variant="link"
+                              className="h-auto p-0 text-xs font-semibold text-orange-900"
+                              onClick={() => handleCreateQuotation(enquiry)}
+                            >
+                              Create new quotation
+                            </PermissionGatedButton>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -692,7 +861,7 @@ const formatCapacityInput = (capacity: string) => {
                   <TableCell className="font-medium">{enquiry.systemCapacity || "—"}</TableCell>
                   <TableCell className="text-primary font-medium">{formatCurrency(enquiry.estimatedBudget)}</TableCell>
                   <TableCell >
-                    {enquiry.assignedTo || <span className="text-amber-600">Unassigned</span>}
+                    {enquiry.assignedTo || <span className="text-warning">Unassigned</span>}
                   </TableCell>
                   <TableCell className="text-muted-foreground whitespace-nowrap">
                     {enquiry.followUpDate
@@ -710,37 +879,42 @@ const formatCapacityInput = (capacity: string) => {
           </DataTableShell>
 
       {filteredEnquiries.length === 0 && (
-        <div className="text-center py-12">
-          <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">
-            {enquiries.length === 0 ? "No enquiries yet." : "No enquiries match the current filters."}
-          </p>
-          {enquiries.length === 0 ? (
-            <Button className="mt-4" onClick={() => { resetForm(); setIsAddEnquiryOpen(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add your first enquiry
-            </Button>
-          ) : (
-            <Button
-              className="mt-4"
-              variant="outline"
-              type="button"
-              onClick={() => {
-                setSearchQuery("");
-                setStatusFilter("all");
-                setPriorityFilter("all");
-                setTablePage(1);
-              }}
-            >
-              Clear filters
-            </Button>
-          )}
-        </div>
+                <ListEmptyState
+          icon={MessageCircle}
+          title={enquiries.length === 0 ? "No enquiries yet" : "No enquiries match the current filters"}
+          description={
+            enquiries.length === 0
+              ? "Create an enquiry to start the sales pipeline."
+              : "Try clearing filters or adjusting your search."
+          }
+          actionLabel={
+            enquiries.length === 0 && canCreateEnquiry
+              ? "Add your first enquiry"
+              : enquiries.length === 0
+                ? undefined
+                : "Clear filters"
+          }
+          onAction={
+            enquiries.length === 0 && canCreateEnquiry
+              ? () => {
+                  resetCreateForm();
+                  setIsAddEnquiryOpen(true);
+                }
+              : enquiries.length > 0
+                ? () => {
+                    setSearchQuery("");
+                    setStatusFilter("all");
+                    setPriorityFilter("all");
+                    setTablePage(1);
+                  }
+                : undefined
+          }
+        />
       )}
 
       {/* Add Enquiry Modal */}
       <Sheet open={isAddEnquiryOpen} onOpenChange={setIsAddEnquiryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Add New Enquiry</SheetTitle>
           </SheetHeader>
@@ -749,16 +923,16 @@ const formatCapacityInput = (capacity: string) => {
               <div className="space-y-2">
                 <Label>Customer Name *</Label>
                 <Input 
-                  value={formData.customerName} 
-                  onChange={(e) => setFormData({ ...formData, customerName: e.target.value })} 
+                  value={createFormData.customerName} 
+                  onChange={(e) => setCreateFormData({ ...createFormData, customerName: e.target.value })} 
                   placeholder="Full name"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Phone *</Label>
                 <Input 
-                  value={formData.customerPhone} 
-                  onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })} 
+                  value={createFormData.customerPhone} 
+                  onChange={(e) => setCreateFormData({ ...createFormData, customerPhone: e.target.value })} 
                   placeholder="+91 98765 43210"
                 />
               </div>
@@ -768,16 +942,16 @@ const formatCapacityInput = (capacity: string) => {
                 <Label>Email</Label>
                 <Input 
                   type="email"
-                  value={formData.customerEmail} 
-                  onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })} 
+                  value={createFormData.customerEmail} 
+                  onChange={(e) => setCreateFormData({ ...createFormData, customerEmail: e.target.value })} 
                   placeholder="email@example.com"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Type</Label>
                 <Select 
-                  value={formData.customerType} 
-                  onValueChange={(v: "individual" | "company") => setFormData({ ...formData, customerType: v })}
+                  value={createFormData.customerType} 
+                  onValueChange={(v: "individual" | "company") => setCreateFormData({ ...createFormData, customerType: v })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -792,8 +966,8 @@ const formatCapacityInput = (capacity: string) => {
             <div className="space-y-2">
               <Label>Address</Label>
               <Input 
-                value={formData.customerAddress} 
-                onChange={(e) => setFormData({ ...formData, customerAddress: e.target.value })} 
+                value={createFormData.customerAddress} 
+                onChange={(e) => setCreateFormData({ ...createFormData, customerAddress: e.target.value })} 
                 placeholder="Full address"
               />
             </div>
@@ -801,8 +975,8 @@ const formatCapacityInput = (capacity: string) => {
               <div className="space-y-2">
                 <Label>Source</Label>
                 <Select 
-                  value={formData.source} 
-                  onValueChange={(v: Enquiry["source"]) => setFormData({ ...formData, source: v })}
+                  value={createFormData.source} 
+                  onValueChange={(v: Enquiry["source"]) => setCreateFormData({ ...createFormData, source: v })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -820,8 +994,8 @@ const formatCapacityInput = (capacity: string) => {
               <div className="space-y-2">
                 <Label>Priority</Label>
                 <Select 
-                  value={formData.priority} 
-                  onValueChange={(v: Enquiry["priority"]) => setFormData({ ...formData, priority: v })}
+                  value={createFormData.priority} 
+                  onValueChange={(v: Enquiry["priority"]) => setCreateFormData({ ...createFormData, priority: v })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -838,9 +1012,9 @@ const formatCapacityInput = (capacity: string) => {
               <Label>Associated agent</Label>
               <p className="text-xs text-muted-foreground -mt-1">Optional unless source is referral (then pick an agent).</p>
               <Select
-                value={formData.agentId || "none"}
+                value={createFormData.agentId || "none"}
                 onValueChange={(v) =>
-                  setFormData({ ...formData, agentId: v === "none" ? "" : v })}
+                  setCreateFormData({ ...createFormData, agentId: v === "none" ? "" : v })}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="No agent / direct" />
@@ -857,8 +1031,8 @@ const formatCapacityInput = (capacity: string) => {
               <div className="space-y-2">
                 <Label>System Capacity</Label>
                 <Input 
-                  value={formData.systemCapacity} 
-                  onChange={(e) => setFormData({ ...formData, systemCapacity: e.target.value })} 
+                  value={createFormData.systemCapacity} 
+                  onChange={(e) => setCreateFormData({ ...createFormData, systemCapacity: e.target.value })} 
                   placeholder="e.g., 5kW"
                 />
               </div>
@@ -866,8 +1040,8 @@ const formatCapacityInput = (capacity: string) => {
                 <Label>Estimated Budget</Label>
                 <Input 
                   type="number"
-                  value={formData.estimatedBudget} 
-                  onChange={(e) => setFormData({ ...formData, estimatedBudget: e.target.value })} 
+                  value={createFormData.estimatedBudget} 
+                  onChange={(e) => setCreateFormData({ ...createFormData, estimatedBudget: e.target.value })} 
                   placeholder="₹"
                 />
               </div>
@@ -875,8 +1049,8 @@ const formatCapacityInput = (capacity: string) => {
             <div className="space-y-2">
               <Label>Requirements / Notes</Label>
               <Textarea 
-                value={formData.requirements} 
-                onChange={(e) => setFormData({ ...formData, requirements: e.target.value })} 
+                value={createFormData.requirements} 
+                onChange={(e) => setCreateFormData({ ...createFormData, requirements: e.target.value })} 
                 placeholder="Customer requirements and notes..."
                 rows={3}
               />
@@ -885,8 +1059,8 @@ const formatCapacityInput = (capacity: string) => {
               <Label>Follow-up Date</Label>
               <Input 
                 type="date"
-                value={formData.followUpDate} 
-                onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })} 
+                value={createFormData.followUpDate} 
+                onChange={(e) => setCreateFormData({ ...createFormData, followUpDate: e.target.value })} 
               />
             </div>
           </div>
@@ -899,7 +1073,7 @@ const formatCapacityInput = (capacity: string) => {
 
       {/* View Enquiry Modal */}
       <Sheet open={isViewEnquiryOpen} onOpenChange={setIsViewEnquiryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -909,6 +1083,7 @@ const formatCapacityInput = (capacity: string) => {
                 <Button variant="ghost" size="sm" onClick={() => setIsShareOpen(true)}>
                   <Share2 className="h-4 w-4 mr-2" />Share
                 </Button>
+                {canEditEnquiry && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -922,9 +1097,57 @@ const formatCapacityInput = (capacity: string) => {
                   <Edit className="h-4 w-4 mr-2" />
                   Edit
                 </Button>
+                )}
               </div>
             </SheetTitle>
           </SheetHeader>
+          {selectedEnquiry && (selectedEnquiry.archivedAt || selectedEnquiry.status === "lost") && (
+            <div className="mt-4 px-1">
+              <LifecycleTerminalBanner
+                variant={selectedEnquiry.archivedAt ? "archived" : "terminated"}
+                title={selectedEnquiry.archivedAt ? "Enquiry archived" : "Enquiry marked as lost"}
+                description={
+                  selectedEnquiry.archivedAt
+                    ? "This enquiry is archived and hidden from the default pipeline. Unarchive to resume follow-up or create a quotation."
+                    : "This lead is closed as lost. Reopen it to continue follow-up, or archive it to remove from active lists."
+                }
+                primaryActionLabel={selectedEnquiry.archivedAt ? "Unarchive" : selectedEnquiry.status === "lost" ? "Reopen" : undefined}
+                onPrimaryAction={
+                  selectedEnquiry.archivedAt
+                    ? () => {
+                        updateEnquiry(selectedEnquiry.id, { archivedAt: null });
+                        toast({ title: "Enquiry restored" });
+                      }
+                    : selectedEnquiry.status === "lost"
+                      ? () => { setReopenReasonText(""); setIsReopenEnquiryOpen(true); }
+                      : undefined
+                }
+                secondaryActionLabel={!selectedEnquiry.archivedAt && selectedEnquiry.status === "lost" ? "Archive" : undefined}
+                onSecondaryAction={
+                  !selectedEnquiry.archivedAt && selectedEnquiry.status === "lost"
+                    ? () => {
+                        updateEnquiry(selectedEnquiry.id, { archivedAt: new Date().toISOString() });
+                        toast({ title: "Enquiry archived" });
+                        setIsViewEnquiryOpen(false);
+                      }
+                    : undefined
+                }
+              />
+            </div>
+          )}
+          {selectedEnquiry?.status === "quotation_rejected" && (
+            <div className="mt-4 px-1">
+              <LifecycleTerminalBanner
+                variant="rejected"
+                title="Quotation rejected or withdrawn"
+                description="The linked quote is no longer active. Create a new quotation to re-engage this lead, or mark the enquiry as lost if the opportunity is closed."
+                primaryActionLabel={canCreateQuotation ? "Create new quotation" : undefined}
+                onPrimaryAction={
+                  canCreateQuotation ? () => handleCreateQuotation(selectedEnquiry) : undefined
+                }
+              />
+            </div>
+          )}
           {selectedEnquiry && (
             <div className="flex flex-col h-full">
               <div className="flex-1 space-y-6 pt-6">
@@ -992,7 +1215,7 @@ const formatCapacityInput = (capacity: string) => {
                   {/* Operational Details */}
                   <div className="space-y-4">
                     <div className="flex items-center gap-2">
-                      <div className="p-2 rounded-lg bg-amber-500/5 text-amber-500">
+                      <div className="p-2 rounded-lg bg-warning/5 text-warning">
                         <IndianRupee className="h-4 w-4" />
                       </div>
                       <div>
@@ -1002,7 +1225,7 @@ const formatCapacityInput = (capacity: string) => {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className="p-2 rounded-lg bg-purple-500/5 text-purple-500">
+                      <div className="p-2 rounded-lg bg-accent/5 text-accent-foreground">
                         <Zap className="h-4 w-4" />
                       </div>
                       <div>
@@ -1077,7 +1300,7 @@ const formatCapacityInput = (capacity: string) => {
                             {note.by && (
                               <div className="mt-2 pt-2 border-t border-border/40 flex items-center gap-1.5">
                                 <Avatar className="h-4 w-4">
-                                  <AvatarFallback className="text-[8px] bg-secondary text-secondary-foreground uppercase">
+                                  <AvatarFallback className="text-2xs bg-secondary text-secondary-foreground uppercase">
                                     {note.by.charAt(0)}
                                   </AvatarFallback>
                                 </Avatar>
@@ -1092,12 +1315,75 @@ const formatCapacityInput = (capacity: string) => {
                 </div>
               </div>
 
+              {selectedEnquiry && (() => {
+                const linkedQuotationIds = getEnquiryQuotationIds(selectedEnquiry);
+                const linkedQuotations = linkedQuotationIds
+                  .map((id) => quotations.find((q) => q.id === id))
+                  .filter((q): q is Quotation => Boolean(q));
+                const currentQuotationId = getCurrentEnquiryQuotationId(selectedEnquiry);
+                if (linkedQuotations.length === 0) return null;
+                return (
+                  <div className="pt-4 border-t space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold">Quotation history</h3>
+                      <span className="text-xs text-muted-foreground">
+                        {linkedQuotations.length} quote{linkedQuotations.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <div className="rounded-lg border overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">Number</TableHead>
+                            <TableHead className="text-xs">Status</TableHead>
+                            <TableHead className="text-xs text-right">Amount</TableHead>
+                            <TableHead className="text-xs">Created</TableHead>
+                            <TableHead className="text-xs w-[72px]" />
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {linkedQuotations.map((q) => (
+                            <TableRow key={q.id}>
+                              <TableCell className="text-xs font-medium py-2">
+                                {q.quotationNumber}
+                                {q.id === currentQuotationId && (
+                                  <Badge variant="secondary" className="ml-2 text-2xs capitalize">
+                                    Current
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-xs py-2 capitalize">
+                                {q.status.replace(/_/g, " ")}
+                              </TableCell>
+                              <TableCell className="text-xs text-right tabular-nums py-2">
+                                {formatINR(q.totalAmount ?? 0)}
+                              </TableCell>
+                              <TableCell className="text-xs py-2 text-muted-foreground">{q.createdAt}</TableCell>
+                              <TableCell className="py-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2"
+                                  onClick={() => navigate(`/quotations?id=${q.id}`)}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Action Footer */}
               <div className="pt-6 mt-6 border-t bg-background/80 backdrop-blur-sm sticky bottom-0 z-20">
                 <div className="flex flex-wrap items-center justify-between gap-3 pb-6">
                   <div className="flex items-center gap-2">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       disabled={selectedEnquiry.status === "converted" || selectedEnquiry.status === "lost"}
                       onClick={() => setIsAssignOpen(true)}
@@ -1105,18 +1391,20 @@ const formatCapacityInput = (capacity: string) => {
                       <UserPlus className="h-4 w-4 mr-2" />
                       {selectedEnquiry.assignedTo ? "Reassign" : "Assign Lead"}
                     </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      disabled={selectedEnquiry.status === "converted" || selectedEnquiry.status === "lost"}
-                      onClick={() => setIsScheduleMeetingOpen(true)}
-                    >
-                      <Calendar className="h-4 w-4 mr-2" />
-                      Schedule Meeting
-                    </Button>
+                    {(selectedEnquiry.status === "new" || selectedEnquiry.status === "meeting_scheduled") && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsScheduleMeetingOpen(true)}
+                      >
+                        <Calendar className="h-4 w-4 mr-2" />
+                        Schedule Meeting
+                      </Button>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {/* Mark as Lost — available until converted/lost */}
                     {selectedEnquiry.status !== "converted" && selectedEnquiry.status !== "lost" && (
                       <Button
                         variant="destructive"
@@ -1136,35 +1424,89 @@ const formatCapacityInput = (capacity: string) => {
                         Reopen
                       </Button>
                     )}
-                    
-                    {selectedEnquiry.status !== "converted" && (
-                      <Button 
-                        variant="outline" 
+                    {selectedEnquiry.archivedAt ? (
+                      <Button
+                        variant="outline"
                         size="sm"
+                        onClick={() => {
+                          updateEnquiry(selectedEnquiry.id, { archivedAt: null });
+                          toast({ title: "Enquiry restored" });
+                        }}
+                      >
+                        Unarchive
+                      </Button>
+                    ) : (
+                      (selectedEnquiry.status === "lost" || selectedEnquiry.status === "converted") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-muted-foreground"
+                          onClick={() => {
+                            updateEnquiry(selectedEnquiry.id, { archivedAt: new Date().toISOString() });
+                            toast({ title: "Enquiry archived" });
+                            setIsViewEnquiryOpen(false);
+                          }}
+                        >
+                          Archive
+                        </Button>
+                      )
+                    )}
+
+                    {/* Send Quotation — for active leads pre-conversion */}
+                    {(selectedEnquiry.status === "new" || selectedEnquiry.status === "meeting_scheduled") && (
+                      <PermissionGatedButton
+                        allowed={canUpdateEnquiry}
+                        deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
+                        size="sm"
+                        variant="outline"
                         className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
+                        onClick={() => handleSendQuotation(selectedEnquiry)}
+                      >
+                        <Send className="h-4 w-4 mr-2" />
+                        Send Quotation
+                      </PermissionGatedButton>
+                    )}
+
+                    {/* Mark as Converted — only from quotation_sent */}
+                    {selectedEnquiry.status === "quotation_sent" && (
+                      <PermissionGatedButton
+                        allowed={canUpdateEnquiry}
+                        deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
+                        size="sm"
+                        className="bg-primary text-white"
                         onClick={() => handleConvertEnquiry(selectedEnquiry)}
                       >
                         <Check className="h-4 w-4 mr-2" />
                         Mark as Converted
-                      </Button>
+                      </PermissionGatedButton>
                     )}
 
-                    {selectedEnquiry.quotationId ? (
-                      <Button 
+                    {/* Re-quote after rejection / withdrawal */}
+                    {selectedEnquiry.status === "quotation_rejected" && (
+                      <PermissionGatedButton
+                        allowed={canCreateQuotation}
+                        deniedHint={PERMISSION_DENIED_HINTS.enquiryCreateQuotation}
                         size="sm"
-                        onClick={() => navigate(`/quotations?id=${selectedEnquiry.quotationId}`)}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        View Quotation
-                      </Button>
-                    ) : (
-                      <Button 
-                        size="sm"
+                        className="bg-primary text-white"
                         onClick={() => handleCreateQuotation(selectedEnquiry)}
-                        disabled={selectedEnquiry.status === "lost"}
                       >
                         <FileText className="h-4 w-4 mr-2" />
-                        Create Quotation
+                        Create new quotation
+                      </PermissionGatedButton>
+                    )}
+
+                    {/* View Quotation — once a quotation is linked */}
+                    {getCurrentEnquiryQuotationId(selectedEnquiry) && (
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          navigate(`/quotations?id=${getCurrentEnquiryQuotationId(selectedEnquiry)}`)
+                        }
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        {getEnquiryQuotationIds(selectedEnquiry).length > 1
+                          ? "View current quotation"
+                          : "View quotation"}
                       </Button>
                     )}
                   </div>
@@ -1361,8 +1703,8 @@ const formatCapacityInput = (capacity: string) => {
       </Sheet>
 
       {/* Edit Enquiry Modal */}
-      <Sheet open={isEditEnquiryOpen} onOpenChange={(open) => { setIsEditEnquiryOpen(open); if (!open) resetForm(); }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+      <Sheet open={isEditEnquiryOpen} onOpenChange={(open) => { setIsEditEnquiryOpen(open); if (!open) resetEditForm(); }}>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle>Edit Enquiry - {selectedEnquiry?.id}</SheetTitle>
           </SheetHeader>
@@ -1371,16 +1713,16 @@ const formatCapacityInput = (capacity: string) => {
               <div className="space-y-2">
                 <Label>Customer Name *</Label>
                 <Input 
-                  value={formData.customerName} 
-                  onChange={(e) => setFormData({ ...formData, customerName: e.target.value })} 
+                  value={editFormData.customerName} 
+                  onChange={(e) => setEditFormData({ ...editFormData, customerName: e.target.value })} 
                   placeholder="Full name"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Phone *</Label>
                 <Input 
-                  value={formData.customerPhone} 
-                  onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })} 
+                  value={editFormData.customerPhone} 
+                  onChange={(e) => setEditFormData({ ...editFormData, customerPhone: e.target.value })} 
                   placeholder="+91 98765 43210"
                 />
               </div>
@@ -1390,16 +1732,16 @@ const formatCapacityInput = (capacity: string) => {
                 <Label>Email</Label>
                 <Input 
                   type="email"
-                  value={formData.customerEmail} 
-                  onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })} 
+                  value={editFormData.customerEmail} 
+                  onChange={(e) => setEditFormData({ ...editFormData, customerEmail: e.target.value })} 
                   placeholder="email@example.com"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Type</Label>
                 <Select 
-                  value={formData.customerType} 
-                  onValueChange={(v: "individual" | "company") => setFormData({ ...formData, customerType: v })}
+                  value={editFormData.customerType} 
+                  onValueChange={(v: "individual" | "company") => setEditFormData({ ...editFormData, customerType: v })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1414,8 +1756,8 @@ const formatCapacityInput = (capacity: string) => {
             <div className="space-y-2">
               <Label>Address</Label>
               <Input 
-                value={formData.customerAddress} 
-                onChange={(e) => setFormData({ ...formData, customerAddress: e.target.value })} 
+                value={editFormData.customerAddress} 
+                onChange={(e) => setEditFormData({ ...editFormData, customerAddress: e.target.value })} 
                 placeholder="Full address"
               />
             </div>
@@ -1423,8 +1765,8 @@ const formatCapacityInput = (capacity: string) => {
               <div className="space-y-2">
                 <Label>Source</Label>
                 <Select 
-                  value={formData.source} 
-                  onValueChange={(v: Enquiry["source"]) => setFormData({ ...formData, source: v })}
+                  value={editFormData.source} 
+                  onValueChange={(v: Enquiry["source"]) => setEditFormData({ ...editFormData, source: v })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1442,8 +1784,8 @@ const formatCapacityInput = (capacity: string) => {
               <div className="space-y-2">
                 <Label>Priority</Label>
                 <Select 
-                  value={formData.priority} 
-                  onValueChange={(v: Enquiry["priority"]) => setFormData({ ...formData, priority: v })}
+                  value={editFormData.priority} 
+                  onValueChange={(v: Enquiry["priority"]) => setEditFormData({ ...editFormData, priority: v })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1460,9 +1802,9 @@ const formatCapacityInput = (capacity: string) => {
               <Label>Associated agent</Label>
               <p className="text-xs text-muted-foreground -mt-1">Optional unless source is referral (then pick an agent).</p>
               <Select
-                value={formData.agentId || "none"}
+                value={editFormData.agentId || "none"}
                 onValueChange={(v) =>
-                  setFormData({ ...formData, agentId: v === "none" ? "" : v })}
+                  setEditFormData({ ...editFormData, agentId: v === "none" ? "" : v })}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="No agent / direct" />
@@ -1479,8 +1821,8 @@ const formatCapacityInput = (capacity: string) => {
               <div className="space-y-2">
                 <Label>System Capacity</Label>
                 <Input 
-                  value={formData.systemCapacity} 
-                  onChange={(e) => setFormData({ ...formData, systemCapacity: e.target.value })} 
+                  value={editFormData.systemCapacity} 
+                  onChange={(e) => setEditFormData({ ...editFormData, systemCapacity: e.target.value })} 
                   placeholder="e.g., 5kW"
                 />
               </div>
@@ -1488,8 +1830,8 @@ const formatCapacityInput = (capacity: string) => {
                 <Label>Estimated Budget</Label>
                 <Input 
                   type="number"
-                  value={formData.estimatedBudget} 
-                  onChange={(e) => setFormData({ ...formData, estimatedBudget: e.target.value })} 
+                  value={editFormData.estimatedBudget} 
+                  onChange={(e) => setEditFormData({ ...editFormData, estimatedBudget: e.target.value })} 
                   placeholder="₹"
                 />
               </div>
@@ -1497,8 +1839,8 @@ const formatCapacityInput = (capacity: string) => {
             <div className="space-y-2">
               <Label>Requirements / Notes</Label>
               <Textarea 
-                value={formData.requirements} 
-                onChange={(e) => setFormData({ ...formData, requirements: e.target.value })} 
+                value={editFormData.requirements} 
+                onChange={(e) => setEditFormData({ ...editFormData, requirements: e.target.value })} 
                 placeholder="Customer requirements and notes..."
                 rows={3}
               />
@@ -1507,8 +1849,8 @@ const formatCapacityInput = (capacity: string) => {
               <Label>Follow-up Date</Label>
               <Input 
                 type="date"
-                value={formData.followUpDate} 
-                onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })} 
+                value={editFormData.followUpDate} 
+                onChange={(e) => setEditFormData({ ...editFormData, followUpDate: e.target.value })} 
               />
             </div>
           </div>

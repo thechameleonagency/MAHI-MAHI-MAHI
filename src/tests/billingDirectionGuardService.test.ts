@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BillingDirectionGuardService } from "@/application/services/BillingDirectionGuardService";
+import {
+  BillingDirectionGuardService,
+  HIGH_VALUE_INVOICE_THRESHOLD_INR,
+  isHighValueInvoiceAmount,
+} from "@/application/services/BillingDirectionGuardService";
 import type { Project } from "@/types/project";
 
 const makeProject = (overrides: Partial<Project> = {}): Project => ({
@@ -73,5 +77,23 @@ describe("BillingDirectionGuardService", () => {
     );
     expect(result.ok).toBe(false);
     expect(result.error).toContain("partner_to_customer");
+  });
+
+  it("requires written justification for issuance above ₹5L", () => {
+    const service = new BillingDirectionGuardService();
+    expect(isHighValueInvoiceAmount(HIGH_VALUE_INVOICE_THRESHOLD_INR)).toBe(false);
+    expect(isHighValueInvoiceAmount(HIGH_VALUE_INVOICE_THRESHOLD_INR + 1)).toBe(true);
+
+    const blocked = service.validateHighValueIssuance(600_000);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.requiresJustification).toBe(true);
+
+    const allowed = service.validateHighValueIssuance(600_000, "Approved by management for milestone billing");
+    expect(allowed.ok).toBe(true);
+    expect(allowed.requiresJustification).toBe(true);
+
+    const draftOk = service.validateHighValueIssuance(600_000, undefined, { isDraft: true });
+    expect(draftOk.ok).toBe(true);
+    expect(draftOk.requiresJustification).toBe(false);
   });
 });

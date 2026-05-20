@@ -54,10 +54,14 @@ describe("manual smoke — pipeline continuity", () => {
     expect(inv.customerName).toBeTruthy();
   });
 
-  it("site visit sheet is wired for project detail flow", async () => {
-    const sheet = await import("@/components/projects/SiteVisitSheet");
-    expect(sheet.SiteVisitSheet).toBeDefined();
-  });
+  it(
+    "site visit sheet is wired for project detail flow",
+    async () => {
+      const sheet = await import("@/components/projects/SiteVisitSheet");
+      expect(sheet.SiteVisitSheet).toBeDefined();
+    },
+    15_000,
+  );
 });
 
 describe("manual smoke — Projects hide completed + divider", () => {

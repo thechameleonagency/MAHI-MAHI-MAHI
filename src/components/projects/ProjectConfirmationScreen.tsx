@@ -44,7 +44,7 @@ export default function ProjectConfirmationScreen({
   const getOwnerTypeBadge = () => {
     switch (data.ownerType) {
       case "partnership":
-        return <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20"><Handshake className="w-3 h-3 mr-1" />Partnership</Badge>;
+        return <Badge className="bg-warning/10 text-warning border-warning/20"><Handshake className="w-3 h-3 mr-1" />Partnership</Badge>;
       case "outsourced":
         return <Badge className="bg-primary/10 text-primary border-primary/20"><Users className="w-3 h-3 mr-1" />Outsourced</Badge>;
       default:
@@ -129,10 +129,10 @@ export default function ProjectConfirmationScreen({
 
       {/* Partnership Details */}
       {data.ownerType === "partnership" && data.partners && data.partners.length > 0 && (
-        <Card className="border-amber-500/20">
+        <Card className="border-warning/20">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Handshake className="w-4 h-4 text-amber-500" />
+              <Handshake className="w-4 h-4 text-warning" />
               Partnership Details
             </CardTitle>
           </CardHeader>
@@ -141,14 +141,14 @@ export default function ProjectConfirmationScreen({
               {data.partners.map((partner) => (
                 <div key={partner.partnerId} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center">
-                      <span className="text-sm font-semibold text-amber-600">
+                    <div className="w-8 h-8 rounded-full bg-warning/10 flex items-center justify-center">
+                      <span className="text-sm font-semibold text-warning">
                         {partner.partnerName.charAt(0)}
                       </span>
                     </div>
                     <p className="font-medium">{partner.partnerName}</p>
                   </div>
-                  <Badge variant="outline" className="text-amber-600">
+                  <Badge variant="outline" className="text-warning">
                     {partner.investmentPercent}% Investment
                   </Badge>
                 </div>

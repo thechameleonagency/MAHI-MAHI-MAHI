@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ProjectInvariantService, type ProjectInvariantWorld } from "@/domain/project/ProjectInvariantService";
+import {
+  ProjectInvariantService,
+  validateProjectPartnerCount,
+  type ProjectInvariantWorld,
+} from "@/domain/project/ProjectInvariantService";
 import type { Project } from "@/types/project";
 
 const baseProject = (over: Partial<Project>): Project => ({
@@ -42,6 +46,34 @@ const emptyWorld = (projects: Project[]): ProjectInvariantWorld => ({
 
 describe("ProjectInvariantService", () => {
   const svc = new ProjectInvariantService();
+
+  describe("validateProjectCreate (M7)", () => {
+    it("rejects more than one partner", () => {
+      const r = validateProjectPartnerCount([
+        { partnerId: "P1", partnerName: "A", partnerType: "profit", calculatedEarning: 0, settlementDirection: "company_pays_partner" },
+        { partnerId: "P2", partnerName: "B", partnerType: "profit", calculatedEarning: 0, settlementDirection: "company_pays_partner" },
+      ]);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errorCode).toBe("PARTNER_COUNT");
+    });
+
+    it("rejects SOLO_EPC without quotation on intake path", () => {
+      const r = svc.validateProjectCreate({ project: { projectKind: "SOLO_EPC" } });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errorCode).toBe("QUOTATION_REQUIRED");
+    });
+
+    it("does not require quotation for direct-exception pre-build validation", () => {
+      const r = svc.validateProjectCreate({ directExceptionReason: "Approved by board" });
+      expect(r.ok).toBe(true);
+    });
+
+    it("requires direct-exception reason when validated", () => {
+      const r = svc.validateProjectCreate({ directExceptionReason: "   " });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errorCode).toBe("REASON_REQUIRED");
+    });
+  });
 
   it("blocks completion when execution line is short vs BOQ", () => {
     const p = baseProject({

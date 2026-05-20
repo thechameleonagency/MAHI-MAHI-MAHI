@@ -1,8 +1,8 @@
-﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Briefcase, Calendar, Camera, CheckCircle2, ClipboardList, Edit,
-  FileText, Handshake, IndianRupee, _LinkIcon, MapPin,
+  ArrowLeft, AlertTriangle, Briefcase, Calendar, Camera, CheckCircle2, ClipboardList, Edit,
+  FileText, Handshake, IndianRupee, MapPin,
   MoreVertical, Package, Plus, ReceiptText, Truck, Users, CheckSquare, User, X, Zap,
 } from "lucide-react";
 import { format, isValid, parseISO } from "date-fns";
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,20 +27,41 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { PageShell } from "@/components/layout/PageShell";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
+import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
+import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useMasters } from "@/contexts/MastersContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { canPerformAction } from "@/domain/policies/permissionMatrix";
-import { canTransitionProjectStatus, type ProjectLifecycleStatus } from "@/domain/stateMachines/projectStateMachine";
+import { useCan } from "@/hooks/useCan";
+import { useCanAction } from "@/hooks/useCanAction";
+import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
+import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
+import {
+  canTransitionProjectStatus,
+  normalizeLifecycleForTransition,
+  type ProjectLifecycleStatus,
+} from "@/domain/stateMachines/projectStateMachine";
 import { toast } from "@/hooks/use-toast";
-import { toast as sonnerToast } from "sonner";
-import { UnifiedExpenseModal } from "@/components/expenses/UnifiedExpenseModal";
-import { TaskAssignmentModal } from "@/components/employees/TaskAssignmentModal";
+import { ToastAction } from "@/components/ui/toast";
+import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
+import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet";
 import { ProgressReportTab } from "@/components/projects/ProgressReportTab";
 import { TeamRosterTab } from "@/components/projects/TeamRosterTab";
-import { filterWorkTabsBySnapshot, projectForbidsAction } from "@/lib/projectDetailTabs";
+import { filterWorkTabsBySnapshot, filterWorkTabsByRole, projectForbidsAction } from "@/lib/projectDetailTabs";
+import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
 import { ProjectDocumentsStudio } from "@/components/projects/ProjectDocumentsStudio";
 import MaterialsSentTab from "@/components/projects/MaterialsSentTab";
+import { ProjectStartActions } from "@/components/projects/ProjectStartActions";
+import { SiteVisitSheet } from "@/components/projects/SiteVisitSheet";
+import { ChangeRequestSheet } from "@/components/projects/ChangeRequestSheet";
+import { AdditionalWorkSheet } from "@/components/projects/AdditionalWorkSheet";
+import { resolveChangeRequestDeltaAmount } from "@/lib/changeRequestApproval";
+import {
+  buildProjectToExpenseDraft,
+  buildProjectToInvoiceDraft,
+  saveCreateDraft,
+} from "@/lib/createFromContext";
 import { ClientPaymentHistory } from "@/components/projects/ClientPaymentHistory";
 import {
   calculateProjectPartnerEarning,
@@ -48,7 +69,7 @@ import {
   calculateProjectVendorshipFee,
   isPartnerCreditTransaction,
   isPartnerDebitTransaction,
-  _partnerProjectLabel,
+
 } from "@/domain/partners/derivePartnerEconomics";
 import type { Payment, Expense, Invoice } from "@/types/finance";
 import type { Project, ProjectPartner, ProjectPartnerType } from "@/types/project";
@@ -76,14 +97,14 @@ const projectKindLabel: Record<string, string> = {
 };
 
 const projectKindTone: Record<string, string> = {
-  SOLO_EPC: "bg-emerald-500/10 text-emerald-700 border-emerald-500/25",
+  SOLO_EPC: "bg-success/10 text-success border-success/25",
   PARTNER_EPC: "bg-primary/10 text-primary border-primary/25",
-  FIXED_EPC: "bg-amber-500/10 text-amber-800 border-amber-500/25",
-  VENDOR_NETWORK: "bg-violet-500/10 text-violet-700 border-violet-500/25",
+  FIXED_EPC: "bg-warning/10 text-warning border-warning/25",
+  VENDOR_NETWORK: "bg-accent/10 text-accent-foreground border-accent/25",
   INC: "bg-slate-500/10 text-slate-700 border-slate-500/25",
-  INC_GIVEN: "bg-orange-500/10 text-orange-700 border-orange-500/25",
-  OUTSOURCED_INC: "bg-sky-500/10 text-sky-700 border-sky-500/25",
-  VENDORSHIP_ONLY: "bg-purple-500/10 text-purple-700 border-purple-500/25",
+  INC_GIVEN: "bg-warning/10 text-warning border-warning/25",
+  OUTSOURCED_INC: "bg-primary/10 text-primary border-primary/25",
+  VENDORSHIP_ONLY: "bg-accent/10 text-accent-foreground border-accent/25",
 };
 
 function TabCard({
@@ -164,7 +185,7 @@ const ProjectDetail = () => {
     partners,
     partnerTransactions,
     payments,
-    _projects,
+    projects: _projects,
     saleBills,
     sites,
     inventoryItems: globalInvItems,
@@ -179,6 +200,7 @@ const ProjectDetail = () => {
     getTasksByProjectId,
     getSitesByProjectId,
     addSite,
+    deleteSite,
     updateProject,
     recordProjectMaterialMovement,
     addExpense,
@@ -189,7 +211,18 @@ const ProjectDetail = () => {
     addClientPaymentRecord,
     applySiteChecklistFromTemplate,
     dispatchSiteMaterial,
+    getSiteVisitsByProject,
+    getReservationsForProject,
+    getSchedulesByProject,
+    getDamageByProject,
+    reconcileSiteVisitToChecklist,
+    getChangeRequestsByProject,
+    addProjectChangeRequest: _addProjectChangeRequest,
+    approveProjectChangeRequest,
+    rejectProjectChangeRequest,
+    getAccrualsByProject,
     generateId,
+    canDo,
   } = useAppData();
   const { getOutsourceWorkTags, getSiteChecklistPresets } = useMasters();
   const COMPANY_STATE_CODE = (() => { try { return JSON.parse(localStorage.getItem("mss.settings.company") || "{}").companyState || "08"; } catch { return "08"; } })();
@@ -207,8 +240,8 @@ const ProjectDetail = () => {
     return quotations.filter(
       (q) =>
         q.id === project.quotationId ||
-        q.convertedToProjectId === project.id ||
-        (Boolean(q.customerId) && q.customerId === project.customerId && !q.isConverted),
+        quotationLinkedProjectId(q) === project.id ||
+        (Boolean(q.customerId) && q.customerId === project.customerId && !isQuotationConverted(q)),
     );
   }, [project, quotations]);
 
@@ -281,10 +314,21 @@ const ProjectDetail = () => {
 
   // Modal states
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [isSiteVisitOpen, setIsSiteVisitOpen] = useState(false);
+  const [isChangeRequestOpen, setIsChangeRequestOpen] = useState(false);
+  const [isAdditionalWorkOpen, setIsAdditionalWorkOpen] = useState(false);
+
+  const projectChangeRequests = useMemo(
+    () => (id ? getChangeRequestsByProject(id) : []),
+    [id, getChangeRequestsByProject],
+  );
   const [taskAssignmentOpen, setTaskAssignmentOpen] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isAddOutsourceOpen, setIsAddOutsourceOpen] = useState(false);
   const [_activeTab, _setActiveTab] = useState("progress-report");
+  const [isArchiveProjectOpen, setIsArchiveProjectOpen] = useState(false);
+  const [archiveProjectReason, setArchiveProjectReason] = useState("");
+  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
   const [isAddSiteOpen, setIsAddSiteOpen] = useState(false);
   const [newSiteName, setNewSiteName] = useState("");
   const [newSiteWorkStart, setNewSiteWorkStart] = useState(() => new Date().toISOString().split("T")[0]);
@@ -336,9 +380,20 @@ const ProjectDetail = () => {
   // Derived project status
   const projectStatus = project?.status || "Ongoing";
   const isProjectCompleted = projectStatus === "Completed";
-  const currentLifecycle = (project?.lifecycleStatus ?? "New") as ProjectLifecycleStatus;
+  const canViewCommercial = useCan("projectCommercial", "view");
+  const canMarkProjectComplete =
+    useCan("projectCommercial", "edit") || useCan("projectExecution", "edit");
+  const canApproveChangeRequest = useCanAction("approval:resolve");
+  const canCreateInvoice = useCanAction("finance:create_invoice");
+  const [showFinancialDetail, setShowFinancialDetail] = useState(false);
+  const hasFinancialDetail = Boolean(
+    project?.bankDocumentationAmount || project?.totalPartnerInvestment || project?.mssBackendAmount ||
+    project?.externalVendorshipEntity || project?.loanReceiptHandling || project?.cashHandling ||
+    project?.incScope || project?.vendorNetworkCommissionType || project?.commercialBaseline?.capturedAt,
+  );
+  const currentLifecycle = normalizeLifecycleForTransition(project?.lifecycleStatus);
   const lifecycleTransitions: ProjectLifecycleStatus[] = (["New", "In Progress", "On Hold", "Completed", "Closed"] as ProjectLifecycleStatus[]).filter(
-    (to) => canTransitionProjectStatus(currentLifecycle, to, currentRole ?? "admin")
+    (to) => canTransitionProjectStatus(currentLifecycle, to, currentRole ?? "admin"),
   );
 
   const openEditProjectModal = () => {
@@ -398,7 +453,7 @@ const ProjectDetail = () => {
       progressStage: editProgressStage || undefined,
       partners: partnerData
     });
-    toast({ title: "Project Updated", description: `${editProjectName || project.name} has been updated successfully` });
+    setLastConfirm({ variant: "success", title: "Project updated", description: `${editProjectName || project.name} has been updated successfully` });
     setIsEditProjectOpen(false);
   };
 
@@ -418,11 +473,16 @@ const ProjectDetail = () => {
     if (project.quotationId) invoiceParams.set("quotationId", project.quotationId);
     const invoiceUrl = `/invoices?${invoiceParams.toString()}`;
     setTimeout(() => {
-      sonnerToast("Project marked complete", {
-        action: {
-          label: "Create Invoice",
-          onClick: () => navigate(invoiceUrl),
-        },
+      toast({
+        title: "Project marked complete",
+        description: canCreateInvoice
+          ? "Create a final invoice when you are ready."
+          : "Project is complete. Invoice creation requires admin or management.",
+        action: canCreateInvoice ? (
+          <ToastAction altText="Create Invoice" onClick={() => navigate(invoiceUrl)}>
+            Create Invoice
+          </ToastAction>
+        ) : undefined,
       });
     }, 200);
   };
@@ -442,26 +502,46 @@ const ProjectDetail = () => {
       notes = `OUTSRC:0,0,0:${tagPrefix}${otherWorkNotes.trim() || "Other outsourced work"}`;
     }
     addExpense({ id: generateId("EX"), date: new Date().toISOString().split("T")[0], amount: total, mainCategory: "site", projectId: id, projectName: project.name, category: outsourceTab === "labour" ? "Labour" : "Other", subCategory: "Outsourced", notes, paidBy: { type: "company" } } as Expense);
-    toast({ title: "Outsource Work Added", description: `â‚¹${total.toLocaleString()} recorded` });
+    toast({ title: "Outsource Work Added", description: `${formatINR(total)} recorded` });
     setIsAddOutsourceOpen(false);
     setOutsourceEmployees(""); setOutsourceDays(""); setOutsourceRate(""); setOutsourceDescription("");
     setOtherWorkTag(""); setOtherWorkAmount(""); setOtherWorkNotes("");
   };
 
+  const projectSiteVisits = id ? getSiteVisitsByProject(id) : [];
+  const projectReservations = id ? getReservationsForProject(id) : [];
+  const projectSchedules = id ? getSchedulesByProject(id) : [];
+  const projectMaterialDamage = id ? getDamageByProject(id) : [];
+
   const handleOpenNewInvoiceForProject = () => {
     if (!project || !id) return;
-    const invoiceParams = new URLSearchParams({
-      from: "project",
-      client: project.client,
-      address: project.clientAddress || "",
-      contact: project.clientPhone || "",
-      state: COMPANY_STATE_CODE,
-      project: project.name,
-      amount: project.contractAmount.toString(),
-      projectId: id,
-    });
-    if (project.quotationId) invoiceParams.set("quotationId", project.quotationId);
-    navigate(`/invoices?${invoiceParams.toString()}`);
+    const customer = customers.find((c) => c.id === project.customerId);
+    const paidIn = projectPayments
+      .filter((payment) => payment.direction === "in")
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    const outstanding = Math.max(0, project.contractAmount - paidIn);
+    const draft = buildProjectToInvoiceDraft(project, customer, outstanding);
+    saveCreateDraft("invoice-create-draft", draft);
+    navigate(`/invoices?createFrom=proj:${id}`);
+  };
+
+  const handleOpenExpenseForProject = () => {
+    if (!project) return;
+    if (isProjectCompleted) {
+      toast({ title: "Project Completed", description: "Reactivate to make changes.", variant: "destructive" });
+      return;
+    }
+    saveCreateDraft("expense-create-draft", buildProjectToExpenseDraft(project));
+    setIsAddExpenseOpen(true);
+  };
+
+  const handleReconcileSiteVisit = (visitId: string) => {
+    const result = reconcileSiteVisitToChecklist(visitId);
+    if (!result.ok) {
+      toast({ title: "Could not reconcile", description: result.error, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Reconciled to checklist", description: "New inventory lines were added to the site checklist." });
   };
 
   const handleSaveNewSite = () => {
@@ -556,7 +636,7 @@ const ProjectDetail = () => {
     );
   }
 
-  const kind = project.projectKind;
+  const kind = project.projectKind ?? "SOLO_EPC";
   const partnerRow = project.partners?.[0];
   const linkedPartner = partnerRow
     ? partners.find((partner) => partner.id === partnerRow.partnerId)
@@ -579,7 +659,7 @@ const ProjectDetail = () => {
 
   const scope = project.scope;
   const docLabel = scope?.vendorshipOwner === "MSS" ? "Document Creator" : "Document Vault";
-  const tabDefs = filterWorkTabsBySnapshot(project, docLabel);
+  const tabDefs = filterWorkTabsByRole(filterWorkTabsBySnapshot(project, docLabel), currentRole);
 
   const forbidMaterialDispatch = projectForbidsAction(project, "material_dispatch");
   const forbidWorkTracking = projectForbidsAction(project, "work_tracking");
@@ -603,29 +683,68 @@ const ProjectDetail = () => {
         }
         subRow={
           <div className="flex flex-col gap-4 w-full">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5"><User className="w-3.5 h-3.5" />Client: <span className="text-foreground font-medium">{project.client}</span></span>
-              <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />{project.location}</span>
-              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" />{project.capacity}</span>
-              <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" />Started: <span className="text-foreground font-medium">{project.startDate}</span></span>
-              {project.executionPhase && <Badge variant="outline" className="h-5 text-2xs">Phase: {project.executionPhase}</Badge>}
-              {(partnerRow || linkedPartner) && <Badge variant="secondary" className="bg-primary/5 text-primary border-primary/10 text-2xs"><Handshake className="w-3 h-3 mr-1" />{partnerRow?.partnerName ?? linkedPartner?.name}</Badge>}
+            <div className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
+              <span className="flex min-w-0 items-center gap-1.5 truncate"><User className="w-3.5 h-3.5 shrink-0" />Client: <span className="text-foreground font-medium truncate">{project.client}</span></span>
+              <span className="flex min-w-0 items-center gap-1.5 truncate"><MapPin className="w-3.5 h-3.5 shrink-0" />{project.location}</span>
+              <span className="flex min-w-0 items-center gap-1.5 truncate"><Zap className="w-3.5 h-3.5 shrink-0" />{project.capacity}</span>
+              <span className="flex min-w-0 items-center gap-1.5 truncate"><Calendar className="w-3.5 h-3.5 shrink-0" />Started: <span className="text-foreground font-medium">{project.startDate}</span></span>
+              {project.executionPhase && (
+                <Badge variant="outline" className="h-5 w-fit text-2xs">Phase: {project.executionPhase}</Badge>
+              )}
+              {(partnerRow || linkedPartner) && (
+                <Badge variant="secondary" className="h-5 w-fit bg-primary/5 text-primary border-primary/10 text-2xs">
+                  <Handshake className="w-3 h-3 mr-1" />{partnerRow?.partnerName ?? linkedPartner?.name}
+                </Badge>
+              )}
+              {project.quotationId && quotation && (
+                <Badge variant="outline" className="h-5 w-fit text-2xs">
+                  <FileText className="w-3 h-3 mr-1" />
+                  <Link to="/quotations" state={{ focusQuotationId: project.quotationId }} className="hover:underline">
+                    Quotation: {quotation.quotationNumber}
+                  </Link>
+                </Badge>
+              )}
+              {(() => {
+                const accruals = getAccrualsByProject(project.id);
+                if (accruals.length === 0) return null;
+                const totalExpected = accruals.reduce((s, a) => s + (a.expectedAmount ?? 0), 0);
+                const paid = accruals.filter((a) => a.status === "paid").length;
+                const payable = accruals.filter((a) => a.status === "payable").length;
+                const pending = accruals.filter((a) => a.status === "pending").length;
+                return (
+                  <Badge variant="outline" className="h-5 w-fit text-2xs">
+                    Commission {formatINR(totalExpected)} · {pending}p / {payable}a / {paid}✓
+                  </Badge>
+                );
+              })()}
             </div>
             {project.directCreationReason && (
-              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              <div className="text-xs text-warning bg-warning border border-warning rounded-md px-3 py-2">
                 <span className="font-semibold">Direct creation reason:</span> {project.directCreationReason}
               </div>
             )}
-            <InlineKpiStrip
-              className="w-full min-w-0 flex-wrap justify-start"
-              items={[
-                { label: "Contract", value: formatCurrency(project.contractAmount) },
-                { label: "Actual cost", value: formatCurrency(actualCost) },
-                { label: "Profit", value: formatCurrency(projectProfit) },
-                { label: "Collected", value: formatCurrency(collected) },
-              ]}
-            />
-            {(project.bankDocumentationAmount || project.totalPartnerInvestment || project.mssBackendAmount || project.externalVendorshipEntity || project.loanReceiptHandling || project.cashHandling || project.incScope || project.vendorNetworkCommissionType || project.commercialBaseline?.capturedAt) && (
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <InlineKpiStrip
+                className="w-full min-w-0 flex-wrap justify-start"
+                items={[
+                  { label: "Contract", value: formatCurrency(project.contractAmount) },
+                  { label: "Actual cost", value: formatCurrency(actualCost) },
+                  { label: "Profit", value: formatCurrency(projectProfit) },
+                  { label: "Collected", value: formatCurrency(collected) },
+                ]}
+              />
+              {hasFinancialDetail && canViewCommercial && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setShowFinancialDetail((v) => !v)}
+                >
+                  {showFinancialDetail ? "Hide financial detail" : "Show financial detail"}
+                </Button>
+              )}
+            </div>
+            {hasFinancialDetail && canViewCommercial && showFinancialDetail && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground border-t pt-3">
                 {project.bankDocumentationAmount != null && (<div><span className="block text-2xs uppercase">Bank Doc Amount</span><span className="text-foreground font-medium">{formatCurrency(project.bankDocumentationAmount)}</span></div>)}
                 {project.totalPartnerInvestment != null && (<div><span className="block text-2xs uppercase">Partner Investment</span><span className="text-foreground font-medium">{formatCurrency(project.totalPartnerInvestment)}</span></div>)}
@@ -642,41 +761,69 @@ const ProjectDetail = () => {
         }
       >
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" className="h-8 text-primary border-primary/30" onClick={() => { const params = new URLSearchParams({ from: "project", client: project.client, address: project.clientAddress || "", contact: project.clientPhone || "", state: COMPANY_STATE_CODE, project: project.name, amount: project.contractAmount.toString(), projectId: id || "" }); if (project.quotationId) params.set("quotationId", project.quotationId); navigate(`/invoices?${params.toString()}`); }}>
-            <FileText className="w-3.5 h-3.5 mr-1.5" />Invoice
+          {/* Phase 2.5: Schedule / Site readiness / Start project pills. */}
+          <ProjectStartActions project={project} />
+          {/* Primary CTA — state-derived. Filled style so it stands out from secondary outline buttons. */}
+          {project?.archivedAt ? (
+            <Button
+              size="sm"
+              className="h-8"
+              onClick={() => {
+                if (!project) return;
+                updateProject(project.id, { archivedAt: null, archivedReason: undefined });
+                setLastConfirm({ variant: "success", title: "Project restored", description: project.name });
+              }}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />Unarchive
+            </Button>
+          ) : isProjectCompleted ? (
+            <Button size="sm" className="h-8" onClick={() => navigate("/audit/audit-logs")}>
+              <FileText className="w-3.5 h-3.5 mr-1.5" />Open audit
+            </Button>
+          ) : (
+            <Button size="sm" className="h-8" onClick={handleOpenNewInvoiceForProject}>
+              <FileText className="w-3.5 h-3.5 mr-1.5" />Invoice
+            </Button>
+          )}
+          <Button variant="outline" size="sm" className="h-8" onClick={() => setIsSiteVisitOpen(true)}>
+            <ClipboardList className="w-3.5 h-3.5 mr-1.5" />Site visit
           </Button>
           {canPerformAction(currentRole, "project:update_execution") && (
             <Button
               variant="outline"
               size="sm"
-              className={`h-8 ${isProjectCompleted || forbidWorkTracking ? "opacity-50" : ""}`}
+              className="h-8"
               disabled={isProjectCompleted || forbidWorkTracking}
-              onClick={() => {
-                if (isProjectCompleted || forbidWorkTracking) {
-                  toast({
-                    title: forbidWorkTracking ? "Not available" : "Project completed",
-                    description: forbidWorkTracking ? "Work tracking is not used for this project kind." : "Reactivate the project to assign tasks.",
-                    variant: "destructive",
-                  });
-                  return;
-                }
-                setTaskAssignmentOpen(true);
-              }}
+              title={
+                forbidWorkTracking
+                  ? "Work tracking is not used for this project kind."
+                  : isProjectCompleted
+                    ? "Reactivate the project to assign tasks."
+                    : undefined
+              }
+              onClick={() => setTaskAssignmentOpen(true)}
             >
               <ClipboardList className="w-3.5 h-3.5 mr-1.5" />
               Assign task
             </Button>
           )}
           {canPerformAction(currentRole, "finance:record_expense_income") && (
-            <Button variant="outline" size="sm" className={`h-8 text-destructive border-destructive/30 ${isProjectCompleted ? 'opacity-50' : ''}`} onClick={() => { if (isProjectCompleted) { toast({ title: "Project Completed", description: "Reactivate to make changes.", variant: "destructive" }); return; } setIsAddExpenseOpen(true); }}>
-              <Plus className="w-3.5 h-3.5 mr-1.5" />Expense
-            </Button>
-          )}
-          {!isProjectCompleted && canPerformAction(currentRole, "project:update_commercial") && (
             <Button
               variant="outline"
               size="sm"
-              className={`h-8 text-green-600 border-green-600/30 ${projectCompletionInvoiceReason ? "opacity-60" : ""}`}
+              className="h-8 text-destructive border-destructive/30"
+              disabled={isProjectCompleted}
+              title={isProjectCompleted ? "Reactivate the project to record expenses." : undefined}
+              onClick={handleOpenExpenseForProject}
+            >
+              <Plus className="w-3.5 h-3.5 mr-1.5" />Expense
+            </Button>
+          )}
+          {!isProjectCompleted && canMarkProjectComplete && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-success border-success/30"
               disabled={Boolean(projectCompletionInvoiceReason)}
               title={projectCompletionInvoiceReason ?? undefined}
               onClick={handleMarkProjectCompleted}
@@ -706,11 +853,27 @@ const ProjectDetail = () => {
                   {lifecycleTransitions.map((to) => (
                     <DropdownMenuItem
                       key={to}
-                      disabled={to === "Completed" && Boolean(projectCompletionInvoiceReason)}
-                      title={to === "Completed" ? (projectCompletionInvoiceReason ?? undefined) : undefined}
+                      disabled={
+                        to === "Completed" &&
+                        (Boolean(projectCompletionInvoiceReason) || !canMarkProjectComplete)
+                      }
+                      title={
+                        to === "Completed"
+                          ? (projectCompletionInvoiceReason ??
+                            (!canMarkProjectComplete ? "Your role cannot mark projects complete." : undefined))
+                          : undefined
+                      }
                       onClick={() => {
                         if (!project) return;
                         if (to === "Completed") {
+                          if (!canMarkProjectComplete) {
+                            toast({
+                              title: "Cannot mark complete",
+                              description: "Your role cannot mark projects complete.",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
                           const reason = projectCompletionInvoiceReason;
                           if (reason) {
                             toast({ title: "Cannot move to Completed", description: reason, variant: "destructive" });
@@ -737,6 +900,27 @@ const ProjectDetail = () => {
                 </>
               )}
               <DropdownMenuSeparator />
+              {project?.archivedAt ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (!project) return;
+                    updateProject(project.id, { archivedAt: null, archivedReason: undefined });
+                    setLastConfirm({ variant: "success", title: "Project restored", description: project.name });
+                  }}
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-2" /> Unarchive project
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (!project) return;
+                    setArchiveProjectReason("");
+                    setIsArchiveProjectOpen(true);
+                  }}
+                >
+                  <Edit className="w-4 h-4 mr-2" /> Archive project
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 className="flex items-center"
                 onClick={() => navigate(-1)}
@@ -747,6 +931,43 @@ const ProjectDetail = () => {
           </DropdownMenu>
         </div>
       </StickyPageHeader>
+
+      {lastConfirm && (
+        <InlineConfirmBanner
+          variant={lastConfirm.variant}
+          title={lastConfirm.title}
+          description={lastConfirm.description}
+          onDismiss={() => setLastConfirm(null)}
+        />
+      )}
+
+      {project?.archivedAt && (
+        <LifecycleTerminalBanner
+          variant="archived"
+          title="Project archived"
+          description={
+            <span>
+              Archived on {new Date(project.archivedAt).toLocaleDateString()}
+              {project.archivedReason ? <> · Reason: {project.archivedReason}</> : null}. Read-only — restore to make changes.
+            </span>
+          }
+          primaryActionLabel="Unarchive"
+          onPrimaryAction={() => {
+            if (!project) return;
+            updateProject(project.id, { archivedAt: null, archivedReason: undefined });
+            setLastConfirm({ variant: "success", title: "Project restored", description: project.name });
+          }}
+        />
+      )}
+      {!project?.archivedAt && project?.status === "completed" && (
+        <LifecycleTerminalBanner
+          variant="completed"
+          title="Project completed"
+          description="All work signed off. Audit-only access — re-open from Project menu if rework is needed."
+          primaryActionLabel="Open audit"
+          onPrimaryAction={() => navigate("/audit/audit-logs")}
+        />
+      )}
 
       <Tabs defaultValue={tabDefs[0]?.value ?? "progress-report"} className="space-y-4">
         <TabsList className="flex h-auto flex-wrap justify-start">
@@ -802,45 +1023,12 @@ const ProjectDetail = () => {
             onAddTicket={(t) => addOperationalTicket({ ...t, id: generateId("TKT"), createdAt: new Date().toISOString() })}
             onUpdateTimeline={(updates) => updateProjectTimelineForProject(project.id, updates)}
             scope={project.scope}
+            outsource={project.outsource ?? null}
+            projectMode={project.projectMode}
           />
         </TabsContent>
 
-        <TabsContent value="project-quotations" className="space-y-4">
-          <TabCard title="Quotations" icon={<FileText className="h-4 w-4 text-primary" />}>
-            {projectQuotations.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No quotations linked to this project yet.</p>
-            ) : (
-              <DataTableShell variant="inline">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Number</TableHead>
-                    <TableHead>Client</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Open</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {projectQuotations.map((q) => (
-                    <TableRow key={q.id}>
-                      <TableCell className="font-mono text-xs">{q.quotationNumber}</TableCell>
-                      <TableCell>{q.clientName}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-2xs capitalize">{q.status}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">{formatCurrency(q.clientAgreedAmount ?? q.totalAmount)}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="link" className="h-auto p-0 text-xs" asChild>
-                          <Link to="/quotations" state={{ focusQuotationId: q.id }}>View in Quotations</Link>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </DataTableShell>
-            )}
-          </TabCard>
-        </TabsContent>
+        {/* Quotations tab removed — the linked quotation now surfaces as a chip in the header. */}
 
         <TabsContent value="team-roster" className="space-y-4">
           <TeamRosterTab project={project} />
@@ -867,6 +1055,9 @@ const ProjectDetail = () => {
             materials={getProjectMaterialsForTab()}
             presetItems={getPresetItems().map(p => ({ id: p.id, name: p.itemName, quantity: p.quantity, unit: p.unit }))}
             inventoryItems={inventoryItems}
+            siteChecklist={project.siteChecklist ?? []}
+            isSuperAdmin={canDo("project:update_commercial")}
+            onUpdateSiteChecklist={(next) => { updateProject(project.id, { siteChecklist: next } as Partial<typeof project>); }}
             executionLineItems={project.executionLineItems ?? []}
             onIssueMaterials={async (items, _exp, _task, meta) => {
               const gid =
@@ -916,10 +1107,78 @@ const ProjectDetail = () => {
             }}
           />
           )}
+          {!forbidMaterialDispatch && (
+            <TabCard title="Material reservations" icon={<Package className="h-4 w-4 text-primary" />}>
+              {projectReservations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No active reservations. Checklist lines auto-reserve stock when added to the site checklist.
+                </p>
+              ) : (
+                <DataTableShell variant="inline">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Material</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead>Source</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {projectReservations.map((res) => {
+                      const inv = globalInvItems.find((i) => i.id === res.itemId);
+                      const label = inv?.size ? `${inv.name} (${inv.size})` : inv?.name ?? `Item #${res.itemId}`;
+                      return (
+                        <TableRow key={res.id}>
+                          <TableCell className="font-medium">{label}</TableCell>
+                          <TableCell className="text-right tabular-nums">{res.qty}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-2xs capitalize">
+                              {res.source.replace(/-/g, " ")}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </DataTableShell>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Reservations reduce effective stock for other projects in Need-to-get and procurement views.
+              </p>
+            </TabCard>
+          )}
+          {projectMaterialDamage.length > 0 && (
+            <TabCard title="Material damage log" icon={<AlertTriangle className="h-4 w-4 text-destructive" />}>
+              <DataTableShell variant="inline">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead>Stage</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Impact</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projectMaterialDamage.map((dmg) => {
+                    const inv = globalInvItems.find((i) => i.id === dmg.itemId);
+                    return (
+                      <TableRow key={dmg.id}>
+                        <TableCell>{inv?.name ?? `Item #${dmg.itemId}`}</TableCell>
+                        <TableCell className="capitalize">{dmg.stage}</TableCell>
+                        <TableCell className="text-right">{dmg.qty}</TableCell>
+                        <TableCell className="text-right">
+                          {dmg.costImpact != null ? formatCurrency(dmg.costImpact) : "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </DataTableShell>
+            </TabCard>
+          )}
         </TabsContent>
 
         <TabsContent value="vendorship" className="space-y-4">
-          <TabCard title="Partner Economics" icon={<Users className="h-4 w-4 text-violet-700" />}>
+          <TabCard title="Partner Economics" icon={<Users className="h-4 w-4 text-accent-foreground" />}>
             {(forbidPartnerSettlement || forbidChannelFee) && (
               <div className="mb-4 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
                 {forbidPartnerSettlement && (
@@ -958,7 +1217,7 @@ const ProjectDetail = () => {
                   {project.scope.partnerBillingFeePercentage ? (
                     <li className="flex justify-between">
                       <span>Billing Offset (GST Recovery):</span>
-                      <span className="text-amber-600 font-medium">-{project.scope.partnerBillingFeePercentage}% from profit</span>
+                      <span className="text-warning font-medium">-{project.scope.partnerBillingFeePercentage}% from profit</span>
                     </li>
                   ) : null}
                 </ul>
@@ -1121,6 +1380,64 @@ const ProjectDetail = () => {
                 </Button>
               </div>
             </TabCard>
+            <TabCard title="Scheduled installations" icon={<Calendar className="h-4 w-4 text-primary" />}>
+              {projectSchedules.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No installs scheduled. Use Schedule installation in the project header.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {projectSchedules.map((sch) => (
+                    <div key={sch.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                      <div>
+                        <p className="font-medium">{sch.scheduledDate}</p>
+                        {sch.notes && <p className="text-xs text-muted-foreground">{sch.notes}</p>}
+                      </div>
+                      <Badge variant="outline" className="capitalize">{sch.status.replace("_", " ")}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabCard>
+            <TabCard title="Site visits" icon={<ClipboardList className="h-4 w-4 text-primary" />}>
+              <div className="mb-3 flex justify-end">
+                <Button type="button" size="sm" variant="outline" onClick={() => setIsSiteVisitOpen(true)}>
+                  <Plus className="mr-1 h-4 w-4" /> Record visit
+                </Button>
+              </div>
+              {projectSiteVisits.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No site visits recorded yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {projectSiteVisits.map((visit) => {
+                    const installer = employees.find((e) => e.id === visit.visitedBy);
+                    return (
+                      <div key={visit.id} className="rounded-md border px-3 py-2 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-medium">{visit.visitDate}</span>
+                          <Badge variant="outline">{installer?.name ?? `Employee #${visit.visitedBy}`}</Badge>
+                        </div>
+                        <p className="mt-1 text-muted-foreground">{visit.items.length} item(s)</p>
+                        {visit.blockers && (
+                          <p className="mt-1 text-warning text-xs">Blockers: {visit.blockers}</p>
+                        )}
+                        <div className="mt-2 flex gap-2">
+                          {visit.reconciledChecklistAt ? (
+                            <Badge variant="secondary" className="text-xs">
+                              Reconciled {new Date(visit.reconciledChecklistAt).toLocaleDateString()}
+                            </Badge>
+                          ) : (
+                            <Button type="button" size="sm" variant="outline" onClick={() => handleReconcileSiteVisit(visit.id)}>
+                              Reconcile to checklist
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </TabCard>
           </div>
         </TabsContent>
 
@@ -1165,7 +1482,7 @@ const ProjectDetail = () => {
 
           {/* Outsourced Work Log */}
           {outsourcedWorkRows.length > 0 && (
-            <TabCard title="Outsourced Work Log" icon={<Briefcase className="h-4 w-4 text-amber-600" />}>
+            <TabCard title="Outsourced Work Log" icon={<Briefcase className="h-4 w-4 text-warning" />}>
               <DataTableShell
             variant="inline" >
                 <TableHeader>
@@ -1185,7 +1502,7 @@ const ProjectDetail = () => {
                       <TableCell>{row.description}</TableCell>
                       <TableCell className="text-right">{row.employees || "-"}</TableCell>
                       <TableCell className="text-right">{row.days || "-"}</TableCell>
-                      <TableCell className="text-right">{row.ratePerDay ? `â‚¹${row.ratePerDay}` : "-"}</TableCell>
+                      <TableCell className="text-right">{row.ratePerDay ? `₹${row.ratePerDay}` : "-"}</TableCell>
                       <TableCell className="text-right font-medium">{formatCurrency(row.total)}</TableCell>
                     </TableRow>
                   ))}
@@ -1247,6 +1564,22 @@ const ProjectDetail = () => {
                           <Badge variant="outline" className="text-2xs uppercase">{site.status || "Active"}</Badge>
                         </div>
                         <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-destructive"
+                            onClick={() => {
+                              const result = deleteSite(String(site.id));
+                              if (!result.ok) {
+                                toast({ title: "Cannot delete site", description: result.error, variant: "destructive" });
+                                return;
+                              }
+                              toast({ title: "Site removed", description: site.name });
+                            }}
+                          >
+                            Delete
+                          </Button>
                           <Select 
                             value={siteTemplateChoice[site.id] || ""} 
                             onValueChange={(val) => setSiteTemplateChoice(prev => ({ ...prev, [site.id]: val }))}
@@ -1337,9 +1670,7 @@ const ProjectDetail = () => {
         </TabsContent>
 
         {/* â•â•â• Team Roster â•â•â• */}
-        <TabsContent value="team-roster" className="space-y-4">
-          <TeamRosterTab project={project} />
-        </TabsContent>
+        {/* Duplicate Team Roster TabsContent removed — single panel lives earlier. */}
 
         {/* â•â•â• Financials (merged Billing + Costs) â•â•â• */}
         <TabsContent value="financials" className="space-y-4">
@@ -1350,6 +1681,134 @@ const ProjectDetail = () => {
             <MiniMetric label="Actual Cost" value={formatCurrency(actualCost)} />
             <MiniMetric label="Profit" value={formatCurrency(projectProfit)} />
           </div>
+
+          <TabCard title="Change requests" icon={<FileText className="h-4 w-4 text-primary" />}>
+            <div className="mb-3 flex flex-wrap gap-2 justify-end">
+              {kind === "INC_GIVEN" && (
+                <Button type="button" size="sm" variant="secondary" onClick={() => setIsAdditionalWorkOpen(true)}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Additional work
+                </Button>
+              )}
+              <Button type="button" size="sm" onClick={() => setIsChangeRequestOpen(true)}>
+                <Plus className="mr-1 h-4 w-4" />
+                New change request
+              </Button>
+            </div>
+            {projectChangeRequests.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No change requests yet.</p>
+            ) : (
+              <DataTableShell variant="inline">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Delta</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projectChangeRequests.map((cr) => {
+                    const est = resolveChangeRequestDeltaAmount(project, cr);
+                    return (
+                      <TableRow key={cr.id}>
+                        <TableCell className="capitalize">{cr.type.replace("-", " ")}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {cr.deltaKw ? `${cr.deltaKw} kW` : null}
+                          {cr.deltaAmount ? ` ₹${cr.deltaAmount.toLocaleString("en-IN")}` : null}
+                          {!cr.deltaAmount && est > 0 ? ` ~₹${est.toLocaleString("en-IN")}` : null}
+                          {cr.materialDelta?.length ? ` · ${cr.materialDelta.length} material line(s)` : null}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">
+                            {cr.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right space-x-2">
+                          {cr.status === "draft" && (
+                            <>
+                              <PermissionGatedButton
+                                allowed={canApproveChangeRequest}
+                                deniedHint={PERMISSION_DENIED_HINTS.changeRequestApprove}
+                                type="button"
+                                size="sm"
+                                variant="default"
+                                onClick={() => {
+                                  const res = approveProjectChangeRequest(cr.id);
+                                  if (!res.ok) {
+                                    toast({ title: "Cannot approve", description: res.error, variant: "destructive" });
+                                    return;
+                                  }
+                                  toast({
+                                    title: "Change request approved",
+                                    description: res.generatedInvoiceId
+                                      ? "Delta invoice draft saved — open Invoices to finalize."
+                                      : "Project commercial baseline updated.",
+                                  });
+                                  if (res.generatedInvoiceId && canCreateInvoice) {
+                                    navigate(`/invoices?createFrom=proj:${project.id}`);
+                                  }
+                                }}
+                              >
+                                Approve
+                              </PermissionGatedButton>
+                              <PermissionGatedButton
+                                allowed={canApproveChangeRequest}
+                                deniedHint={PERMISSION_DENIED_HINTS.changeRequestApprove}
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  rejectProjectChangeRequest(cr.id, "Rejected from project detail");
+                                  toast({ title: "Change request rejected" });
+                                }}
+                              >
+                                Reject
+                              </PermissionGatedButton>
+                            </>
+                          )}
+                          {cr.generatedInvoiceId && cr.status === "approved" && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="link"
+                              className="h-8"
+                              onClick={() => navigate(`/invoices?createFrom=proj:${project.id}`)}
+                            >
+                              Invoice draft
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </DataTableShell>
+            )}
+            {(project.additionalWorkLines?.length ?? 0) > 0 && (
+              <>
+                <h3 className="mt-5 mb-2 text-sm font-medium">Additional work (INC)</h3>
+                <DataTableShell variant="inline">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Basis</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {project.additionalWorkLines!.map((line) => (
+                      <TableRow key={line.id}>
+                        <TableCell>{line.description}</TableCell>
+                        <TableCell className="capitalize">{line.basis.replace("_", " ")}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(line.total)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </DataTableShell>
+              </>
+            )}
+          </TabCard>
 
           {/* Invoices - only for kinds that bill */}
           {!["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(kind) && (
@@ -1738,7 +2197,7 @@ const ProjectDetail = () => {
               </div>
 
               <div className="space-y-2 col-span-2">
-                <Label>Contract Value (â‚¹)</Label>
+                <Label>Contract Value (₹)</Label>
                 <Input type="number" value={editProjectContractValue} onChange={(e) => setEditProjectContractValue(e.target.value)} />
               </div>
             </div>
@@ -1773,15 +2232,15 @@ const ProjectDetail = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="profit">Profit Sharing (%)</SelectItem>
-                        <SelectItem value="fixed">Fixed Share (â‚¹)</SelectItem>
-                        <SelectItem value="vendorship">Vendorship Fee (â‚¹)</SelectItem>
+                        <SelectItem value="fixed">Fixed Share (₹)</SelectItem>
+                        <SelectItem value="vendorship">Vendorship Fee (₹)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2 col-span-2">
                     <Label>
-                      {editPartnerType === "profit" ? "Profit Share Percentage (%)" : editPartnerType === "fixed" ? "Our Backend Rate (â‚¹ per kW or total)" : "Vendorship Fee Payable (â‚¹)"}
+                      {editPartnerType === "profit" ? "Profit Share Percentage (%)" : editPartnerType === "fixed" ? "Our Backend Rate (₹ per kW or total)" : "Vendorship Fee Payable (₹)"}
                     </Label>
                     <Input 
                       type="number"
@@ -1826,11 +2285,11 @@ const ProjectDetail = () => {
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-2"><Label>Workers</Label><Input type="number" placeholder="0" value={outsourceEmployees} onChange={(e) => setOutsourceEmployees(e.target.value)} /></div>
                 <div className="space-y-2"><Label>Days</Label><Input type="number" placeholder="0" value={outsourceDays} onChange={(e) => setOutsourceDays(e.target.value)} /></div>
-                <div className="space-y-2"><Label>Rate/Day (â‚¹)</Label><Input type="number" placeholder="0" value={outsourceRate} onChange={(e) => setOutsourceRate(e.target.value)} /></div>
+                <div className="space-y-2"><Label>Rate/Day (₹)</Label><Input type="number" placeholder="0" value={outsourceRate} onChange={(e) => setOutsourceRate(e.target.value)} /></div>
               </div>
               {outsourceEmployees && outsourceDays && outsourceRate && (
                 <div className="p-3 bg-muted/30 rounded-lg text-sm">
-                  Total: <span className="font-semibold text-primary">â‚¹{((parseInt(outsourceEmployees) || 0) * (parseInt(outsourceDays) || 0) * (parseFloat(outsourceRate) || 0)).toLocaleString()}</span>
+                  Total: <span className="font-semibold text-primary">{formatINR((parseInt(outsourceEmployees, 10) || 0) * (parseInt(outsourceDays, 10) || 0) * (parseFloat(outsourceRate) || 0))}</span>
                 </div>
               )}
               <div className="space-y-2"><Label>Description</Label><Textarea placeholder="What work was done..." value={outsourceDescription} onChange={(e) => setOutsourceDescription(e.target.value)} rows={2} /></div>
@@ -1846,7 +2305,7 @@ const ProjectDetail = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>Amount (â‚¹)</Label><Input type="number" placeholder="0" value={otherWorkAmount} onChange={(e) => setOtherWorkAmount(e.target.value)} /></div>
+              <div className="space-y-2"><Label>Amount (₹)</Label><Input type="number" placeholder="0" value={otherWorkAmount} onChange={(e) => setOtherWorkAmount(e.target.value)} /></div>
               <div className="space-y-2"><Label>Notes</Label><Textarea placeholder="Details..." value={otherWorkNotes} onChange={(e) => setOtherWorkNotes(e.target.value)} rows={2} /></div>
             </TabsContent>
           </Tabs>
@@ -1859,7 +2318,7 @@ const ProjectDetail = () => {
 
       {/* Unified Expense Modal */}
       {isAddExpenseOpen && (
-        <UnifiedExpenseModal
+        <UnifiedExpenseSheet
           isOpen={isAddExpenseOpen}
           onClose={() => setIsAddExpenseOpen(false)}
           projectId={project.id}
@@ -1867,7 +2326,28 @@ const ProjectDetail = () => {
         />
       )}
 
-      <TaskAssignmentModal
+      {project && (
+        <>
+          <ChangeRequestSheet
+            open={isChangeRequestOpen}
+            onOpenChange={setIsChangeRequestOpen}
+            project={project}
+          />
+          <AdditionalWorkSheet
+            open={isAdditionalWorkOpen}
+            onOpenChange={setIsAdditionalWorkOpen}
+            project={project}
+          />
+        </>
+      )}
+
+      <SiteVisitSheet
+        open={isSiteVisitOpen}
+        onOpenChange={setIsSiteVisitOpen}
+        project={project}
+      />
+
+      <TaskAssignmentSheet
         isOpen={taskAssignmentOpen}
         onClose={() => setTaskAssignmentOpen(false)}
         projectId={project.id}
@@ -1913,8 +2393,50 @@ const ProjectDetail = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Sheet open={isArchiveProjectOpen} onOpenChange={setIsArchiveProjectOpen}>
+        <SheetContent className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Archive project</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Archived projects are preserved in the audit trail and can be restored later from this menu.
+            </p>
+            <div className="space-y-2">
+              <Label>Reason (optional)</Label>
+              <Textarea
+                value={archiveProjectReason}
+                onChange={(e) => setArchiveProjectReason(e.target.value)}
+                placeholder="e.g. customer cancelled, scope rebooted, paused indefinitely"
+                rows={3}
+              />
+            </div>
+          </div>
+          <SheetFooter className="mt-6 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsArchiveProjectOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (!project) return;
+                updateProject(project.id, {
+                  archivedAt: new Date().toISOString(),
+                  archivedReason: archiveProjectReason.trim() || undefined,
+                });
+                setLastConfirm({ variant: "warning", title: "Project archived", description: project.name });
+                setIsArchiveProjectOpen(false);
+                setArchiveProjectReason("");
+              }}
+            >
+              Archive
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </PageShell>
   );
 };
 
 export default ProjectDetail;
+
+

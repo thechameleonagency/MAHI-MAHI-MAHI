@@ -23,6 +23,7 @@ import {
   getSubGroups, getLedgersByGroup, getAllLedgersUnderGroup,
   type AccountGroup, type Ledger, type AccountNature,
 } from "@/services/finance/chartOfAccounts";
+import { listVoucherPostingRules, validatePostingAccountMap } from "@/lib/audit";
 
 /** Paginated ledger detail grid — rows are pre-rendered string cells */
 function ChartDetailLedgerTable({
@@ -92,10 +93,10 @@ function ChartDetailLedgerTable({
 }
 
 const natureColors: Record<AccountNature, { bg: string; text: string; badge: string }> = {
-  asset: { bg: "bg-primary/10", text: "text-primary dark:text-primary", badge: "bg-primary/20 text-primary dark:text-blue-300 border-primary/30" },
-  liability: { bg: "bg-rose-500/10", text: "text-rose-700 dark:text-rose-400", badge: "bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/30" },
-  income: { bg: "bg-primary/10", text: "text-primary dark:text-primary", badge: "bg-primary/20 text-primary dark:text-blue-300 border-primary/30" },
-  expense: { bg: "bg-amber-500/10", text: "text-amber-700 dark:text-amber-400", badge: "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30" },
+  asset: { bg: "bg-primary/10", text: "text-primary dark:text-primary", badge: "bg-primary/20 text-primary text-primary border-primary/30" },
+  liability: { bg: "bg-accent/10", text: "text-accent-foreground dark:text-accent-foreground", badge: "bg-accent/20 text-accent-foreground dark:text-accent-foreground border-accent/30" },
+  income: { bg: "bg-primary/10", text: "text-primary dark:text-primary", badge: "bg-primary/20 text-primary text-primary border-primary/30" },
+  expense: { bg: "bg-warning/10", text: "text-warning dark:text-warning", badge: "bg-warning/20 text-warning dark:text-warning border-warning/30" },
 };
 
 const ChartOfAccounts = () => {
@@ -388,6 +389,9 @@ const ChartOfAccounts = () => {
     );
   };
 
+  const postingRules = useMemo(() => listVoucherPostingRules(), []);
+  const postingValidation = useMemo(() => validatePostingAccountMap(), []);
+
   const natureStripItems = useMemo(
     () =>
       (["asset", "liability", "income", "expense"] as AccountNature[]).map((nature) => {
@@ -541,6 +545,33 @@ const ChartOfAccounts = () => {
         </Card>
       </div>
 
+      {/* Auto-posting rules (VoucherPostingService ↔ COA) */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-primary" />
+            Auto-Posting Rules (VoucherPostingService)
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            {postingValidation.ok
+              ? "All posting account codes map to Chart of Accounts ledgers."
+              : `Mapping gaps: ${[...postingValidation.unmapped, ...postingValidation.missingLedgers].join(", ")}`}
+          </p>
+        </CardHeader>
+        <CardContent className="p-0">
+          <ChartDetailLedgerTable
+            columns={["Event", "Side", "Posting code", "COA ledger"]}
+            rows={postingRules.map((r) => [
+              r.eventType,
+              r.side,
+              r.accountCode,
+              r.mapped ? r.ledgerName : `${r.ledgerName} (unmapped)`,
+            ])}
+            resetKey={`posting-${postingRules.length}-${postingValidation.ok}`}
+          />
+        </CardContent>
+      </Card>
+
       {/* Voucher Types */}
       <Card>
         <CardHeader className="pb-3">
@@ -568,7 +599,7 @@ const ChartOfAccounts = () => {
                     </div>
                   </div>
                   <div className="flex items-start gap-1">
-                    <span className="text-2xs font-medium text-rose-600 shrink-0">Cr:</span>
+                    <span className="text-2xs font-medium text-accent-foreground shrink-0">Cr:</span>
                     <div className="flex flex-wrap gap-1">
                       {v.creditLedgers.slice(0, 3).map(l => {
                         const ledger = LEDGER_ACCOUNTS.find(la => la.id === l);

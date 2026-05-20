@@ -22,6 +22,7 @@ import jsPDF from "jspdf";
 import { useMasters } from "@/contexts/MastersContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useCan } from "@/hooks/useCan";
+import { useFinanceHubPanels } from "@/hooks/useFinanceHubPanels";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
 import { PageShell } from "@/components/layout/PageShell";
@@ -44,6 +45,8 @@ import { calculateProjectProfit } from "@/domain/partners/derivePartnerEconomics
 import type { OwnerInvestment } from "@/types/finance";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { BillingDirectionGuardService } from "@/application/services/BillingDirectionGuardService";
+import { HighValueInvoiceJustificationBlock } from "@/components/invoices/HighValueInvoiceJustificationBlock";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -96,8 +99,17 @@ const Finance = () => {
     retryAccountingReviewPosting,
   } = useAppData();
 
+  const {
+    canViewPayments,
+    canViewExpenses,
+    canViewIncome,
+    canViewReceivables,
+    canViewVendorAp,
+    hasAnyPanel,
+  } = useFinanceHubPanels();
   const canCreateExpense = useCan("expense", "create");
   const canCreateIncome = useCan("income", "create");
+  const canCreateInvoice = useCan("invoice", "create");
 
   const [txnTablePage, setTxnTablePage] = useState(1);
   const [txnTablePageSize, setTxnTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -137,19 +149,23 @@ const Finance = () => {
     months.forEach(m => { monthlyData[m] = { revenue: 0, expenses: 0 }; });
     
     // Cash revenue = payments in only (do not also sum invoice.amountReceived — double-counts).
-    contextPayments.forEach((p) => {
-      if (p.direction === "in" && p.date && inDateRange(p.date)) {
-        const month = new Date(p.date).toLocaleString("en", { month: "short" });
-        if (monthlyData[month]) monthlyData[month].revenue += p.amount;
-      }
-    });
+    if (canViewPayments) {
+      contextPayments.forEach((p) => {
+        if (p.direction === "in" && p.date && inDateRange(p.date)) {
+          const month = new Date(p.date).toLocaleString("en", { month: "short" });
+          if (monthlyData[month]) monthlyData[month].revenue += p.amount;
+        }
+      });
+    }
 
-    contextExpenses.forEach((exp) => {
-      if (exp.date && inDateRange(exp.date)) {
-        const month = new Date(exp.date).toLocaleString("en", { month: "short" });
-        if (monthlyData[month]) monthlyData[month].expenses += exp.amount;
-      }
-    });
+    if (canViewExpenses) {
+      contextExpenses.forEach((exp) => {
+        if (exp.date && inDateRange(exp.date)) {
+          const month = new Date(exp.date).toLocaleString("en", { month: "short" });
+          if (monthlyData[month]) monthlyData[month].expenses += exp.amount;
+        }
+      });
+    }
     
     // Return last 6 months with fallback values if empty
     const last6 = months.slice(-6);
@@ -160,7 +176,7 @@ const Finance = () => {
     }));
     
     return result;
-  }, [contextPayments, contextExpenses, dateFrom, dateTo]);
+  }, [contextPayments, contextExpenses, dateFrom, dateTo, canViewPayments, canViewExpenses]);
   
   // Derive transactions from context (keep ISO for sorting / export month filters — L68)
   const transactions = useMemo(() => {
@@ -188,8 +204,9 @@ const Finance = () => {
     const display = (iso: string) =>
       iso ? format(parseISO(iso), "dd MMM yyyy") : "";
 
-    contextPayments.forEach((p) => {
-      if (p.direction === "in" && inDateRange(p.date)) {
+    if (canViewPayments) {
+      contextPayments.forEach((p) => {
+        if (p.direction === "in" && inDateRange(p.date)) {
         const iso = toIso(p.date);
         const customerId =
           p.customerId ?? (p.counterpartyType === "customer" ? p.counterpartyId : undefined);
@@ -210,9 +227,11 @@ const Finance = () => {
           projectName: p.projectName,
         });
       }
-    });
+      });
+    }
 
-    contextExpenses.forEach((exp) => {
+    if (canViewExpenses) {
+      contextExpenses.forEach((exp) => {
       if (!inDateRange(exp.date)) return;
       const iso = toIso(exp.date);
       const linkedProject = exp.projectId
@@ -232,7 +251,8 @@ const Finance = () => {
         projectId: exp.projectId,
         projectName: exp.projectName ?? linkedProject?.name,
       });
-    });
+      });
+    }
 
     return txns.sort((a, b) => {
       const ta = a.isoDate ? parseISO(a.isoDate).getTime() : 0;
@@ -240,7 +260,7 @@ const Finance = () => {
       return tb - ta;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextPayments, contextExpenses, contextProjects, dateFrom, dateTo]);
+  }, [contextPayments, contextExpenses, contextProjects, dateFrom, dateTo, canViewPayments, canViewExpenses]);
 
   const { pagedItems: pagedTransactions, safePage: safeTxnPage } = usePagedSlice(
     transactions,
@@ -250,20 +270,19 @@ const Finance = () => {
 
   // Compute KPI values from context
   const kpiValues = useMemo(() => {
-    const totalRevenue = getRevenueCash(
-      contextPayments,
-      dateFrom || undefined,
-      dateTo || undefined,
-    );
-    const totalExpenses = contextExpenses
-      .filter((exp) => inDateRange(exp.date))
-      .reduce((sum, exp) => sum + exp.amount, 0);
-    const outstanding = getOutstandingReceivables(
-      contextInvoices,
-      contextPayments,
-      contextSaleBills,
-    );
-    const cashSurplus = totalRevenue - totalExpenses;
+    const totalRevenue = canViewPayments
+      ? getRevenueCash(contextPayments, dateFrom || undefined, dateTo || undefined)
+      : 0;
+    const totalExpenses = canViewExpenses
+      ? contextExpenses
+          .filter((exp) => inDateRange(exp.date))
+          .reduce((sum, exp) => sum + exp.amount, 0)
+      : 0;
+    const outstanding = canViewReceivables
+      ? getOutstandingReceivables(contextInvoices, contextPayments, contextSaleBills)
+      : 0;
+    const cashSurplus =
+      canViewPayments && canViewExpenses ? totalRevenue - totalExpenses : 0;
 
     return {
       revenue: totalRevenue || 0,
@@ -271,11 +290,21 @@ const Finance = () => {
       outstanding: outstanding || 0,
       profit: cashSurplus || 0,
     };
-  }, [contextInvoices, contextSaleBills, contextPayments, contextExpenses, dateFrom, dateTo]);
+  }, [
+    contextInvoices,
+    contextSaleBills,
+    contextPayments,
+    contextExpenses,
+    dateFrom,
+    dateTo,
+    canViewPayments,
+    canViewExpenses,
+    canViewReceivables,
+  ]);
 
   const totalAP = useMemo(
-    () => getAccountsPayable(contextVendorBills),
-    [contextVendorBills],
+    () => (canViewVendorAp ? getAccountsPayable(contextVendorBills) : 0),
+    [contextVendorBills, canViewVendorAp],
   );
 
   const topProfitProjects = useMemo(() =>
@@ -477,6 +506,8 @@ const Finance = () => {
   const [paymentTerms, setPaymentTerms] = useState("");
   const [selectedBankAccount, setSelectedBankAccount] = useState("");
   const [invoiceNotes, setInvoiceNotes] = useState("");
+  const [highValueReason, setHighValueReason] = useState("");
+  const billingDirectionGuard = useMemo(() => new BillingDirectionGuardService(), []);
 
   useEffect(() => { setInvoiceServices([]); setInvoiceItems([]); }, [invoiceType]);
 
@@ -651,6 +682,7 @@ const Finance = () => {
   };
 
   const resetInvoiceForm = () => {
+    setHighValueReason("");
     setInvoiceType("invoice");
     setInvoiceSite("");
     setInvoiceDate(new Date().toISOString().split('T')[0]);
@@ -670,6 +702,15 @@ const Finance = () => {
 
   const handleCreateInvoice = () => {
     const totals = calculateInvoiceTotals();
+    const highValueCheck = billingDirectionGuard.validateHighValueIssuance(totals.total, highValueReason);
+    if (!highValueCheck.ok) {
+      toast({
+        title: "Justification required",
+        description: highValueCheck.error,
+        variant: "destructive",
+      });
+      return;
+    }
     const linkedProject = contextProjects.find(p => p.id === invoiceSite);
     const invoiceNum = invoiceType === "invoice"
       ? `INV-${new Date().getFullYear()}-${String(contextInvoices.length + 1).padStart(3, "0")}`
@@ -701,13 +742,22 @@ const Finance = () => {
       createdAt: new Date().toISOString().split("T")[0],
     };
 
-    addInvoice({ ...newInvoice, amountReceived: 0 });
+    addInvoice(
+      { ...newInvoice, amountReceived: 0 },
+      highValueCheck.requiresJustification
+        ? { highValueJustification: highValueReason.trim() }
+        : undefined,
+    );
     toast({ title: "Invoice saved", description: `${invoiceNum} added to books.` });
     setIsNewInvoiceOpen(false);
     resetInvoiceForm();
   };
 
   const invoiceTotals = calculateInvoiceTotals();
+  const financeHighValueCheck = billingDirectionGuard.validateHighValueIssuance(
+    invoiceTotals.total,
+    highValueReason,
+  );
 
   const financeSubRow = useMemo(
     () =>
@@ -748,35 +798,65 @@ const Finance = () => {
             singleRow
             className="min-w-0 flex-1"
             items={[
-              {
-                label: "Revenue",
-                value: formatINRCompact(kpiValues.revenue),
-                onClick: () => setIsRevenueDetailOpen(true),
-              },
-              {
-                label: "Expenses",
-                value: formatINRCompact(kpiValues.expenses),
-                onClick: () => setIsExpenseDetailOpen(true),
-              },
-              {
-                label: "Outstanding",
-                value: formatINRCompact(kpiValues.outstanding),
-                onClick: () => setIsOutstandingDetailOpen(true),
-              },
-              {
-                label: "Cash surplus",
-                value: formatINRCompact(kpiValues.profit),
-                onClick: () => setIsProfitDetailOpen(true),
-              },
-              {
-                label: "Accounts Payable",
-                value: formatINRCompact(totalAP),
-              },
+              ...(canViewPayments
+                ? [
+                    {
+                      label: "Revenue",
+                      value: formatINRCompact(kpiValues.revenue),
+                      onClick: () => setIsRevenueDetailOpen(true),
+                    },
+                  ]
+                : []),
+              ...(canViewExpenses
+                ? [
+                    {
+                      label: "Expenses",
+                      value: formatINRCompact(kpiValues.expenses),
+                      onClick: () => setIsExpenseDetailOpen(true),
+                    },
+                  ]
+                : []),
+              ...(canViewReceivables
+                ? [
+                    {
+                      label: "Outstanding",
+                      value: formatINRCompact(kpiValues.outstanding),
+                      onClick: () => setIsOutstandingDetailOpen(true),
+                    },
+                  ]
+                : []),
+              ...(canViewPayments && canViewExpenses
+                ? [
+                    {
+                      label: "Cash surplus",
+                      value: formatINRCompact(kpiValues.profit),
+                      onClick: () => setIsProfitDetailOpen(true),
+                    },
+                  ]
+                : []),
+              ...(canViewVendorAp
+                ? [
+                    {
+                      label: "Accounts Payable",
+                      value: formatINRCompact(totalAP),
+                    },
+                  ]
+                : []),
             ]}
           />
         </div>
       ),
-    [financeShellReady, kpiValues, totalAP, dateFrom, dateTo],
+    [
+      financeShellReady,
+      kpiValues,
+      totalAP,
+      dateFrom,
+      dateTo,
+      canViewPayments,
+      canViewExpenses,
+      canViewReceivables,
+      canViewVendorAp,
+    ],
   );
 
   return (
@@ -785,36 +865,47 @@ const Finance = () => {
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Finance" }]}
         subRow={financeSubRow}
       >
+        {canViewExpenses && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-destructive border-destructive/30"
+            disabled={!canCreateExpense}
+            onClick={() => setIsAddExpenseOpen(true)}
+          >
+            <ArrowDownLeft className="mr-1 h-4 w-4" />
+            Expense
+          </Button>
+        )}
+        {canViewIncome && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-primary/30 text-primary"
+            disabled={!canCreateIncome}
+            onClick={() => setIsAddIncomeOpen(true)}
+          >
+            <ArrowUpRight className="mr-1 h-4 w-4" />
+            Income
+          </Button>
+        )}
+        {canViewIncome && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!canCreateIncome}
+            onClick={() => setIsOwnerInvestmentOpen(true)}
+          >
+            <Building2 className="mr-1 h-4 w-4" />
+            Owner capital
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
-          className="text-destructive border-destructive/30"
-          disabled={!canCreateExpense}
-          onClick={() => setIsAddExpenseOpen(true)}
+          disabled={!hasAnyPanel}
+          onClick={() => setIsExportModalOpen(true)}
         >
-          <ArrowDownLeft className="mr-1 h-4 w-4" />
-          Expense
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="border-primary/30 text-primary"
-          disabled={!canCreateIncome}
-          onClick={() => setIsAddIncomeOpen(true)}
-        >
-          <ArrowUpRight className="mr-1 h-4 w-4" />
-          Income
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!canCreateIncome}
-          onClick={() => setIsOwnerInvestmentOpen(true)}
-        >
-          <Building2 className="mr-1 h-4 w-4" />
-          Owner capital
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setIsExportModalOpen(true)}>
           <Download className="mr-1 h-4 w-4" />
           Export
         </Button>
@@ -883,6 +974,15 @@ const Finance = () => {
       )}
 
       <div className="mt-4 space-y-4 md:mt-6 md:space-y-6">
+        {!hasAnyPanel ? (
+          <ListEmptyState
+            icon={IndianRupee}
+            title="No finance modules visible"
+            description="Your role can open Finance Hub but has no view access to payments, expenses, income, invoices, or payables. Ask an admin to adjust the Role Matrix."
+          />
+        ) : null}
+
+        {(canViewPayments || canViewExpenses) && (
           <Card className="bg-card border-border">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-medium">Revenue vs Expenses</CardTitle>
@@ -894,13 +994,19 @@ const Finance = () => {
                   <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(v) => `${v/100000}L`} />
                   <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} formatter={(value: number) => formatINR(value)} />
-                  <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="expenses" fill="hsl(var(--muted-foreground))" radius={[4, 4, 0, 0]} />
+                  {canViewPayments ? (
+                    <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  ) : null}
+                  {canViewExpenses ? (
+                    <Bar dataKey="expenses" fill="hsl(var(--muted-foreground))" radius={[4, 4, 0, 0]} />
+                  ) : null}
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
+        )}
 
+        {(canViewPayments || canViewExpenses) && (
           <Card className="bg-card border-border">
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-medium">Recent Transactions</CardTitle>
@@ -987,20 +1093,26 @@ const Finance = () => {
               </DataTableShell>
             </CardContent>
           </Card>
-              </div>
+        )}
+      </div>
 
       {/* Unified Expense Modal */}
+      {canViewExpenses && (
       <UnifiedExpenseSheet
         isOpen={isAddExpenseOpen}
         onClose={() => setIsAddExpenseOpen(false)}
       />
+      )}
 
       {/* Unified Income Modal */}
+      {canViewIncome && (
       <UnifiedIncomeSheet
         isOpen={isAddIncomeOpen}
         onClose={() => setIsAddIncomeOpen(false)}
       />
+      )}
 
+      {canViewIncome && (
       <Sheet open={isOwnerInvestmentOpen} onOpenChange={(o) => { if (!o) resetOwnerInvestmentForm(); setIsOwnerInvestmentOpen(o); }}>
         <SheetContent className="w-full sm:max-w-md overflow-y-auto">
           <SheetHeader>
@@ -1061,8 +1173,10 @@ const Finance = () => {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+      )}
 
       {/* Enhanced New Invoice Modal */}
+      {canCreateInvoice && (
       <Sheet open={isNewInvoiceOpen} onOpenChange={setIsNewInvoiceOpen}>
         <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
@@ -1495,18 +1609,29 @@ const Finance = () => {
               </TabsContent>
             </Tabs>
           </div>
+          <HighValueInvoiceJustificationBlock
+            total={invoiceTotals.total}
+            reason={highValueReason}
+            onReasonChange={setHighValueReason}
+          />
           <div className="flex justify-between gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => { setIsNewInvoiceOpen(false); resetInvoiceForm(); }}>Cancel</Button>
             <div className="flex gap-2">
-              <Button className="bg-primary text-primary-foreground" onClick={handleCreateInvoice}>
+              <Button
+                className="bg-primary text-primary-foreground"
+                onClick={handleCreateInvoice}
+                disabled={!financeHighValueCheck.ok}
+              >
                 Create {invoiceType === "invoice" ? "Invoice" : "Sale Bill"}
               </Button>
             </div>
           </div>
         </SheetContent>
       </Sheet>
+      )}
 
       {/* Invoice Detail Modal */}
+      {canViewReceivables && (
       <Sheet open={isInvoiceDetailOpen} onOpenChange={setIsInvoiceDetailOpen}>
         <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
           <SheetHeader>
@@ -1624,6 +1749,7 @@ const Finance = () => {
           </div>
         </SheetContent>
       </Sheet>
+      )}
 
       {/* Export Modal */}
       <Sheet open={isExportModalOpen} onOpenChange={setIsExportModalOpen}>

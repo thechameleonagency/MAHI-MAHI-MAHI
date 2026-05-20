@@ -43,6 +43,7 @@ import { formatINR } from "@/lib/formatCurrency";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
 import { useMasters } from "@/contexts/MastersContext";
+import { requireDateNotBefore, requireDateNotInFuture } from "@/lib/dateSanity";
 
 /** Ledger preview: negative outflow (formatINR is always positive ₹…). */
 function formatInrOutflow(n: number): string {
@@ -563,6 +564,36 @@ export function UnifiedExpenseSheet({
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       toast({ title: "Invalid Amount", description: "Please enter a valid expense amount", variant: "destructive" });
       return;
+    }
+    if (payerType === "split") {
+      const splitTotal = calculateSplitTotal();
+      if (Math.abs(splitTotal - parsedAmount) > 0.01) {
+        toast({
+          title: "Split total mismatch",
+          description: `Split lines total ${formatINR(splitTotal)} but expense is ${formatINR(parsedAmount)}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    const futureErr = requireDateNotInFuture("Expense date", date);
+    if (futureErr) {
+      toast({ title: "Invalid date", description: futureErr, variant: "destructive" });
+      return;
+    }
+    if (needsBillPeriod && billPeriodStart && billPeriodEnd) {
+      const periodErr = requireDateNotBefore("Period end", billPeriodEnd, "Period start", billPeriodStart);
+      if (periodErr) {
+        toast({ title: "Invalid dates", description: periodErr, variant: "destructive" });
+        return;
+      }
+    }
+    if (needsDueDate && dueDate && billPeriodEnd) {
+      const dueErr = requireDateNotBefore("Due date", dueDate, "Period end", billPeriodEnd);
+      if (dueErr) {
+        toast({ title: "Invalid dates", description: dueErr, variant: "destructive" });
+        return;
+      }
     }
     try {
       let expense = buildExpense();

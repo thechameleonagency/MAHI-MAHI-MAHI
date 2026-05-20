@@ -21,6 +21,7 @@ export type Feature =
   | "inventoryItem" | "inventoryMovement" | "tool" | "toolMovement"
   | "template"
   // Finance
+  | "financeHub"
   | "invoice" | "saleBill" | "payment" | "expense" | "income"
   | "vendor" | "vendorBill" | "vendorPayment"
   | "partner" | "partnerTransaction"
@@ -132,7 +133,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
     ADMIN_MGMT,
   ),
   inventoryItem: r(
-    [...ADMIN_MGMT_CEO_VIEW, "installation_team"],
+    [...ADMIN_MGMT_CEO_VIEW, "salesperson", "installation_team"],
     ADMIN_MGMT,
     ADMIN_MGMT,
     ADMIN_MGMT,
@@ -155,15 +156,17 @@ export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
     ADMIN_MGMT,
     NONE,
   ),
-  /** Shared quotation / site-checklist BOM templates — view for field roles; mutate admin/management only. */
+  /** Shared quotation / site-checklist BOM templates — salesperson view; installation team uses materials only. */
   template: r(
-    [...ADMIN_MGMT_CEO_VIEW, "salesperson", "installation_team"],
+    [...ADMIN_MGMT_CEO_VIEW, "salesperson"],
     ADMIN_MGMT,
     ADMIN_MGMT,
     ADMIN_MGMT,
   ),
 
   // ============ FINANCE ============
+  /** Finance Hub (`/finance`) — route gate; sub-areas use invoice / expense / payment / … view. */
+  financeHub: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
   invoice: r(ADMIN_MGMT_CEO_VIEW, ADMIN_MGMT, ADMIN_MGMT, NONE),
   saleBill: r(ADMIN_MGMT_CEO_VIEW, ADMIN_MGMT, ADMIN_MGMT, NONE),
   payment: r(ADMIN_MGMT_CEO_VIEW, ADMIN_MGMT, ADMIN_MGMT, ADMIN_ONLY),

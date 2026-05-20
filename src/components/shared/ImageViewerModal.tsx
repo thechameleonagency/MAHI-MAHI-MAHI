@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Sheet } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
@@ -20,18 +20,35 @@ export function ImageViewerModal({
   defaultFileName = "image" 
 }: ImageViewerModalProps) {
   const [fileName, setFileName] = useState(defaultFileName);
-  
+  const [loadError, setLoadError] = useState(false);
+
+  const downloadExtension = useMemo(() => {
+    const base = imageUrl.split("?")[0].split("#")[0];
+    const m = base.match(/\.([a-z0-9]+)$/i);
+    const ext = m?.[1]?.toLowerCase();
+    if (ext && ["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(ext)) return ext;
+    return "jpg";
+  }, [imageUrl]);
+
   const handleDownload = () => {
     const link = document.createElement('a');
     link.href = imageUrl;
-    link.download = `${fileName}.jpg`;
+    link.download = `${fileName}.${downloadExtension}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
   
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Sheet
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          setLoadError(false);
+          onClose();
+        }
+      }}
+    >
       <AppSheetContent layout="bare" size="xl" className="max-w-3xl gap-0 overflow-hidden p-0">
         <div className="relative">
           {/* Close button */}
@@ -45,11 +62,18 @@ export function ImageViewerModal({
           </Button>
           
           {/* Image */}
-          <img 
-            src={imageUrl} 
-            alt="Preview" 
-            className="w-full h-auto max-h-[70vh] object-contain bg-black/90" 
-          />
+          {loadError ? (
+            <div className="flex min-h-[200px] items-center justify-center bg-black/90 px-6 text-center text-sm text-white/80">
+              Image could not be loaded. The file may be missing, blocked by CORS, or the URL is invalid.
+            </div>
+          ) : (
+            <img
+              src={imageUrl}
+              alt="Preview"
+              className="w-full h-auto max-h-[70vh] object-contain bg-black/90"
+              onError={() => setLoadError(true)}
+            />
+          )}
         </div>
         
         {/* Download controls */}

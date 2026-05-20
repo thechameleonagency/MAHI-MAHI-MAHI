@@ -1,7 +1,93 @@
-import type { ProjectKindConfig } from "@/domain/projectTypes/types";
+import type {
+  BillingDirection,
+  ExecutionScope,
+  PartnerRole,
+  ProjectCapabilities,
+  ProjectKindConfig,
+  ProjectType,
+  VendorshipOwner,
+} from "@/domain/projectTypes/types";
 
 /**
- * Party / commercial / module visibility. MSS→customer invoices and sale bills are always permitted for valid projects (see BillingDirectionGuardService); `allowedBillingDirections` documents supplementary flows (settlements, channel), not MSS invoice blocking.
+ * Shape consumed by {@link resolveProjectCapabilities}. We don't require a full Project type here
+ * because we want this to work both on persisted projects and on "in-progress" creation payloads
+ * (e.g. inside Create Project sheet before the record is committed).
+ */
+export interface ProjectCapabilityInput {
+  /** Note: field is `projectMode` on the Project entity (because `projectType` is already taken
+   *  for residential/commercial/industrial). Same domain semantics as {@link ProjectType}. */
+  projectMode: ProjectType;
+  vendorshipOwner: VendorshipOwner;
+  partnerRole?: PartnerRole;
+  executionScope: ExecutionScope;
+  outsource?: unknown | null;
+}
+
+/**
+ * Composes a project's visible tabs / required documents / billing directions / forbidden actions
+ * from its type and attribute fields. This replaces the eight inline registry entries that used
+ * to live in this file — those entries baked sub-distinctions into the kind name, so adding a
+ * new combination needed a new kind. The resolver is rule-based, so new combinations are free.
+ */
+export function resolveProjectCapabilities(input: ProjectCapabilityInput): ProjectCapabilities {
+  const visibleTabs: string[] = ["overview", "commercial", "parties", "billing", "collections", "tasks", "audit"];
+  const requiredDocuments: string[] = [];
+  const forbiddenActions: string[] = [];
+  const allowedBillingDirections: BillingDirection[] = ["company_to_customer"];
+
+  if (input.executionScope !== "none") {
+    visibleTabs.push("progress_report", "team_roster", "field_operations");
+  } else {
+    forbiddenActions.push("work_tracking", "material_dispatch");
+  }
+
+  if (input.vendorshipOwner === "MSS") {
+    visibleTabs.push("document_creator");
+    if (input.executionScope === "full") {
+      requiredDocuments.push("proposal", "agreement", "feasibility", "dcr", "wcr", "handover");
+    } else if (input.executionScope === "service_only") {
+      requiredDocuments.push("site_photo", "work_completion", "handover");
+    }
+  } else {
+    forbiddenActions.push("full_epc_document_set");
+  }
+
+  if (input.projectMode === "INC_GIVEN_TO_US") {
+    forbiddenActions.push("material_dispatch", "partner_settlement");
+    requiredDocuments.push("work_completion", "handover");
+  } else if (input.executionScope === "full") {
+    visibleTabs.push("materials_sent");
+  }
+
+  if (input.projectMode === "PARTNER_NETWORK") {
+    visibleTabs.push("partner_economics");
+    allowedBillingDirections.push("company_to_partner");
+    if (input.partnerRole === "epc") {
+      allowedBillingDirections.push("partner_to_customer");
+    } else if (input.partnerRole === "vendor_channel") {
+      allowedBillingDirections.push("external_to_customer", "external_to_company_commission");
+    } else if (input.partnerRole === "vendorship_only") {
+      requiredDocuments.push("vendor_code_agreement");
+    }
+  }
+
+  if (input.outsource) {
+    requiredDocuments.push("subcontractor_agreement");
+  }
+
+  return {
+    visibleTabs: [...new Set(visibleTabs)],
+    requiredDocuments: [...new Set(requiredDocuments)],
+    forbiddenActions: [...new Set(forbiddenActions)],
+    allowedBillingDirections: [...new Set(allowedBillingDirections)],
+  };
+}
+
+/**
+ * @deprecated The 8-kind registry is retained ONLY so untouched consumers (commands, services,
+ * tests, ProjectDocumentsStudio) keep compiling during the migration. New code should call
+ * {@link resolveProjectCapabilities}. Once all consumers have been ported, this registry will
+ * be removed.
  */
 export const projectKindConfigs: Record<string, ProjectKindConfig> = {
   SOLO_EPC: {
@@ -39,7 +125,6 @@ export const projectKindConfigs: Record<string, ProjectKindConfig> = {
     label: "Vendor Network",
     requiredParties: ["channelPartner", "externalNetwork"],
     requiredCommercialFields: ["contractAmount", "commissionRule"],
-    /** Billing is always MSS→customer invoices; commission / channel receipts are modeled in collections & income. */
     allowedBillingDirections: ["company_to_customer", "external_to_customer", "external_to_company_commission"],
     visibleTabs: ["overview", "commercial", "parties", "work", "team_roster", "materials", "documents", "billing", "collections", "channel_fee", "tasks", "audit"],
     requiredDocuments: ["external_invoice_ref", "commission_doc", "handover"],

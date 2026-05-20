@@ -12,15 +12,23 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { format, parseISO } from "date-fns";
-import { Download } from "lucide-react";
+import { format, parseISO, subMonths, startOfMonth } from "date-fns";
+import { Download, Receipt } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { downloadCSV } from "@/lib/csvExport";
 import { formatINR } from "@/lib/formatCurrency";
+import { computeGstSummary, computeHsnSacBreakdown } from "@/lib/audit";
 
-const MONTHS = Array.from({ length: 12 }, (_, i) => {
-  const d = new Date(2024, i, 1);
-  return { value: format(d, "yyyy-MM"), label: format(d, "MMMM yyyy") };
-});
+/** Rolling 24 months ending at the current month (M9). */
+function buildGstMonthOptions(): { value: string; label: string }[] {
+  const anchor = startOfMonth(new Date());
+  return Array.from({ length: 24 }, (_, i) => {
+    const d = subMonths(anchor, 23 - i);
+    return { value: format(d, "yyyy-MM"), label: format(d, "MMMM yyyy") };
+  });
+}
+
+const MONTHS = buildGstMonthOptions();
 
 const GSTCompliance = () => {
   const { invoices, saleBills, vendorBills, vendors } = useAppData();
@@ -69,11 +77,15 @@ const GSTCompliance = () => {
     }));
   }, [vendorBills, selectedMonth]);
 
-  const gstSummary = useMemo(() => {
-    const outputGST = salesRegister.reduce((s, r) => s + r.cgst + r.sgst + r.igst, 0);
-    const inputGST = purchaseRegister.reduce((s, r) => s + r.gstInput, 0);
-    return { outputGST, inputGST, netPayable: outputGST - inputGST };
-  }, [salesRegister, purchaseRegister]);
+  const gstSummary = useMemo(
+    () => computeGstSummary(invoices, saleBills, vendorBills, filterByMonth),
+    [invoices, saleBills, vendorBills, selectedMonth],
+  );
+
+  const hsnSacRows = useMemo(
+    () => computeHsnSacBreakdown(invoices, saleBills, filterByMonth),
+    [invoices, saleBills, selectedMonth],
+  );
 
   // GSTR-1: B2B vs B2C
   const gstr1 = useMemo(() => {
@@ -99,9 +111,9 @@ const GSTCompliance = () => {
           { label: "GST" },
         ]}
         subRow={
-          <>
+          <div className="flex w-full min-w-0 flex-nowrap items-center gap-3 overflow-x-auto">
             <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-              <SelectTrigger className="h-8 w-44 text-xs">
+              <SelectTrigger className="h-8 w-44 shrink-0 text-xs">
                 <SelectValue placeholder="All Months" />
               </SelectTrigger>
               <SelectContent>
@@ -114,14 +126,16 @@ const GSTCompliance = () => {
               </SelectContent>
             </Select>
             <InlineKpiStrip
-              className="w-full min-w-0 sm:justify-end"
+              singleRow
+              className="min-w-0 flex-1"
               items={[
                 { label: "Output GST", value: formatINR(gstSummary.outputGST) },
                 { label: "Input GST", value: formatINR(gstSummary.inputGST) },
                 { label: "Net payable", value: formatINR(gstSummary.netPayable) },
+                { label: "RCM bills", value: gstSummary.reverseChargeCount },
               ]}
             />
-          </>
+          </div>
         }
       />
 
@@ -130,6 +144,7 @@ const GSTCompliance = () => {
           <TabsList>
             <TabsTrigger value="sales">Sales Register ({salesRegister.length})</TabsTrigger>
             <TabsTrigger value="purchase">Purchase Register ({purchaseRegister.length})</TabsTrigger>
+            <TabsTrigger value="hsn">HSN / SAC ({hsnSacRows.length})</TabsTrigger>
             <TabsTrigger value="gstr1">GSTR-1</TabsTrigger>
             <TabsTrigger value="gstr3b">GSTR-3B</TabsTrigger>
           </TabsList>
@@ -321,6 +336,46 @@ const GSTCompliance = () => {
           </Card>
         </TabsContent>
 
+        <TabsContent value="hsn" className="mt-4">
+          <Card>
+            <CardContent className="p-0">
+              <DataTableShell variant="inline" maxHeight={listTableViewportMaxHeight(12)}>
+                <TableHeader>
+                  <TableRow className={dataTableClasses.headRow}>
+                    <TableHead>Code</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Taxable</TableHead>
+                    <TableHead className="text-right">CGST</TableHead>
+                    <TableHead className="text-right">SGST</TableHead>
+                    <TableHead className="text-right">IGST</TableHead>
+                    <TableHead className="text-right">Lines</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {hsnSacRows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                        No HSN/SAC lines for this period
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {hsnSacRows.map((row) => (
+                    <TableRow key={`${row.kind}-${row.code}`}>
+                      <TableCell className="font-medium">{row.code}</TableCell>
+                      <TableCell>{row.kind}</TableCell>
+                      <TableCell className="text-right">{formatINR(row.taxableValue)}</TableCell>
+                      <TableCell className="text-right">{formatINR(row.cgst)}</TableCell>
+                      <TableCell className="text-right">{formatINR(row.sgst)}</TableCell>
+                      <TableCell className="text-right">{formatINR(row.igst)}</TableCell>
+                      <TableCell className="text-right">{row.lineCount}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </DataTableShell>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="gstr1" className="mt-4">
           <div className="space-y-4">
             <Card>
@@ -328,7 +383,13 @@ const GSTCompliance = () => {
                 <CardTitle className="text-base">B2B Supplies (With GSTIN) — {gstr1.b2b.length} records</CardTitle>
               </CardHeader>
               <CardContent>
-                {gstr1.b2b.length === 0 ? <p className="text-sm text-muted-foreground">No B2B transactions</p> : (
+                {gstr1.b2b.length === 0 ? (
+                  <ListEmptyState
+                    icon={Receipt}
+                    title="No B2B transactions"
+                    description="No invoices with a customer GSTIN in the selected period."
+                  />
+                ) : (
                   <div className="space-y-2">
                     {gstr1.b2b.map(r => (
                       <div key={r.id} className="flex justify-between items-center p-2 rounded border border-border">
@@ -348,7 +409,13 @@ const GSTCompliance = () => {
                 <CardTitle className="text-base">B2C Supplies (Without GSTIN) — {gstr1.b2c.length} records</CardTitle>
               </CardHeader>
               <CardContent>
-                {gstr1.b2c.length === 0 ? <p className="text-sm text-muted-foreground">No B2C transactions</p> : (
+                {gstr1.b2c.length === 0 ? (
+                  <ListEmptyState
+                    icon={Receipt}
+                    title="No B2C transactions"
+                    description="No invoices without a customer GSTIN in the selected period."
+                  />
+                ) : (
                   <div className="space-y-2">
                     {gstr1.b2c.map(r => (
                       <div key={r.id} className="flex justify-between items-center p-2 rounded border border-border">
@@ -387,7 +454,7 @@ const GSTCompliance = () => {
                 </div>
                 <div className="flex justify-between py-4 bg-muted/50 px-3 rounded-lg">
                   <span className="text-sm font-bold text-foreground">6.1 Net Tax Payable</span>
-                  <span className="text-lg font-bold text-orange-600">{formatINR(gstSummary.netPayable)}</span>
+                  <span className="text-lg font-bold text-warning">{formatINR(gstSummary.netPayable)}</span>
                 </div>
               </div>
             </CardContent>

@@ -3,7 +3,6 @@ import {
   IndianRupee,
   Users,
   AlertTriangle,
-  Phone,
   MapPin,
   Calendar,
   Receipt,
@@ -20,12 +19,21 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AppSheetContent } from "@/components/shared/AppSheetLayout";
-import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { DashboardEmiRow } from "@/components/dashboard/DashboardEmiRow";
+import { DashboardInvoiceRow } from "@/components/dashboard/DashboardInvoiceRow";
+import { DashboardQuotationRow } from "@/components/dashboard/DashboardQuotationRow";
+import { DashboardProjectRow } from "@/components/dashboard/DashboardProjectRow";
+import { DashboardTaskRow } from "@/components/dashboard/DashboardTaskRow";
+import { DashboardActiveSiteRow } from "@/components/dashboard/DashboardActiveSiteRow";
+import { DashboardLowStockRow } from "@/components/dashboard/DashboardLowStockRow";
+import { DashboardEmployeeCard } from "@/components/dashboard/DashboardEmployeeCard";
+import { DashboardBlockageRow } from "@/components/dashboard/DashboardBlockageRow";
 import { Badge } from "@/components/ui/badge";
-import { useNavigate } from "react-router-dom";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { useLocation, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
+import { buildCalendarEvents, getEventsForDate, getCalendarSourceLabel } from "@/lib/calendarSources";
 import { useAppData } from "@/contexts/AppDataContext";
 import { RoleDashboardService, type DashboardMetricKey } from "@/application/services/RoleDashboardService";
 import {
@@ -33,14 +41,35 @@ import {
   countActiveSitesByProjectId,
   needToGetLocationLabel,
 } from "@/application/services/NeedToGetService";
-import { NeedToGetModal } from "@/components/need-to-get/NeedToGetModal";
+import { NeedToGetSheet } from "@/components/need-to-get/NeedToGetSheet";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
+import {
+  getRevenueCash,
+  getOutstandingReceivables,
+  partitionCashRevenueByBillKind,
+} from "@/domain/finance/financialSemantics";
+import { getInvoiceOpenBalance } from "@/lib/billingSelectors";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DashboardEnquiryRow } from "@/components/dashboard/DashboardEnquiryRow";
+import { buildEnquiryToQuotationDraft, saveCreateDraft } from "@/lib/createFromContext";
+import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
+import { getEnquiryFollowUpAging, getInvoiceOverdueAging, getTaskOverdueAging } from "@/lib/agingHelpers";
+import { formatINR } from "@/lib/formatCurrency";
+import { toast } from "@/hooks/use-toast";
+import { routeAccessDeniedToastContent } from "@/lib/routeAccessDenied";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import { resolveQuotationCustomerId } from "@/lib/selectors";
+
+type StatCardDetailLine = {
+  id: string;
+  text?: string;
+  content?: React.ReactNode;
+};
 
 type StatCardDef = {
   id: string;
@@ -51,16 +80,27 @@ type StatCardDef = {
   iconClass: string;
   hint: string;
   hintTone: "positive" | "negative" | "neutral";
-  details?: { id: string; text: string }[];
+  details?: StatCardDetailLine[];
 };
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [routeDeniedBannerPath, setRouteDeniedBannerPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    const denied = (location.state as { routeAccessDeniedPath?: string } | null)?.routeAccessDeniedPath;
+    if (!denied) return;
+    setRouteDeniedBannerPath(denied);
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
   const {
     projects,
+    customers,
     employees,
     invoices,
     saleBills,
+    payments,
     quotations,
     loans,
     inventoryItems,
@@ -69,6 +109,13 @@ const Dashboard = () => {
     vendorBills,
     enquiries,
     blockages,
+    tasks,
+    scheduledInstallations,
+    siteVisits,
+    loanRepayments,
+    transitionEnquiryStatus,
+    convertEnquiryToCustomer,
+    materialReservations,
   } = useAppData();
   const { currentRole } = useAppSession();
   const { permissionService } = useFoundation();
@@ -100,12 +147,13 @@ const Dashboard = () => {
   );
 
   const activeOpsBlockages = useMemo(
-    () => blockages.filter((b) => b.status === "active"),
+    () => (blockages ?? []).filter((b) => b.status === "active"),
     [blockages],
   );
 
   const stats = useMemo(() => {
-    const totalRevenue = [...invoices, ...saleBills].reduce((sum, inv) => sum + (inv.amountReceived || 0), 0);
+    const totalRevenue = getRevenueCash(payments);
+    const cashSplit = partitionCashRevenueByBillKind(payments, invoices, saleBills);
 
     const activeProjects = projects.filter((p) => p.status === "Ongoing").length;
     const completedCount = projects.filter((p) => p.status === "Completed").length;
@@ -113,8 +161,11 @@ const Dashboard = () => {
     const activeEmployees = employees.filter((e) => e.status === "Active").length;
     const onLeave = employees.filter((e) => e.status !== "Active").length;
 
-    const pendingInvoices = invoices.filter((inv) => inv.status !== "paid");
-    const pendingAmount = pendingInvoices.reduce((sum, inv) => sum + (inv.total - (inv.amountReceived || 0)), 0);
+    const openBillingDocs = [...invoices, ...saleBills].filter(
+      (inv) => inv.status !== "paid" && inv.status !== "voided" && inv.status !== "draft",
+    );
+    const pendingInvoices = openBillingDocs.filter((inv) => getInvoiceOpenBalance(inv, payments) > 0.01);
+    const pendingAmount = getOutstandingReceivables(invoices, payments, saleBills);
 
     const pendingQuotations = quotations.filter((q) => q.status === "draft" || q.status === "sent");
 
@@ -125,6 +176,7 @@ const Dashboard = () => {
 
     return {
       totalRevenue,
+      cashSplit,
       activeProjects,
       completedCount,
       activeEmployees,
@@ -137,7 +189,7 @@ const Dashboard = () => {
       upcomingEmiAmount,
       openOpsBlockagesCount: activeOpsBlockages.length,
     };
-  }, [projects, employees, invoices, quotations, loans, saleBills, activeOpsBlockages]);
+  }, [projects, employees, invoices, saleBills, payments, quotations, loans, activeOpsBlockages]);
 
   const lowStockItems = useMemo(
     () =>
@@ -214,36 +266,51 @@ const Dashboard = () => {
   }, [employees]);
 
   const needToGetRows = useMemo(
-    () => needToGetService.buildRows(sites, projects, inventoryItems, vendorBills),
-    [needToGetService, sites, projects, inventoryItems, vendorBills],
+    () =>
+      needToGetService.buildRows(
+        sites,
+        projects,
+        inventoryItems,
+        vendorBills,
+        materialReservations ?? [],
+      ),
+    [needToGetService, sites, projects, inventoryItems, vendorBills, materialReservations],
   );
 
   const ntgActiveSitesPerProject = useMemo(() => countActiveSitesByProjectId(sites), [sites]);
 
   const visibleMetrics = useMemo(() => new Set(dashboardService.getVisibleMetrics(currentRole)), [currentRole, dashboardService]);
 
+  const overdueFollowUpEnquiries = useMemo(
+    () => openPipelineEnquiries.filter((e) => getEnquiryFollowUpAging(e) != null),
+    [openPipelineEnquiries],
+  );
+
+  const overdueTasksList = useMemo(
+    () => tasks.filter((t) => getTaskOverdueAging(t) != null),
+    [tasks],
+  );
+
   const statCardsRaw: StatCardDef[] = [
-    {
-      id: "revenue",
-      metric: "receivables",
-      title: "Cash collected",
-      value: `₹${(stats.totalRevenue / 100000).toFixed(1)}L`,
-      icon: IndianRupee,
-      iconClass: "bg-emerald-600 text-white shadow-sm shadow-emerald-600/20",
-      hint: "Invoices + sale bills",
-      hintTone: "positive",
-      details: [...invoices, ...saleBills].filter(i => i.amountReceived).slice(0, 3).map(i => ({ id: i.id, text: `₹${((i.amountReceived || 0)/100000).toFixed(1)}L - ${i.customerName}` })),
-    },
     {
       id: "enquiries",
       metric: "openEnquiries",
       title: "Open enquiries",
       value: String(openPipelineEnquiries.length),
       icon: ClipboardList,
-      iconClass: "bg-violet-600 text-white shadow-sm shadow-violet-600/20",
-      hint: "Pipeline excluding won/lost",
+      iconClass: "bg-accent text-white shadow-sm shadow-violet-600/20",
+      hint: "Tap to act on pipeline",
       hintTone: openPipelineEnquiries.length > 0 ? "neutral" : "positive",
-      details: openPipelineEnquiries.slice(0, 3).map(e => ({ id: e.id, text: `${e.customerName || "No Name"} - ${e.status}` })),
+    },
+    {
+      id: "followUps",
+      metric: "overdueFollowUps",
+      title: "Follow-ups overdue",
+      value: String(overdueFollowUpEnquiries.length),
+      icon: Calendar,
+      iconClass: "bg-warning text-white shadow-sm",
+      hint: "Needs contact today",
+      hintTone: overdueFollowUpEnquiries.length > 0 ? "negative" : "positive",
     },
     {
       id: "quotations",
@@ -251,10 +318,9 @@ const Dashboard = () => {
       title: "Quotations pending",
       value: String(stats.pendingQuotations.length),
       icon: FileText,
-      iconClass: "bg-sky-600 text-white shadow-sm shadow-sky-600/20",
-      hint: "Draft / sent awaiting action",
+      iconClass: "bg-primary text-primary-foreground shadow-sm shadow-primary/20",
+      hint: "Draft or sent — approve / convert",
       hintTone: stats.pendingQuotations.length > 0 ? "negative" : "positive",
-      details: stats.pendingQuotations.slice(0, 3).map(q => ({ id: q.id, text: `₹${(q.totalAmount/100000).toFixed(1)}L - ${q.clientName}` })),
     },
     {
       id: "projects",
@@ -263,9 +329,8 @@ const Dashboard = () => {
       value: String(stats.activeProjects),
       icon: Building2,
       iconClass: "bg-primary text-primary-foreground shadow-sm",
-      hint: `${stats.completedCount} completed (all-time)`,
+      hint: `${stats.completedCount} completed all-time`,
       hintTone: "neutral",
-      details: projects.filter(p => p.status === "Ongoing").slice(0, 3).map(p => ({ id: p.id, text: p.name })),
     },
     {
       id: "activeSites",
@@ -273,10 +338,19 @@ const Dashboard = () => {
       title: "Sites live",
       value: String(sitesOnOngoingProjects.length),
       icon: MapPin,
-      iconClass: "bg-teal-600 text-white shadow-sm shadow-teal-600/20",
-      hint: "On ongoing projects",
+      iconClass: "bg-success text-success-foreground shadow-sm shadow-success/20",
+      hint: "Ongoing execution",
       hintTone: "neutral",
-      details: sitesOnOngoingProjects.slice(0, 3).map(s => ({ id: String(s.id), text: s.name })),
+    },
+    {
+      id: "tasks",
+      metric: "overdueTasks",
+      title: "Overdue tasks",
+      value: String(overdueTasksList.length),
+      icon: ClipboardList,
+      iconClass: "bg-warning text-white shadow-sm",
+      hint: "Past work date, not done",
+      hintTone: overdueTasksList.length > 0 ? "negative" : "positive",
     },
     {
       id: "pending",
@@ -284,21 +358,19 @@ const Dashboard = () => {
       title: "Receivables due",
       value: `₹${(stats.pendingAmount / 100000).toFixed(1)}L`,
       icon: Receipt,
-      iconClass: "bg-amber-500 text-white shadow-sm shadow-amber-500/20",
-      hint: `${stats.pendingInvoices.length} invoices open`,
+      iconClass: "bg-warning text-white shadow-sm shadow-amber-500/20",
+      hint: `${stats.pendingInvoices.length} open invoices`,
       hintTone: stats.pendingAmount > 0 ? "negative" : "positive",
-      details: stats.pendingInvoices.slice(0, 3).map(i => ({ id: i.id, text: `₹${((i.total - (i.amountReceived || 0))/100000).toFixed(1)}L - ${i.customerName}` })),
     },
     {
-      id: "employees",
-      metric: "openTasks",
-      title: "Team on roster",
-      value: String(stats.activeEmployees),
-      icon: Users,
-      iconClass: "bg-slate-700 text-white shadow-sm",
-      hint: `${stats.onLeave} not active`,
-      hintTone: stats.onLeave > 0 ? "negative" : "positive",
-      details: employees.filter(e => e.status === "Active").slice(0, 3).map(e => ({ id: e.id.toString(), text: `${e.name} - ${e.role}` })),
+      id: "needToGet",
+      metric: "procurementGaps",
+      title: "Procurement gaps",
+      value: String(needToGetRows.length),
+      icon: Package,
+      iconClass: "bg-accent text-accent-foreground shadow-sm",
+      hint: "Shortfall vs reservations",
+      hintTone: needToGetRows.length > 0 ? "negative" : "positive",
     },
     {
       id: "stock",
@@ -307,46 +379,281 @@ const Dashboard = () => {
       value: String(lowStockItems.length),
       icon: AlertTriangle,
       iconClass: "bg-destructive text-destructive-foreground shadow-sm",
-      hint: "Below threshold",
+      hint: "Below min threshold",
       hintTone: lowStockItems.length > 0 ? "negative" : "positive",
-      details: lowStockItems.slice(0, 3).map(i => ({ id: String(i.id), text: `${i.name}: ${i.stock} / ${i.min}` })),
     },
     {
       id: "emis",
-      metric: "pendingApprovals",
-      title: "EMI load / mo",
-      value: `₹${(stats.upcomingEmiAmount / 1000).toFixed(0)}K`,
+      metric: "emiDueSoon",
+      title: "EMI due (7d)",
+      value: String(emiDueWithin7Days.length),
       icon: CreditCard,
-      iconClass: "bg-orange-600 text-white shadow-sm",
-      hint: `${stats.activeLoans.length} active loans`,
-      hintTone: "neutral",
-      details: stats.activeLoans.slice(0, 3).map((l) => {
-        const due = parseLoanEmiDue(l);
-        const dueLabel = due ? due.toLocaleDateString("en-IN", { month: "short", day: "numeric" }) : "TBD";
-        const borrower = l.personName ?? l.source;
-        return { id: l.id.toString(), text: `₹${(l.emiAmount / 1000).toFixed(0)}k · ${dueLabel} · ${borrower}` };
-      }),
+      iconClass: "bg-warning text-white shadow-sm",
+      hint: emiOverdue.length > 0 ? `${emiOverdue.length} overdue` : "Next week",
+      hintTone: emiDueWithin7Days.length + emiOverdue.length > 0 ? "negative" : "positive",
     },
     {
       id: "blockages",
       metric: "openBlockages",
-      title: "Projects on hold",
-      value: String(stats.activeBlockages),
+      title: "Ops blockages",
+      value: String(stats.openOpsBlockagesCount),
       icon: AlertCircle,
       iconClass: cn(
-        stats.activeBlockages > 0 ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground",
+        stats.openOpsBlockagesCount > 0 ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground",
         "shadow-sm",
       ),
-      hint: stats.activeBlockages > 0 ? "Needs release plan" : "Execution clear",
-      hintTone: stats.activeBlockages > 0 ? "negative" : "positive",
-      details: activeOpsBlockages.slice(0, 3).map(b => ({ id: b.id, text: b.reason })),
+      hint: `${stats.activeBlockages} projects on hold`,
+      hintTone: stats.openOpsBlockagesCount > 0 ? "negative" : "positive",
     },
   ];
 
   const statsCards = statCardsRaw.filter((c) => visibleMetrics.has(c.metric));
 
+  const activeProjectsList = useMemo(
+    () =>
+      projects.filter(
+        (p) =>
+          p.lifecycleStatus === "Active" ||
+          p.lifecycleStatus === "In Progress" ||
+          p.status === "Ongoing" ||
+          (p.lifecycleStatus !== "Completed" &&
+            p.lifecycleStatus !== "New" &&
+            p.status !== "Completed" &&
+            p.status !== "Closed"),
+      ),
+    [projects],
+  );
+
+  const sortedEmiLoans = useMemo(
+    () =>
+      [...activeEmiLoans]
+        .map((loan) => ({ loan, due: parseLoanEmiDue(loan) }))
+        .filter((x): x is { loan: (typeof activeEmiLoans)[0]; due: Date } => x.due != null)
+        .sort((a, b) => a.due.getTime() - b.due.getTime()),
+    [activeEmiLoans, parseLoanEmiDue],
+  );
+
+  const statsCardsWithDetails = useMemo(() => {
+    return statsCards.map((card) => {
+      switch (card.id) {
+        case "emis":
+          return {
+            ...card,
+            details: sortedEmiLoans.slice(0, 3).map(({ loan, due }) => ({
+              id: loan.id,
+              text: `${loan.personName ?? loan.source} · ${format(due, "d MMM")} · ${formatINR(loan.emiAmount || 0)}`,
+            })),
+          };
+        case "enquiries":
+          return {
+            ...card,
+            details: openPipelineEnquiries.slice(0, 3).map((e) => ({
+              id: e.id,
+              text: `${e.customerName} · ${e.status.replace(/_/g, " ")}`,
+            })),
+          };
+        case "followUps":
+          return {
+            ...card,
+            details: overdueFollowUpEnquiries.slice(0, 3).map((e) => ({
+              id: e.id,
+              text: `${e.customerName} · follow-up ${e.followUpDate ?? "—"}`,
+            })),
+          };
+        case "quotations":
+          return {
+            ...card,
+            details: stats.pendingQuotations.slice(0, 3).map((q) => {
+              const customerId = resolveQuotationCustomerId(q);
+              return {
+                id: q.id,
+                content: (
+                  <span className="inline-flex flex-wrap items-center gap-x-1">
+                    {customerId ? (
+                      <EntityLink
+                        entityType="customer"
+                        entityId={customerId}
+                        name={q.clientName}
+                        className="text-2xs font-normal"
+                      />
+                    ) : (
+                      <span>{q.clientName}</span>
+                    )}
+                    <span>· {q.quotationNumber}</span>
+                  </span>
+                ),
+              };
+            }),
+          };
+        case "projects":
+          return {
+            ...card,
+            details: activeProjectsList.slice(0, 3).map((p) => {
+              const customerId = p.customerId;
+              return {
+                id: p.id,
+                content: (
+                  <span className="inline-flex flex-wrap items-center gap-x-1">
+                    <EntityLink
+                      entityType="project"
+                      entityId={p.id}
+                      name={p.name}
+                      className="text-2xs font-normal"
+                    />
+                    <span>·</span>
+                    {customerId ? (
+                      <EntityLink
+                        entityType="customer"
+                        entityId={customerId}
+                        name={p.client}
+                        className="text-2xs font-normal"
+                      />
+                    ) : (
+                      <span>{p.client}</span>
+                    )}
+                  </span>
+                ),
+              };
+            }),
+          };
+        case "activeSites":
+          return {
+            ...card,
+            details: sitesOnOngoingProjects.slice(0, 3).map((s) => ({
+              id: String(s.id),
+              content: (
+                <span className="inline-flex flex-wrap items-center gap-x-1">
+                  <span>{s.name}</span>
+                  <span>·</span>
+                  {s.projectId && s.projectName ? (
+                    <EntityLink
+                      entityType="project"
+                      entityId={s.projectId}
+                      name={s.projectName}
+                      className="text-2xs font-normal"
+                    />
+                  ) : (
+                    <span>{s.projectName ?? "—"}</span>
+                  )}
+                </span>
+              ),
+            })),
+          };
+        case "tasks":
+          return {
+            ...card,
+            details: overdueTasksList.slice(0, 3).map((t) => ({
+              id: t.id,
+              text: `${t.workType} · due ${t.workDate}`,
+            })),
+          };
+        case "pending":
+          return {
+            ...card,
+            details: stats.pendingInvoices.slice(0, 3).map((inv) => {
+              const balance = Math.round(getInvoiceOpenBalance(inv, payments));
+              return {
+                id: inv.id,
+                content: (
+                  <span className="inline-flex flex-wrap items-center gap-x-1">
+                    {inv.customerId ? (
+                      <EntityLink
+                        entityType="customer"
+                        entityId={inv.customerId}
+                        name={inv.customerName}
+                        className="text-2xs font-normal"
+                      />
+                    ) : (
+                      <span>{inv.customerName}</span>
+                    )}
+                    <span>
+                      · {formatINR(balance)}
+                    </span>
+                  </span>
+                ),
+              };
+            }),
+          };
+        case "needToGet":
+          return {
+            ...card,
+            details: needToGetRows.slice(0, 3).map((r) => ({
+              id: `${r.projectId}-${r.materialId}`,
+              text: `${r.materialName} · −${r.qtyShort}`,
+            })),
+          };
+        case "stock":
+          return {
+            ...card,
+            details: lowStockItems.slice(0, 3).map((item) => ({
+              id: String(item.id),
+              text: `${item.name} · ${item.stock} left (min ${item.min})`,
+            })),
+          };
+        case "blockages":
+          return {
+            ...card,
+            details: activeOpsBlockages.slice(0, 3).map((b) => ({
+              id: b.id,
+              text: `${b.title} · ${b.projectId}`,
+            })),
+          };
+        default:
+          return card;
+      }
+    });
+  }, [
+    statsCards,
+    sortedEmiLoans,
+    openPipelineEnquiries,
+    overdueFollowUpEnquiries,
+    stats.pendingQuotations,
+    stats.pendingInvoices,
+    activeProjectsList,
+    sitesOnOngoingProjects,
+    overdueTasksList,
+    needToGetRows,
+    lowStockItems,
+    activeOpsBlockages,
+    customers,
+  ]);
+
   const handleCardClick = (cardId: string) => {
+    if (cardId === "needToGet") {
+      setNeedToGetOpen(true);
+      return;
+    }
     setActiveModal(cardId);
+  };
+
+  const handleDashboardSendQuotation = async (enquiryId: string) => {
+    const result = await transitionEnquiryStatus(enquiryId, "quotation_sent");
+    if (!result.ok) {
+      toast({ title: "Could not update", description: result.error, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Marked quotation sent" });
+  };
+
+  const handleDashboardConvertEnquiry = async (enquiry: import("@/types/project").Enquiry) => {
+    const result = await convertEnquiryToCustomer(enquiry.id);
+    if (!result.ok) {
+      toast({ title: "Conversion failed", description: result.error, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Enquiry converted", description: "Create quotation when ready." });
+  };
+
+  const handleDashboardCreateQuotation = (enquiry: import("@/types/project").Enquiry) => {
+    const gate = assertCanLinkNewQuotationToEnquiry(enquiry, currentRole);
+    if (!gate.ok) {
+      toast({ title: "Cannot create quotation", description: gate.message, variant: "destructive" });
+      return;
+    }
+    const draft = buildEnquiryToQuotationDraft(enquiry);
+    saveCreateDraft("quotation-create-draft", draft);
+    setActiveModal(null);
+    navigate(`/quotations?createFrom=enq:${enquiry.id}`);
   };
 
   const handleEmployeeClick = (empId: number) => {
@@ -360,8 +667,8 @@ const Dashboard = () => {
   };
 
   const hintClass: Record<StatCardDef["hintTone"], string> = {
-    positive: "text-emerald-700/90 dark:text-emerald-400/90",
-    negative: "text-amber-800 dark:text-amber-400/90",
+    positive: "text-success/90 dark:text-success/90",
+    negative: "text-warning dark:text-warning/90",
     neutral: "text-muted-foreground",
   };
 
@@ -425,12 +732,61 @@ const Dashboard = () => {
   ];
 
   const todayLabel = format(new Date(), "EEEE, d MMMM yyyy");
+  const todayIso = format(new Date(), "yyyy-MM-dd");
+
+  const todaySchedule = useMemo(() => {
+    const events = buildCalendarEvents({
+      tasks,
+      scheduledInstallations: scheduledInstallations ?? [],
+      enquiries,
+      invoices: [...invoices, ...saleBills],
+      vendorBills,
+      loans,
+      loanRepayments: loanRepayments ?? [],
+      siteVisits: siteVisits ?? [],
+      projects,
+    });
+    return getEventsForDate(events, todayIso).slice(0, 10);
+  }, [
+    tasks,
+    scheduledInstallations,
+    enquiries,
+    invoices,
+    saleBills,
+    vendorBills,
+    loans,
+    loanRepayments,
+    siteVisits,
+    projects,
+    todayIso,
+  ]);
+
   return (
     <PageShell className="space-y-0">
       <StickyPageHeader
         className="mb-2 border-0 bg-transparent px-0 py-0 shadow-none backdrop-blur-none supports-[backdrop-filter]:bg-transparent sm:px-0"
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Dashboard" }]}
       />
+
+      {routeDeniedBannerPath && (
+        <div
+          className="mb-4 flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+          role="status"
+        >
+          <p className="text-sm text-foreground">
+            {routeAccessDeniedToastContent(routeDeniedBannerPath, currentRole).description}
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 self-end sm:self-center"
+            onClick={() => setRouteDeniedBannerPath(null)}
+          >
+            Dismiss
+          </Button>
+        </div>
+      )}
 
       <div className="space-y-8 md:space-y-10">
         {/* KPI grid */}
@@ -452,7 +808,7 @@ const Dashboard = () => {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {!kpiShellReady
               ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-xl border border-border/40" />)
-              : statsCards.map((card) => {
+              : statsCardsWithDetails.map((card) => {
                   const Icon = card.icon;
                   return (
                     <button
@@ -472,6 +828,15 @@ const Dashboard = () => {
                               {card.hint}
                             </p>
                           </div>
+                          {card.details && card.details.length > 0 && (
+                            <ul className="mt-2 space-y-0.5 border-t border-border/40 pt-2">
+                              {card.details.map((line) => (
+                                <li key={line.id} className="truncate text-2xs text-muted-foreground">
+                                  {line.content ?? line.text}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
                         <div className="flex flex-col items-end gap-2">
                           <span
@@ -485,23 +850,54 @@ const Dashboard = () => {
                         </div>
                       </div>
 
-                      {card.details && card.details.length > 0 && (
-                        <div className="mt-3.5 flex w-full flex-col gap-1.5 border-t border-border/40 pt-3">
-                          {card.details.map((detail) => (
-                            <div key={detail.id} className="flex items-center text-2xs leading-tight text-muted-foreground">
-                              <span className="mr-2 h-1 w-1 shrink-0 rounded-full bg-primary/40" />
-                              <span className="truncate opacity-80 transition-opacity group-hover:opacity-100">{detail.text}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      <ArrowUpRight className="absolute right-14 top-4 h-4 w-4 text-muted-foreground/0 transition group-hover:text-muted-foreground/40" />
+                      <ArrowUpRight className="absolute right-3 top-4 h-4 w-4 text-muted-foreground/0 transition group-hover:text-muted-foreground/40" />
                     </button>
                   );
                 })}
           </div>
         </section>
+
+        {permissionService.canAccessPath(currentRole, "/calendar") && (
+          <section aria-labelledby="dash-schedule-heading">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+              <h2 id="dash-schedule-heading" className="ds-section-title mb-0">
+                Today&apos;s schedule
+              </h2>
+              <Button variant="outline" size="sm" onClick={() => navigate("/calendar")}>
+                Open calendar
+              </Button>
+            </div>
+            <Card>
+              <CardContent className="p-4">
+                {todaySchedule.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nothing scheduled for today.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {todaySchedule.map((ev) => (
+                      <li
+                        key={ev.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{ev.title}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {getCalendarSourceLabel(ev.source)}
+                            {ev.subtitle ? ` · ${ev.subtitle}` : ""}
+                          </p>
+                        </div>
+                        {ev.href && (
+                          <Button variant="ghost" size="sm" className="shrink-0 h-8" onClick={() => navigate(ev.href!)}>
+                            View
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         {/* Quick actions — full grid */}
         <section aria-labelledby="dash-actions-heading">
@@ -509,7 +905,9 @@ const Dashboard = () => {
             Quick actions
           </h2>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {quickActions
+            {!kpiShellReady
+              ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14 rounded-xl border border-border/40" />)
+              : quickActions
               .filter((a) => a.show)
               .map((a) => (
                 <button
@@ -534,9 +932,9 @@ const Dashboard = () => {
         <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
           <div className="space-y-6 lg:col-span-7">
             {stats.openOpsBlockagesCount > 0 && permissionService.canAccessPath(currentRole, "/active-sites") && (
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-4 py-3">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/25 bg-warning/[0.06] px-4 py-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning dark:text-warning">
                     <ShieldAlert className="h-5 w-5" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -546,7 +944,7 @@ const Dashboard = () => {
                     </p>
                   </div>
                 </div>
-                <Button size="sm" variant="outline" className="shrink-0 border-amber-500/40" onClick={() => navigate("/active-sites")}>
+                <Button size="sm" variant="outline" className="shrink-0 border-warning/40" onClick={() => navigate("/active-sites")}>
                   Open
                 </Button>
               </div>
@@ -556,7 +954,7 @@ const Dashboard = () => {
               <Card className="overflow-hidden rounded-xl border-border/70 shadow-sm">
                 <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-4 py-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
                     <span className="text-sm font-semibold text-foreground">Need-to-get procurement</span>
                   </div>
                   <Badge variant="secondary" className="tabular-nums">
@@ -580,7 +978,7 @@ const Dashboard = () => {
                                 {needToGetLocationLabel(row, ntgActiveSitesPerProject, projects)}
                               </p>
                             </div>
-                            <Badge className="shrink-0 bg-red-500/10 text-red-700 dark:text-red-400 border-0">
+                            <Badge className="shrink-0 bg-destructive/10 text-destructive dark:text-destructive border-0">
                               −{row.qtyShort}
                             </Badge>
                           </li>
@@ -684,10 +1082,10 @@ const Dashboard = () => {
             )}
 
             {activeEmiLoans.length > 0 && visibleMetrics.has("pendingApprovals") && (
-              <Card className="rounded-xl border-orange-500/25 bg-orange-500/[0.04] shadow-sm">
+              <Card className="rounded-xl border-warning/25 bg-warning/[0.04] shadow-sm">
                 <CardContent className="space-y-3 p-5 pt-6">
                   <div className="flex items-start gap-3">
-                    <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" aria-hidden />
+                    <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground">Loan EMI watchlist</p>
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -706,7 +1104,7 @@ const Dashboard = () => {
                             <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                               <span className="min-w-0 truncate font-medium">{borrower}</span>
                               <span className="text-xs text-muted-foreground">
-                                {due ? due.toLocaleDateString("en-IN") : "—"} · ₹{(l.emiAmount || 0).toLocaleString("en-IN")}
+                                {due ? due.toLocaleDateString("en-IN") : "—"} · {formatINR(l.emiAmount || 0)}
                               </span>
                               <Button size="sm" variant="outline" className="shrink-0" onClick={() => navigate("/loans")}>
                                 Record payment
@@ -728,7 +1126,7 @@ const Dashboard = () => {
                             <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                               <span className="min-w-0 truncate font-medium">{borrower}</span>
                               <span className="text-xs text-muted-foreground">
-                                {due ? due.toLocaleDateString("en-IN") : "—"} · ₹{(l.emiAmount || 0).toLocaleString("en-IN")}
+                                {due ? due.toLocaleDateString("en-IN") : "—"} · {formatINR(l.emiAmount || 0)}
                               </span>
                               <Button size="sm" variant="secondary" className="shrink-0" onClick={() => navigate("/loans")}>
                                 Open loans
@@ -752,11 +1150,11 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <NeedToGetModal open={needToGetOpen} onOpenChange={setNeedToGetOpen} />
+      <NeedToGetSheet open={needToGetOpen} onOpenChange={setNeedToGetOpen} />
 
       {/* Revenue */}
       <Sheet open={activeModal === "revenue"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <IndianRupee className="h-5 w-5 text-primary" aria-hidden />
@@ -765,64 +1163,105 @@ const Dashboard = () => {
           </SheetHeader>
           <div className="space-y-4 py-4">
             <div className="flex justify-between gap-4 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
-              <span className="text-sm text-muted-foreground">From invoices</span>
+              <span className="text-sm text-muted-foreground">Payments linked to invoices</span>
               <span className="font-semibold tabular-nums">
-                ₹{invoices.reduce((sum, inv) => sum + (inv.amountReceived || 0), 0).toLocaleString()}
+                {formatINR(stats.cashSplit?.fromInvoices ?? 0)}
               </span>
             </div>
             <div className="flex justify-between gap-4 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
-              <span className="text-sm text-muted-foreground">From sale bills</span>
+              <span className="text-sm text-muted-foreground">Payments linked to sale bills</span>
               <span className="font-semibold tabular-nums">
-                ₹{saleBills.reduce((sum, sb) => sum + (sb.amountReceived || 0), 0).toLocaleString()}
+                {formatINR(stats.cashSplit?.fromSaleBills ?? 0)}
               </span>
             </div>
+            {stats.cashSplit && stats.cashSplit.unlinked > 0 ? (
+              <div className="flex justify-between gap-4 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
+                <span className="text-sm text-muted-foreground">Other payments in</span>
+                <span className="font-semibold tabular-nums">{formatINR(stats.cashSplit.unlinked)}</span>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-4 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2.5">
-              <span className="font-medium">Total collected</span>
-              <span className="font-bold text-primary tabular-nums">₹{(stats.totalRevenue || 0).toLocaleString()}</span>
+              <span className="font-medium">Cash collected (payments)</span>
+              <span className="font-bold text-primary tabular-nums">{formatINR(stats.totalRevenue || 0)}</span>
             </div>
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToPage("/finance")}>
             <ExternalLink className="mr-2 h-4 w-4" />
             Finance
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
 
       {/* Enquiries */}
-      <Sheet open={activeModal === "enquiries"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+      <Sheet open={activeModal === "enquiries" || activeModal === "followUps"} onOpenChange={() => setActiveModal(null)}>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-violet-600" aria-hidden />
-              Open enquiries
+              <ClipboardList className="h-5 w-5 text-accent-foreground" aria-hidden />
+              {activeModal === "followUps" ? "Follow-ups overdue" : "Open enquiries"}
             </SheetTitle>
           </SheetHeader>
-          <div className="max-h-[min(380px,50vh)] space-y-2 overflow-y-auto py-4">
-            {openPipelineEnquiries.slice(0, 8).map((e) => (
-              <div key={e.id} className="flex items-start justify-between gap-3 rounded-xl border border-border/60 bg-muted/25 px-3 py-2.5">
+          <div className="flex flex-col h-full">
+            <div className="flex-1 space-y-3 pt-6 max-h-[min(520px,60vh)] overflow-y-auto">
+              {(activeModal === "followUps" ? overdueFollowUpEnquiries : openPipelineEnquiries)
+                .slice(0, 12)
+                .map((e) => (
+                  <DashboardEnquiryRow
+                    key={e.id}
+                    enquiry={e}
+                    onScheduleMeeting={() => navigateToPage("/enquiries")}
+                    onSendQuotation={() => void handleDashboardSendQuotation(e.id)}
+                    onConvert={() => void handleDashboardConvertEnquiry(e)}
+                    onCreateQuotation={() => handleDashboardCreateQuotation(e)}
+                  />
+                ))}
+              {(activeModal === "followUps" ? overdueFollowUpEnquiries : openPipelineEnquiries).length === 0 && (
+                <p className="py-6 text-center text-sm text-muted-foreground">Nothing in this queue</p>
+              )}
+            </div>
+            <Button className="w-full rounded-lg mt-4" onClick={() => navigateToPage("/enquiries")}>
+              <ExternalLink className="mr-2 h-4 w-4" />
+              Open enquiries workspace
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Overdue tasks */}
+      <Sheet open={activeModal === "tasks"} onOpenChange={() => setActiveModal(null)}>
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-warning" aria-hidden />
+              Overdue tasks
+            </SheetTitle>
+          </SheetHeader>
+          <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
+            {overdueTasksList.slice(0, 12).map((t) => (
+              <div key={t.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2.5">
                 <div className="min-w-0">
-                  <p className="font-medium">{e.customerName}</p>
-                  <p className="text-xs text-muted-foreground">{e.id}</p>
+                  <p className="font-medium truncate">{t.siteName ?? t.projectId}</p>
+                  <p className="text-xs text-muted-foreground">Due {t.workDate}</p>
                 </div>
-                <Badge variant="secondary" className="shrink-0 capitalize">
-                  {e.status}
-                </Badge>
+                <Button size="sm" variant="outline" onClick={() => navigateToPage("/timeline")}>
+                  Open
+                </Button>
               </div>
             ))}
-            {openPipelineEnquiries.length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">No open enquiries</p>
+            {overdueTasksList.length === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">No overdue tasks</p>
             )}
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/enquiries")}>
+          <Button className="w-full rounded-lg mt-4" onClick={() => navigateToPage("/timeline")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            All enquiries
+            Open timeline
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
 
       {/* Active projects */}
       <Sheet open={activeModal === "projects"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Building2 className="h-5 w-5 text-primary" aria-hidden />
@@ -830,21 +1269,10 @@ const Dashboard = () => {
             </SheetTitle>
           </SheetHeader>
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
-            {projects
-              .filter((p) => p.status === "Ongoing")
-              .slice(0, 8)
-              .map((project) => (
-                <div key={project.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="font-medium">{project.name}</p>
-                    <p className="text-sm text-muted-foreground truncate">{project.client}</p>
-                  </div>
-                  <Badge variant="outline" className="shrink-0">
-                    {project.capacity}
-                  </Badge>
-                </div>
-              ))}
-            {projects.filter((p) => p.status === "Ongoing").length === 0 && (
+            {activeProjectsList.slice(0, 12).map((project) => (
+              <DashboardProjectRow key={project.id} project={project} />
+            ))}
+            {activeProjectsList.length === 0 && (
               <p className="py-6 text-center text-muted-foreground">No active projects</p>
             )}
           </div>
@@ -852,24 +1280,21 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             All projects
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
 
       {/* Active sites */}
       <Sheet open={activeModal === "activeSites"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5 text-teal-600" aria-hidden />
+              <MapPin className="h-5 w-5 text-primary" aria-hidden />
               Sites on ongoing projects
             </SheetTitle>
           </SheetHeader>
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
-            {sitesOnOngoingProjects.slice(0, 10).map((s) => (
-              <div key={s.id} className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
-                <p className="font-medium">{s.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{s.projectName ?? "—"}</p>
-              </div>
+            {sitesOnOngoingProjects.slice(0, 12).map((s) => (
+              <DashboardActiveSiteRow key={s.id} site={s} />
             ))}
             {sitesOnOngoingProjects.length === 0 && (
               <p className="py-6 text-center text-muted-foreground">No sites linked to ongoing projects</p>
@@ -879,34 +1304,21 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Active sites
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
 
       {/* Pending payments */}
       <Sheet open={activeModal === "pending"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
-              <Receipt className="h-5 w-5 text-amber-600" aria-hidden />
+              <Receipt className="h-5 w-5 text-warning" aria-hidden />
               Pending receivables
             </SheetTitle>
           </SheetHeader>
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
-            {stats.pendingInvoices.slice(0, 8).map((invoice) => (
-              <div key={invoice.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="font-medium">{invoice.customerName}</p>
-                  <p className="text-xs text-muted-foreground">{invoice.invoiceNumber}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold text-destructive tabular-nums">
-                    ₹{( (invoice.total || 0) - (invoice.amountReceived || 0) ).toLocaleString()}
-                  </p>
-                  <Badge variant={invoice.status === "pending" ? "destructive" : "secondary"} className="text-xs capitalize">
-                    {invoice.status}
-                  </Badge>
-                </div>
-              </div>
+            {stats.pendingInvoices.slice(0, 12).map((invoice) => (
+              <DashboardInvoiceRow key={invoice.id} invoice={invoice} />
             ))}
             {stats.pendingInvoices.length === 0 && (
               <p className="py-6 text-center text-muted-foreground">No pending receivables</p>
@@ -916,12 +1328,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Invoices
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
 
       {/* Employees */}
       <Sheet open={activeModal === "employees"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Active roster</SheetTitle>
           </SheetHeader>
@@ -932,45 +1344,19 @@ const Dashboard = () => {
           </div>
           <div className="grid max-h-[400px] grid-cols-1 gap-3 overflow-y-auto py-4 sm:grid-cols-2">
             {presentEmployees.map((emp) => (
-              <Card
-                key={emp.id}
-                className="cursor-pointer border-border/70 transition-colors hover:bg-muted/40"
-                onClick={() => handleEmployeeClick(emp.id)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <Avatar className="h-11 w-11">
-                      <AvatarFallback className="bg-primary/10 font-semibold text-primary">{emp.initial}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <p className="font-medium">{emp.name}</p>
-                      <Badge variant="outline" className="text-xs">
-                        {emp.role}
-                      </Badge>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Phone className="h-3 w-3 shrink-0" />
-                        {emp.phone}
-                      </div>
-                      <div className="flex items-center gap-1 text-xs font-medium text-primary">
-                        <MapPin className="h-3 w-3 shrink-0" />
-                        {emp.site}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <DashboardEmployeeCard key={emp.id} emp={emp} onSelect={handleEmployeeClick} />
             ))}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToPage("/employees")}>
             <ExternalLink className="mr-2 h-4 w-4" />
             Employees
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
 
       {/* Low stock */}
       <Sheet open={activeModal === "stock"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden />
@@ -981,63 +1367,61 @@ const Dashboard = () => {
             {Object.entries(groupedLowStockItems).map(([category, items]) => (
               <div key={category} className="space-y-2">
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{category}</h4>
-                {items.map((item, idx) => (
-                  <div key={`${item.id}-${idx}`} className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2.5">
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Stock{" "}
-                      <span className="font-semibold text-destructive">
-                        {item.stock} pcs
-                      </span>{" "}
-                      (min {item.min})
-                    </p>
-                  </div>
+                {items.map((item) => (
+                  <DashboardLowStockRow key={item.id} item={item} />
                 ))}
               </div>
             ))}
-            {lowStockItems.length === 0 && <p className="py-6 text-center text-muted-foreground">All SKUs above threshold</p>}
+            {lowStockItems.length === 0 && (
+              <ListEmptyState
+                icon={Package}
+                title="All SKUs above threshold"
+                description="No materials currently below their minimum stock level."
+                actionLabel="Open materials"
+                onAction={() => navigateToPage("/inventory/materials")}
+              />
+            )}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToPage("/inventory/materials")}>
             <ExternalLink className="mr-2 h-4 w-4" />
             Materials
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
 
       {/* EMIs */}
       <Sheet open={activeModal === "emis"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
-              <CreditCard className="h-5 w-5 text-orange-600" aria-hidden />
+              <CreditCard className="h-5 w-5 text-warning" aria-hidden />
               Loan EMIs
             </SheetTitle>
           </SheetHeader>
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
-            {stats.activeLoans.map((loan) => (
-              <div key={loan.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
-                <div>
-                  <p className="font-medium">{loan.personName?.trim() || loan.source || "Unknown"}</p>
-                  <p className="text-xs text-muted-foreground">Outstanding ₹{(loan.outstanding || 0).toLocaleString()}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold tabular-nums">₹{(loan.emiAmount || 0).toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground">/ month</p>
-                </div>
-              </div>
+            {stats.activeLoans.slice(0, 12).map((loan) => (
+              <DashboardEmiRow key={loan.id} loan={loan} />
             ))}
-            {stats.activeLoans.length === 0 && <p className="py-6 text-center text-muted-foreground">No active loans</p>}
+            {stats.activeLoans.length === 0 && (
+              <ListEmptyState
+                icon={CreditCard}
+                title="No active loans"
+                description="No EMI loans or borrowings to track right now."
+                actionLabel="Open loans"
+                onAction={() => navigateToPage("/loans")}
+              />
+            )}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToPage("/loans")}>
             <ExternalLink className="mr-2 h-4 w-4" />
             Loans
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
 
       {/* Quotations */}
       <Sheet open={activeModal === "quotations"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-muted-foreground" aria-hidden />
@@ -1045,19 +1429,8 @@ const Dashboard = () => {
             </SheetTitle>
           </SheetHeader>
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
-            {stats.pendingQuotations.slice(0, 8).map((quotation) => (
-              <div key={quotation.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="font-medium">{quotation.clientName}</p>
-                  <p className="text-xs text-muted-foreground">{quotation.quotationNumber}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold tabular-nums">₹{(quotation.totalAmount || 0).toLocaleString()}</p>
-                  <Badge variant="secondary" className="text-xs capitalize">
-                    {quotation.status}
-                  </Badge>
-                </div>
-              </div>
+            {stats.pendingQuotations.slice(0, 12).map((quotation) => (
+              <DashboardQuotationRow key={quotation.id} quotation={quotation} />
             ))}
             {stats.pendingQuotations.length === 0 && (
               <p className="py-6 text-center text-muted-foreground">No draft or sent quotations</p>
@@ -1067,12 +1440,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Quotations
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
 
       {/* On hold */}
       <Sheet open={activeModal === "blockages"} onOpenChange={() => setActiveModal(null)}>
-        <AppSheetContent size="xl" layout="document">
+        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-destructive" aria-hidden />
@@ -1088,15 +1461,9 @@ const Dashboard = () => {
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
             {projects
               .filter((p) => p.status === "On Hold")
-              .slice(0, 8)
+              .slice(0, 12)
               .map((project) => (
-                <div key={project.id} className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2.5">
-                  <p className="font-medium">{project.name}</p>
-                  <p className="text-sm text-muted-foreground">{project.client}</p>
-                  <Badge variant="destructive" className="mt-2 text-xs">
-                    {project.progressStage ?? "On Hold"}
-                  </Badge>
-                </div>
+                <DashboardBlockageRow key={project.id} project={project} />
               ))}
             {stats.activeBlockages === 0 && (
               <div className="py-8 text-center">
@@ -1109,7 +1476,7 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Active sites
           </Button>
-        </AppSheetContent>
+        </SheetContent>
       </Sheet>
     </PageShell>
   );

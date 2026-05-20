@@ -14,7 +14,7 @@ import {
   Download, 
   Palette, 
   Type, 
-  _Square, 
+ 
   Layout, 
   Layers,
   Sun,
@@ -27,6 +27,7 @@ import { toast } from "@/hooks/use-toast";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { PageShell } from "@/components/layout/PageShell";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import jsPDF from "jspdf";
 
 export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
@@ -490,7 +491,7 @@ export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
                   <Button size="sm">Small</Button>
                   <Button size="default">Default</Button>
                   <Button size="lg">Large</Button>
-                  <Button size="icon"><FileText className="h-4 w-4" /></Button>
+                  <Button size="icon" aria-label="Icon button example"><FileText className="h-4 w-4" aria-hidden /></Button>
                 </div>
               </CardContent>
             </Card>
@@ -600,6 +601,19 @@ export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
                     </CardContent>
                   </Card>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>EntityLink</CardTitle>
+                <CardDescription>
+                  Opens the entity info sheet in-place (not a route navigation). Use route links in lists and global search when users should land on a full page. Deep links: prefer <code className="text-xs">?open=</code> on list routes — see <code className="text-xs">src/lib/deepLinks.ts</code>.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-4 text-sm">
+                <EntityLink entityType="project" entityId="PROJ-DEMO" name="Sample project" />
+                <EntityLink entityType="customer" entityId="CUST-DEMO" name="Sample customer" />
               </CardContent>
             </Card>
           </TabsContent>

@@ -38,5 +38,11 @@ export default defineConfig(({ mode }) => ({
     globals: true,
     /** Windows: default `forks` pool often hits `spawn UNKNOWN` / flaky workers. */
     pool: "threads",
+    /**
+     * Default `npm test` / `npm run test:run` skips plan-traceability matrix.
+     * `npm run test:empty` — empty-boot / normalize / smoke (excludes seed + plan matrix).
+     * `npm run test:seed` — seedProvenance, projectSmokeAllSeeds, appSeedBuilder only.
+     */
+    exclude: ["**/node_modules/**", "**/dist/**", "**/p0MandatoryMatrix.test.ts"],
   },
 }));

@@ -9,8 +9,11 @@ import {
   hydrateInvoiceLinkage,
 } from "@/domain/project/linkageMigration";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
+import { normalizeTools } from "@/lib/normalizeTools";
+import { reconcileAllEnquiryQuotationHistories } from "@/lib/enquiryQuotationHistory";
 import { DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
 import type { AppState } from "@/contexts/AppDataContext";
+import type { Quotation } from "@/types/project";
 import type { Project, AttendanceRecord } from "@/types/project";
 import type { Invoice } from "@/types/finance";
 import type { VendorBill, VendorPayment } from "@/types/inventory";
@@ -138,26 +141,60 @@ function ensureRecord<T extends Record<string, unknown>>(value: T | undefined | 
 }
 
 /**
+ * Backfill `linkedProjectId` from legacy `convertedToProjectId` on hydrate.
+ *
+ * Also collapses the legacy `"confirmed"` quotation status back to `"approved"`.
+ * The state machine (`quotationStateMachine.ts`) only knows the canonical statuses
+ * `draft | sent | approved | rejected | withdrawn | converted_to_project`. An earlier
+ * code path wrote `"confirmed"` as an intermediate state before project creation,
+ * leaving any quotation that ever passed through that path unconvertable
+ * (state machine has no transitions for the unknown key). This migration mirrors
+ * the historical `confirmedAt` into `approvedAt` so the status-history block on
+ * Quotations.tsx still reads correctly.
+ */
+export function normalizeQuotations(quotations: Quotation[]): Quotation[] {
+  return quotations.map((q) => {
+    const collapsedStatus = q.status === ("confirmed" as Quotation["status"])
+      ? ("approved" as Quotation["status"])
+      : q.status;
+    const approvedAt = q.approvedAt ?? q.confirmedAt;
+    return {
+      ...q,
+      status: collapsedStatus,
+      approvedAt,
+      linkedProjectId: q.linkedProjectId ?? q.convertedToProjectId,
+    };
+  });
+}
+
+/**
  * Merge persisted partial state with empty baseline so missing collections never crash hydrate.
  */
 export function normalizeAppState(parsed: Partial<AppState> | null | undefined): AppState {
   const base = buildEmptyAppState();
   if (!parsed || typeof parsed !== "object") return base;
 
+  const sites = ensureArray(parsed.sites);
+  const employees = ensureArray(parsed.employees);
+  const tools = normalizeTools(ensureArray(parsed.tools), sites, employees);
+
   return {
     ...base,
     ...parsed,
     projects: ensureArray(parsed.projects),
-    quotations: ensureArray(parsed.quotations),
+    quotations: normalizeQuotations(ensureArray(parsed.quotations)),
     customers: ensureArray(parsed.customers),
     invoices: ensureArray(parsed.invoices),
     saleBills: ensureArray(parsed.saleBills),
     expenses: ensureArray(parsed.expenses),
     incomes: ensureArray(parsed.incomes),
     payments: ensureArray(parsed.payments),
-    enquiries: ensureArray(parsed.enquiries),
+    enquiries: reconcileAllEnquiryQuotationHistories(
+      ensureArray(parsed.enquiries),
+      normalizeQuotations(ensureArray(parsed.quotations)),
+    ),
     agents: ensureArray(parsed.agents),
-    employees: ensureArray(parsed.employees),
+    employees,
     teams: ensureArray(parsed.teams),
     attendanceRecords: ensureArray(parsed.attendanceRecords),
     tasks: ensureArray(parsed.tasks),
@@ -167,14 +204,14 @@ export function normalizeAppState(parsed: Partial<AppState> | null | undefined):
     loanRepayments: ensureArray(parsed.loanRepayments),
     vendors: ensureArray(parsed.vendors),
     inventoryItems: ensureArray(parsed.inventoryItems),
-    tools: ensureArray(parsed.tools),
+    tools,
     vendorBills: ensureArray(parsed.vendorBills),
     vendorPayments: ensureArray(parsed.vendorPayments),
     quotationTemplates: ensureArray(parsed.quotationTemplates),
     siteChecklistTemplates: ensureArray(parsed.siteChecklistTemplates),
     servicePresets: ensureArray(parsed.servicePresets),
     quotationVisibilityPresets: ensureArray(parsed.quotationVisibilityPresets),
-    sites: ensureArray(parsed.sites),
+    sites,
     holidays: ensureArray(parsed.holidays),
     blockages: ensureArray(parsed.blockages),
     operationalTickets: ensureArray(parsed.operationalTickets),
@@ -441,7 +478,7 @@ export function buildSequencedAppSeed(): AppState {
   // L8 — enquiries + quotations (before projects that link to them)
   state = {
     ...state,
-    enquiries: [...seedEnquiries],
+    enquiries: reconcileAllEnquiryQuotationHistories([...seedEnquiries], [...seedQuotations]),
     quotations: [...seedQuotations],
   };
 

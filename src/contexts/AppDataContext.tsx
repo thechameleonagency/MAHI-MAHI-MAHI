@@ -19,60 +19,48 @@ import type {
   SolarPackagePreset,
   SettingsTeamMember,
 } from "@/types/project";
-import { DEFAULT_SOLAR_PACKAGE_PRESETS, DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
+import { DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
+import { buildEmptyAppState, buildSequencedAppSeed, normalizeAppState } from "@/data/appSeedBuilder";
+import { migratePersistedState } from "@/lib/migratePersistedIds";
+import {
+  APP_DATA_RESET_EPOCH,
+  APP_DATA_RESET_EPOCH_KEY,
+  clearAllAppStorage,
+} from "@/lib/clearAppStorage";
+import { syncPrototypeRepositoriesFromAppState } from "@/infrastructure/repositories/syncPrototypeRepositories";
+import { createId } from "@/lib/idFactory";
+import { isQuotationConverted } from "@/lib/quotationSelectors";
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
 import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany } from "@/types/finance";
 import type { Blockage, Ticket, ProjectTimelineStatus, ClientPaymentRecord } from "@/types/blockage";
-import {
-  dummyProjects,
-  dummyEmployees,
-  dummyQuotations,
-  dummyCustomers,
-  dummyInvoices,
-  dummySaleBills,
-  dummyExpenses,
-  dummyPartners,
-  dummyPartnerTransactions,
-  dummyLoans,
-  dummyLoanRepayments,
-  dummyPayments,
-  dummyVendors,
-  dummyAttendanceRecords,
-  dummySites,
-  dummyHolidays,
-  dummyServicePresets,
-  dummyTasks,
-  dummyEmployeePaidHolidays,
-  dummyOwnerInvestments,
-  _dummyDeletionRequests,
-  dummyClientPaymentRecords,
-  dummyEnquiries,
-  dummyQuotationVisibilityPresets,
-  dummyAgents,
-  dummyIncomes,
-  dummyTeams,
-  dummyAuditLogs,
-  dummyVendorshipCompanies,
-  dummyINCGiverCompanies,
-} from "@/data/dummyData";
-import {
-  initialOperationalBlockages,
-  initialOperationalTickets,
-  initialProjectTimelineByProjectId,
-} from "@/data/activeSitesSeed";
 import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate, stripOrphanChecklistInventoryRefs } from "@/lib/siteChecklist";
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
-import { dummyQuotationTemplates, dummySiteChecklistTemplates } from "@/data/templatesData";
-import { dummyInventoryItems, dummyTools, dummyVendorBills, dummyVendorPayments, type VendorBill, type VendorPayment } from "@/data/inventoryData";
+import {
+  applyChangeRequestToProject,
+  scaleAgentAccrualsForContractChange,
+} from "@/lib/changeRequestApproval";
+import { saveCreateDraft, buildProjectToInvoiceDraft } from "@/lib/createFromContext";
+import {
+  buildClientPaymentRecordPaymentRow,
+  clientPaymentRecordPaymentId,
+  fifoApplyClientPaymentToInvoices,
+  reconcileClientPaymentLedger,
+  validateClientPaymentRecord,
+} from "@/lib/clientPaymentReconciliation";
+import type { VendorBill, VendorPayment } from "@/data/inventoryData";
 import { canTransitionEnquiryStatus, type EnquiryStatus } from "@/domain/stateMachines/enquiryStateMachine";
 import { canTransitionQuotationStatus, type QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
 import { canTransitionProjectStatus, type ProjectLifecycleStatus } from "@/domain/stateMachines/projectStateMachine";
 import type { AppAction } from "@/domain/policies/permissionMatrix";
+import type { Command, CommandResult } from "@/application/commands/types";
 import { UnifiedFinanceValidationService, type ExpenseTaxonomy } from "@/application/services/UnifiedFinanceValidationService";
+import { BillingDirectionGuardService } from "@/application/services/BillingDirectionGuardService";
 import { VoucherPostingService, type AccountingEventType, type PostingResult } from "@/application/services/VoucherPostingService";
 import type { MovementType } from "@/application/services/InventoryMovementService";
 import { toast } from "@/hooks/use-toast";
 import { useFoundation } from "@/app/providers/FoundationProvider";
+import { useRoleMatrix } from "@/contexts/RoleMatrixContext";
+import { canFeature } from "@/domain/policies/featurePermissions";
 import { CREATE_ENQUIRY_COMMAND, UPDATE_ENQUIRY_STATUS_COMMAND, CONVERT_ENQUIRY_COMMAND } from "@/application/commands/enquiry/registerEnquiryCommands";
 import {
   CREATE_QUOTATION_COMMAND,
@@ -80,12 +68,16 @@ import {
   UPDATE_QUOTATION_COMMAND,
 } from "@/application/commands/quotation/registerQuotationCommands";
 import { createCommercialSnapshot } from "@/domain/quotation/applyQuotationPatch";
+import { validateQuotationSendOrApprove } from "@/domain/quotation/quotationCommercialAmount";
 import {
   CREATE_PROJECT_FROM_QUOTATION_COMMAND,
   CREATE_PROJECT_INTAKE_COMMAND,
   CREATE_DIRECT_PROJECT_EXCEPTION_COMMAND,
 } from "@/application/commands/project/registerProjectCommands";
 import { normalizeProject } from "@/lib/projectNormalize";
+import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
+import { formatINR } from "@/lib/formatCurrency";
+import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
 import {
   MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
   WAREHOUSE_INVENTORY_MOVEMENT_COMMAND,
@@ -99,10 +91,11 @@ import {
   hydrateQuotationLinkage,
 } from "@/domain/project/linkageMigration";
 import { ProjectInvariantService } from "@/domain/project/ProjectInvariantService";
+import { evaluateAutoArchive, applyAutoArchive } from "@/domain/customer/customerArchive";
 import type { SiteChecklistPreset } from "@/data/masters";
 
 // ============ APP STATE INTERFACE ============
-interface AppState {
+export interface AppState {
   // Core entities
   projects: Project[];
   quotations: Quotation[];
@@ -187,6 +180,22 @@ interface AppState {
 
   /** B13: persisted uploaded statements for the BankReconciliation modal (prototype). */
   bankReconciliationStatements: unknown[];
+
+  // ---- Operations entities (final-touches plan) ----
+  /** Inventory reservations. Auto-created from project site checklist + manual reservations. */
+  materialReservations: import("@/types/operations").MaterialReservation[];
+  /** Installation schedules per project with date + team/employee assignment. */
+  scheduledInstallations: import("@/types/operations").ScheduledInstallation[];
+  /** Pre-start site visits by installation team — feeds the final site checklist. */
+  siteVisits: import("@/types/operations").SiteVisit[];
+  /** Mid-project change requests (capacity/panels/addon-work). */
+  projectChangeRequests: import("@/types/operations").ProjectChangeRequest[];
+  /** Material damage events at transport/installation/storage stages. */
+  materialDamageRecords: import("@/types/operations").MaterialDamage[];
+  /** Agent commission accruals (pending -> payable -> paid). */
+  agentCommissionAccruals: import("@/types/operations").AgentCommissionAccrual[];
+  /** Need-to-Get: per-line vendor assignment and acquire state. */
+  procurementNeedLines: import("@/types/operations").ProcurementNeedLine[];
 }
 
 // ============ CONTEXT TYPE ============
@@ -205,10 +214,10 @@ interface AppDataContextType extends AppState {
     reason: string;
     customerId?: string;
   }) => Promise<{ ok: boolean; error?: string; projectId?: string }>;
-  updateProject: (id: string, updates: Partial<Project>) => void;
+  updateProject: (id: string, updates: Partial<Project>) => boolean;
   recordProjectMaterialMovement: (input: {
     projectId: string;
-    itemId: number;
+    itemId: string;
     movementType: MovementType;
     quantity: number;
     allowNegativeSiteBalanceOverride?: boolean;
@@ -217,7 +226,7 @@ interface AppDataContextType extends AppState {
     clientRequestId?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   recordWarehouseInventoryMovement: (input: {
-    itemId: number;
+    itemId: string;
     movementType: WarehouseOnlyMovementType;
     quantity: number;
   }) => Promise<{ ok: boolean; error?: string }>;
@@ -233,21 +242,22 @@ interface AppDataContextType extends AppState {
   getProjectEligibleQuotations: () => Quotation[];
   transitionQuotationStatus: (id: string, nextStatus: QuotationStatus) => Promise<{ ok: boolean; error?: string }>;
   reviseQuotation: (id: string) => Promise<{ ok: boolean; revisedQuotationId?: string; error?: string }>;
+  withdrawQuotation: (id: string, reason?: string) => Promise<{ ok: boolean; error?: string }>;
   
   // Customers CRUD
-  addCustomer: (customer: Customer) => void;
+  addCustomer: (customer: Customer) => boolean;
   updateCustomer: (id: string, updates: Partial<Customer>) => void;
   deleteCustomer: (id: string) => void;
   getCustomerById: (id: string) => Customer | undefined;
   
   // Invoices CRUD
-  addInvoice: (invoice: Invoice) => void;
+  addInvoice: (invoice: Invoice, options?: { highValueJustification?: string }) => void;
   updateInvoice: (id: string, updates: Partial<Invoice>) => void;
   deleteInvoice: (id: string) => void;
   getInvoiceById: (id: string) => Invoice | undefined;
   
   // Sale Bills CRUD
-  addSaleBill: (saleBill: Invoice) => void;
+  addSaleBill: (saleBill: Invoice, options?: { highValueJustification?: string }) => void;
   updateSaleBill: (id: string, updates: Partial<Invoice>) => void;
   deleteSaleBill: (id: string) => void;
   
@@ -275,15 +285,15 @@ interface AppDataContextType extends AppState {
   
   // Employees CRUD
   addEmployee: (employee: Employee) => void;
-  updateEmployee: (id: number, updates: Partial<Employee>) => void;
-  deleteEmployee: (id: number) => void;
-  getEmployeeById: (id: number) => Employee | undefined;
+  updateEmployee: (id: string, updates: Partial<Employee>) => void;
+  deleteEmployee: (id: string) => void;
+  getEmployeeById: (id: string) => Employee | undefined;
   
   // Attendance CRUD
   addAttendanceRecord: (record: AttendanceRecord) => void;
   updateAttendanceRecord: (id: string, updates: Partial<AttendanceRecord>) => void;
   getAttendanceByDate: (date: string) => AttendanceRecord[];
-  getAttendanceByEmployee: (employeeId: number) => AttendanceRecord[];
+  getAttendanceByEmployee: (employeeId: string) => AttendanceRecord[];
   
   // Teams CRUD
   addTeam: (team: Team) => void;
@@ -318,20 +328,26 @@ interface AppDataContextType extends AppState {
 
   // Vendors CRUD
   addVendor: (vendor: Vendor) => void;
-  updateVendor: (id: number, updates: Partial<Vendor>) => void;
-  deleteVendor: (id: number) => void;
+  updateVendor: (id: string, updates: Partial<Vendor>) => void;
+  deleteVendor: (id: string) => { ok: boolean; error?: string };
+
+  upsertProcurementNeedLine: (line: import("@/types/operations").ProcurementNeedLine) => void;
+  updateProcurementNeedLine: (
+    lineKey: string,
+    updates: Partial<import("@/types/operations").ProcurementNeedLine>,
+  ) => void;
 
   // Vendor Bills CRUD
   addVendorBill: (bill: VendorBill) => void;
   updateVendorBill: (id: string, updates: Partial<VendorBill>) => void;
   deleteVendorBill: (id: string) => void;
-  getVendorBillsByVendor: (vendorId: number) => VendorBill[];
+  getVendorBillsByVendor: (vendorId: string) => VendorBill[];
 
   // Vendor Payments CRUD
   addVendorPayment: (payment: VendorPayment) => void;
   updateVendorPayment: (id: string, updates: Partial<VendorPayment>) => void;
   deleteVendorPayment: (id: string) => void;
-  getVendorPaymentsByVendor: (vendorId: number) => VendorPayment[];
+  getVendorPaymentsByVendor: (vendorId: string) => VendorPayment[];
   
   // Service Presets CRUD
   addServicePreset: (preset: ServicePreset) => void;
@@ -351,7 +367,7 @@ interface AppDataContextType extends AppState {
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   getTaskById: (id: string) => Task | undefined;
-  getTasksByEmployee: (employeeId: number) => Task[];
+  getTasksByEmployee: (employeeId: string) => Task[];
   getTasksByDate: (date: string) => Task[];
   
   // Enquiries CRUD
@@ -370,6 +386,7 @@ interface AppDataContextType extends AppState {
   
   // Sites CRUD
   addSite: (site: SiteRecord) => void;
+  deleteSite: (siteId: string) => { ok: boolean; error?: string };
   addQuotationTemplate: (template: QuotationTemplate) => void;
   updateQuotationTemplate: (id: string, updates: Partial<QuotationTemplate>) => void;
   deleteQuotationTemplate: (id: string) => void;
@@ -420,8 +437,8 @@ interface AppDataContextType extends AppState {
   
   // Employee Paid Holidays CRUD
   addEmployeePaidHoliday: (holiday: EmployeePaidHoliday) => void;
-  getEmployeePaidHolidaysByMonth: (employeeId: number, month: string) => EmployeePaidHoliday[];
-  hasEmployeePaidHolidayInMonth: (employeeId: number, month: string) => boolean;
+  getEmployeePaidHolidaysByMonth: (employeeId: string, month: string) => EmployeePaidHoliday[];
+  hasEmployeePaidHolidayInMonth: (employeeId: string, month: string) => boolean;
   
   // Relationship helpers
   getProjectQuotation: (projectId: string) => Quotation | undefined;
@@ -441,17 +458,19 @@ interface AppDataContextType extends AppState {
 
   // Inventory Items CRUD
   addInventoryItem: (item: InventoryItem) => void;
-  updateInventoryItem: (id: number, updates: Partial<InventoryItem>) => void;
-  deleteInventoryItem: (id: number) => void;
-  issueItemToSite: (itemId: number, siteId: string, siteName: string, qty: number, date: string, employeeId?: string, employeeName?: string) => void;
-  returnItemFromSite: (itemId: number, siteId: string, siteName: string, qty: number, date: string, condition?: string, notes?: string) => void;
+  updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => void;
+  deleteInventoryItem: (id: string) => void;
+  reverseInventoryMovement: (itemId: string, movementId: string, reason?: string) => { ok: boolean; error?: string };
+  issueItemToSite: (itemId: string, siteId: string, siteName: string, qty: number, date: string, employeeId?: string, employeeName?: string) => void;
+  returnItemFromSite: (itemId: string, siteId: string, siteName: string, qty: number, date: string, condition?: string, notes?: string) => void;
 
   // Tools CRUD
   addTool: (tool: Tool) => void;
-  updateTool: (id: number, updates: Partial<Tool>) => void;
-  deleteTool: (id: number) => void;
+  updateTool: (id: string, updates: Partial<Tool>) => void;
+  deleteTool: (id: string) => void;
+  reverseToolMovement: (toolId: string, movementId: string, reason?: string) => { ok: boolean; error?: string };
   issueTool: (
-    toolId: number,
+    toolId: string,
     siteId: string,
     siteName: string,
     date: string,
@@ -459,19 +478,21 @@ interface AppDataContextType extends AppState {
     employeeName?: string,
     handoffNotes?: string,
   ) => void;
-  returnTool: (toolId: number, condition: Tool["condition"], date: string, notes?: string) => void;
+  returnTool: (toolId: string, condition: Tool["condition"], date: string, notes?: string) => void;
 
   // Agent Commission Payments
   addAgentCommissionPayment: (payment: AgentCommissionPayment) => void;
+  updateAgentCommissionPayment: (id: string, updates: Partial<AgentCommissionPayment>) => void;
+  deleteAgentCommissionPayment: (id: string) => void;
   getCommissionPaymentsByAgent: (agentId: string) => AgentCommissionPayment[];
 
   // Employee Payroll Records
   addEmployeePayrollRecord: (record: EmployeePayrollRecord) => void;
-  getPayrollByEmployee: (employeeId: number) => EmployeePayrollRecord[];
+  getPayrollByEmployee: (employeeId: string) => EmployeePayrollRecord[];
   addEmployeeWalletLedgerEntry: (
     entry: Omit<EmployeeWalletLedgerEntry, "id" | "createdAt">,
   ) => { ok: boolean; error?: string };
-  getEmployeeWalletLedger: (employeeId?: number) => EmployeeWalletLedgerEntry[];
+  getEmployeeWalletLedger: (employeeId?: string) => EmployeeWalletLedgerEntry[];
 
   // Derived: low stock items
   lowStockItems: InventoryItem[];
@@ -492,18 +513,65 @@ interface AppDataContextType extends AppState {
   bankReconciliationStatements: unknown[];
   setBankReconciliationStatements: (statements: unknown[]) => void;
 
+  // ---- Operations entities CRUD (final-touches plan, Phase 1.2) ----
+  addMaterialReservation: (
+    reservation: Omit<import("@/types/operations").MaterialReservation, "id" | "createdAt">,
+  ) => string;
+  releaseMaterialReservation: (id: string) => void;
+  reduceMaterialReservation: (id: string, deltaQty: number) => void;
+  getReservationsForItem: (itemId: string) => import("@/types/operations").MaterialReservation[];
+  getReservationsForProject: (projectId: string) => import("@/types/operations").MaterialReservation[];
+
+  addScheduledInstallation: (
+    schedule: Omit<import("@/types/operations").ScheduledInstallation, "id" | "createdAt">,
+  ) => string;
+  updateScheduledInstallation: (
+    id: string,
+    updates: Partial<import("@/types/operations").ScheduledInstallation>,
+  ) => void;
+  getSchedulesByProject: (projectId: string) => import("@/types/operations").ScheduledInstallation[];
+  getSchedulesByDate: (date: string) => import("@/types/operations").ScheduledInstallation[];
+
+  addSiteVisit: (
+    visit: Omit<import("@/types/operations").SiteVisit, "id" | "createdAt">,
+  ) => string;
+  reconcileSiteVisitToChecklist: (visitId: string) => { ok: boolean; error?: string };
+  getSiteVisitsByProject: (projectId: string) => import("@/types/operations").SiteVisit[];
+
+  addProjectChangeRequest: (
+    request: Omit<import("@/types/operations").ProjectChangeRequest, "id" | "requestedAt" | "status">,
+  ) => string;
+  approveProjectChangeRequest: (id: string) => { ok: boolean; error?: string; generatedInvoiceId?: string };
+  rejectProjectChangeRequest: (id: string, reason?: string) => void;
+  getChangeRequestsByProject: (projectId: string) => import("@/types/operations").ProjectChangeRequest[];
+
+  addMaterialDamage: (
+    damage: Omit<import("@/types/operations").MaterialDamage, "id" | "reportedAt">,
+  ) => string;
+  getDamageByProject: (projectId: string) => import("@/types/operations").MaterialDamage[];
+  getDamageByItem: (itemId: string) => import("@/types/operations").MaterialDamage[];
+
+  addAgentCommissionAccrual: (
+    accrual: Omit<import("@/types/operations").AgentCommissionAccrual, "id" | "accruedAt" | "status">,
+  ) => string;
+  markAccrualPayable: (id: string) => void;
+  markAccrualPaid: (id: string, paymentId: string) => void;
+  getAccrualsByAgent: (agentId: string) => import("@/types/operations").AgentCommissionAccrual[];
+  getAccrualsByProject: (projectId: string) => import("@/types/operations").AgentCommissionAccrual[];
+
   // Utility functions
   generateId: (prefix: string) => string;
   resetToDefaults: () => void;
+  /** Load the built-in sequenced demo dataset into memory (explicit opt-in). */
+  loadDemoDataset: () => void;
   /** Returns true when the current role is allowed to perform the action. Use to disable/hide UI elements. */
   canDo: (action: AppAction) => boolean;
 }
 
 const STORAGE_KEY = "mahi_solar_app_data";
 // Bump this whenever a stored shape gains a new required collection. Older payloads will fall
-// back to seed data instead of crashing the app on hydrate. Persisted payloads are written with
-// the matching version key so a refresh after a redeploy does not throw away the demo.
-const STORAGE_VERSION = 2;
+// back to empty boot instead of crashing the app on hydrate.
+const STORAGE_VERSION = 8;
 const STORAGE_VERSION_KEY = "mahi_solar_app_data_version";
 const DEFAULT_ACTOR_ROLE = "admin";
 const toProjectLifecycleStatus = (lifecycleStatus: Project["lifecycleStatus"]): ProjectLifecycleStatus => {
@@ -515,102 +583,6 @@ const toProjectLifecycleStatus = (lifecycleStatus: Project["lifecycleStatus"]): 
     default: return "In Progress";
   }
 };
-
-/** Per-entity merge: seed defaults + persisted rows so new schema fields survive K5. */
-function mergeIdArray<T extends { id: string | number }>(seed: T[], stored: T[] | undefined): T[] {
-  if (!stored?.length) return [...seed];
-  const storedById = new Map(stored.map((p) => [String(p.id), p]));
-  const seedIds = new Set(seed.map((s) => String(s.id)));
-  const merged: T[] = [];
-  for (const s of seed) {
-    const p = storedById.get(String(s.id));
-    merged.push(p ? ({ ...s, ...p } as T) : s);
-  }
-  for (const p of stored) {
-    if (!seedIds.has(String(p.id))) merged.push(p);
-  }
-  return merged;
-}
-
-function mergeTimelineMaps(
-  seed: Record<string, ProjectTimelineStatus>,
-  stored: Record<string, ProjectTimelineStatus> | undefined,
-): Record<string, ProjectTimelineStatus> {
-  if (!stored) return { ...seed };
-  const out: Record<string, ProjectTimelineStatus> = { ...seed };
-  for (const [k, v] of Object.entries(stored)) {
-    const base = seed[k];
-    out[k] = base && v ? ({ ...base, ...v } as ProjectTimelineStatus) : v;
-  }
-  return out;
-}
-
-function mergePersistedWithSeed(baseSeed: AppState, parsed: AppState): AppState {
-  return {
-    ...baseSeed,
-    ...parsed,
-    projects: mergeIdArray(baseSeed.projects, parsed.projects),
-    quotations: mergeIdArray(baseSeed.quotations, parsed.quotations),
-    customers: mergeIdArray(baseSeed.customers, parsed.customers),
-    invoices: mergeIdArray(baseSeed.invoices, parsed.invoices),
-    saleBills: mergeIdArray(baseSeed.saleBills, parsed.saleBills),
-    expenses: mergeIdArray(baseSeed.expenses, parsed.expenses),
-    incomes: mergeIdArray(baseSeed.incomes, parsed.incomes),
-    payments: mergeIdArray(baseSeed.payments, parsed.payments),
-    enquiries: mergeIdArray(baseSeed.enquiries, parsed.enquiries),
-    agents: mergeIdArray(baseSeed.agents, parsed.agents),
-    employees: mergeIdArray(baseSeed.employees, parsed.employees),
-    teams: mergeIdArray(baseSeed.teams, parsed.teams),
-    attendanceRecords: mergeIdArray(baseSeed.attendanceRecords, parsed.attendanceRecords),
-    tasks: mergeIdArray(baseSeed.tasks, parsed.tasks),
-    partners: mergeIdArray(baseSeed.partners, parsed.partners),
-    partnerTransactions: mergeIdArray(baseSeed.partnerTransactions, parsed.partnerTransactions),
-    loans: mergeIdArray(baseSeed.loans, parsed.loans),
-    loanRepayments: mergeIdArray(baseSeed.loanRepayments, parsed.loanRepayments),
-    vendors: mergeIdArray(baseSeed.vendors, parsed.vendors),
-    inventoryItems: mergeIdArray(baseSeed.inventoryItems, parsed.inventoryItems),
-    tools: mergeIdArray(baseSeed.tools, parsed.tools),
-    vendorBills: mergeIdArray(baseSeed.vendorBills, parsed.vendorBills),
-    vendorPayments: mergeIdArray(baseSeed.vendorPayments, parsed.vendorPayments),
-    quotationTemplates: mergeIdArray(baseSeed.quotationTemplates, parsed.quotationTemplates),
-    siteChecklistTemplates: mergeIdArray(baseSeed.siteChecklistTemplates, parsed.siteChecklistTemplates),
-    servicePresets: mergeIdArray(baseSeed.servicePresets, parsed.servicePresets),
-    quotationVisibilityPresets: mergeIdArray(
-      baseSeed.quotationVisibilityPresets,
-      parsed.quotationVisibilityPresets,
-    ),
-    sites: mergeIdArray(baseSeed.sites, parsed.sites),
-    holidays: parsed.holidays?.length ? parsed.holidays : baseSeed.holidays,
-    blockages: mergeIdArray(baseSeed.blockages, parsed.blockages),
-    operationalTickets: mergeIdArray(baseSeed.operationalTickets, parsed.operationalTickets),
-    projectTimelineByProjectId: mergeTimelineMaps(
-      baseSeed.projectTimelineByProjectId,
-      parsed.projectTimelineByProjectId,
-    ),
-    clientPaymentRecords: mergeIdArray(baseSeed.clientPaymentRecords, parsed.clientPaymentRecords),
-    ownerInvestments: mergeIdArray(baseSeed.ownerInvestments, parsed.ownerInvestments),
-    employeePaidHolidays: mergeIdArray(baseSeed.employeePaidHolidays, parsed.employeePaidHolidays),
-    auditLogs: mergeIdArray(baseSeed.auditLogs, parsed.auditLogs),
-    accountingVouchers: mergeIdArray(baseSeed.accountingVouchers, parsed.accountingVouchers),
-    accountingReviewQueue: mergeIdArray(baseSeed.accountingReviewQueue, parsed.accountingReviewQueue),
-    agentCommissionPayments: mergeIdArray(
-      baseSeed.agentCommissionPayments,
-      parsed.agentCommissionPayments,
-    ),
-    employeePayrollRecords: mergeIdArray(
-      baseSeed.employeePayrollRecords,
-      parsed.employeePayrollRecords,
-    ),
-    employeeWalletLedger: mergeIdArray(
-      baseSeed.employeeWalletLedger ?? [],
-      parsed.employeeWalletLedger ?? [],
-    ),
-    solarPackagePresets: mergeIdArray(baseSeed.solarPackagePresets, parsed.solarPackagePresets),
-    settingsTeamMembers: mergeIdArray(baseSeed.settingsTeamMembers, parsed.settingsTeamMembers),
-    vendorshipCompanies: mergeIdArray(baseSeed.vendorshipCompanies, parsed.vendorshipCompanies ?? []),
-    incGiverCompanies: mergeIdArray(baseSeed.incGiverCompanies, parsed.incGiverCompanies ?? []),
-  };
-}
 
 /** Append invoice/sale-bill id to project linkage; `invoiceId` mirrors latest document for legacy readers. */
 function mergeProjectInvoiceRef(project: Project, docId: string): Pick<Project, "invoiceIds" | "invoiceId"> {
@@ -651,61 +623,9 @@ function deriveProjectBillingMetrics(projects: Project[], invoices: Invoice[], s
 }
 
 // ============ INITIAL STATE ============
-function buildAppStateFromSeeds(): AppState {
-  const customers = dummyCustomers;
-  const projects = hydrateProjectLinkage(dummyProjects, customers);
-  const quotations = hydrateQuotationLinkage(dummyQuotations, customers);
-  const invoices = hydrateInvoiceLinkage(dummyInvoices, customers, projects);
-  const saleBills = hydrateInvoiceLinkage(dummySaleBills, customers, projects);
-  const projectsWithBilling = deriveProjectBillingMetrics(projects, invoices, saleBills);
-  return {
-    projects: projectsWithBilling,
-    quotations,
-    customers,
-    invoices,
-    saleBills,
-    expenses: dummyExpenses,
-    incomes: dummyIncomes,
-    payments: dummyPayments,
-    enquiries: dummyEnquiries,
-    agents: dummyAgents,
-    employees: dummyEmployees,
-    attendanceRecords: dummyAttendanceRecords,
-    tasks: dummyTasks,
-    partners: dummyPartners,
-    partnerTransactions: dummyPartnerTransactions,
-    loans: dummyLoans,
-    loanRepayments: dummyLoanRepayments,
-    vendors: dummyVendors,
-    inventoryItems: dummyInventoryItems,
-    tools: dummyTools,
-    vendorBills: dummyVendorBills,
-    vendorPayments: dummyVendorPayments,
-    quotationTemplates: dummyQuotationTemplates,
-    siteChecklistTemplates: dummySiteChecklistTemplates,
-    servicePresets: dummyServicePresets,
-    quotationVisibilityPresets: dummyQuotationVisibilityPresets,
-    sites: dummySites,
-    holidays: dummyHolidays,
-    blockages: structuredClone(initialOperationalBlockages),
-    operationalTickets: structuredClone(initialOperationalTickets),
-    projectTimelineByProjectId: structuredClone(initialProjectTimelineByProjectId),
-    clientPaymentRecords: structuredClone(dummyClientPaymentRecords),
-    ownerInvestments: dummyOwnerInvestments,
-    employeePaidHolidays: dummyEmployeePaidHolidays,
-    teams: dummyTeams,
-    auditLogs: dummyAuditLogs,
-    accountingVouchers: [],
-    accountingReviewQueue: [],
-    agentCommissionPayments: [],
-    employeePayrollRecords: [],
-    employeeWalletLedger: [],
-    solarPackagePresets: structuredClone(DEFAULT_SOLAR_PACKAGE_PRESETS),
-    settingsTeamMembers: structuredClone(DEFAULT_SETTINGS_TEAM_MEMBERS),
-    vendorshipCompanies: dummyVendorshipCompanies,
-    incGiverCompanies: dummyINCGiverCompanies,
-    bankReconciliationStatements: [],
-  };
+/** Default boot: empty business data (masters load separately). */
+function buildDefaultBootState(): AppState {
+  return buildEmptyAppState();
 }
 
 // ============ PERSISTENCE HELPERS ============
@@ -727,40 +647,67 @@ const deserializeState = (json: string): AppState | null => {
   }
 };
 
+/** Hydrate FK links and billing metrics on a full state snapshot (no seed merge). */
+function applyHydrationPipeline(state: AppState): AppState {
+  const customers = state.customers;
+  const projects = hydrateProjectLinkage(state.projects, customers);
+  const quotations = hydrateQuotationLinkage(state.quotations, customers);
+  const invoices = sanitizeBillingDocuments(
+    hydrateInvoiceLinkage(state.invoices, customers, projects),
+  );
+  const saleBills = sanitizeBillingDocuments(
+    hydrateInvoiceLinkage(state.saleBills, customers, projects),
+  );
+  const reconciledProjects = deriveProjectBillingMetrics(projects, invoices, saleBills);
+  return {
+    ...state,
+    projects: reconciledProjects,
+    quotations,
+    invoices,
+    saleBills,
+  };
+}
+
+function persistFreshSeed(baseSeed: AppState): void {
+  localStorage.setItem(APP_DATA_RESET_EPOCH_KEY, APP_DATA_RESET_EPOCH);
+  localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
+  localStorage.setItem(STORAGE_KEY, serializeState(baseSeed));
+}
+
 const getInitialState = (): AppState => {
-  const baseSeed = buildAppStateFromSeeds();
+  const emptyBoot = buildDefaultBootState();
   try {
+    const storedEpoch = localStorage.getItem(APP_DATA_RESET_EPOCH_KEY);
     const storedVersion = Number(localStorage.getItem(STORAGE_VERSION_KEY) ?? "0");
-    if (storedVersion !== STORAGE_VERSION) {
-      // Shape changed since the payload was written; throw it away so the demo doesn't crash.
-      localStorage.removeItem(STORAGE_KEY);
-      localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
-      return baseSeed;
+    const needsFullReset =
+      storedEpoch !== APP_DATA_RESET_EPOCH || storedVersion !== STORAGE_VERSION;
+
+    if (needsFullReset) {
+      clearAllAppStorage();
+      persistFreshSeed(emptyBoot);
+      if (import.meta.env.DEV) {
+        console.info("[MSS] Full storage wipe — empty boot (masters reload from code).");
+      }
+      return emptyBoot;
     }
+
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      const parsed = deserializeState(stored);
+      let parsed = deserializeState(stored);
       if (parsed) {
-        const merged = mergePersistedWithSeed(baseSeed, parsed);
-        const customers = merged.customers;
-        const projects = hydrateProjectLinkage(merged.projects, customers);
-        const quotations = hydrateQuotationLinkage(merged.quotations, customers);
-        const invoices = hydrateInvoiceLinkage(merged.invoices, customers, projects);
-        const saleBills = hydrateInvoiceLinkage(merged.saleBills, customers, projects);
-        const reconciledProjects = deriveProjectBillingMetrics(projects, invoices, saleBills);
-        return {
-          ...merged,
-          projects: reconciledProjects,
-          quotations,
-          invoices,
-          saleBills,
-        };
+        if (storedVersion < STORAGE_VERSION) {
+          parsed = migratePersistedState(parsed);
+        }
+        return applyHydrationPipeline(normalizeAppState(parsed));
       }
     }
   } catch (e) {
-    console.warn("Failed to load persisted state:", e);
+    if (import.meta.env.DEV) {
+      console.warn("Failed to load persisted state:", e);
+    }
   }
-  return baseSeed;
+  persistFreshSeed(emptyBoot);
+  return emptyBoot;
 };
 
 // ============ CONTEXT CREATION ============
@@ -768,16 +715,19 @@ const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
 
 // ============ PROVIDER COMPONENT ============
 export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const { override: roleMatrixOverride } = useRoleMatrix();
   const [state, setState] = useState<AppState>(getInitialState);
   const { permissionService, commandBus, repositories } = useFoundation();
-  const { currentRole } = useAppSession();
+  const { currentRole, sessionUserId } = useAppSession();
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
+  const billingDirectionGuardService = useMemo(() => new BillingDirectionGuardService(), []);
   const voucherPostingService = useMemo(() => new VoucherPostingService(), []);
   const projectInvariantService = useMemo(() => new ProjectInvariantService(), []);
   const actorRole = currentRole ?? DEFAULT_ACTOR_ROLE;
+  const actorUserId = sessionUserId;
 
   const canPerformActionOrWarn = useCallback((action: AppAction): boolean => {
-    const allowed = permissionService.canPerformAction(actorRole, action);
+    const allowed = permissionService.canPerformAction(actorRole, action, roleMatrixOverride);
     if (!allowed) {
       toast({
         title: "Action not permitted",
@@ -786,57 +736,70 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
     }
     return allowed;
-  }, [actorRole, permissionService]);
+  }, [actorRole, permissionService, roleMatrixOverride]);
 
   const canDo = useCallback(
-    (action: AppAction) => permissionService.canPerformAction(actorRole, action),
-    [actorRole, permissionService]
+    (action: AppAction) =>
+      permissionService.canPerformAction(actorRole, action, roleMatrixOverride),
+    [actorRole, permissionService, roleMatrixOverride],
   );
-  
-  // ============ PERSIST STATE TO LOCALSTORAGE ============
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, serializeState(state));
-      localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
-    } catch (e) {
-      console.warn("Failed to persist state:", e);
-    }
-  }, [state]);
 
-  // C3 one-shot reconciler: ensure every existing clientPaymentRecord has a matching Payment row.
-  // Idempotent by composite key (`cpr:<recordId>`) so the second mount is a no-op.
+  const runCommand = useCallback(
+    <TResult,>(command: Command): Promise<CommandResult<TResult>> =>
+      runCommand<TResult>({ ...command, matrixOverride: roleMatrixOverride }),
+    [commandBus, roleMatrixOverride],
+  );
+
+  // ============ PERSIST STATE TO LOCALSTORAGE (debounced) + sync mss.repo.* mirrors ============
   useEffect(() => {
-    setState((prev) => {
-      const missing: Payment[] = [];
-      for (const r of prev.clientPaymentRecords) {
-        const compositeKey = `cpr:${r.id}`;
-        const exists = prev.payments.some((p) => p.id === compositeKey || p.reference === compositeKey);
-        if (!exists) {
-          missing.push({
-            id: compositeKey,
-            date: r.date,
-            amount: r.amount,
-            direction: "in",
-            paymentMode: r.paymentMode,
-            counterpartyType: "customer",
-            counterpartyId: r.projectId,
-            counterpartyName: "",
-            projectId: r.projectId,
-            notes: r.notes ?? `Client payment (record ${r.id}) — reconciled on boot`,
-            reference: compositeKey,
-          });
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, serializeState(state));
+        localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
+        syncPrototypeRepositoriesFromAppState(state, repositories);
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("Failed to persist state:", e);
         }
       }
-      if (missing.length === 0) return prev;
-      return { ...prev, payments: [...missing, ...prev.payments] };
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [state, repositories]);
+
+  // One-shot sync on mount so command-bus reads match hydrated AppData state.
+  useEffect(() => {
+    syncPrototypeRepositoriesFromAppState(state, repositories);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount hydration only
+  }, [repositories]);
+
+  /**
+   * Client payment ↔ invoice ↔ Payment ledger (single source of truth on boot):
+   * - `addClientPaymentRecord` is the UI write path: FIFO on invoices + CPR row + Payment (`cpr:<id>`).
+   * - `addPayment` is the finance write path when paying a specific invoice (sets `invoiceId`).
+   * Boot replay is idempotent: missing Payment rows, FIFO invoice allocation, project.amountReceived sync.
+   */
+  useEffect(() => {
+    setState((prev) => {
+      if (prev.clientPaymentRecords.length === 0) return prev;
+      const next = reconcileClientPaymentLedger({
+        clientPaymentRecords: prev.clientPaymentRecords,
+        payments: prev.payments,
+        invoices: prev.invoices,
+        projects: prev.projects,
+      });
+      const paymentsUnchanged =
+        next.payments.length === prev.payments.length &&
+        next.payments.every((p, i) => p === prev.payments[i]);
+      const invoicesUnchanged = next.invoices.every((inv, i) => inv === prev.invoices[i]);
+      const projectsUnchanged = next.projects.every((p, i) => p === prev.projects[i]);
+      if (paymentsUnchanged && invoicesUnchanged && projectsUnchanged) return prev;
+      return { ...prev, ...next };
     });
     // Run exactly once on mount.
   }, []);
   
   // Generate unique IDs
-  const generateId = useCallback((prefix: string) => {
-    return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.toUpperCase();
-  }, []);
+  const generateId = useCallback((prefix: string) => createId(prefix), []);
 
   const createAuditEntry = useCallback((
     action: AuditLogEntry["action"],
@@ -849,7 +812,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   ): AuditLogEntry => ({
     id: generateId("LOG"),
     timestamp: new Date().toISOString(),
-    userId: "prototype-user",
+    userId: actorUserId,
     userName: actorRole,
     action,
     entityType,
@@ -858,7 +821,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     field,
     oldValue,
     newValue,
-  }), [actorRole, generateId]);
+  }), [actorRole, actorUserId, generateId]);
 
   const createReviewQueueItem = useCallback((
     postingResult: PostingResult,
@@ -877,11 +840,46 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
   }, [generateId]);
   
-  // Reset to defaults
+  // Reset — wipes ALL browser app data and reloads empty boot (super_admin / resetPrototype only)
   const resetToDefaults = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    setState(buildAppStateFromSeeds());
-  }, []);
+    if (!canFeature(actorRole, "resetPrototype", "create", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: `Your role (${actorRole}) cannot reset prototype data.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    clearAllAppStorage();
+    const fresh = buildDefaultBootState();
+    persistFreshSeed(fresh);
+    window.location.reload();
+  }, [actorRole, roleMatrixOverride]);
+
+  const loadDemoDataset = useCallback(() => {
+    if (!canFeature(actorRole, "resetPrototype", "create", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: `Your role (${actorRole}) cannot load the demo dataset.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    const demo = applyHydrationPipeline(buildSequencedAppSeed());
+    setState(demo);
+    syncPrototypeRepositoriesFromAppState(demo, repositories);
+    try {
+      persistFreshSeed(demo);
+    } catch (e) {
+      if (import.meta.env.DEV) {
+        console.warn("Failed to persist demo dataset:", e);
+      }
+    }
+    toast({
+      title: "Demo dataset loaded",
+      description: "Sequenced sample projects, quotations, and finance rows are now in memory.",
+    });
+  }, [actorRole, roleMatrixOverride, repositories]);
   
   // ============ PROJECTS CRUD ============
   const createProjectFromConfirmedQuotation = useCallback(
@@ -894,7 +892,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       const stubIntake: ProjectIntakePayload = {
         kind: project.projectKind ?? "SOLO_EPC",
-        parties: { customer: project.client, vendorOrDiscom: "TBD" },
+        parties: { customer: project.client },
         commercial: {
           contractAmount: project.contractAmount,
           paymentType: (project.paymentType as string) || "cash",
@@ -904,9 +902,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       repositories.projectRepository.replaceAll(state.projects);
       repositories.quotationRepository.replaceAll(state.quotations);
       try {
-        const result = await commandBus.execute<{ projectId: string }>({
+        const result = await runCommand<{ projectId: string }>({
           type: CREATE_PROJECT_FROM_QUOTATION_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: {
             quotationId: project.quotationId,
@@ -940,15 +938,15 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       intake: ProjectIntakePayload;
       quotationId?: string;
     }): Promise<{ ok: boolean; error?: string; projectId?: string }> => {
-      if (!permissionService.canPerformAction(actorRole, "project:create_from_quote")) {
+      if (!permissionService.canPerformAction(actorRole, "project:create_from_quote", roleMatrixOverride)) {
         return { ok: false, error: `Role ${actorRole} cannot create projects` };
       }
       repositories.projectRepository.replaceAll(state.projects);
       repositories.quotationRepository.replaceAll(state.quotations);
       try {
-        const result = await commandBus.execute<{ projectId: string }>({
+        const result = await runCommand<{ projectId: string }>({
           type: CREATE_PROJECT_INTAKE_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: params,
         });
@@ -968,7 +966,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: message };
       }
     },
-    [actorRole, commandBus, permissionService, repositories, state.projects, state.quotations],
+    [actorRole, commandBus, permissionService, repositories, roleMatrixOverride, state.projects, state.quotations],
   );
 
   const createDirectProjectException = useCallback(
@@ -981,9 +979,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       repositories.projectRepository.replaceAll(state.projects);
       repositories.quotationRepository.replaceAll(state.quotations);
       try {
-        const result = await commandBus.execute<{ projectId: string }>({
+        const result = await runCommand<{ projectId: string }>({
           type: CREATE_DIRECT_PROJECT_EXCEPTION_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: params,
         });
@@ -1006,16 +1004,20 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     [actorRole, commandBus, permissionService, repositories, state.projects, state.quotations],
   );
 
-  const updateProject = useCallback((id: string, updates: Partial<Project>) => {
+  const updateProject = useCallback((id: string, updates: Partial<Project>): boolean => {
     const action = updates.contractAmount !== undefined || updates.totalCost !== undefined
       ? "project:update_commercial"
       : "project:update_execution";
     if (!canPerformActionOrWarn(action)) {
-      return;
+      return false;
     }
-    setState((prev) => ({
-      ...prev,
-      projects: prev.projects.map((project) => {
+    if (!state.projects.some((p) => p.id === id)) {
+      toast({ title: "Project not found", description: `No project with id ${id}`, variant: "destructive" });
+      return false;
+    }
+    setState((prev) => {
+      let justCompletedCustomerId: string | undefined;
+      const nextProjects = prev.projects.map((project) => {
         if (project.id !== id) {
           return project;
         }
@@ -1053,18 +1055,91 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
               });
               return project;
             }
+            justCompletedCustomerId = project.customerId;
           }
         }
 
         return normalizeProject({ ...project, ...updates });
-      }),
-    }));
-  }, [actorRole, canPerformActionOrWarn, projectInvariantService]);
+      });
+
+      // Phase 1.4: Customer auto-archive when a project lifecycle transitions to Completed.
+      let nextCustomers = prev.customers;
+      if (justCompletedCustomerId) {
+        const customer = prev.customers.find((c) => c.id === justCompletedCustomerId);
+        if (customer) {
+          const decision = evaluateAutoArchive({
+            customer,
+            projects: nextProjects,
+            quotations: prev.quotations,
+            enquiries: prev.enquiries,
+          });
+          const patch = applyAutoArchive(customer, decision);
+          if (patch) {
+            nextCustomers = prev.customers.map((c) =>
+              c.id === customer.id ? { ...c, ...patch } : c,
+            );
+          }
+        }
+      }
+
+      const auditLogsToAdd: AuditLogEntry[] = [];
+      const updated = nextProjects.find((p) => p.id === id);
+      const before = prev.projects.find((p) => p.id === id);
+      if (before && updated) {
+        if (updates.lifecycleStatus && updates.lifecycleStatus !== before.lifecycleStatus) {
+          auditLogsToAdd.push(
+            createAuditEntry(
+              "update",
+              "Project",
+              id,
+              before.name,
+              "lifecycleStatus",
+              before.lifecycleStatus,
+              updates.lifecycleStatus,
+            ),
+          );
+        }
+        if (updates.startedAt && updates.startedAt !== before.startedAt) {
+          auditLogsToAdd.push(
+            createAuditEntry(
+              "update",
+              "Project",
+              id,
+              before.name,
+              "startedAt",
+              before.startedAt ?? "",
+              updates.startedAt,
+            ),
+          );
+        }
+        if (updates.siteReadiness && JSON.stringify(updates.siteReadiness) !== JSON.stringify(before.siteReadiness)) {
+          auditLogsToAdd.push(
+            ...auditFieldDiff(
+              createAuditEntry,
+              "Project",
+              id,
+              before.name,
+              { siteReadiness: before.siteReadiness } as Record<string, unknown>,
+              { siteReadiness: updates.siteReadiness } as Record<string, unknown>,
+            ),
+          );
+        }
+      }
+
+      return {
+        ...prev,
+        projects: nextProjects,
+        customers: nextCustomers,
+        auditLogs: auditLogsToAdd.length ? [...auditLogsToAdd, ...prev.auditLogs] : prev.auditLogs,
+      };
+    });
+    return true;
+  }, [actorRole, canPerformActionOrWarn, projectInvariantService, createAuditEntry, state.projects]);
 
   const recordProjectMaterialMovement = useCallback(
     async (input: {
       projectId: string;
-      itemId: number;
+      itemId: string;
       movementType: MovementType;
       quantity: number;
       allowNegativeSiteBalanceOverride?: boolean;
@@ -1079,9 +1154,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       repositories.inventoryItemRepository.replaceAll(state.inventoryItems);
 
       try {
-        const result = await commandBus.execute({
+        const result = await runCommand({
           type: MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: {
             projectId: input.projectId,
@@ -1096,12 +1171,39 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!result.ok) {
           return { ok: false, error: (result as { message: string }).message };
         }
-        setState((prev) => ({
-          ...prev,
-          projects: (repositories.projectRepository.getAll() as Project[]).map(normalizeProject),
-          inventoryItems: repositories.inventoryItemRepository.getAll() as InventoryItem[],
-          auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
-        }));
+        setState((prev) => {
+          // Phase 1.3: when material is issued to a project, drain the matching auto reservation
+          // by the issued qty. Issue movement types: IssueToProject / IssueToSite.
+          const isIssue =
+            input.movementType === "IssueToProject" || input.movementType === "IssueToSite";
+          let nextReservations = prev.materialReservations ?? [];
+          if (isIssue) {
+            let remaining = input.quantity;
+            nextReservations = nextReservations.map((r) => {
+              if (
+                remaining <= 0 ||
+                r.releasedAt ||
+                String(r.itemId) !== String(input.itemId) ||
+                r.projectId !== input.projectId
+              ) {
+                return r;
+              }
+              const take = Math.min(r.qty, remaining);
+              remaining -= take;
+              const nextQty = r.qty - take;
+              return nextQty <= 0
+                ? { ...r, qty: 0, releasedAt: new Date().toISOString() }
+                : { ...r, qty: nextQty };
+            });
+          }
+          return {
+            ...prev,
+            projects: (repositories.projectRepository.getAll() as Project[]).map(normalizeProject),
+            inventoryItems: repositories.inventoryItemRepository.getAll() as InventoryItem[],
+            auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
+            materialReservations: nextReservations,
+          };
+        });
         return { ok: true };
       } catch (e) {
         const message = e instanceof Error ? e.message : "Command failed";
@@ -1113,7 +1215,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const recordWarehouseInventoryMovement = useCallback(
     async (input: {
-      itemId: number;
+      itemId: string;
       movementType: WarehouseOnlyMovementType;
       quantity: number;
     }): Promise<{ ok: boolean; error?: string }> => {
@@ -1122,9 +1224,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       repositories.inventoryItemRepository.replaceAll(state.inventoryItems);
       try {
-        const result = await commandBus.execute({
+        const result = await runCommand({
           type: WAREHOUSE_INVENTORY_MOVEMENT_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: input,
         });
@@ -1162,6 +1264,13 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         operationalTickets: prev.operationalTickets.filter((t) => t.projectId !== id),
         clientPaymentRecords: prev.clientPaymentRecords.filter((c) => c.projectId !== id),
         projectTimelineByProjectId: restTimelines,
+        scheduledInstallations: (prev.scheduledInstallations ?? []).filter((s) => s.projectId !== id),
+        siteVisits: (prev.siteVisits ?? []).filter((v) => v.projectId !== id),
+        projectChangeRequests: (prev.projectChangeRequests ?? []).filter((r) => r.projectId !== id),
+        materialReservations: (prev.materialReservations ?? []).filter((r) => r.projectId !== id),
+        agentCommissionAccruals: (prev.agentCommissionAccruals ?? []).filter((a) => a.projectId !== id),
+        materialDamageRecords: (prev.materialDamageRecords ?? []).filter((d) => d.projectId !== id),
+        procurementNeedLines: (prev.procurementNeedLines ?? []).filter((l) => l.projectId !== id),
       };
     });
   }, []);
@@ -1180,9 +1289,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       repositories.quotationRepository.replaceAll(state.quotations);
       try {
-        const result = await commandBus.execute({
+        const result = await runCommand({
           type: CREATE_QUOTATION_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: { quotation },
         });
@@ -1211,9 +1320,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       repositories.quotationRepository.replaceAll(state.quotations);
       try {
-        const result = await commandBus.execute({
+        const result = await runCommand({
           type: UPDATE_QUOTATION_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: { quotationId: id, updates },
         });
@@ -1247,11 +1356,13 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [state.quotations]);
   
   const getApprovedQuotations = useCallback(() => {
-    return state.quotations.filter(q => q.status === "approved" && !q.isConverted);
+    return state.quotations.filter(q => q.status === "approved" && !isQuotationConverted(q));
   }, [state.quotations]);
 
   const getProjectEligibleQuotations = useCallback(() => {
-    return state.quotations.filter(q => q.status === "confirmed" && !q.isConverted);
+    return state.quotations.filter(
+      (q) => q.status === "approved" && !isQuotationConverted(q),
+    );
   }, [state.quotations]);
 
   const transitionQuotationStatus = useCallback(
@@ -1261,8 +1372,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: "Quotation not found" };
       }
 
-      const requiredAction: AppAction = nextStatus === "confirmed" ? "quotation:confirm" : "quotation:create";
-      if (!permissionService.canPerformAction(actorRole, requiredAction)) {
+      const requiredAction: AppAction =
+        nextStatus === "approved" || nextStatus === "converted_to_project"
+          ? "quotation:confirm"
+          : "quotation:create";
+      if (!permissionService.canPerformAction(actorRole, requiredAction, roleMatrixOverride)) {
         return { ok: false, error: `Role ${actorRole} is not allowed to perform ${requiredAction}` };
       }
 
@@ -1276,21 +1390,20 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
       }
 
-      if (nextStatus === "confirmed") {
-        if (!prevQuotation.paymentType) {
-          return { ok: false, error: "Confirmed quotation requires payment type" };
-        }
-        if (!prevQuotation.clientAgreedAmount && !prevQuotation.totalAmount) {
-          return { ok: false, error: "Confirmed quotation requires commercial amount" };
+      if (nextStatus === "sent" || nextStatus === "approved") {
+        const amountCheck = validateQuotationSendOrApprove(prevQuotation);
+        if (!amountCheck.ok) {
+          return { ok: false, error: amountCheck.message };
         }
       }
 
       repositories.quotationRepository.replaceAll(state.quotations);
+      repositories.enquiryRepository.replaceAll(state.enquiries);
 
       try {
-        const result = await commandBus.execute({
+        const result = await runCommand({
           type: TRANSITION_QUOTATION_STATUS_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: { quotationId: id, nextStatus },
         });
@@ -1304,28 +1417,58 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           return { ok: false, error: "Quotation not found after command" };
         }
 
+        const syncedEnquiries = repositories.enquiryRepository.getAll() as Enquiry[];
+
         let merged: Quotation = { ...(fromRepo as Quotation) };
         const isStatusTransitionToSent = prevQuotation.status !== "sent" && merged.status === "sent";
-        const isStatusTransitionToConfirmed = prevQuotation.status !== "confirmed" && merged.status === "confirmed";
 
-        if ((isStatusTransitionToSent || isStatusTransitionToConfirmed) && !merged.commercialSnapshot) {
+        if (isStatusTransitionToSent && !merged.commercialSnapshot) {
           merged = { ...merged, commercialSnapshot: createCommercialSnapshot(merged) };
-        }
-        if (isStatusTransitionToConfirmed) {
-          merged = {
-            ...merged,
-            confirmedAt: merged.confirmedAt || new Date().toISOString().split("T")[0],
-          };
         }
 
         setState((prev) => {
           const nextQuotations = prev.quotations.map((q) => (q.id === id ? merged : q));
           repositories.quotationRepository.replaceAll(nextQuotations);
+
+          // Phase 1.4: emit AgentCommissionAccrual (status='pending') on approval.
+          // Idempotent: if an accrual already exists for this quotation, skip.
+          let nextAccruals = prev.agentCommissionAccruals ?? [];
+          const isApprovalTransition =
+            prevQuotation.status !== "approved" && merged.status === "approved";
+          if (isApprovalTransition && merged.agentId) {
+            const already = nextAccruals.find(
+              (a) => a.sourceQuotationId === merged.id && a.agentId === merged.agentId,
+            );
+            if (!already) {
+              const agent = prev.agents.find((ag) => ag.id === merged.agentId);
+              const capacityKw = (() => {
+                const m = (merged.capacity ?? "").match(/([\d.]+)/);
+                return m ? parseFloat(m[1]) : 0;
+              })();
+              const expected = agent
+                ? agent.rateType === "per-project"
+                  ? agent.flatRate ?? agent.ratePerKw ?? 0
+                  : (agent.ratePerKw ?? 0) * capacityKw
+                : 0;
+              const accrual: import("@/types/operations").AgentCommissionAccrual = {
+                id: `ACC-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase(),
+                agentId: merged.agentId,
+                expectedAmount: expected,
+                status: "pending",
+                accruedAt: new Date().toISOString(),
+                sourceQuotationId: merged.id,
+              };
+              nextAccruals = [accrual, ...nextAccruals];
+            }
+          }
+
           return {
             ...prev,
             quotations: nextQuotations,
+            enquiries: syncedEnquiries,
             customers: repositories.customerRepository.getAll() as Customer[],
             auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
+            agentCommissionAccruals: nextAccruals,
           };
         });
 
@@ -1335,7 +1478,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: message };
       }
     },
-    [actorRole, commandBus, permissionService, repositories, state.quotations],
+    [actorRole, commandBus, permissionService, repositories, roleMatrixOverride, state.enquiries, state.quotations],
   );
 
   const reviseQuotation = useCallback(
@@ -1345,8 +1488,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: "Quotation not found" };
       }
 
-      if (quotation.status === "approved" || quotation.status === "confirmed") {
-        return { ok: false, error: "Approved or confirmed quotation cannot be revised directly" };
+      if (quotation.status === "approved") {
+        return { ok: false, error: "Approved quotation cannot be revised directly" };
       }
 
       const revisedQuotationId = generateId("Q");
@@ -1355,8 +1498,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         id: revisedQuotationId,
         quotationNumber: `${quotation.quotationNumber}-R1`,
         status: "draft",
-        isConverted: false,
-        convertedToProjectId: undefined,
+        linkedProjectId: undefined,
         convertedToInvoiceId: undefined,
         approvedAt: undefined,
         confirmedAt: undefined,
@@ -1376,11 +1518,54 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     },
     [state.quotations, addQuotation, generateId],
   );
-  
+
+  const withdrawQuotation = useCallback(
+    async (id: string, reason?: string): Promise<{ ok: boolean; error?: string }> => {
+      const quotation = state.quotations.find((q) => q.id === id);
+      if (!quotation) {
+        return { ok: false, error: "Quotation not found" };
+      }
+      if (quotation.status === "withdrawn") {
+        return { ok: false, error: "Quotation already withdrawn" };
+      }
+      if (quotation.status === "converted_to_project") {
+        return { ok: false, error: "Converted quotation cannot be withdrawn — void the project instead" };
+      }
+      const result = await transitionQuotationStatus(id, "withdrawn");
+      if (!result.ok) {
+        return result;
+      }
+      const trimmedReason = reason?.trim();
+      if (trimmedReason) {
+        const now = new Date().toISOString();
+        setState((prev) => ({
+          ...prev,
+          quotations: prev.quotations.map((q) =>
+            q.id === id
+              ? {
+                  ...q,
+                  withdrawnAt: now,
+                  withdrawnReason: trimmedReason,
+                  lifecycleLockReason: "Withdrawn by seller",
+                }
+              : q,
+          ),
+        }));
+      }
+      return { ok: true };
+    },
+    [state.quotations, transitionQuotationStatus],
+  );
+
   // ============ CUSTOMERS CRUD ============
-  const addCustomer = useCallback((customer: Customer) => {
-    setState(prev => ({ ...prev, customers: [customer, ...prev.customers] }));
-  }, []);
+  const addCustomer = useCallback(
+    (customer: Customer) => {
+      if (!canPerformActionOrWarn("customer:create")) return false;
+      setState((prev) => ({ ...prev, customers: [customer, ...prev.customers] }));
+      return true;
+    },
+    [canPerformActionOrWarn],
+  );
   
   const updateCustomer = useCallback((id: string, updates: Partial<Customer>) => {
     setState((prev) => {
@@ -1405,6 +1590,14 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [createAuditEntry]);
   
   const deleteCustomer = useCallback((id: string) => {
+    if (!canFeature(actorRole, "customer", "delete", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: "Your role cannot delete customers.",
+        variant: "destructive",
+      });
+      return;
+    }
     setState((prev) => {
       const removedInvoiceIds = new Set<string>();
       prev.invoices.forEach((i) => {
@@ -1420,17 +1613,21 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         quotations: prev.quotations.filter((q) => q.customerId !== id),
         invoices: prev.invoices.filter((i) => i.customerId !== id),
         saleBills: prev.saleBills.filter((s) => s.customerId !== id),
-        payments: prev.payments.filter((p) => !p.invoiceId || !removedInvoiceIds.has(p.invoiceId)),
+        payments: prev.payments.filter(
+          (p) =>
+            (!p.invoiceId || !removedInvoiceIds.has(p.invoiceId)) &&
+            p.customerId !== id,
+        ),
       };
     });
-  }, []);
+  }, [actorRole, roleMatrixOverride]);
   
   const getCustomerById = useCallback((id: string) => {
     return state.customers.find(c => c.id === id);
   }, [state.customers]);
   
   // ============ INVOICES CRUD ============
-  const addInvoice = useCallback((invoice: Invoice) => {
+  const addInvoice = useCallback((invoice: Invoice, options?: { highValueJustification?: string }) => {
     if (!canPerformActionOrWarn("finance:create_invoice")) {
       return;
     }
@@ -1439,6 +1636,19 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast({
         title: "Invoice validation",
         description: invScope.errors.join(" "),
+        variant: "destructive",
+      });
+      return;
+    }
+    const highValueCheck = billingDirectionGuardService.validateHighValueIssuance(
+      invoice.total,
+      options?.highValueJustification,
+      { isDraft: invoice.status === "draft" },
+    );
+    if (!highValueCheck.ok) {
+      toast({
+        title: "High-value invoice blocked",
+        description: highValueCheck.error,
         variant: "destructive",
       });
       return;
@@ -1452,16 +1662,25 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     const reviewQueueItem = createReviewQueueItem(postingResult, invoice.projectId);
-    const auditEntry = createAuditEntry("create", "Invoice", invoice.id, invoice.invoiceNumber);
+    const auditLogsToAdd: AuditLogEntry[] = [
+      createAuditEntry("create", "Invoice", invoice.id, invoice.invoiceNumber),
+    ];
+    if (highValueCheck.requiresJustification && options?.highValueJustification?.trim()) {
+      auditLogsToAdd.push(
+        createAuditEntry(
+          "create",
+          "Invoice",
+          invoice.id,
+          invoice.invoiceNumber,
+          "high_value_issuance",
+          formatINR(invoice.total),
+          options.highValueJustification.trim(),
+        ),
+      );
+    }
 
     setState(prev => {
-      const updatedCustomers = invoice.customerId
-        ? prev.customers.map(c =>
-            c.id === invoice.customerId
-              ? { ...c, totalPurchases: (c.totalPurchases || 0) + invoice.total, lastPurchase: invoice.invoiceDate }
-              : c
-          )
-        : prev.customers;
+      const updatedCustomers = prev.customers;
       const updatedProjects = invoice.projectId
         ? prev.projects.map((project) =>
             project.id === invoice.projectId
@@ -1480,10 +1699,17 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         projects: updatedProjects,
         accountingVouchers: postingResult.ok ? [postingResult.voucher, ...prev.accountingVouchers] : prev.accountingVouchers,
         accountingReviewQueue: reviewQueueItem ? [reviewQueueItem, ...prev.accountingReviewQueue] : prev.accountingReviewQueue,
-        auditLogs: [auditEntry, ...prev.auditLogs],
+        auditLogs: [...auditLogsToAdd, ...prev.auditLogs],
       };
     });
-  }, [canPerformActionOrWarn, createAuditEntry, createReviewQueueItem, financeValidationService, voucherPostingService]);
+  }, [
+    canPerformActionOrWarn,
+    createAuditEntry,
+    createReviewQueueItem,
+    financeValidationService,
+    billingDirectionGuardService,
+    voucherPostingService,
+  ]);
   
   const updateInvoice = useCallback((id: string, updates: Partial<Invoice>) => {
     setState(prev => {
@@ -1545,7 +1771,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [state.invoices]);
   
   // ============ SALE BILLS CRUD ============
-  const addSaleBill = useCallback((saleBill: Invoice) => {
+  const addSaleBill = useCallback((saleBill: Invoice, options?: { highValueJustification?: string }) => {
     if (!canPerformActionOrWarn("finance:create_invoice")) {
       return;
     }
@@ -1554,6 +1780,19 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast({
         title: "Sale bill validation",
         description: invScope.errors.join(" "),
+        variant: "destructive",
+      });
+      return;
+    }
+    const highValueCheck = billingDirectionGuardService.validateHighValueIssuance(
+      saleBill.total,
+      options?.highValueJustification,
+      { isDraft: saleBill.status === "draft" },
+    );
+    if (!highValueCheck.ok) {
+      toast({
+        title: "High-value sale bill blocked",
+        description: highValueCheck.error,
         variant: "destructive",
       });
       return;
@@ -1567,16 +1806,25 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     const reviewQueueItem = createReviewQueueItem(postingResult, saleBill.projectId);
-    const auditEntry = createAuditEntry("create", "SaleBill", saleBill.id, saleBill.invoiceNumber);
+    const auditLogsToAdd: AuditLogEntry[] = [
+      createAuditEntry("create", "SaleBill", saleBill.id, saleBill.invoiceNumber),
+    ];
+    if (highValueCheck.requiresJustification && options?.highValueJustification?.trim()) {
+      auditLogsToAdd.push(
+        createAuditEntry(
+          "create",
+          "SaleBill",
+          saleBill.id,
+          saleBill.invoiceNumber,
+          "high_value_issuance",
+          formatINR(saleBill.total),
+          options.highValueJustification.trim(),
+        ),
+      );
+    }
 
     setState((prev) => {
-      const updatedCustomers = saleBill.customerId
-        ? prev.customers.map(c =>
-            c.id === saleBill.customerId
-              ? { ...c, totalPurchases: (c.totalPurchases || 0) + saleBill.total, lastPurchase: saleBill.invoiceDate }
-              : c
-          )
-        : prev.customers;
+      const updatedCustomers = prev.customers;
       const updatedProjects = saleBill.projectId
         ? prev.projects.map((project) =>
             project.id === saleBill.projectId
@@ -1595,10 +1843,17 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         projects: updatedProjects,
         accountingVouchers: postingResult.ok ? [postingResult.voucher, ...prev.accountingVouchers] : prev.accountingVouchers,
         accountingReviewQueue: reviewQueueItem ? [reviewQueueItem, ...prev.accountingReviewQueue] : prev.accountingReviewQueue,
-        auditLogs: [auditEntry, ...prev.auditLogs],
+        auditLogs: [...auditLogsToAdd, ...prev.auditLogs],
       };
     });
-  }, [canPerformActionOrWarn, createAuditEntry, createReviewQueueItem, financeValidationService, voucherPostingService]);
+  }, [
+    canPerformActionOrWarn,
+    createAuditEntry,
+    createReviewQueueItem,
+    financeValidationService,
+    billingDirectionGuardService,
+    voucherPostingService,
+  ]);
   
   const updateSaleBill = useCallback((id: string, updates: Partial<Invoice>) => {
     setState(prev => {
@@ -1743,6 +1998,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [canPerformActionOrWarn, createAuditEntry]);
   
   const deleteExpense = useCallback((id: string) => {
+    if (!canPerformActionOrWarn("finance:delete_expense")) return;
+    const auditEntry = createAuditEntry("delete", "Expense", id, id);
     setState(prev => {
       const removed = prev.expenses.find(e => e.id === id);
       const nextProjects =
@@ -1757,9 +2014,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...prev,
         expenses: prev.expenses.filter(e => e.id !== id),
         projects: nextProjects,
+        auditLogs: [auditEntry, ...prev.auditLogs],
       };
     });
-  }, []);
+  }, [canPerformActionOrWarn, createAuditEntry]);
   
   const getExpensesByProject = useCallback((projectId: string) => {
     return state.expenses.filter(e => e.projectId === projectId);
@@ -1847,6 +2105,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [canPerformActionOrWarn, createAuditEntry]);
   
   const deleteIncome = useCallback((id: string) => {
+    if (!canPerformActionOrWarn("finance:delete_income")) return;
+    const auditEntry = createAuditEntry("delete", "Income", id, id);
     setState(prev => {
       const removedIncome = prev.incomes.find(i => i.id === id);
       const updatedProjects = removedIncome
@@ -1856,9 +2116,14 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
               : project
           )
         : prev.projects;
-      return { ...prev, incomes: prev.incomes.filter(i => i.id !== id), projects: updatedProjects };
+      return {
+        ...prev,
+        incomes: prev.incomes.filter(i => i.id !== id),
+        projects: updatedProjects,
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      };
     });
-  }, []);
+  }, [canPerformActionOrWarn, createAuditEntry]);
   
   const getIncomesByProject = useCallback((projectId: string) => {
     return state.incomes.filter(i => i.projectId === projectId);
@@ -1922,21 +2187,13 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           )
         : prev.projects;
       const paymentCustomerId = payment.customerId || (payment.counterpartyType === "customer" ? payment.counterpartyId : undefined);
-      const updatedCustomers = (paymentCustomerId && payment.direction === "in")
-        ? prev.customers.map(c =>
-            c.id === paymentCustomerId
-              ? { ...c, amountReceived: (c.amountReceived ?? 0) + payment.amount }
-              : c
-          )
-        : prev.customers;
-
       return {
         ...prev,
         payments: [paymentToStore, ...prev.payments],
         invoices: updatedInvoices,
         saleBills: updatedSaleBills,
         projects: updatedProjects,
-        customers: updatedCustomers,
+        customers: prev.customers,
         incomes,
         accountingVouchers: (postingResult && postingResult.ok) ? [postingResult.voucher, ...prev.accountingVouchers] : prev.accountingVouchers,
         accountingReviewQueue: reviewQueueItem ? [reviewQueueItem, ...prev.accountingReviewQueue] : prev.accountingReviewQueue,
@@ -2108,37 +2365,37 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState(prev => ({ ...prev, employees: [employee, ...prev.employees] }));
   }, []);
   
-  const updateEmployee = useCallback((id: number, updates: Partial<Employee>) => {
+  const updateEmployee = useCallback((id: string, updates: Partial<Employee>) => {
     setState(prev => ({
       ...prev,
-      employees: prev.employees.map(e => e.id === id ? { ...e, ...updates } : e),
+      employees: prev.employees.map(e => String(e.id) === String(id) ? { ...e, ...updates } : e),
     }));
   }, []);
   
-  const deleteEmployee = useCallback((id: number) => {
+  const deleteEmployee = useCallback((id: string) => {
     setState((prev) => ({
       ...prev,
-      employees: prev.employees.filter((e) => e.id !== id),
-      attendanceRecords: prev.attendanceRecords.filter((a) => a.employeeId !== id),
-      tasks: prev.tasks.filter((t) => t.employeeId !== id),
+      employees: prev.employees.filter((e) => String(e.id) !== String(id)),
+      attendanceRecords: prev.attendanceRecords.filter((a) => String(a.employeeId) !== String(id)),
+      tasks: prev.tasks.filter((t) => String(t.employeeId) !== String(id)),
       expenses: prev.expenses.filter((e) => {
         if (e.employeeId === String(id)) return false;
         if (e.paidBy?.type === "employee" && e.paidBy?.entityId === String(id)) return false;
         if (e.allocation?.employeeId === String(id)) return false;
         return true;
       }),
-      employeePayrollRecords: (prev.employeePayrollRecords ?? []).filter((r) => r.employeeId !== id),
-      employeeWalletLedger: (prev.employeeWalletLedger ?? []).filter((r) => r.employeeId !== id),
+      employeePayrollRecords: (prev.employeePayrollRecords ?? []).filter((r) => String(r.employeeId) !== String(id)),
+      employeeWalletLedger: (prev.employeeWalletLedger ?? []).filter((r) => String(r.employeeId) !== String(id)),
       teams: prev.teams.map((team) => ({
         ...team,
-        memberIds: team.memberIds.filter((mid) => mid !== id),
-        ...(team.leadId === id ? { leadId: undefined as number | undefined } : {}),
+        memberIds: team.memberIds.filter((mid) => String(mid) !== String(id)),
+        ...(String(team.leadId) === String(id) ? { leadId: undefined } : {}),
       })),
     }));
   }, []);
   
-  const getEmployeeById = useCallback((id: number) => {
-    return state.employees.find(e => e.id === id);
+  const getEmployeeById = useCallback((id: string) => {
+    return state.employees.find(e => String(e.id) === String(id));
   }, [state.employees]);
   
   // ============ ATTENDANCE CRUD ============
@@ -2157,8 +2414,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     return state.attendanceRecords.filter(a => a.date === date);
   }, [state.attendanceRecords]);
   
-  const getAttendanceByEmployee = useCallback((employeeId: number) => {
-    return state.attendanceRecords.filter(a => a.employeeId === employeeId);
+  const getAttendanceByEmployee = useCallback((employeeId: string) => {
+    return state.attendanceRecords.filter(a => String(a.employeeId) === String(employeeId));
   }, [state.attendanceRecords]);
   
   // ============ TEAMS CRUD ============
@@ -2241,7 +2498,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [canPerformActionOrWarn]);
   
   const getPartnerById = useCallback((id: string) => {
-    return state.partners.find(p => p.id === id);
+    const key = String(id).trim();
+    return state.partners.find((p) => String(p.id) === key);
   }, [state.partners]);
   
   // ============ PARTNER TRANSACTIONS CRUD ============
@@ -2292,8 +2550,23 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const deleteLoan = useCallback((id: string) => {
     if (!canPerformActionOrWarn("loan:delete")) return;
-    setState(prev => ({ ...prev, loans: prev.loans.filter(l => l.id !== id) }));
-  }, [canPerformActionOrWarn]);
+    const expenseRefs = state.expenses.filter((e) => e.loanId === id);
+    const paymentRefs = state.payments.filter((p) => p.loanId === id);
+    const repaymentRefs = state.loanRepayments.filter((r) => r.loanId === id);
+    if (expenseRefs.length > 0 || paymentRefs.length > 0 || repaymentRefs.length > 0) {
+      const parts: string[] = [];
+      if (expenseRefs.length) parts.push(`${expenseRefs.length} expense(s)`);
+      if (paymentRefs.length) parts.push(`${paymentRefs.length} payment(s)`);
+      if (repaymentRefs.length) parts.push(`${repaymentRefs.length} repayment(s)`);
+      toast({
+        title: "Cannot delete loan",
+        description: `Remove or reassign linked records first: ${parts.join(", ")}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setState((prev) => ({ ...prev, loans: prev.loans.filter((l) => l.id !== id) }));
+  }, [canPerformActionOrWarn, state.expenses, state.payments, state.loanRepayments]);
   
   // ============ LOAN REPAYMENTS CRUD ============
   const addLoanRepayment = useCallback((repayment: LoanRepayment) => {
@@ -2361,9 +2634,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState(prev => ({ ...prev, vendors: [vendor, ...prev.vendors] }));
   }, []);
   
-  const updateVendor = useCallback((id: number, updates: Partial<Vendor>) => {
+  const updateVendor = useCallback((id: string, updates: Partial<Vendor>) => {
     setState((prev) => {
-      const old = prev.vendors.find((v) => v.id === id);
+      const old = prev.vendors.find((v) => String(v.id) === String(id));
       const logs =
         old != null
           ? auditFieldDiff(
@@ -2377,15 +2650,56 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           : [];
       return {
         ...prev,
-        vendors: prev.vendors.map((v) => (v.id === id ? { ...v, ...updates } : v)),
+        vendors: prev.vendors.map((v) => (String(v.id) === String(id) ? { ...v, ...updates } : v)),
         auditLogs: [...logs, ...prev.auditLogs],
       };
     });
   }, [createAuditEntry]);
   
-  const deleteVendor = useCallback((id: number) => {
-    setState(prev => ({ ...prev, vendors: prev.vendors.filter(v => v.id !== id) }));
+  const deleteVendor = useCallback((id: string): { ok: boolean; error?: string } => {
+    if (!canFeature(actorRole, "vendor", "delete", roleMatrixOverride)) {
+      const error = "Your role cannot delete vendors.";
+      toast({ title: "Action not permitted", description: error, variant: "destructive" });
+      return { ok: false, error };
+    }
+    const billCount = state.vendorBills.filter((b) => String(b.vendorId) === String(id)).length;
+    const paymentCount = state.vendorPayments.filter((p) => String(p.vendorId) === String(id)).length;
+    if (billCount > 0 || paymentCount > 0) {
+      const error = `Cannot delete vendor: ${billCount} bill(s) and ${paymentCount} payment(s) still reference this vendor.`;
+      toast({ title: "Cannot delete vendor", description: error, variant: "destructive" });
+      return { ok: false, error };
+    }
+    setState((prev) => ({
+      ...prev,
+      vendors: prev.vendors.filter((v) => String(v.id) !== String(id)),
+      procurementNeedLines: (prev.procurementNeedLines ?? []).filter((l) => String(l.vendorId) !== String(id)),
+    }));
+    return { ok: true };
+  }, [actorRole, roleMatrixOverride, state.vendorBills, state.vendorPayments]);
+
+  const upsertProcurementNeedLine = useCallback((line: import("@/types/operations").ProcurementNeedLine) => {
+    setState((prev) => {
+      const idx = prev.procurementNeedLines.findIndex((l) => l.lineKey === line.lineKey);
+      if (idx >= 0) {
+        const next = [...prev.procurementNeedLines];
+        next[idx] = { ...next[idx], ...line };
+        return { ...prev, procurementNeedLines: next };
+      }
+      return { ...prev, procurementNeedLines: [line, ...prev.procurementNeedLines] };
+    });
   }, []);
+
+  const updateProcurementNeedLine = useCallback(
+    (lineKey: string, updates: Partial<import("@/types/operations").ProcurementNeedLine>) => {
+      setState((prev) => ({
+        ...prev,
+        procurementNeedLines: prev.procurementNeedLines.map((l) =>
+          l.lineKey === lineKey ? { ...l, ...updates } : l,
+        ),
+      }));
+    },
+    [],
+  );
   
   // ============ SERVICE PRESETS CRUD ============
   const addServicePreset = useCallback((preset: ServicePreset) => {
@@ -2522,8 +2836,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     return state.tasks.find(t => t.id === id);
   }, [state.tasks]);
   
-  const getTasksByEmployee = useCallback((employeeId: number) => {
-    return state.tasks.filter(t => t.employeeId === employeeId);
+  const getTasksByEmployee = useCallback((employeeId: string) => {
+    return state.tasks.filter(t => String(t.employeeId) === String(employeeId));
   }, [state.tasks]);
   
   const getTasksByDate = useCallback((date: string) => {
@@ -2538,9 +2852,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       repositories.enquiryRepository.replaceAll(state.enquiries);
       try {
-        const result = await commandBus.execute({
+        const result = await runCommand({
           type: CREATE_ENQUIRY_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: { enquiry },
         });
@@ -2586,7 +2900,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: "Enquiry not found" };
       }
 
-      if (!permissionService.canPerformAction(actorRole, "enquiry:create")) {
+      if (!permissionService.canPerformAction(actorRole, "enquiry:create", roleMatrixOverride)) {
         return { ok: false, error: `Role ${actorRole} is not allowed to transition enquiries` };
       }
 
@@ -2594,12 +2908,24 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: `Invalid transition from ${enquiry.status} to ${nextStatus}` };
       }
 
+      if (nextStatus === "quotation_sent") {
+        const hasQuotation =
+          getEnquiryQuotationIds(enquiry).some((qid) => state.quotations.some((q) => q.id === qid)) ||
+          state.quotations.some((q) => q.enquiryId === id);
+        if (!hasQuotation) {
+          return {
+            ok: false,
+            error: "Create and link a quotation before marking enquiry as Quotation Sent",
+          };
+        }
+      }
+
       repositories.enquiryRepository.replaceAll(state.enquiries);
 
       try {
-        const result = await commandBus.execute({
+        const result = await runCommand({
           type: UPDATE_ENQUIRY_STATUS_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: { enquiryId: id, nextStatus, reason },
         });
@@ -2625,7 +2951,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: message };
       }
     },
-    [actorRole, commandBus, permissionService, repositories, state.enquiries],
+    [actorRole, permissionService, repositories, roleMatrixOverride, runCommand, state.enquiries, state.quotations],
   );
 
   const convertEnquiryToCustomer = useCallback(
@@ -2642,9 +2968,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       repositories.enquiryRepository.replaceAll(state.enquiries);
 
       try {
-        const result = await commandBus.execute<{ enquiryId: string }>({
+        const result = await runCommand<{ enquiryId: string }>({
           type: CONVERT_ENQUIRY_COMMAND,
-          actorUserId: "prototype-user",
+          actorUserId,
           actorRole,
           payload: { enquiryId },
         });
@@ -2743,44 +3069,115 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState((prev) => ({ ...prev, sites: [...prev.sites, site] }));
   }, []);
 
+  const deleteSite = useCallback(
+    (siteId: string): { ok: boolean; error?: string } => {
+      const siteKey = String(siteId);
+      const taskCount = state.tasks.filter((t) => String(t.siteId) === siteKey).length;
+      if (taskCount > 0) {
+        return {
+          ok: false,
+          error: `${taskCount} task(s) reference this site. Reassign or delete them before removing the site.`,
+        };
+      }
+      const exists = state.sites.some((s) => String(s.id) === siteKey);
+      if (!exists) {
+        return { ok: false, error: "Site not found" };
+      }
+      setState((prev) => ({
+        ...prev,
+        sites: prev.sites.filter((s) => String(s.id) !== siteKey),
+      }));
+      return { ok: true };
+    },
+    [state.sites, state.tasks],
+  );
+
   const addQuotationTemplate = useCallback((template: QuotationTemplate) => {
+    if (!canFeature(actorRole, "template", "create", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: "Your role cannot create templates.",
+        variant: "destructive",
+      });
+      return;
+    }
     setState(prev => ({ ...prev, quotationTemplates: [template, ...prev.quotationTemplates] }));
-  }, []);
+  }, [actorRole, roleMatrixOverride]);
 
   const updateQuotationTemplate = useCallback((id: string, updates: Partial<QuotationTemplate>) => {
+    if (!canFeature(actorRole, "template", "edit", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: "Your role cannot edit templates.",
+        variant: "destructive",
+      });
+      return;
+    }
     setState(prev => ({
       ...prev,
       quotationTemplates: prev.quotationTemplates.map(t => t.id === id ? { ...t, ...updates } : t),
     }));
-  }, []);
+  }, [actorRole, roleMatrixOverride]);
 
   const deleteQuotationTemplate = useCallback((id: string) => {
+    if (!canFeature(actorRole, "template", "delete", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: "Your role cannot delete templates.",
+        variant: "destructive",
+      });
+      return;
+    }
     setState(prev => ({
       ...prev,
       quotationTemplates: prev.quotationTemplates.filter(t => t.id !== id),
     }));
-  }, []);
+  }, [actorRole, roleMatrixOverride]);
 
   const addSiteChecklistTemplate = useCallback((template: SiteChecklistTemplate) => {
+    if (!canFeature(actorRole, "template", "create", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: "Your role cannot create templates.",
+        variant: "destructive",
+      });
+      return;
+    }
     setState(prev => ({
       ...prev,
       siteChecklistTemplates: [template, ...(prev.siteChecklistTemplates ?? [])],
     }));
-  }, []);
+  }, [actorRole, roleMatrixOverride]);
 
   const updateSiteChecklistTemplate = useCallback((id: string, updates: Partial<SiteChecklistTemplate>) => {
+    if (!canFeature(actorRole, "template", "edit", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: "Your role cannot edit templates.",
+        variant: "destructive",
+      });
+      return;
+    }
     setState(prev => ({
       ...prev,
       siteChecklistTemplates: (prev.siteChecklistTemplates ?? []).map(t => t.id === id ? { ...t, ...updates } : t),
     }));
-  }, []);
+  }, [actorRole, roleMatrixOverride]);
 
   const deleteSiteChecklistTemplate = useCallback((id: string) => {
+    if (!canFeature(actorRole, "template", "delete", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: "Your role cannot delete templates.",
+        variant: "destructive",
+      });
+      return;
+    }
     setState(prev => ({
       ...prev,
       siteChecklistTemplates: (prev.siteChecklistTemplates ?? []).filter(t => t.id !== id),
     }));
-  }, []);
+  }, [actorRole, roleMatrixOverride]);
 
   const getQuotationTemplateById = useCallback(
     (id: string) => state.quotationTemplates.find((t) => t.id === id),
@@ -2862,6 +3259,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
                 resolvedAt,
                 resolvedBy,
                 resolvedByName,
+                resolutionNote: notesAppend || b.resolutionNote,
                 notes: notesAppend
                   ? `${b.notes ?? ""} | Resolution: ${notesAppend}`.trim()
                   : b.notes,
@@ -2935,53 +3333,50 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 
   const addClientPaymentRecord = useCallback((record: ClientPaymentRecord) => {
-    setState((prev) => {
-      // C3 single write path: also FIFO-apply against the project's open invoices and emit a Payment row.
-      // Composite-key dedupe ensures repeat boot reconcilers don't double-write.
-      const projectInvoices = prev.invoices
-        .filter((inv) => inv.projectId === record.projectId)
-        .sort((a, b) => new Date(a.invoiceDate || a.dueDate || 0).getTime() - new Date(b.invoiceDate || b.dueDate || 0).getTime());
-
-      let remaining = record.amount;
-      const updatedInvoices = prev.invoices.map((inv) => {
-        if (remaining <= 0) return inv;
-        if (inv.projectId !== record.projectId) return inv;
-        const due = (inv.total || 0) - (inv.amountReceived || 0);
-        if (due <= 0) return inv;
-        const pay = Math.min(due, remaining);
-        remaining -= pay;
-        const nextReceived = (inv.amountReceived || 0) + pay;
-        return {
-          ...inv,
-          amountReceived: nextReceived,
-          status: (nextReceived >= (inv.total || 0) ? "paid" : "partial") as Invoice["status"],
-          receivedDate: record.date,
-          receivedIn: record.paymentMode,
-        };
+    const project = state.projects.find((p) => p.id === record.projectId);
+    if (!project) {
+      toast({ title: "Cannot record payment", description: "Project not found.", variant: "destructive" });
+      return;
+    }
+    const totalAlreadyReceived = state.clientPaymentRecords
+      .filter((r) => r.projectId === record.projectId)
+      .reduce((sum, r) => sum + r.amount, 0);
+    const validation = validateClientPaymentRecord(
+      record,
+      project.contractAmount ?? 0,
+      totalAlreadyReceived,
+    );
+    if (!validation.ok) {
+      toast({
+        title: "Cannot record payment",
+        description: validation.reason,
+        variant: "destructive",
       });
+      return;
+    }
+
+    setState((prev) => {
+      const projectInvoices = prev.invoices.filter((inv) => inv.projectId === record.projectId);
+      const updatedInvoices = fifoApplyClientPaymentToInvoices(
+        prev.invoices,
+        record.projectId,
+        record.amount,
+        record.date,
+        record.paymentMode,
+      );
+      const compositeKey = clientPaymentRecordPaymentId(record.id);
+      const alreadyEmitted = prev.payments.some(
+        (p) => p.id === compositeKey || p.reference === compositeKey,
+      );
+      const paymentRow = alreadyEmitted
+        ? null
+        : buildClientPaymentRecordPaymentRow(record, projectInvoices[0]?.customerName);
 
       const updatedProjects = prev.projects.map((p) =>
-        p.id === record.projectId ? { ...p, amountReceived: (p.amountReceived ?? 0) + record.amount } : p,
+        p.id === record.projectId
+          ? { ...p, amountReceived: (p.amountReceived ?? 0) + record.amount }
+          : p,
       );
-
-      // Emit a matching Payment row using a composite key so a boot reconciler is idempotent.
-      const compositeKey = `cpr:${record.id}`;
-      const alreadyEmitted = prev.payments.some((p) => p.id === compositeKey || p.reference === compositeKey);
-      const paymentRow: Payment | null = alreadyEmitted
-        ? null
-        : {
-            id: compositeKey,
-            date: record.date,
-            amount: record.amount,
-            direction: "in",
-            paymentMode: record.paymentMode,
-            counterpartyType: "customer",
-            counterpartyId: record.projectId,
-            counterpartyName: projectInvoices[0]?.customerName ?? "",
-            projectId: record.projectId,
-            notes: record.notes ?? `Client payment (record ${record.id})`,
-            reference: compositeKey,
-          };
 
       return {
         ...prev,
@@ -2991,7 +3386,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         projects: updatedProjects,
       };
     });
-  }, []);
+  }, [state.clientPaymentRecords, state.projects]);
 
   const updateSite = useCallback((siteNumericId: number, updates: Partial<SiteRecord>) => {
     setState((prev) => {
@@ -3002,7 +3397,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         const next = stripped !== combined.checklistItems ? { ...combined, checklistItems: stripped } : combined;
         if (next.checklistItems?.length) {
           const unknown = findUnknownChecklistInventoryIds(next.checklistItems, prev.inventoryItems);
-          if (unknown.length > 0) {
+          if (unknown.length > 0 && import.meta.env.DEV) {
             console.warn("[AppData] Site checklist references unknown inventory ids", unknown);
           }
         }
@@ -3026,11 +3421,35 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           error: `Inventory catalog has no IDs: ${unknown.join(", ")}`,
         } as const;
       }
+      // Phase 1.2 auto-reservation: for every new checklist line backed by an inventoryItemId
+      // and a positive required qty, create a reservation row for this project.
+      const now = new Date().toISOString();
+      const newReservations: import("@/types/operations").MaterialReservation[] = [];
+      const existingChecklistIds = new Set((site.checklistItems ?? []).map((c) => c.id));
+      patched.checklistItems?.forEach((line) => {
+        if (existingChecklistIds.has(line.id)) return;
+        if (line.inventoryItemId == null) return;
+        const qty = line.requiredQuantity ?? 0;
+        if (qty <= 0) return;
+        newReservations.push({
+          id: `RES-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase(),
+          itemId: line.inventoryItemId,
+          qty,
+          projectId,
+          source: "auto-from-checklist",
+          linkedChecklistItemId: line.id,
+          createdAt: now,
+        });
+      });
+
       setState((prev) => ({
         ...prev,
         sites: prev.sites.map((s) =>
           s.projectId === projectId && s.id === siteNumericId ? patched : s,
         ),
+        materialReservations: newReservations.length
+          ? [...newReservations, ...(prev.materialReservations ?? [])]
+          : prev.materialReservations,
       }));
       return { ok: true } as const;
     },
@@ -3122,12 +3541,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState(prev => ({ ...prev, employeePaidHolidays: [holiday, ...prev.employeePaidHolidays] }));
   }, []);
   
-  const getEmployeePaidHolidaysByMonth = useCallback((employeeId: number, month: string) => {
-    return state.employeePaidHolidays.filter(h => h.employeeId === employeeId && h.month === month);
+  const getEmployeePaidHolidaysByMonth = useCallback((employeeId: string, month: string) => {
+    return state.employeePaidHolidays.filter(h => String(h.employeeId) === String(employeeId) && h.month === month);
   }, [state.employeePaidHolidays]);
   
-  const hasEmployeePaidHolidayInMonth = useCallback((employeeId: number, month: string) => {
-    return state.employeePaidHolidays.some(h => h.employeeId === employeeId && h.month === month);
+  const hasEmployeePaidHolidayInMonth = useCallback((employeeId: string, month: string) => {
+    return state.employeePaidHolidays.some(h => String(h.employeeId) === String(employeeId) && h.month === month);
   }, [state.employeePaidHolidays]);
   
   // ============ AUDIT LOGS ============
@@ -3140,13 +3559,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!canPerformActionOrWarn("vendor:record_bill")) return;
     const auditEntry = createAuditEntry("create", "VendorBill", bill.id, bill.billNumber || bill.id);
     setState((prev) => {
-      const updatedVendors = prev.vendors.map((v) =>
-        v.id === bill.vendorId ? { ...v, outstandingAmount: (v.outstandingAmount || 0) + bill.total } : v,
-      );
       return {
         ...prev,
         vendorBills: [bill, ...prev.vendorBills],
-        vendors: updatedVendors,
+        vendors: prev.vendors,
         auditLogs: [auditEntry, ...prev.auditLogs],
       };
     });
@@ -3174,11 +3590,25 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
   
   const deleteVendorBill = useCallback((id: string) => {
-    setState(prev => ({ ...prev, vendorBills: prev.vendorBills.filter(b => b.id !== id) }));
-  }, []);
+    if (!canFeature(actorRole, "vendorBill", "delete", roleMatrixOverride)) {
+      toast({
+        title: "Action not permitted",
+        description: "Your role cannot delete vendor bills.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      vendorBills: prev.vendorBills.filter((b) => b.id !== id),
+      procurementNeedLines: (prev.procurementNeedLines ?? []).map((l) =>
+        l.vendorBillId === id ? { ...l, vendorBillId: undefined } : l,
+      ),
+    }));
+  }, [actorRole, roleMatrixOverride]);
   
-  const getVendorBillsByVendor = useCallback((vendorId: number) => {
-    return state.vendorBills.filter(b => b.vendorId === vendorId);
+  const getVendorBillsByVendor = useCallback((vendorId: string) => {
+    return state.vendorBills.filter(b => String(b.vendorId) === String(vendorId));
   }, [state.vendorBills]);
   
   // ============ VENDOR PAYMENTS CRUD ============
@@ -3235,8 +3665,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   }, [canPerformActionOrWarn, createAuditEntry]);
 
-  const getVendorPaymentsByVendor = useCallback((vendorId: number) => {
-    return state.vendorPayments.filter(p => p.vendorId === vendorId);
+  const getVendorPaymentsByVendor = useCallback((vendorId: string) => {
+    return state.vendorPayments.filter(p => String(p.vendorId) === String(vendorId));
   }, [state.vendorPayments]);
 
   // ============ RELATIONSHIP HELPERS ============
@@ -3273,25 +3703,84 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState(prev => ({ ...prev, inventoryItems: [item, ...prev.inventoryItems] }));
   }, []);
 
-  const updateInventoryItem = useCallback((id: number, updates: Partial<InventoryItem>) => {
+  const updateInventoryItem = useCallback((id: string, updates: Partial<InventoryItem>) => {
     setState(prev => ({
       ...prev,
-      inventoryItems: prev.inventoryItems.map(i => i.id === id ? { ...i, ...updates } : i),
+      inventoryItems: prev.inventoryItems.map(i => String(i.id) === String(id) ? { ...i, ...updates } : i),
     }));
   }, []);
 
-  const deleteInventoryItem = useCallback((id: number) => {
-    setState(prev => ({ ...prev, inventoryItems: prev.inventoryItems.filter(i => i.id !== id) }));
-  }, []);
+  const deleteInventoryItem = useCallback((id: string) => {
+    const activeReservations = (state.materialReservations ?? []).filter(
+      (r) => String(r.itemId) === String(id) && !r.releasedAt,
+    );
+    const damageCount = (state.materialDamageRecords ?? []).filter((d) => String(d.itemId) === String(id)).length;
+    if (activeReservations.length > 0 || damageCount > 0) {
+      toast({
+        title: "Cannot delete item",
+        description: `Clear ${activeReservations.length} active reservation(s) and ${damageCount} damage record(s) first.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      inventoryItems: prev.inventoryItems.filter((i) => String(i.id) !== String(id)),
+    }));
+  }, [state.materialReservations, state.materialDamageRecords]);
+
+  /** MD31: movement reversal is not on the command bus; super_admin gate only (feature matrix delete = NONE). */
+  const reverseInventoryMovement = useCallback(
+    (itemId: string, movementId: string, reason?: string): { ok: boolean; error?: string } => {
+      if (actorRole !== "super_admin") {
+        return { ok: false, error: "Only super admin can reverse inventory movements" };
+      }
+      let didReverse = false;
+      let targetItem: InventoryItem | undefined;
+      setState(prev => {
+        targetItem = prev.inventoryItems.find(i => String(i.id) === String(itemId));
+        const nextItems = prev.inventoryItems.map(item => {
+          if (String(item.id) !== String(itemId)) return item;
+          const history = item.movementHistory ?? [];
+          const target = history.find(m => m.id === movementId);
+          if (!target || target.reversedAt) return item;
+          didReverse = true;
+          const reverseQty = target.type === "issue" ? target.qty : -target.qty;
+          return {
+            ...item,
+            stock: Math.max(0, item.stock + reverseQty),
+            movementHistory: history.map(m =>
+              m.id === movementId
+                ? { ...m, reversedAt: new Date().toISOString(), reversalReason: reason || undefined }
+                : m,
+            ),
+          };
+        });
+        if (!didReverse) return prev;
+        const auditEntry = createAuditEntry(
+          "update",
+          "InventoryMovement",
+          movementId,
+          targetItem?.name ?? `Item ${itemId}`,
+          "reversedAt",
+          "",
+          new Date().toISOString(),
+        );
+        return { ...prev, inventoryItems: nextItems, auditLogs: [auditEntry, ...prev.auditLogs] };
+      });
+      return didReverse ? { ok: true } : { ok: false, error: "Movement not found or already reversed" };
+    },
+    [actorRole, createAuditEntry],
+  );
 
   const issueItemToSite = useCallback((
-    itemId: number, siteId: string, siteName: string, qty: number, date: string,
+    itemId: string, siteId: string, siteName: string, qty: number, date: string,
     employeeId?: string, employeeName?: string
   ) => {
     setState(prev => ({
       ...prev,
       inventoryItems: prev.inventoryItems.map(item => {
-        if (item.id !== itemId) return item;
+        if (String(item.id) !== String(itemId)) return item;
         const movement: InventoryMovementRecord = {
           id: `MV${Date.now()}${Math.random().toString(36).slice(2, 14)}${Math.random().toString(36).slice(2, 10)}`.toUpperCase(),
           type: "issue",
@@ -3313,13 +3802,13 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   const returnItemFromSite = useCallback((
-    itemId: number, siteId: string, siteName: string, qty: number, date: string,
+    itemId: string, siteId: string, siteName: string, qty: number, date: string,
     condition?: string, notes?: string
   ) => {
     setState(prev => ({
       ...prev,
       inventoryItems: prev.inventoryItems.map(item => {
-        if (item.id !== itemId) return item;
+        if (String(item.id) !== String(itemId)) return item;
         const movement: InventoryMovementRecord = {
           id: `MV${Date.now()}${Math.random().toString(36).slice(2, 14)}${Math.random().toString(36).slice(2, 10)}`.toUpperCase(),
           type: "return",
@@ -3345,26 +3834,71 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState(prev => ({ ...prev, tools: [tool, ...prev.tools] }));
   }, []);
 
-  const updateTool = useCallback((id: number, updates: Partial<Tool>) => {
+  const updateTool = useCallback((id: string, updates: Partial<Tool>) => {
     setState(prev => ({
       ...prev,
-      tools: prev.tools.map(t => t.id === id ? { ...t, ...updates } : t),
+      tools: prev.tools.map(t => String(t.id) === String(id) ? { ...t, ...updates } : t),
     }));
   }, []);
 
-  const deleteTool = useCallback((id: number) => {
-    setState(prev => ({ ...prev, tools: prev.tools.filter(t => t.id !== id) }));
+  const deleteTool = useCallback((id: string) => {
+    setState(prev => ({ ...prev, tools: prev.tools.filter(t => String(t.id) !== String(id)) }));
   }, []);
 
+  /** MD31: tool movement reversal — same super_admin-only policy as inventory reversal. */
+  const reverseToolMovement = useCallback(
+    (toolId: string, movementId: string, reason?: string): { ok: boolean; error?: string } => {
+      if (actorRole !== "super_admin") {
+        return { ok: false, error: "Only super admin can reverse tool movements" };
+      }
+      let didReverse = false;
+      let targetTool: Tool | undefined;
+      setState(prev => {
+        targetTool = prev.tools.find(t => String(t.id) === String(toolId));
+        const nextTools = prev.tools.map(tool => {
+          if (String(tool.id) !== String(toolId)) return tool;
+          const history = tool.movementHistory ?? [];
+          const target = history.find(m => m.id === movementId);
+          if (!target || target.reversedAt) return tool;
+          didReverse = true;
+          const flippedStatus: Tool["status"] =
+            target.type === "issue" ? "Available" : "In Use";
+          return {
+            ...tool,
+            status: flippedStatus,
+            movementHistory: history.map(m =>
+              m.id === movementId
+                ? { ...m, reversedAt: new Date().toISOString(), reversalReason: reason || undefined }
+                : m,
+            ),
+          };
+        });
+        if (!didReverse) return prev;
+        const auditEntry = createAuditEntry(
+          "update",
+          "ToolMovement",
+          movementId,
+          targetTool?.name ?? `Tool ${toolId}`,
+          "reversedAt",
+          "",
+          new Date().toISOString(),
+        );
+        return { ...prev, tools: nextTools, auditLogs: [auditEntry, ...prev.auditLogs] };
+      });
+      return didReverse ? { ok: true } : { ok: false, error: "Movement not found or already reversed" };
+    },
+    [actorRole, createAuditEntry],
+  );
+
   const issueTool = useCallback((
-    toolId: number, siteId: string, siteName: string, date: string,
+    toolId: string, siteId: string, siteName: string, date: string,
     employeeId?: string, employeeName?: string, handoffNotes?: string,
   ) => {
     const trimmed = handoffNotes?.trim();
     setState(prev => ({
       ...prev,
       tools: prev.tools.map(tool => {
-        if (tool.id !== toolId) return tool;
+        if (String(tool.id) !== String(toolId)) return tool;
         const movement: ToolMovementRecord = {
           id: `TM${Date.now()}${Math.random().toString(36).slice(2, 14)}${Math.random().toString(36).slice(2, 10)}`.toUpperCase(),
           type: "issue",
@@ -3381,7 +3915,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           ...tool,
           status: "In Use" as const,
           site: siteName,
+          assignedToSiteId: siteId,
           assignedTo: employeeName ?? tool.assignedTo,
+          assignedToEmployeeId: employeeId ?? tool.assignedToEmployeeId,
           lastUpdated: date,
           movementHistory: [movement, ...(tool.movementHistory ?? [])],
         };
@@ -3390,12 +3926,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   const returnTool = useCallback((
-    toolId: number, condition: Tool["condition"], date: string, notes?: string
+    toolId: string, condition: Tool["condition"], date: string, notes?: string
   ) => {
     setState(prev => ({
       ...prev,
       tools: prev.tools.map(tool => {
-        if (tool.id !== toolId) return tool;
+        if (String(tool.id) !== String(toolId)) return tool;
         const movement: ToolMovementRecord = {
           id: `TM${Date.now()}${Math.random().toString(36).slice(2, 14)}${Math.random().toString(36).slice(2, 10)}`.toUpperCase(),
           type: "return",
@@ -3409,6 +3945,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           ...tool,
           status: "Available" as const,
           site: "",
+          assignedToSiteId: undefined,
+          assignedToEmployeeId: undefined,
           assignedTo: "",
           condition,
           lastUpdated: date,
@@ -3426,6 +3964,25 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
   }, []);
 
+  const updateAgentCommissionPayment = useCallback(
+    (id: string, updates: Partial<AgentCommissionPayment>) => {
+      setState(prev => ({
+        ...prev,
+        agentCommissionPayments: prev.agentCommissionPayments.map(p =>
+          p.id === id ? { ...p, ...updates } : p,
+        ),
+      }));
+    },
+    [],
+  );
+
+  const deleteAgentCommissionPayment = useCallback((id: string) => {
+    setState(prev => ({
+      ...prev,
+      agentCommissionPayments: prev.agentCommissionPayments.filter(p => p.id !== id),
+    }));
+  }, []);
+
   const getCommissionPaymentsByAgent = useCallback((agentId: string) => {
     return state.agentCommissionPayments.filter(p => p.agentId === agentId);
   }, [state.agentCommissionPayments]);
@@ -3438,8 +3995,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
   }, []);
 
-  const getPayrollByEmployee = useCallback((employeeId: number) => {
-    return (state.employeePayrollRecords ?? []).filter(r => r.employeeId === employeeId);
+  const getPayrollByEmployee = useCallback((employeeId: string) => {
+    return (state.employeePayrollRecords ?? []).filter(r => String(r.employeeId) === String(employeeId));
   }, [state.employeePayrollRecords]);
 
   const addEmployeeWalletLedgerEntry = useCallback(
@@ -3482,10 +4039,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 
   const getEmployeeWalletLedger = useCallback(
-    (employeeId?: number) => {
+    (employeeId?: string) => {
       const rows = state.employeeWalletLedger ?? [];
       if (employeeId === undefined) return rows;
-      return rows.filter((r) => r.employeeId === employeeId);
+      return rows.filter((r) => String(r.employeeId) === String(employeeId));
     },
     [state.employeeWalletLedger],
   );
@@ -3535,10 +4092,480 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState(prev => ({ ...prev, bankReconciliationStatements: statements }));
   }, []);
 
+  // ============ OPERATIONS ENTITIES CRUD (final-touches Phase 1.2) ============
+
+  // ---- Material Reservations ----
+  const addMaterialReservation = useCallback(
+    (input: Omit<import("@/types/operations").MaterialReservation, "id" | "createdAt">) => {
+      const id = `RES-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+      const row: import("@/types/operations").MaterialReservation = {
+        ...input,
+        id,
+        createdAt: new Date().toISOString(),
+      };
+      const auditEntry = createAuditEntry(
+        "create",
+        "MaterialReservation",
+        id,
+        `Item ${input.itemId} × ${input.qty}`,
+      );
+      setState((prev) => ({
+        ...prev,
+        materialReservations: [row, ...(prev.materialReservations ?? [])],
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      }));
+      return id;
+    },
+    [createAuditEntry],
+  );
+  const releaseMaterialReservation = useCallback((id: string) => {
+    const releasedAt = new Date().toISOString();
+    const auditEntry = createAuditEntry(
+      "update",
+      "MaterialReservation",
+      id,
+      id,
+      "releasedAt",
+      "",
+      releasedAt,
+    );
+    setState((prev) => ({
+      ...prev,
+      materialReservations: (prev.materialReservations ?? []).map((r) =>
+        r.id === id && !r.releasedAt ? { ...r, releasedAt } : r,
+      ),
+      auditLogs: [auditEntry, ...prev.auditLogs],
+    }));
+  }, [createAuditEntry]);
+  const reduceMaterialReservation = useCallback((id: string, deltaQty: number) => {
+    setState((prev) => ({
+      ...prev,
+      materialReservations: (prev.materialReservations ?? []).map((r) => {
+        if (r.id !== id) return r;
+        const next = Math.max(0, r.qty - Math.max(0, deltaQty));
+        return next === 0
+          ? { ...r, qty: 0, releasedAt: new Date().toISOString() }
+          : { ...r, qty: next };
+      }),
+    }));
+  }, []);
+  const getReservationsForItem = useCallback(
+    (itemId: string) =>
+      (state.materialReservations ?? []).filter((r) => String(r.itemId) === String(itemId) && !r.releasedAt),
+    [state.materialReservations],
+  );
+  const getReservationsForProject = useCallback(
+    (projectId: string) =>
+      (state.materialReservations ?? []).filter((r) => r.projectId === projectId && !r.releasedAt),
+    [state.materialReservations],
+  );
+
+  // ---- Scheduled Installations ----
+  const addScheduledInstallation = useCallback(
+    (input: Omit<import("@/types/operations").ScheduledInstallation, "id" | "createdAt">) => {
+      const id = `SCH-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+      const row: import("@/types/operations").ScheduledInstallation = {
+        ...input,
+        id,
+        createdAt: new Date().toISOString(),
+      };
+      const auditEntry = createAuditEntry(
+        "create",
+        "ScheduledInstallation",
+        id,
+        `${input.projectId} @ ${input.scheduledDate}`,
+      );
+      setState((prev) => ({
+        ...prev,
+        scheduledInstallations: [row, ...(prev.scheduledInstallations ?? [])],
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      }));
+      return id;
+    },
+    [createAuditEntry],
+  );
+  const updateScheduledInstallation = useCallback(
+    (id: string, updates: Partial<import("@/types/operations").ScheduledInstallation>) => {
+      setState((prev) => ({
+        ...prev,
+        scheduledInstallations: (prev.scheduledInstallations ?? []).map((s) =>
+          s.id === id ? { ...s, ...updates } : s,
+        ),
+      }));
+    },
+    [],
+  );
+  const getSchedulesByProject = useCallback(
+    (projectId: string) =>
+      (state.scheduledInstallations ?? []).filter((s) => s.projectId === projectId),
+    [state.scheduledInstallations],
+  );
+  const getSchedulesByDate = useCallback(
+    (date: string) =>
+      (state.scheduledInstallations ?? []).filter(
+        (s) => s.scheduledDate.slice(0, 10) === date.slice(0, 10),
+      ),
+    [state.scheduledInstallations],
+  );
+
+  // ---- Site Visits ----
+  const addSiteVisit = useCallback(
+    (input: Omit<import("@/types/operations").SiteVisit, "id" | "createdAt">) => {
+      const id = `VIS-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+      const row: import("@/types/operations").SiteVisit = {
+        ...input,
+        id,
+        createdAt: new Date().toISOString(),
+      };
+      const auditEntry = createAuditEntry(
+        "create",
+        "SiteVisit",
+        input.projectId,
+        `Visit ${id}`,
+      );
+      setState((prev) => ({
+        ...prev,
+        siteVisits: [row, ...(prev.siteVisits ?? [])],
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      }));
+      return id;
+    },
+    [createAuditEntry],
+  );
+  const reconcileSiteVisitToChecklist = useCallback(
+    (visitId: string): { ok: boolean; error?: string } => {
+      const visit = (state.siteVisits ?? []).find((v) => v.id === visitId);
+      if (!visit) return { ok: false, error: "Site visit not found" };
+      if (visit.reconciledChecklistAt) return { ok: false, error: "Already reconciled" };
+      const project = state.projects.find((p) => p.id === visit.projectId);
+      if (!project) return { ok: false, error: "Project not found" };
+
+      const existing = project.siteChecklist ?? [];
+      const additions: typeof existing = [];
+      visit.items.forEach((it) => {
+        if (!it.inventoryItemId) return;
+        const dup = existing.find((c) => c.itemId === it.inventoryItemId);
+        if (dup) return; // qty-merge handled by user in UI for now
+        additions.push({
+          id: `chk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          itemId: it.inventoryItemId,
+          itemName: it.name,
+          unit: it.unit ?? "pcs",
+          qtyPlanned: it.requiredQty,
+          qtySent: 0,
+          qtyReturned: 0,
+          qtyConsumed: 0,
+          source: "site-visit",
+          sourceSiteVisitId: visit.id,
+        } as unknown as (typeof existing)[number]);
+      });
+
+      // Auto-create reservations for each new checklist line (Phase 1.2 wiring)
+      const now = new Date().toISOString();
+      const newReservations: import("@/types/operations").MaterialReservation[] = additions.map(
+        (line: { id: string; itemId: string; qtyPlanned: number }) => ({
+          id: `RES-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase(),
+          itemId: line.itemId,
+          qty: line.qtyPlanned,
+          projectId: visit.projectId,
+          source: "auto-from-checklist",
+          linkedChecklistItemId: line.id,
+          createdAt: now,
+        }),
+      );
+
+      const visitAudit = createAuditEntry(
+        "update",
+        "SiteVisit",
+        visit.projectId,
+        `Visit ${visitId}`,
+        "reconciledChecklistAt",
+        "",
+        now,
+      );
+      const reservationAudits = newReservations.map((r) =>
+        createAuditEntry("create", "MaterialReservation", r.id, `Item ${r.itemId} × ${r.qty}`),
+      );
+      setState((prev) => ({
+        ...prev,
+        projects: prev.projects.map((p) =>
+          p.id === visit.projectId
+            ? { ...p, siteChecklist: [...(p.siteChecklist ?? []), ...additions] }
+            : p,
+        ),
+        siteVisits: (prev.siteVisits ?? []).map((v) =>
+          v.id === visitId ? { ...v, reconciledChecklistAt: now } : v,
+        ),
+        materialReservations: [...newReservations, ...(prev.materialReservations ?? [])],
+        auditLogs: [...reservationAudits, visitAudit, ...prev.auditLogs],
+      }));
+      return { ok: true };
+    },
+    [state.projects, state.siteVisits, createAuditEntry],
+  );
+  const getSiteVisitsByProject = useCallback(
+    (projectId: string) => (state.siteVisits ?? []).filter((v) => v.projectId === projectId),
+    [state.siteVisits],
+  );
+
+  // ---- Project Change Requests ----
+  const addProjectChangeRequest = useCallback(
+    (
+      input: Omit<
+        import("@/types/operations").ProjectChangeRequest,
+        "id" | "requestedAt" | "status"
+      >,
+    ) => {
+      const id = `CR-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+      const row: import("@/types/operations").ProjectChangeRequest = {
+        ...input,
+        id,
+        status: "draft",
+        requestedAt: new Date().toISOString(),
+      };
+      const auditEntry = createAuditEntry(
+        "create",
+        "ProjectChangeRequest",
+        id,
+        `${input.projectId} (${input.type})`,
+      );
+      setState((prev) => ({
+        ...prev,
+        projectChangeRequests: [row, ...(prev.projectChangeRequests ?? [])],
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      }));
+      return id;
+    },
+    [createAuditEntry],
+  );
+  const approveProjectChangeRequest = useCallback(
+    (id: string): { ok: boolean; error?: string; generatedInvoiceId?: string } => {
+      const cr = (state.projectChangeRequests ?? []).find((r) => r.id === id);
+      if (!cr) return { ok: false, error: "Change request not found" };
+      if (cr.status !== "draft") return { ok: false, error: `Cannot approve from status '${cr.status}'` };
+      const project = state.projects.find((p) => p.id === cr.projectId);
+      if (!project) return { ok: false, error: "Project not found" };
+
+      const inventoryLookup = (state.inventoryItems ?? []).map((i) => ({
+        id: i.id,
+        name: i.name,
+        unit: i.unit,
+      }));
+      const { projectPatch, reservations, deltaAmount } = applyChangeRequestToProject(
+        project,
+        cr,
+        inventoryLookup,
+      );
+      const oldContract = project.contractAmount ?? 0;
+      const newContract = projectPatch.contractAmount ?? oldContract;
+      const approvedAt = new Date().toISOString();
+      const generatedInvoiceId =
+        deltaAmount > 0 ? `INV-DRAFT-${cr.id}` : undefined;
+
+      if (deltaAmount > 0 && generatedInvoiceId) {
+        const customer = state.customers.find((c) => c.id === project.customerId);
+        const draft = buildProjectToInvoiceDraft(project, customer, deltaAmount);
+        saveCreateDraft("invoice-create-draft", {
+          ...draft,
+          openBalanceSuggestion: deltaAmount,
+          notes: `Delta invoice for change request ${cr.id} — ₹${deltaAmount.toLocaleString("en-IN")}`,
+        });
+      }
+
+      const crAudit = createAuditEntry(
+        "update",
+        "ProjectChangeRequest",
+        id,
+        cr.projectId,
+        "status",
+        cr.status,
+        "approved",
+      );
+      const contractAudit =
+        newContract !== oldContract
+          ? createAuditEntry(
+              "update",
+              "Project",
+              project.id,
+              project.name,
+              "contractAmount",
+              String(oldContract),
+              String(newContract),
+            )
+          : null;
+
+      setState((prev) => {
+        const updatedProject = { ...project, ...projectPatch };
+        const newReservations = reservations.map((r) => ({
+          id: `RES-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase(),
+          ...r,
+          createdAt: new Date().toISOString(),
+          source: "manual" as const,
+        }));
+        const reservationAudits = newReservations.map((r) =>
+          createAuditEntry("create", "MaterialReservation", r.id, `Item ${r.itemId} × ${r.qty}`),
+        );
+        const extraAudits = [
+          crAudit,
+          ...(contractAudit ? [contractAudit] : []),
+          ...reservationAudits,
+        ];
+        return {
+          ...prev,
+          projects: prev.projects.map((p) => (p.id === project.id ? updatedProject : p)),
+          projectChangeRequests: (prev.projectChangeRequests ?? []).map((r) =>
+            r.id === id
+              ? { ...r, status: "approved" as const, approvedAt, generatedInvoiceId }
+              : r,
+          ),
+          materialReservations: [...newReservations, ...(prev.materialReservations ?? [])],
+          agentCommissionAccruals: scaleAgentAccrualsForContractChange(
+            prev.agentCommissionAccruals ?? [],
+            project.id,
+            oldContract,
+            newContract,
+          ),
+          auditLogs: [...extraAudits, ...prev.auditLogs],
+        };
+      });
+      return { ok: true, generatedInvoiceId };
+    },
+    [state.projectChangeRequests, state.projects, state.inventoryItems, state.customers, createAuditEntry],
+  );
+  const rejectProjectChangeRequest = useCallback((id: string, reason?: string) => {
+    const cr = (state.projectChangeRequests ?? []).find((r) => r.id === id);
+    const auditEntry = cr
+      ? createAuditEntry("update", "ProjectChangeRequest", id, cr.projectId, "status", cr.status, "rejected")
+      : null;
+    setState((prev) => ({
+      ...prev,
+      projectChangeRequests: (prev.projectChangeRequests ?? []).map((r) =>
+        r.id === id
+          ? { ...r, status: "rejected", notes: reason ? `${r.notes ?? ""}\nRejected: ${reason}`.trim() : r.notes }
+          : r,
+      ),
+      auditLogs: auditEntry ? [auditEntry, ...prev.auditLogs] : prev.auditLogs,
+    }));
+  }, [state.projectChangeRequests, createAuditEntry]);
+  const getChangeRequestsByProject = useCallback(
+    (projectId: string) =>
+      (state.projectChangeRequests ?? []).filter((r) => r.projectId === projectId),
+    [state.projectChangeRequests],
+  );
+
+  // ---- Material Damage ----
+  const addMaterialDamage = useCallback(
+    (input: Omit<import("@/types/operations").MaterialDamage, "id" | "reportedAt">) => {
+      const id = `DMG-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+      const row: import("@/types/operations").MaterialDamage = {
+        ...input,
+        id,
+        reportedAt: new Date().toISOString(),
+      };
+      setState((prev) => {
+        const inventoryItems = prev.inventoryItems.map((item) =>
+          item.id === input.itemId
+            ? { ...item, stock: Math.max(0, item.stock - input.qty) }
+            : item,
+        );
+        let accountingVouchers = prev.accountingVouchers;
+        if (input.costImpact && input.costImpact > 0) {
+          const posting = voucherPostingService.post({
+            type: "ExpenseRecorded",
+            sourceDocumentId: id,
+            amount: input.costImpact,
+          });
+          if (posting.ok) {
+            accountingVouchers = [posting.voucher, ...accountingVouchers];
+          }
+        }
+        const auditEntry = createAuditEntry(
+          "create",
+          "MaterialDamage",
+          id,
+          `Item ${input.itemId} × ${input.qty} (${input.stage})`,
+        );
+        return {
+          ...prev,
+          materialDamageRecords: [row, ...(prev.materialDamageRecords ?? [])],
+          inventoryItems,
+          accountingVouchers,
+          auditLogs: [auditEntry, ...prev.auditLogs],
+        };
+      });
+      return id;
+    },
+    [voucherPostingService, createAuditEntry],
+  );
+  const getDamageByProject = useCallback(
+    (projectId: string) =>
+      (state.materialDamageRecords ?? []).filter((d) => d.projectId === projectId),
+    [state.materialDamageRecords],
+  );
+  const getDamageByItem = useCallback(
+    (itemId: string) =>
+      (state.materialDamageRecords ?? []).filter((d) => String(d.itemId) === String(itemId)),
+    [state.materialDamageRecords],
+  );
+
+  // ---- Agent Commission Accruals ----
+  const addAgentCommissionAccrual = useCallback(
+    (
+      input: Omit<
+        import("@/types/operations").AgentCommissionAccrual,
+        "id" | "accruedAt" | "status"
+      >,
+    ) => {
+      const id = `ACC-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+      const row: import("@/types/operations").AgentCommissionAccrual = {
+        ...input,
+        id,
+        status: "pending",
+        accruedAt: new Date().toISOString(),
+      };
+      setState((prev) => ({
+        ...prev,
+        agentCommissionAccruals: [row, ...(prev.agentCommissionAccruals ?? [])],
+      }));
+      return id;
+    },
+    [],
+  );
+  const markAccrualPayable = useCallback((id: string) => {
+    const now = new Date().toISOString();
+    setState((prev) => ({
+      ...prev,
+      agentCommissionAccruals: (prev.agentCommissionAccruals ?? []).map((a) =>
+        a.id === id && a.status === "pending" ? { ...a, status: "payable", payableAt: now } : a,
+      ),
+    }));
+  }, []);
+  const markAccrualPaid = useCallback((id: string, paymentId: string) => {
+    const now = new Date().toISOString();
+    setState((prev) => ({
+      ...prev,
+      agentCommissionAccruals: (prev.agentCommissionAccruals ?? []).map((a) =>
+        a.id === id && a.status !== "paid"
+          ? { ...a, status: "paid", paidAt: now, linkedPaymentId: paymentId }
+          : a,
+      ),
+    }));
+  }, []);
+  const getAccrualsByAgent = useCallback(
+    (agentId: string) =>
+      (state.agentCommissionAccruals ?? []).filter((a) => a.agentId === agentId),
+    [state.agentCommissionAccruals],
+  );
+  const getAccrualsByProject = useCallback(
+    (projectId: string) =>
+      (state.agentCommissionAccruals ?? []).filter((a) => a.projectId === projectId),
+    [state.agentCommissionAccruals],
+  );
+
   // ============ DERIVED VALUES ============
   const lowStockItems = useMemo(
-    () => state.inventoryItems.filter(i => i.stock <= i.minStock),
-    [state.inventoryItems]
+    () => (state.inventoryItems ?? []).filter((i) => i.stock <= i.minStock),
+    [state.inventoryItems],
   );
 
   // ============ CONTEXT VALUE ============
@@ -3564,7 +4591,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     getProjectEligibleQuotations,
     transitionQuotationStatus,
     reviseQuotation,
-    
+    withdrawQuotation,
+
     // Customers
     addCustomer,
     updateCustomer,
@@ -3651,6 +4679,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     addVendor,
     updateVendor,
     deleteVendor,
+    upsertProcurementNeedLine,
+    updateProcurementNeedLine,
     
     // Vendor Bills
     addVendorBill,
@@ -3701,6 +4731,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     
     // Sites
     addSite,
+    deleteSite,
     addQuotationTemplate,
     updateQuotationTemplate,
     deleteQuotationTemplate,
@@ -3757,6 +4788,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     addInventoryItem,
     updateInventoryItem,
     deleteInventoryItem,
+    reverseInventoryMovement,
     issueItemToSite,
     returnItemFromSite,
 
@@ -3764,11 +4796,14 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     addTool,
     updateTool,
     deleteTool,
+    reverseToolMovement,
     issueTool,
     returnTool,
 
     // Agent Commission Payments
     addAgentCommissionPayment,
+    updateAgentCommissionPayment,
+    deleteAgentCommissionPayment,
     getCommissionPaymentsByAgent,
 
     // Employee Payroll Records
@@ -3795,9 +4830,36 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Bank reconciliation (B13)
     setBankReconciliationStatements,
 
+    // Operations entities (Phase 1.2)
+    addMaterialReservation,
+    releaseMaterialReservation,
+    reduceMaterialReservation,
+    getReservationsForItem,
+    getReservationsForProject,
+    addScheduledInstallation,
+    updateScheduledInstallation,
+    getSchedulesByProject,
+    getSchedulesByDate,
+    addSiteVisit,
+    reconcileSiteVisitToChecklist,
+    getSiteVisitsByProject,
+    addProjectChangeRequest,
+    approveProjectChangeRequest,
+    rejectProjectChangeRequest,
+    getChangeRequestsByProject,
+    addMaterialDamage,
+    getDamageByProject,
+    getDamageByItem,
+    addAgentCommissionAccrual,
+    markAccrualPayable,
+    markAccrualPaid,
+    getAccrualsByAgent,
+    getAccrualsByProject,
+
     // Utilities
     generateId,
     resetToDefaults,
+    loadDemoDataset,
     canDo,
   };
   

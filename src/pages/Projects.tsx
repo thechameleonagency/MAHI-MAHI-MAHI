@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { 
   Plus, Search, Calendar, User, 
-  _ExternalLink, Building2, IndianRupee, 
-  LayoutGrid, List as ListIcon, Eye, _Briefcase, _FileText, _Handshake
+ Building2, IndianRupee, 
+  LayoutGrid, List as ListIcon, Eye
 } from "lucide-react";
 import {
   Dialog,
@@ -31,12 +31,29 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { CreateProjectModal } from "@/components/projects/CreateProjectModal";
+import { CreateProjectSheet } from "@/components/projects/CreateProjectSheet";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import type { Project } from "@/types/project";
 import { normalizeProject } from "@/lib/projectNormalize";
 import type { ProjectIntakePayload } from "@/application/services/ProjectKindService";
 import type { ProjectKind } from "@/domain/projectTypes/types";
 import { PROJECT_KINDS } from "@/domain/projectTypes/types";
+import {
+  buildCustomerToProjectDraft,
+  loadCreateDraft,
+  parseCreateFromParam,
+  resolveCreateFromOrToast,
+  stripCreateFromParam,
+  type ProjectDraftFromCustomer,
+} from "@/lib/createFromContext";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import {
+  getProjectIdleAging,
+  isProjectCompleted,
+  isProjectOpen,
+} from "@/lib/agingHelpers";
+import { buttonRoles } from "@/lib/buttonRoles";
 
 function customerOptionalForDirectExceptionKind(k: ProjectKind): boolean {
   return k === "INC_GIVEN" || k === "VENDORSHIP_ONLY" || k === "VENDOR_NETWORK";
@@ -44,20 +61,26 @@ function customerOptionalForDirectExceptionKind(k: ProjectKind): boolean {
 
 const Projects = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     projects,
+    quotations,
     employees,
     customers,
     partners,
     incGiverCompanies,
     getProjectEligibleQuotations,
-    _createProjectFromConfirmedQuotation,
+    createProjectFromConfirmedQuotation: _createProjectFromConfirmedQuotation,
     createDirectProjectException,
-    _generateId,
+    generateId: _generateId,
     canDo,
+    payments,
+    getTasksByProjectId,
   } = useAppData();
 
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
+  const [prefillQuotationId, setPrefillQuotationId] = useState<string | undefined>();
+  const [prefillCustomerDraft, setPrefillCustomerDraft] = useState<ProjectDraftFromCustomer | undefined>();
   const [directExOpen, setDirectExOpen] = useState(false);
   const [dexName, setDexName] = useState("");
   const [dexReason, setDexReason] = useState("");
@@ -76,12 +99,17 @@ const Projects = () => {
   const [dexPartnerSell, setDexPartnerSell] = useState("");
   const [dexIntEst, setDexIntEst] = useState("");
   const [dexPaymentType, setDexPaymentType] = useState<"cash" | "loan" | "cash-and-loan">("cash");
+  const [dexProjectType, setDexProjectType] = useState<"Residential" | "Commercial" | "Industrial">("Residential");
+  const [dexProjectCategory, setDexProjectCategory] = useState<"solar" | "other">("solar");
+  const [dexCapacity, setDexCapacity] = useState("");
+  const [dexLocation, setDexLocation] = useState("");
   const _eligibleQuotations = useMemo(() => getProjectEligibleQuotations(), [getProjectEligibleQuotations, projects]);
   
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("all");
+  const [hideCompleted, setHideCompleted] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -98,28 +126,69 @@ const Projects = () => {
   };
 
   const projectKindTone: Record<NonNullable<Project["projectKind"]>, string> = {
-    SOLO_EPC: "bg-emerald-500/10 text-emerald-700 border-emerald-500/25",
+    SOLO_EPC: "bg-success/10 text-success border-success/25",
     PARTNER_EPC: "bg-primary/10 text-primary border-primary/25",
-    FIXED_EPC: "bg-amber-500/10 text-amber-800 border-amber-500/25",
-    VENDOR_NETWORK: "bg-violet-500/10 text-violet-700 border-violet-500/25",
+    FIXED_EPC: "bg-warning/10 text-warning border-warning/25",
+    VENDOR_NETWORK: "bg-accent/10 text-accent-foreground border-accent/25",
     INC: "bg-slate-500/10 text-slate-700 border-slate-500/25",
-    INC_GIVEN: "bg-orange-500/10 text-orange-700 border-orange-500/25",
-    OUTSOURCED_INC: "bg-sky-500/10 text-sky-700 border-sky-500/25",
-    VENDORSHIP_ONLY: "bg-rose-500/10 text-rose-700 border-rose-500/25",
+    INC_GIVEN: "bg-warning/10 text-warning border-warning/25",
+    OUTSOURCED_INC: "bg-primary/10 text-primary border-primary/25",
+    VENDORSHIP_ONLY: "bg-accent/10 text-accent-foreground border-accent/25",
   };
 
-  // Filtering
+  const projectAgingContext = useMemo(() => {
+    const byProject: Record<string, { lastPaymentDate?: string; lastTaskDate?: string }> = {};
+    for (const p of projects) {
+      const payDates = payments
+        .filter((pay) => pay.projectId === p.id && pay.direction === "in")
+        .map((pay) => pay.date)
+        .filter(Boolean)
+        .sort();
+      const taskDates = (getTasksByProjectId(p.id) ?? [])
+        .map((t) => t.workDate)
+        .filter(Boolean)
+        .sort();
+      byProject[p.id] = {
+        lastPaymentDate: payDates[payDates.length - 1],
+        lastTaskDate: taskDates[taskDates.length - 1],
+      };
+    }
+    return byProject;
+  }, [projects, payments, getTasksByProjectId]);
+
+  const customerFilterParam = searchParams.get("customer");
+
+  // Filtering + open-before-completed sort (Phase 3.7)
   const filteredProjects = useMemo(() => {
-    return projects.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    const customerFilterName = customerFilterParam
+      ? customers.find((c) => c.id === customerFilterParam)?.name
+      : undefined;
+    const base = projects.filter((p) => {
+      const matchesSearch =
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.id.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === "all" || p.status === statusFilter;
       const matchesType = typeFilter === "all" || p.projectType === typeFilter;
-      const matchesKind = kindFilter === "all" || p.projectKind === kindFilter;
-      return matchesSearch && matchesStatus && matchesType && matchesKind;
+      const matchesKind = kindFilter === "all" || p.projectMode === kindFilter;
+      const matchesCompleted = !hideCompleted || isProjectOpen(p);
+      const matchesCustomer =
+        !customerFilterParam ||
+        p.customerId === customerFilterParam ||
+        p.client.toLowerCase() === customerFilterParam.toLowerCase() ||
+        (customerFilterName != null && p.client.toLowerCase() === customerFilterName.toLowerCase());
+      return matchesSearch && matchesStatus && matchesType && matchesKind && matchesCompleted && matchesCustomer;
     });
-  }, [projects, searchQuery, statusFilter, typeFilter, kindFilter]);
+    const open = base.filter(isProjectOpen);
+    const completed = base.filter(isProjectCompleted);
+    return [...open, ...completed];
+  }, [projects, customers, searchQuery, statusFilter, typeFilter, kindFilter, hideCompleted, customerFilterParam]);
+
+  const completedDividerIndex = useMemo(() => {
+    if (hideCompleted) return -1;
+    const idx = filteredProjects.findIndex(isProjectCompleted);
+    return idx > 0 ? idx : -1;
+  }, [filteredProjects, hideCompleted]);
 
   const totalPages = Math.max(1, Math.ceil(filteredProjects.length / tablePageSize) || 1);
   
@@ -127,13 +196,62 @@ const Projects = () => {
     setTablePage((p) => Math.min(p, totalPages));
   }, [totalPages]);
 
+  useEffect(() => {
+    const createFrom = parseCreateFromParam(searchParams.get("createFrom"));
+    if (createFrom?.kind === "quo" && canDo("project:create_from_quote")) {
+      const quotation = resolveCreateFromOrToast("quo", createFrom.id, (entityId) =>
+        quotations.find((q) => q.id === entityId),
+      );
+      const next = new URLSearchParams(searchParams);
+      stripCreateFromParam(next);
+      if (quotation) {
+        setPrefillQuotationId(quotation.id);
+        setPrefillCustomerDraft(undefined);
+        setIsCreateProjectOpen(true);
+      }
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    if (createFrom?.kind === "customer" && canDo("project:create_from_quote")) {
+      const stored = loadCreateDraft<ProjectDraftFromCustomer>("project-create-draft");
+      const cust =
+        stored?.customerId === createFrom.id
+          ? customers.find((c) => c.id === createFrom.id)
+          : resolveCreateFromOrToast("customer", createFrom.id, (entityId) =>
+              customers.find((c) => c.id === entityId),
+            );
+      const draft =
+        stored?.customerId === createFrom.id
+          ? stored
+          : cust
+            ? buildCustomerToProjectDraft(cust)
+            : undefined;
+      const next = new URLSearchParams(searchParams);
+      stripCreateFromParam(next);
+      if (draft) {
+        setPrefillCustomerDraft(draft);
+        setPrefillQuotationId(undefined);
+        setIsCreateProjectOpen(true);
+      }
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    if (searchParams.get("create") !== "1") return;
+    if (canDo("project:create_from_quote")) {
+      setIsCreateProjectOpen(true);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("create");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, canDo, quotations, customers]);
+
   const pagedProjects = filteredProjects.slice((tablePage - 1) * tablePageSize, tablePage * tablePageSize);
 
   const getCategoryIcon = (projectType: string) => {
     switch (projectType) {
-      case "Residential": return <Building2 className="h-4 w-4 text-amber-500" />;
+      case "Residential": return <Building2 className="h-4 w-4 text-warning" />;
       case "Commercial": return <Building2 className="h-4 w-4 text-primary" />;
-      case "Industrial": return <Building2 className="h-4 w-4 text-purple-500" />;
+      case "Industrial": return <Building2 className="h-4 w-4 text-accent-foreground" />;
       default: return <Building2 className="h-4 w-4" />;
     }
   };
@@ -164,6 +282,10 @@ const Projects = () => {
     setDexPartnerSell("");
     setDexIntEst("");
     setDexPaymentType("cash");
+    setDexProjectType("Residential");
+    setDexProjectCategory("solar");
+    setDexCapacity("");
+    setDexLocation("");
   };
 
   const handleDirectExceptionSubmit = async () => {
@@ -180,6 +302,18 @@ const Projects = () => {
     const amt = Number.parseFloat(dexAmount) || 0;
     if (amt <= 0) {
       toast({ title: "Contract amount", description: "Enter a positive contract amount.", variant: "destructive" });
+      return;
+    }
+    if (!dexCapacity.trim()) {
+      toast({ title: "Capacity required", description: "Enter system capacity (e.g. 5 or 25 kW).", variant: "destructive" });
+      return;
+    }
+    if (!dexLocation.trim()) {
+      toast({ title: "Location required", description: "Enter the site address or city — placeholders like Pending are not allowed.", variant: "destructive" });
+      return;
+    }
+    if (dexLocation.trim().toLowerCase() === "pending") {
+      toast({ title: "Invalid location", description: "Use a real site address or city, not a placeholder.", variant: "destructive" });
       return;
     }
     const est = Number.parseFloat(dexIntEst) || 0;
@@ -256,7 +390,17 @@ const Projects = () => {
         break;
     }
 
-    const intake: ProjectIntakePayload = { kind: dexKind, parties, commercial };
+    const intake: ProjectIntakePayload = {
+      kind: dexKind,
+      parties,
+      commercial,
+      site: {
+        projectType: dexProjectType,
+        projectCategory: dexProjectCategory,
+        capacity: dexCapacity.trim(),
+        location: dexLocation.trim(),
+      },
+    };
     const res = await createDirectProjectException({
       projectName: dexName.trim(),
       reason: dexReason.trim(),
@@ -337,6 +481,51 @@ const Projects = () => {
               <Label>Reason (audit)</Label>
               <Textarea value={dexReason} onChange={(e) => setDexReason(e.target.value)} rows={3} placeholder="Why is this project being created without a quotation?" />
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label>Project type</Label>
+                <Select
+                  value={dexProjectType}
+                  onValueChange={(v) => setDexProjectType(v as typeof dexProjectType)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Residential">Residential</SelectItem>
+                    <SelectItem value="Commercial">Commercial</SelectItem>
+                    <SelectItem value="Industrial">Industrial</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <Select
+                  value={dexProjectCategory}
+                  onValueChange={(v) => setDexProjectCategory(v as typeof dexProjectCategory)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="solar">Solar</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>System capacity</Label>
+              <Input
+                value={dexCapacity}
+                onChange={(e) => setDexCapacity(e.target.value)}
+                placeholder="e.g. 10 or 25 kW"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Site location</Label>
+              <Input
+                value={dexLocation}
+                onChange={(e) => setDexLocation(e.target.value)}
+                placeholder="Full address or city, state"
+              />
+            </div>
             <div className="space-y-1.5">
               <Label>Deal kind</Label>
               <Select value={dexKind} onValueChange={(v) => setDexKind(v as ProjectKind)}>
@@ -350,7 +539,19 @@ const Projects = () => {
             </div>
             <div className="space-y-1.5">
               <Label>{customerOptionalForDirectExceptionKind(dexKind) ? "Customer (optional)" : "Customer"}</Label>
-              <Select value={dexCustomerId || "__none__"} onValueChange={(v) => setDexCustomerId(v === "__none__" ? "" : v)}>
+              <Select
+                value={dexCustomerId || "__none__"}
+                onValueChange={(v) => {
+                  const id = v === "__none__" ? "" : v;
+                  setDexCustomerId(id);
+                  if (id) {
+                    const c = customers.find((x) => x.id === id);
+                    if (c?.address?.trim() && !dexLocation.trim()) {
+                      setDexLocation(c.address.trim());
+                    }
+                  }
+                }}
+              >
                 <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">— None —</SelectItem>
@@ -510,25 +711,52 @@ const Projects = () => {
             </SelectContent>
           </Select>
           <Select value={kindFilter} onValueChange={setKindFilter}>
-            <SelectTrigger className="w-full sm:w-40">
-              <SelectValue placeholder="Deal Type" />
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Project type" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Deal Types</SelectItem>
-              <SelectItem value="SOLO_EPC">Solo</SelectItem>
-              <SelectItem value="PARTNER_EPC">Partner</SelectItem>
-              <SelectItem value="FIXED_EPC">Fixed</SelectItem>
-              <SelectItem value="VENDOR_NETWORK">Vendorship</SelectItem>
-              <SelectItem value="INC">INC</SelectItem>
-              <SelectItem value="INC_GIVEN">INC Given</SelectItem>
-              <SelectItem value="OUTSOURCED_INC">Outsourced INC</SelectItem>
-              <SelectItem value="VENDORSHIP_ONLY">Vendorship Only</SelectItem>
+              <SelectItem value="all">All project types</SelectItem>
+              <SelectItem value="DIRECT_CLIENT">Direct Client</SelectItem>
+              <SelectItem value="PARTNER_NETWORK">Partner Network</SelectItem>
+              <SelectItem value="INC_GIVEN_TO_US">INC Given to Us</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            type="button"
+            variant={hideCompleted ? "default" : "outline"}
+            size="sm"
+            className="shrink-0"
+            onClick={() => setHideCompleted((v) => !v)}
+          >
+            {hideCompleted ? "Showing open only" : "Hide completed"}
+          </Button>
         </div>
       </div>
 
-      {viewMode === "table" ? (
+      {filteredProjects.length === 0 ? (
+        <ListEmptyState
+          icon={Building2}
+          title={projects.length === 0 ? "No projects yet" : "No projects match"}
+          description={
+            projects.length === 0
+              ? "Create your first project to track sites, materials, and billing."
+              : "Try clearing search or filters, or show completed projects."
+          }
+          actionLabel={projects.length === 0 ? "Create project" : "Clear filters"}
+          onAction={
+            projects.length === 0
+              ? () => setIsCreateProjectOpen(true)
+              : () => {
+                  setSearchQuery("");
+                  setStatusFilter("all");
+                  setTypeFilter("all");
+                  setKindFilter("all");
+                  setHideCompleted(false);
+                  setTablePage(1);
+                }
+          }
+        />
+      ) : viewMode === "table" ? (
         <DataTableShell
           maxHeight={listTableViewportMaxHeight(tablePageSize)}
           footer={
@@ -553,20 +781,44 @@ const Projects = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pagedProjects.map(project => {
+            {pagedProjects.map((project, rowIdx) => {
               const kind = project.projectKind || "SOLO_EPC";
+              const globalIdx = (tablePage - 1) * tablePageSize + rowIdx;
+              const showDivider = completedDividerIndex === globalIdx;
+              const aging = getProjectIdleAging(project, projectAgingContext[project.id]);
               return (
+              <>
+                {showDivider && (
+                  <TableRow key={`divider-${project.id}`} className="bg-muted/30 hover:bg-muted/30">
+                    <TableCell colSpan={7} className="py-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Completed projects
+                    </TableCell>
+                  </TableRow>
+                )}
               <TableRow key={project.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => navigate(`/projects/${project.id}`)}>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     {getCategoryIcon(project.projectType)}
-                    <div className="min-w-0">
-                      <span className="font-medium block truncate">{project.name}</span>
+                    <div className="min-w-0 flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-medium truncate">{project.name}</span>
+                        <AgingChip signal={aging} />
+                      </div>
                       <span className="text-2xs text-muted-foreground font-mono">{project.id}</span>
                     </div>
                   </div>
                 </TableCell>
-                <TableCell>{project.client}</TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  {project.customerId ? (
+                    <EntityLink
+                      entityType="customer"
+                      entityId={project.customerId}
+                      name={project.client}
+                    />
+                  ) : (
+                    project.client
+                  )}
+                </TableCell>
                 <TableCell>
                   <Badge variant="outline" className={`text-2xs ${projectKindTone[kind]}`}>{projectKindLabel[kind]}</Badge>
                 </TableCell>
@@ -581,6 +833,7 @@ const Projects = () => {
                   </Button>
                 </TableCell>
               </TableRow>
+              </>
               );
             })}
           </TableBody>
@@ -612,9 +865,13 @@ const Projects = () => {
                 </div>
 
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm">
+                  <div className="flex items-center gap-2 text-sm" onClick={(e) => e.stopPropagation()}>
                     <User className="h-4 w-4 text-muted-foreground" />
-                    <span>{project.client}</span>
+                    {project.customerId ? (
+                      <EntityLink entityType="customer" entityId={project.customerId} name={project.client} />
+                    ) : (
+                      <span>{project.client}</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <IndianRupee className="h-4 w-4 text-muted-foreground" />
@@ -633,7 +890,7 @@ const Projects = () => {
                         const emp = employees.find(e => e.id === id);
                         return (
                           <Avatar key={id} className="h-6 w-6 border-2 border-background ring-0">
-                            <AvatarFallback className="text-[8px] bg-primary/10 text-primary">
+                            <AvatarFallback className="text-2xs bg-primary/10 text-primary">
                               {emp?.name.charAt(0) || "?"}
                             </AvatarFallback>
                           </Avatar>
@@ -641,7 +898,7 @@ const Projects = () => {
                       })}
                     </div>
                     {assigneeCount > 3 && (
-                      <span className="text-[10px] text-muted-foreground">+{assigneeCount - 3}</span>
+                      <span className="text-2xs text-muted-foreground">+{assigneeCount - 3}</span>
                     )}
                     {assigneeCount === 0 && (
                       <span className="text-xs text-muted-foreground italic">Unassigned</span>
@@ -663,12 +920,22 @@ const Projects = () => {
           })}
         </div>
       )}
-        <CreateProjectModal 
-        open={isCreateProjectOpen} 
-        onOpenChange={setIsCreateProjectOpen} 
-      />
+        <CreateProjectSheet
+          open={isCreateProjectOpen}
+          onOpenChange={(open) => {
+            setIsCreateProjectOpen(open);
+            if (!open) {
+              setPrefillQuotationId(undefined);
+              setPrefillCustomerDraft(undefined);
+            }
+          }}
+          prefillQuotationId={prefillQuotationId}
+          prefillCustomerDraft={prefillCustomerDraft}
+        />
     </PageShell>
   );
 };
 
 export default Projects;
+
+

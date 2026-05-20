@@ -1,7 +1,9 @@
 import type { CommandBus } from "@/application/commands/CommandBus";
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
 import { canTransitionEnquiryStatus, type EnquiryStatus } from "@/domain/stateMachines/enquiryStateMachine";
+import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
 import type { PermissionService } from "@/application/services/PermissionService";
+import { assertCommandPermission } from "@/application/commands/commandPermission";
 import type { AuditService } from "@/application/services/AuditService";
 import type { Command } from "@/application/commands/types";
 import type { Enquiry } from "@/types/project";
@@ -33,7 +35,7 @@ export const registerEnquiryCommands = (
   commandBus.register<Command<CreateEnquiryPayload>, { enquiryId: string }>(
     CREATE_ENQUIRY_COMMAND,
     (command) => {
-      permissionService.assertCanPerformAction(command.actorRole, "enquiry:create");
+      assertCommandPermission(permissionService, command, "enquiry:create");
       const { enquiry } = command.payload;
       if (repositories.enquiryRepository.getById(enquiry.id)) {
         return {
@@ -61,7 +63,7 @@ export const registerEnquiryCommands = (
   commandBus.register<Command<UpdateEnquiryStatusPayload>, { enquiryId: string; nextStatus: EnquiryStatus }>(
     UPDATE_ENQUIRY_STATUS_COMMAND,
     (command) => {
-      permissionService.assertCanPerformAction(command.actorRole, "approval:resolve");
+      assertCommandPermission(permissionService, command, "enquiry:create");
 
       const enquiry = repositories.enquiryRepository.getById(command.payload.enquiryId);
       if (!enquiry) {
@@ -78,6 +80,19 @@ export const registerEnquiryCommands = (
           errorCode: "INVALID_ENQUIRY_TRANSITION",
           message: `Cannot move enquiry from ${enquiry.status} to ${command.payload.nextStatus}`,
         };
+      }
+
+      if (command.payload.nextStatus === "quotation_sent") {
+        const hasLinked =
+          getEnquiryQuotationIds(enquiry).some((id) => repositories.quotationRepository.getById(id)) ||
+          repositories.quotationRepository.getAll().some((q) => q.enquiryId === enquiry.id);
+        if (!hasLinked) {
+          return {
+            ok: false,
+            errorCode: "ENQUIRY_MISSING_QUOTATION",
+            message: "Create and link a quotation before marking enquiry as Quotation Sent",
+          };
+        }
       }
 
       repositories.enquiryRepository.update(enquiry.id, {
@@ -110,7 +125,7 @@ export const registerEnquiryCommands = (
     CONVERT_ENQUIRY_COMMAND,
     (command) => {
       // Audit B14: align with the UI gate at AppDataContext.convertEnquiryToCustomer (also `enquiry:create`).
-      permissionService.assertCanPerformAction(command.actorRole, "enquiry:create");
+      assertCommandPermission(permissionService, command, "enquiry:create");
       const { enquiryId } = command.payload;
       const enquiry = repositories.enquiryRepository.getById(enquiryId);
       if (!enquiry) {

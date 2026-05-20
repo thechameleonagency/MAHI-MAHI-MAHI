@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MSS — Wipe all app data</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+      button { padding: 0.6rem 1rem; font-size: 1rem; cursor: pointer; margin-right: 0.5rem; }
+      .danger { background: #b91c1c; color: white; border: none; border-radius: 6px; }
+      .muted { color: #64748b; font-size: 0.9rem; margin-top: 1rem; }
+      pre { background: #f1f5f9; padding: 1rem; overflow: auto; border-radius: 6px; font-size: 0.75rem; max-height: 12rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Wipe all MSS app data</h1>
+    <p>
+      Removes <strong>all</strong> prototype data from <code>localStorage</code> (projects, customers, vendors,
+      masters, drafts, role overrides, legacy <code>mss.repo.*</code> keys). Source code is not touched.
+    </p>
+    <p>
+      <button class="danger" type="button" id="wipe">Wipe everything &amp; reload app</button>
+    </p>
+    <p class="muted">After reload you get an empty workspace (masters only). Use Settings → Load demo dataset for sample data.</p>
+    <h2>Keys that will be removed</h2>
+    <pre id="keys"></pre>
+    <script>
+      function shouldRemoveKey(key) {
+        var exact = [
+          "masters_data",
+          "mahi_solar_app_data",
+          "mahi_solar_app_data_version",
+          "mahi_solar_app_reset_epoch",
+          "mss.schema.version",
+          "mss.app.version",
+          "mss_storage_version",
+          "mms-nav-pins"
+        ];
+        if (exact.indexOf(key) !== -1) return true;
+        if (key.indexOf("mss.") === 0 || key.indexOf("mahi_solar_") === 0) return true;
+        return false;
+      }
+      function listKeys() {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && shouldRemoveKey(k)) keys.push(k);
+        }
+        return keys.sort();
+      }
+      document.getElementById("keys").textContent =
+        listKeys().join("\n") || "(none — storage already empty)";
+      document.getElementById("wipe").onclick = function () {
+        const keys = listKeys();
+        keys.forEach(function (k) { localStorage.removeItem(k); });
+        window.location.href = "/";
+      };
+    </script>
+  </body>
+</html>

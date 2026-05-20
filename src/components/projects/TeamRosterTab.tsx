@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
@@ -18,12 +19,20 @@ interface TeamRosterTabProps {
 
 export function TeamRosterTab({ project }: TeamRosterTabProps) {
   const { teams, employees, assignTeamToProject, removeTeamFromProject, generateId } = useAppData();
-  
-  // Form State
+
+  // Form state lives in a compact dialog now so the table reads cleanly without an always-visible form above it.
+  const [addOpen, setAddOpen] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
+
+  const resetForm = () => {
+    setSelectedTeamId("");
+    setStartDate(new Date().toISOString().split("T")[0]);
+    setEndDate(new Date().toISOString().split("T")[0]);
+    setNotes("");
+  };
 
   const handleAddAssignment = () => {
     if (!selectedTeamId) {
@@ -48,8 +57,8 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
       notes: notes.trim() || undefined,
     });
 
-    setSelectedTeamId("");
-    setNotes("");
+    resetForm();
+    setAddOpen(false);
     toast({ title: "Team assigned", description: `${team.name} added to roster.` });
   };
 
@@ -60,60 +69,17 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
   };
 
   return (
-    <div className="space-y-6">
-      <Card className="border-primary/20 shadow-sm overflow-hidden">
-        <CardHeader className="bg-primary/5 py-4">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="h-5 w-5 text-primary" />
-            Assign Installation Team
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-5">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase text-muted-foreground">Team</Label>
-              <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
-                <SelectTrigger className="bg-white">
-                  <SelectValue placeholder="Choose team" />
-                </SelectTrigger>
-                <SelectContent>
-                  {teams.filter(t => t.status === "Active").map(t => (
-                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase text-muted-foreground">Start Date</Label>
-              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-white" />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase text-muted-foreground">End Date</Label>
-              <Input type="date" min={startDate || undefined} value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-white" />
-            </div>
-            <Button onClick={handleAddAssignment} className="shadow-md shadow-primary/20">
-              <Plus className="h-4 w-4 mr-2" />
-              Add to Roster
-            </Button>
-          </div>
-          <div className="mt-4">
-            <Label className="text-xs font-semibold uppercase text-muted-foreground">Assignment Notes</Label>
-            <Input 
-              value={notes} 
-              onChange={e => setNotes(e.target.value)} 
-              placeholder="e.g. Full project completion, or specific phase work..." 
-              className="mt-1 bg-white"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
+    <div className="space-y-4">
       <Card>
-        <CardHeader className="py-4 border-b">
+        <CardHeader className="py-4 border-b flex flex-row items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             <Calendar className="h-5 w-5 text-primary" />
-            Active Team Roster
+            Team Roster
           </CardTitle>
+          <Button size="sm" onClick={() => { resetForm(); setAddOpen(true); }}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add team
+          </Button>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -143,16 +109,15 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
                     <TableCell>
                       <div className="text-xs">
                         <p className="font-semibold text-foreground">{formatUiDate(assignment.startDate, "dd MMM")} — {formatUiDate(assignment.endDate, "dd MMM, yyyy")}</p>
-                        <p className="text-muted-foreground text-2xs mt-0.5">Duration tracked individually</p>
                       </div>
                     </TableCell>
                     <TableCell>
                       <span className="text-xs text-muted-foreground">{assignment.notes || "—"}</span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button 
-                        size="icon" 
-                        variant="ghost" 
+                      <Button
+                        size="icon"
+                        variant="ghost"
                         className="h-8 w-8 text-destructive hover:bg-destructive/10"
                         onClick={() => {
                           if (confirm("Remove this team from the project roster?")) {
@@ -171,7 +136,7 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Info className="h-8 w-8 opacity-20" />
                       <p className="text-sm">No teams assigned to this project yet.</p>
-                      <p className="text-xs">Add a team above to start tracking installation schedule.</p>
+                      <p className="text-xs">Click "Add team" above to assign one.</p>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -180,6 +145,53 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) resetForm(); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" /> Assign team to project
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase text-muted-foreground">Team</Label>
+              <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
+                <SelectTrigger><SelectValue placeholder="Choose team" /></SelectTrigger>
+                <SelectContent>
+                  {teams.filter(t => t.status === "Active").map(t => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs uppercase text-muted-foreground">Start date</Label>
+                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs uppercase text-muted-foreground">End date</Label>
+                <Input type="date" min={startDate || undefined} value={endDate} onChange={e => setEndDate(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase text-muted-foreground">Notes</Label>
+              <Input
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="e.g. Full project completion, or specific phase work..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddAssignment}>
+              <Plus className="h-4 w-4 mr-2" /> Add to roster
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

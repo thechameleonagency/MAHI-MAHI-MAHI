@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Plus, Search, CreditCard, IndianRupee, Calendar, Building2, User, Clock, Bell, AlertCircle, Trash2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import type { Loan, LoanRepayment } from "@/types/finance";
 import { emiComponents } from "@/lib/emiCalc";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -24,9 +25,13 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatINR } from "@/lib/formatCurrency";
 import { normalizeLoanPersonKey } from "@/lib/loanPerson";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
-import { differenceInCalendarDays, parseISO, addMonths, format, isValid } from "date-fns";
+import { ListSkeleton } from "@/components/ui/ListSkeleton";
+import { parseISO, format, isValid } from "date-fns";
 import { downloadCSV } from "@/lib/csvExport";
 import { validateContactPhone } from "@/lib/phoneValidators";
+import { useCan } from "@/hooks/useCan";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getLoanOverdueAging, loanDaysOverdue } from "@/lib/agingHelpers";
 
 function lastLoanRepaymentDate(loanId: string, repayments: LoanRepayment[]): string | null {
   const dates = repayments.filter((r) => r.loanId === loanId).map((r) => r.date);
@@ -34,40 +39,56 @@ function lastLoanRepaymentDate(loanId: string, repayments: LoanRepayment[]): str
   return dates.reduce((a, b) => (a > b ? a : b));
 }
 
-/** Prototype schedule: EMI #n due at start + n months; overdue when that date is past and principal remains. */
-function loanDaysOverdue(loan: Loan, repayments: LoanRepayment[]): number {
-  const todayIso = new Date().toISOString().split("T")[0];
-  if (loan.status !== "Active") return 0;
-
-  if (loan.paymentType === "one-time" && loan.dueDate && loan.outstanding > 0.01 && loan.dueDate < todayIso) {
-    return differenceInCalendarDays(parseISO(todayIso), parseISO(loan.dueDate));
-  }
-  if (loan.paymentType === "emi" && loan.startDate && loan.outstanding > 0.01) {
-    const paidCount = repayments.filter((r) => r.loanId === loan.id).length;
-    const nextDueIso = format(addMonths(parseISO(loan.startDate), paidCount + 1), "yyyy-MM-dd");
-    if (nextDueIso < todayIso) {
-      return differenceInCalendarDays(parseISO(todayIso), parseISO(nextDueIso));
-    }
-    return 0;
-  }
-  if (loan.paymentType === "reminder-only" && loan.reminderDate && loan.reminderDate < todayIso) {
-    return differenceInCalendarDays(parseISO(todayIso), parseISO(loan.reminderDate));
-  }
-  return 0;
-}
-
 const Loans = () => {
-  const { loans, loanRepayments, addLoan, addLoanRepayment, deleteLoanRepayment, updateLoan, generateId, canDo } = useAppData();
-  
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
+  const { loans, loanRepayments, addLoan, addLoanRepayment, deleteLoanRepayment, updateLoan, generateId } = useAppData();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const canCreateLoan = useCan("loan", "create");
+  const canEditLoan = useCan("loan", "edit");
+  const canDeleteLoan = useCan("loan", "delete");
+  const canDeleteRepayment = useCan("loanRepayment", "delete");
+
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "all");
+  const [typeFilter, setTypeFilter] = useState(() => searchParams.get("type") ?? "all");
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+
+  const [listReady, setListReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setListReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const q = searchQuery.trim();
+        if (q) next.set("q", q);
+        else next.delete("q");
+        if (statusFilter !== "all") next.set("status", statusFilter);
+        else next.delete("status");
+        if (typeFilter !== "all") next.set("type", typeFilter);
+        else next.delete("type");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchQuery, statusFilter, typeFilter, setSearchParams]);
   
   // Modal state
   const [isAddLoanOpen, setIsAddLoanOpen] = useState(false);
   const [isRepaymentOpen, setIsRepaymentOpen] = useState(false);
+  const [isEditLoanOpen, setIsEditLoanOpen] = useState(false);
+  const [editingLoanId, setEditingLoanId] = useState<string | null>(null);
+  const [editLoanEmiAmount, setEditLoanEmiAmount] = useState("");
+  const [editLoanTenure, setEditLoanTenure] = useState("");
+  const [editLoanInterest, setEditLoanInterest] = useState("");
+  const [editLoanReminderDate, setEditLoanReminderDate] = useState("");
+  const [editLoanReminderNotes, setEditLoanReminderNotes] = useState("");
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false);
+  const [scheduleLoan, setScheduleLoan] = useState<Loan | null>(null);
+  const [forceCloseLoan, setForceCloseLoan] = useState<Loan | null>(null);
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [deleteRepaymentId, setDeleteRepaymentId] = useState<string | null>(null);
   
@@ -83,6 +104,9 @@ const Loans = () => {
   const [loanReminderDate, setLoanReminderDate] = useState("");
   const [loanReminderNotes, setLoanReminderNotes] = useState("");
   const [loanStartDate, setLoanStartDate] = useState(new Date().toISOString().split('T')[0]);
+  /** Optional: number of EMIs the borrower has already paid before this loan was recorded
+   *  in the system (lets us back-fill outstanding correctly for in-flight EMI loans). */
+  const [loanEmisPaidAlready, setLoanEmisPaidAlready] = useState("");
   /** Optional contact for person/partner (or RM phone); validated when non-empty (V58). */
   const [loanPersonContact, setLoanPersonContact] = useState("");
 
@@ -112,6 +136,7 @@ const Loans = () => {
     setLoanReminderNotes("");
     setLoanStartDate(todayIso());
     setLoanPersonContact("");
+    setLoanEmisPaidAlready("");
   };
 
   const handleAddLoan = () => {
@@ -164,20 +189,27 @@ const Loans = () => {
       }
     }
 
+    const principalNum = parseFloat(loanPrincipal);
+    const emiNum = loanPaymentType === "emi" ? parseFloat(loanEmi) : 0;
+    const emisPaidNum = loanPaymentType === "emi" ? Math.max(0, parseInt(loanEmisPaidAlready) || 0) : 0;
+    // Back-fill outstanding: principal minus EMIs already paid (clamped to >= 0).
+    const computedOutstanding = Math.max(0, principalNum - emisPaidNum * emiNum);
+
     const newLoan: Loan = {
       id: generateId('L'),
       source: loanSource,
       sourceType: loanSourceType,
       paymentType: loanPaymentType,
-      principal: parseFloat(loanPrincipal),
+      principal: principalNum,
       interestRate: parseFloat(loanInterestRate) || 0,
-      emiAmount: loanPaymentType === "emi" ? parseFloat(loanEmi) : 0,
+      emiAmount: emiNum,
       tenure: loanPaymentType === "emi" ? parseInt(loanTenure) || 12 : 0,
       dueDate: loanPaymentType === "one-time" ? loanDueDate : undefined,
       reminderDate: loanPaymentType === "reminder-only" ? loanReminderDate : undefined,
       reminderNotes: loanPaymentType === "reminder-only" ? loanReminderNotes : undefined,
       startDate: loanStartDate,
-      outstanding: parseFloat(loanPrincipal),
+      emisPaidAlready: emisPaidNum || undefined,
+      outstanding: computedOutstanding,
       status: "Active",
       personName: loanSourceType === "person" ? loanSource : undefined,
       personContact: contactTrim || undefined,
@@ -254,7 +286,7 @@ const Loans = () => {
     addLoanRepayment(repayment);
     setIsRepaymentOpen(false);
     setRepaymentAmount("");
-    toast({ title: "Repayment Recorded", description: `₹${amount.toLocaleString()} recorded` });
+    toast({ title: "Repayment Recorded", description: `${formatINR(amount)} recorded` });
   };
 
   const filteredLoans = useMemo(
@@ -365,75 +397,58 @@ const Loans = () => {
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Loans" }]}
         subRow={
-          <InlineKpiStrip
-            className="w-full min-w-0 flex-wrap justify-start"
-            items={[
-              { label: "Active", value: activeLoans },
-              { label: "Principal", value: formatCurrency(totalPrincipal) },
-              { label: "Outstanding", value: formatCurrency(totalOutstanding) },
-              { label: "EMI / mo", value: formatCurrency(monthlyEmi) },
-            ]}
-          />
+          <div className="flex w-full flex-wrap items-end gap-2">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search loans..."
+                className="h-9 pl-9 bg-muted/50 border-border"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setTablePage(1); }}
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setTablePage(1); }}>
+              <SelectTrigger className="h-9 w-[130px] bg-muted/50">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="Active">Active</SelectItem>
+                <SelectItem value="Closed">Closed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setTablePage(1); }}>
+              <SelectTrigger className="h-9 w-[150px] bg-muted/50">
+                <SelectValue placeholder="Payment Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="emi">EMI</SelectItem>
+                <SelectItem value="one-time">One-Time</SelectItem>
+                <SelectItem value="reminder-only">Reminder Only</SelectItem>
+              </SelectContent>
+            </Select>
+            <InlineKpiStrip
+              className="ml-auto flex-wrap"
+              items={[
+                { label: "Active", value: activeLoans },
+                { label: "Principal", value: formatCurrency(totalPrincipal) },
+                { label: "Outstanding", value: formatCurrency(totalOutstanding) },
+                { label: "EMI / mo", value: formatCurrency(monthlyEmi) },
+              ]}
+            />
+          </div>
         }
       >
         <Button size="sm" variant="outline" type="button" onClick={exportLoansCsv}>
           <Download className="mr-2 h-4 w-4" />
           Export CSV
         </Button>
-        <Button size="sm" onClick={() => { resetLoanForm(); setIsAddLoanOpen(true); }} disabled={!canDo("loan:update")}>
+        <Button size="sm" onClick={() => { resetLoanForm(); setIsAddLoanOpen(true); }} disabled={!canCreateLoan}>
           <Plus className="h-4 w-4 mr-2" />
           Add
         </Button>
       </StickyPageHeader>
-
-      {/* Search & Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search loans..." 
-            className="pl-9 bg-muted/50 border-border"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setTablePage(1);
-            }}
-          />
-        </div>
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => {
-            setStatusFilter(v);
-            setTablePage(1);
-          }}
-        >
-          <SelectTrigger className="w-[130px] bg-muted/50">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Closed">Closed</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={typeFilter}
-          onValueChange={(v) => {
-            setTypeFilter(v);
-            setTablePage(1);
-          }}
-        >
-          <SelectTrigger className="w-[150px] bg-muted/50">
-            <SelectValue placeholder="Payment Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
-            <SelectItem value="emi">EMI</SelectItem>
-            <SelectItem value="one-time">One-Time</SelectItem>
-            <SelectItem value="reminder-only">Reminder Only</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
 
       {/* Loans Table */}
       <DataTableShell
@@ -467,9 +482,12 @@ const Loans = () => {
           </TableRow>
         </TableHeader>
         <TableBody>
-            {pagedLoans.map((loan) => {
+            {!listReady ? (
+              <ListSkeleton variant="table" count={5} columns={10} />
+            ) : pagedLoans.map((loan) => {
               const lastPay = lastLoanRepaymentDate(loan.id, loanRepayments);
               const overdueDays = loanDaysOverdue(loan, loanRepayments);
+              const loanAging = getLoanOverdueAging(loan, loanRepayments);
               return (
               <TableRow key={loan.id} className="border-border">
                 <TableCell>
@@ -482,6 +500,7 @@ const Loans = () => {
                     >
                       {loan.source}
                     </Link>
+                    {loanAging && <AgingChip signal={loanAging} />}
                   </div>
                 </TableCell>
                 <TableCell>{getPaymentTypeBadge(loan.paymentType)}</TableCell>
@@ -503,7 +522,7 @@ const Loans = () => {
                   <StatusBadge status={loan.status} label={loan.status} className="text-xs" />
                 </TableCell>
                 <TableCell className="text-right">
-                  {loan.status === "Active" && loan.paymentType !== "reminder-only" && (
+                  {loan.status === "Active" && loan.paymentType !== "reminder-only" && canEditLoan && (
                     <Button 
                       variant="outline" 
                       size="sm"
@@ -520,14 +539,52 @@ const Loans = () => {
                   {loan.status === "Active" && loan.paymentType === "reminder-only" && (
                     <span className="text-xs text-muted-foreground italic">View only</span>
                   )}
-                  {loan.status === "Active" && loan.outstanding <= 0 && (
+                  {loan.status === "Active" && loan.outstanding <= 0 && canEditLoan && (
                     <Button
                       variant="outline"
                       size="sm"
-                      className="ml-1 text-green-700 border-green-300 hover:bg-green-50"
+                      className="ml-1 text-success border-success/30 hover:bg-success"
                       onClick={() => updateLoan(loan.id, { status: "Closed", outstanding: 0 })}
                     >
                       Close Loan
+                    </Button>
+                  )}
+                  {loan.status === "Active" && canEditLoan && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-1"
+                      onClick={() => setForceCloseLoan(loan)}
+                    >
+                      Mark closed
+                    </Button>
+                  )}
+                  {canEditLoan && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-1"
+                    onClick={() => {
+                      setEditingLoanId(loan.id);
+                      setEditLoanEmiAmount(String(loan.emiAmount));
+                      setEditLoanTenure(String(loan.tenure));
+                      setEditLoanInterest(String(loan.interestRate));
+                      setEditLoanReminderDate(loan.reminderDate ?? "");
+                      setEditLoanReminderNotes(loan.reminderNotes ?? "");
+                      setIsEditLoanOpen(true);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                  )}
+                  {loan.paymentType === "emi" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-1"
+                      onClick={() => { setScheduleLoan(loan); setIsScheduleOpen(true); }}
+                    >
+                      EMI schedule
                     </Button>
                   )}
                 </TableCell>
@@ -580,7 +637,7 @@ const Loans = () => {
                       size="icon"
                       className="h-6 w-6 text-destructive hover:text-destructive"
                       onClick={() => setDeleteRepaymentId(rep.id)}
-                      disabled={!canDo("loan:delete")}
+                      disabled={!canDeleteRepayment}
                       aria-label="Delete repayment"
                     >
                       <Trash2 className="h-3 w-3" />
@@ -678,16 +735,32 @@ const Loans = () => {
 
             {/* EMI-specific fields */}
             {loanPaymentType === "emi" && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>EMI Amount *</Label>
-                  <Input type="number" value={loanEmi} onChange={(e) => setLoanEmi(e.target.value)} placeholder="10871" />
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>EMI Amount *</Label>
+                    <Input type="number" value={loanEmi} onChange={(e) => setLoanEmi(e.target.value)} placeholder="10871" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Tenure (months)</Label>
+                    <Input type="number" min="1" value={loanTenure} onChange={(e) => setLoanTenure(e.target.value)} placeholder="60" />
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Tenure (months)</Label>
-                  <Input type="number" min="1" value={loanTenure} onChange={(e) => setLoanTenure(e.target.value)} placeholder="60" />
+                  <Label>EMIs already paid (before recording)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={loanEmisPaidAlready}
+                    onChange={(e) => setLoanEmisPaidAlready(e.target.value)}
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    If the borrower has already paid some EMIs before this loan was entered in the system,
+                    enter the count here. Outstanding will be back-filled accordingly.
+                  </p>
                 </div>
-              </div>
+              </>
             )}
 
             {/* One-time payment fields */}
@@ -776,6 +849,110 @@ const Loans = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Sheet open={isEditLoanOpen} onOpenChange={(open) => { setIsEditLoanOpen(open); if (!open) setEditingLoanId(null); }}>
+        <SheetContent className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Edit loan</SheetTitle>
+          </SheetHeader>
+          <div className="space-y-3 py-4">
+            <div>
+              <Label>EMI amount</Label>
+              <Input value={editLoanEmiAmount} onChange={(e) => setEditLoanEmiAmount(e.target.value)} />
+            </div>
+            <div>
+              <Label>Tenure (months)</Label>
+              <Input value={editLoanTenure} onChange={(e) => setEditLoanTenure(e.target.value)} />
+            </div>
+            <div>
+              <Label>Interest rate (%)</Label>
+              <Input value={editLoanInterest} onChange={(e) => setEditLoanInterest(e.target.value)} />
+            </div>
+            <div>
+              <Label>Reminder date</Label>
+              <Input type="date" value={editLoanReminderDate} onChange={(e) => setEditLoanReminderDate(e.target.value)} />
+            </div>
+            <div>
+              <Label>Reminder notes</Label>
+              <Input value={editLoanReminderNotes} onChange={(e) => setEditLoanReminderNotes(e.target.value)} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-3">
+            <Button variant="outline" onClick={() => { setIsEditLoanOpen(false); setEditingLoanId(null); }}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (!editingLoanId) return;
+                updateLoan(editingLoanId, {
+                  emiAmount: Number(editLoanEmiAmount) || 0,
+                  tenure: Number(editLoanTenure) || 0,
+                  interestRate: Number(editLoanInterest) || 0,
+                  reminderDate: editLoanReminderDate || undefined,
+                  reminderNotes: editLoanReminderNotes || undefined,
+                });
+                setIsEditLoanOpen(false);
+                setEditingLoanId(null);
+              }}
+            >
+              Save changes
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={isScheduleOpen} onOpenChange={(open) => { setIsScheduleOpen(open); if (!open) setScheduleLoan(null); }}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto custom-scrollbar">
+          <SheetHeader>
+            <SheetTitle>EMI schedule</SheetTitle>
+          </SheetHeader>
+          {scheduleLoan && (
+            <div className="space-y-3 py-4">
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                <p className="font-medium">{scheduleLoan.source}</p>
+                <p className="text-muted-foreground">
+                  Principal {formatINR(scheduleLoan.principal)} · EMI {formatINR(scheduleLoan.emiAmount)} · {scheduleLoan.tenure} months
+                </p>
+              </div>
+              <DataTableShell variant="inline">
+                <TableHeader>
+                  <TableRow className={dataTableClasses.headRow}>
+                    <TableHead className="w-10">#</TableHead>
+                    <TableHead>Due date</TableHead>
+                    <TableHead className="text-right">EMI</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Array.from({ length: scheduleLoan.tenure || 0 }).map((_, i) => {
+                    const start = scheduleLoan.startDate ? parseISO(scheduleLoan.startDate) : new Date();
+                    const due = new Date(start);
+                    due.setMonth(due.getMonth() + i + 1);
+                    return (
+                      <TableRow key={i}>
+                        <TableCell>{i + 1}</TableCell>
+                        <TableCell>{format(due, "dd MMM yyyy")}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatINR(scheduleLoan.emiAmount)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </DataTableShell>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      <DestructiveConfirmDialog
+        open={!!forceCloseLoan}
+        onOpenChange={(open) => { if (!open) setForceCloseLoan(null); }}
+        title={`Force-close ${forceCloseLoan?.source}?`}
+        description={`Outstanding ${formatINR(forceCloseLoan?.outstanding ?? 0)} will be marked as settled.`}
+        confirmLabel="Close Loan"
+        onConfirm={() => {
+          if (forceCloseLoan) {
+            updateLoan(forceCloseLoan.id, { status: "Closed", outstanding: 0 });
+            setForceCloseLoan(null);
+          }
+        }}
+      />
     </PageShell>
   );
 };

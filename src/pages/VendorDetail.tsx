@@ -12,6 +12,7 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/ui/DateInput";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -30,6 +31,10 @@ import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 
 import { VendorBill } from "@/data/inventoryData";
 import type { VendorBillStatus } from "@/types/inventory";
+import { buildVendorBillToPaymentDraft, saveCreateDraft } from "@/lib/createFromContext";
+import { findByRouteId, resolveRouteId } from "@/lib/resolveEntityId";
+import type { ProcurementNeedLine } from "@/types/operations";
+import { useCan } from "@/hooks/useCan";
 
 function billLineSubtotal(bill: VendorBill): number {
   if (typeof bill.subtotal === "number") return bill.subtotal;
@@ -48,20 +53,29 @@ const VendorDetail = () => {
   const { 
     vendors, 
     projects, 
-    _expenses, 
+    expenses: _expenses, 
     vendorBills: contextVendorBills,
     vendorPayments: contextVendorPayments,
     inventoryItems: contextInventory,
     updateVendorBill,
+    deleteVendorBill,
     addVendorBill,
     addVendorPayment,
     deleteVendorPayment,
     updateVendor,
+    deleteVendor,
     generateId,
     canDo,
+    procurementNeedLines,
+    updateProcurementNeedLine,
   } = useAppData();
 
+  const canDeleteVendor = useCan("vendor", "delete");
+  const canDeleteVendorBill = useCan("vendorBill", "delete");
+
   const [deletePaymentId, setDeletePaymentId] = useState<string | null>(null);
+  const [confirmDeleteVendor, setConfirmDeleteVendor] = useState(false);
+  const [deleteBillTarget, setDeleteBillTarget] = useState<VendorBill | null>(null);
 
   const [isEditVendorOpen, setIsEditVendorOpen] = useState(false);
   const [veName, setVeName] = useState("");
@@ -72,8 +86,7 @@ const VendorDetail = () => {
   const [veLinkedProjectId, setVeLinkedProjectId] = useState("");
 
   const openEditVendor = () => {
-    const numId = parseInt(id || "0", 10);
-    const v = vendors.find((x) => x.id === numId);
+    const v = findByRouteId(vendors, id);
     if (!v) return;
     setVeName(v.name);
     setVeContact(v.contact ?? "");
@@ -85,14 +98,14 @@ const VendorDetail = () => {
   };
 
   const saveVendorProfile = () => {
-    const numId = parseInt(id || "0", 10);
-    if (!Number.isFinite(numId)) return;
+    const vendorId = resolveRouteId(id);
+    if (!vendorId) return;
     const name = veName.trim();
     if (!name) {
       toast({ title: "Name required", variant: "destructive" });
       return;
     }
-    updateVendor(numId, {
+    updateVendor(vendorId, {
       name,
       contact: veContact.trim(),
       email: veEmail.trim(),
@@ -137,7 +150,7 @@ const VendorDetail = () => {
     quantity: number;
     rate: number;
     isFromInventory: boolean;
-    inventoryItemId?: number;
+    inventoryItemId?: string;
   }[]>([{ description: "", quantity: 1, rate: 0, isFromInventory: false }]);
   
   // Purchase Type: inventory, tools, other
@@ -169,14 +182,14 @@ const VendorDetail = () => {
       const qtyRaw = searchParams.get("qty");
       const projectIdParam = searchParams.get("projectId");
       if (invIdRaw && qtyRaw) {
-        const invId = parseInt(invIdRaw, 10);
+        const invId = invIdRaw.trim();
         const qty = Number.parseFloat(qtyRaw);
-        const inv = contextInventory.find((x) => x.id === invId);
-        if (Number.isFinite(invId) && Number.isFinite(qty) && qty > 0) {
+        const inv = contextInventory.find((x) => String(x.id) === invId);
+        if (invId && Number.isFinite(qty) && qty > 0) {
           setPurchaseType("inventory");
           setPurchaseItems([
             {
-              description: inv?.name ?? `Item #${invId}`,
+              description: inv?.name ?? `Item ${invId}`,
               quantity: qty,
               rate: inv?.buyPrice ?? 0,
               isFromInventory: true,
@@ -207,8 +220,7 @@ const VendorDetail = () => {
 
   useEffect(() => {
     if (!isPurchaseModalOpen) return;
-    const numId = parseInt(id || "0", 10);
-    const raw = vendors.find((v) => v.id === numId);
+    const raw = findByRouteId(vendors, id);
     if (!raw?.linkedProjectId) return;
     setPurchaseProject((prev) => (prev?.trim() ? prev : raw.linkedProjectId!));
   }, [isPurchaseModalOpen, id, vendors]);
@@ -232,16 +244,9 @@ const VendorDetail = () => {
     setEditPurchaseOrderRef(selectedBill.purchaseOrderRef ?? "");
   }, [selectedBill, isEditMode, isBillPreviewOpen]);
 
-  // Find vendor from context
-  const vendor = useMemo(() => {
-    const numId = parseInt(id || "0");
-    const fromContextNum = vendors.find(v => v.id === numId);
-    if (fromContextNum) return { ...fromContextNum, id: String(fromContextNum.id) };
-    return null;
-  }, [vendors, id]);
+  const vendor = useMemo(() => findByRouteId(vendors, id), [vendors, id]);
 
-  const vendorIdStr = vendor ? vendor.id : id || "";
-  const vendorIdNum = Number(vendorIdStr);
+  const vendorIdStr = vendor ? String(vendor.id) : resolveRouteId(id);
 
   // Get vendor bills from context — compare as strings for safety
   const vendorBills = useMemo(() => {
@@ -306,6 +311,94 @@ const VendorDetail = () => {
     [vendorBills]
   );
 
+  const toAcquireLines = useMemo(
+    () =>
+      procurementNeedLines.filter(
+        (l) => String(l.vendorId) === String(vendorIdStr) && l.status !== "acquired",
+      ),
+    [procurementNeedLines, vendorIdStr],
+  );
+
+  const [acquireTarget, setAcquireTarget] = useState<ProcurementNeedLine | null>(null);
+  const [acquireQty, setAcquireQty] = useState("");
+  const [acquireRate, setAcquireRate] = useState("");
+
+  const openAcquireSheet = (line: ProcurementNeedLine) => {
+    setAcquireTarget(line);
+    setAcquireQty(String(line.qtyNeeded));
+    setAcquireRate(String(line.lastPurchaseRate ?? 0));
+  };
+
+  const confirmMarkAcquired = () => {
+    if (!acquireTarget || !vendor) return;
+    const qty = Number.parseFloat(acquireQty);
+    const rate = Number.parseFloat(acquireRate);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast({ title: "Quantity required", variant: "destructive" });
+      return;
+    }
+    if (!Number.isFinite(rate) || rate < 0) {
+      toast({ title: "Rate required", variant: "destructive" });
+      return;
+    }
+    if (!canDo("vendor:record_bill")) {
+      toast({
+        title: "Cannot record acquisition",
+        description: "You need permission to record vendor bills.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const lineSubtotal = qty * rate;
+    const gst = Math.round(lineSubtotal * 0.18);
+    const total = lineSubtotal + gst;
+    const billNumber = `ACQ-${format(new Date(), "yyyyMMdd")}-${generateId("ACQ").slice(-6)}`;
+    const inventoryItemId = acquireTarget.materialId.startsWith("nm:")
+      ? undefined
+      : acquireTarget.materialId;
+    const linkedProject = projects.find((p) => p.id === acquireTarget.projectId);
+
+    const newBill: VendorBill = {
+      id: generateId("VB"),
+      vendorId: vendorIdStr,
+      vendorName: vendor.name,
+      billNumber,
+      billDate: format(new Date(), "yyyy-MM-dd"),
+      items: [
+        {
+          description: acquireTarget.materialName,
+          quantity: qty,
+          rate,
+          amount: lineSubtotal,
+          ...(inventoryItemId ? { inventoryItemId } : {}),
+        },
+      ],
+      subtotal: lineSubtotal,
+      gst,
+      total,
+      amountPaid: 0,
+      status: "pending",
+      projectId: acquireTarget.projectId || undefined,
+      projectName: linkedProject?.name,
+      notes: `Procurement line ${acquireTarget.lineKey}`,
+    };
+
+    addVendorBill(newBill);
+    updateProcurementNeedLine(acquireTarget.lineKey, {
+      status: "acquired",
+      acquiredAt: new Date().toISOString(),
+      acquiredQty: qty,
+      acquiredRate: rate,
+      vendorBillId: newBill.id,
+    });
+    toast({
+      title: "Acquired & bill recorded",
+      description: `${acquireTarget.materialName} — ${billNumber} (${formatINR(total)})`,
+    });
+    setAcquireTarget(null);
+  };
+
   // FIFO payment breakdown
   const fifoBreakdown = useMemo(() => {
     const amount = Number.parseFloat(paymentAmount);
@@ -364,7 +457,7 @@ const VendorDetail = () => {
 
       addVendorPayment({
         id: generateId('VP'),
-        vendorId: vendorIdNum,
+        vendorId: vendorIdStr,
         vendorName: vendor?.name || "",
         billId: bill.id,
         billNumber: bill.billNumber,
@@ -377,7 +470,7 @@ const VendorDetail = () => {
 
     toast({
       title: "Payment recorded",
-      description: `₹${amount.toLocaleString()} paid to ${fifoBreakdown.length} bill(s)`,
+      description: `${formatINR(amount)} paid to ${fifoBreakdown.length} bill(s)`,
     });
 
     setIsPaymentModalOpen(false);
@@ -437,7 +530,7 @@ const VendorDetail = () => {
   };
 
   const handleSelectInventoryItem = (index: number, itemId: string) => {
-    const item = contextInventory.find(i => i.id === parseInt(itemId));
+    const item = contextInventory.find((i) => String(i.id) === String(itemId));
     if (item) {
       const updated = [...purchaseItems];
       updated[index] = {
@@ -472,16 +565,17 @@ const VendorDetail = () => {
     const status: "pending" | "partial" | "paid" = paidAmount >= purchaseTotal ? "paid" : paidAmount > 0 ? "partial" : "pending";
 
     // Build items with proper structure matching VendorBill type
-    const billItems = purchaseItems.map(item => ({
+    const billItems = purchaseItems.map((item) => ({
       description: item.description,
       quantity: item.quantity,
       rate: item.rate,
       amount: item.quantity * item.rate,
+      ...(item.inventoryItemId ? { inventoryItemId: item.inventoryItemId } : {}),
     }));
 
     const newBill: VendorBill = {
       id: generateId('VB'),
-      vendorId: vendorIdNum,
+      vendorId: vendorIdStr,
       vendorName: vendor?.name || "",
       billNumber: purchaseBillNumber,
       billDate: purchaseBillDate,
@@ -504,7 +598,7 @@ const VendorDetail = () => {
     if (paidAmount > 0) {
       addVendorPayment({
         id: generateId('VP'),
-        vendorId: vendorIdNum,
+        vendorId: vendorIdStr,
         vendorName: vendor?.name || "",
         billId: newBill.id,
         billNumber: purchaseBillNumber,
@@ -561,7 +655,7 @@ const VendorDetail = () => {
       <span className="inline-flex items-center gap-1">
         {s === "paid" && <Check className="h-3 w-3 text-muted-foreground" aria-hidden />}
         {(s === "partial" || s === "pending" || s === "draft") && <Clock className="h-3 w-3 text-muted-foreground" aria-hidden />}
-        {s === "disputed" && <AlertTriangle className="h-3 w-3 text-rose-600" aria-hidden />}
+        {s === "disputed" && <AlertTriangle className="h-3 w-3 text-accent-foreground" aria-hidden />}
         <StatusBadge status={s} label={labels[s] ?? s} className="text-xs" />
       </span>
     );
@@ -614,9 +708,9 @@ const VendorDetail = () => {
             <InlineKpiStrip
               className="w-full sm:w-auto sm:justify-end"
               items={[
-                { label: "Outstanding", value: `₹${totalPending.toLocaleString()}` },
-                { label: "Total paid", value: `₹${totalPaid.toLocaleString()}` },
-                { label: "Purchases", value: `₹${totalPurchases.toLocaleString()}` },
+                { label: "Outstanding", value: formatINR(totalPending) },
+                { label: "Total paid", value: formatINR(totalPaid) },
+                { label: "Purchases", value: formatINR(totalPurchases) },
                 { label: "Bills", value: `${paidBills.length}/${vendorBills.length} paid` },
               ]}
             />
@@ -633,6 +727,20 @@ const VendorDetail = () => {
           <Button onClick={() => setIsPaymentModalOpen(true)} disabled={payablePendingBills.length === 0 || !canDo("vendor:record_payment")}>
             <IndianRupee className="h-4 w-4 mr-2" /> Record Payment
           </Button>
+          {canDeleteVendor && (
+            <Button
+              variant="destructive"
+              disabled={vendorBills.length > 0 || paymentHistory.length > 0}
+              title={
+                vendorBills.length > 0 || paymentHistory.length > 0
+                  ? "Clear bills and payments before deleting this vendor"
+                  : undefined
+              }
+              onClick={() => setConfirmDeleteVendor(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" /> Delete vendor
+            </Button>
+          )}
         </div>
       </StickyPageHeader>
 
@@ -651,18 +759,104 @@ const VendorDetail = () => {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="bills">
+      <Tabs defaultValue={toAcquireLines.length ? "acquire" : "bills"}>
         <TabsList>
+          <TabsTrigger value="acquire">To acquire ({toAcquireLines.length})</TabsTrigger>
           <TabsTrigger value="bills">Purchase Bills ({vendorBills.length})</TabsTrigger>
           <TabsTrigger value="payments">Payment History ({paymentHistory.length})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="acquire" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Package className="h-4 w-4" /> Items to acquire from {vendor.name}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {toAcquireLines.length === 0 ? (
+                <p className="px-6 py-8 text-center text-sm text-muted-foreground">
+                  No open procurement lines assigned to this vendor. Assign vendors in Need to Get.
+                </p>
+              ) : (
+                <DataTableShell variant="inline" maxHeight={listTableViewportMaxHeight(8)}>
+                  <TableHeader>
+                    <TableRow className={dataTableClasses.headRow}>
+                      <TableHead>Material</TableHead>
+                      <TableHead>Project</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead>Need by</TableHead>
+                      <TableHead className="text-right">Last rate</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {toAcquireLines.map((line) => {
+                      const proj = projects.find((p) => p.id === line.projectId);
+                      return (
+                        <TableRow key={line.lineKey}>
+                          <TableCell className="font-medium">{line.materialName}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {proj ? (
+                              <Link to={`/projects/${proj.id}`} className="hover:underline">
+                                {proj.name}
+                              </Link>
+                            ) : (
+                              line.projectId || "—"
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{line.qtyNeeded}</TableCell>
+                          <TableCell>{formatUiDate(line.needByDate)}</TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatINR(line.lastPurchaseRate)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => openAcquireSheet(line)}
+                              >
+                                Mark acquired
+                              </Button>
+                              {!line.materialId.startsWith("nm:") ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 text-xs"
+                                  onClick={() => {
+                                    const q = encodeURIComponent(String(line.qtyNeeded));
+                                    const pid = encodeURIComponent(line.projectId || "");
+                                    navigate(
+                                      `/vendors/${vendorIdStr}?action=add-purchase&inventoryItemId=${encodeURIComponent(line.materialId)}&qty=${q}&projectId=${pid}`,
+                                    );
+                                  }}
+                                >
+                                  <Receipt className="mr-1 h-3 w-3" />
+                                  Bill
+                                </Button>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </DataTableShell>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="bills" className="space-y-4">
           {pendingBills.length > 0 && (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-orange-400" /> Pending Bills ({pendingBills.length})
+                  <Clock className="h-4 w-4 text-warning" /> Pending Bills ({pendingBills.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -709,30 +903,51 @@ const VendorDetail = () => {
                         <TableCell>{formatUiDate(bill.billDate)}</TableCell>
                         <TableCell className="max-w-[200px] truncate">{bill.items.map(i => i.description).join(", ")}</TableCell>
                         <TableCell>{bill.projectName || "-"}</TableCell>
-                        <TableCell className="text-right">₹{billLineSubtotal(bill).toLocaleString("en-IN")}</TableCell>
-                        <TableCell className="text-right">₹{billLineGst(bill).toLocaleString("en-IN")}</TableCell>
-                        <TableCell className="text-right">₹{bill.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-right text-primary">₹{bill.amountPaid.toLocaleString()}</TableCell>
-                        <TableCell className="text-right text-orange-400">₹{(bill.total - bill.amountPaid).toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR(billLineSubtotal(bill))}</TableCell>
+                        <TableCell className="text-right">{formatINR(billLineGst(bill))}</TableCell>
+                        <TableCell className="text-right">{formatINR(bill.total)}</TableCell>
+                        <TableCell className="text-right text-primary">{formatINR(bill.amountPaid)}</TableCell>
+                        <TableCell className="text-right text-warning">{formatINR((bill.total - bill.amountPaid))}</TableCell>
                         <TableCell>{getStatusBadge(bill.status)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => {
+                            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Preview bill" onClick={(e) => {
                               e.stopPropagation();
                               setSelectedBill(bill);
                               setIsBillPreviewOpen(true);
                               setIsEditMode(false);
                             }}>
-                              <Eye className="h-4 w-4" />
+                              <Eye className="h-4 w-4" aria-hidden />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => {
+                            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Edit bill" onClick={(e) => {
                               e.stopPropagation();
                               setSelectedBill(bill);
                               setIsBillPreviewOpen(true);
                               setIsEditMode(true);
                             }}>
-                              <Edit className="h-4 w-4" />
+                              <Edit className="h-4 w-4" aria-hidden />
                             </Button>
+                            {canDeleteVendorBill && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (bill.amountPaid > 0) {
+                                    toast({
+                                      variant: "destructive",
+                                      title: "Cannot delete bill",
+                                      description: "Refund or void linked payments before deleting this bill.",
+                                    });
+                                    return;
+                                  }
+                                  setDeleteBillTarget(bill);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -786,9 +1001,9 @@ const VendorDetail = () => {
                         <TableCell>{formatUiDate(bill.billDate)}</TableCell>
                         <TableCell>{bill.items.map(i => i.description).join(", ")}</TableCell>
                         <TableCell>{bill.projectName || "-"}</TableCell>
-                        <TableCell className="text-right">₹{billLineSubtotal(bill).toLocaleString("en-IN")}</TableCell>
-                        <TableCell className="text-right">₹{billLineGst(bill).toLocaleString("en-IN")}</TableCell>
-                        <TableCell className="text-right">₹{bill.total.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR(billLineSubtotal(bill))}</TableCell>
+                        <TableCell className="text-right">{formatINR(billLineGst(bill))}</TableCell>
+                        <TableCell className="text-right">{formatINR(bill.total)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -846,7 +1061,7 @@ const VendorDetail = () => {
                       return (
                         <TableRow key={payment.id}>
                           <TableCell>{formatUiDate(payment.date)}</TableCell>
-                          <TableCell className="font-medium text-primary">₹{payment.amount.toLocaleString()}</TableCell>
+                          <TableCell className="font-medium text-primary">{formatINR(payment.amount)}</TableCell>
                           <TableCell>{payment.paymentMode}</TableCell>
                           <TableCell>{bill?.billNumber || payment.billNumber || "-"}</TableCell>
                           <TableCell className="text-muted-foreground">{payment.notes || "-"}</TableCell>
@@ -941,7 +1156,7 @@ const VendorDetail = () => {
                 {fifoBreakdown.map(({ bill, payAmount }) => (
                   <div key={bill.id} className="flex justify-between text-sm">
                     <span>{bill.billNumber}</span>
-                    <span className="text-primary">₹{payAmount.toLocaleString()}</span>
+                    <span className="text-primary">{formatINR(payAmount)}</span>
                   </div>
                 ))}
               </div>
@@ -1097,7 +1312,7 @@ const VendorDetail = () => {
                     </div>
                   </div>
                   <div className="col-span-2 flex justify-end">
-                    <span className="text-sm font-medium">₹{(item.quantity * item.rate).toLocaleString()}</span>
+                    <span className="text-sm font-medium">{formatINR((item.quantity * item.rate))}</span>
                     {purchaseItems.length > 1 && (
                       <Button 
                         variant="ghost" 
@@ -1117,15 +1332,15 @@ const VendorDetail = () => {
             <div className="bg-muted/50 rounded-lg p-4 space-y-2">
               <div className="flex justify-between text-sm">
                 <span>Subtotal</span>
-                <span>₹{purchaseSubtotal.toLocaleString()}</span>
+                <span>{formatINR(purchaseSubtotal)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span>GST (18%)</span>
-                <span>₹{purchaseGst.toLocaleString()}</span>
+                <span>{formatINR(purchaseGst)}</span>
               </div>
               <div className="flex justify-between font-semibold pt-2 border-t">
                 <span>Total</span>
-                <span className="text-primary">₹{purchaseTotal.toLocaleString()}</span>
+                <span className="text-primary">{formatINR(purchaseTotal)}</span>
               </div>
             </div>
 
@@ -1164,7 +1379,7 @@ const VendorDetail = () => {
               {hasPurchasePaid && (
                 <div className="flex justify-between text-sm pt-2 border-t">
                   <span className="text-muted-foreground">Pending After Payment:</span>
-                  <span className={purchasePaidParsed >= purchaseTotal ? "text-primary" : "text-amber-500"}>
+                  <span className={purchasePaidParsed >= purchaseTotal ? "text-primary" : "text-warning"}>
                     {formatINR(Math.max(0, purchaseTotal - purchasePaidParsed))}
                   </span>
                 </div>
@@ -1340,8 +1555,8 @@ const VendorDetail = () => {
                       <TableRow key={`${item.description}-${idx}`}>
                         <TableCell>{item.description}</TableCell>
                         <TableCell className="text-center">{item.quantity}</TableCell>
-                        <TableCell className="text-right">₹{item.rate.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">₹{item.amount.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{formatINR(item.rate)}</TableCell>
+                        <TableCell className="text-right">{formatINR(item.amount)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1352,24 +1567,24 @@ const VendorDetail = () => {
               <div className="bg-muted/30 rounded-lg p-4 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
-                  <span>₹{(selectedBill.subtotal ?? selectedBill.total).toLocaleString()}</span>
+                  <span>{formatINR((selectedBill.subtotal ?? selectedBill.total))}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">GST</span>
-                  <span>₹{(selectedBill.gst ?? 0).toLocaleString()}</span>
+                  <span>{formatINR((selectedBill.gst ?? 0))}</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between font-semibold">
                   <span>Total</span>
-                  <span className="text-primary">₹{selectedBill.total.toLocaleString()}</span>
+                  <span className="text-primary">{formatINR(selectedBill.total)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Amount Paid</span>
-                  <span className="text-primary">₹{selectedBill.amountPaid.toLocaleString()}</span>
+                  <span className="text-primary">{formatINR(selectedBill.amountPaid)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Pending</span>
-                  <span className="text-orange-400">₹{(selectedBill.total - selectedBill.amountPaid).toLocaleString()}</span>
+                  <span className="text-warning">{formatINR((selectedBill.total - selectedBill.amountPaid))}</span>
                 </div>
               </div>
 
@@ -1443,8 +1658,12 @@ const VendorDetail = () => {
               selectedBill.status !== "draft" && (
                 <Button
                   onClick={() => {
+                    if (!selectedBill) return;
+                    const draft = buildVendorBillToPaymentDraft(selectedBill, vendor ?? undefined);
+                    saveCreateDraft("vendor-payment-create-draft", draft);
                     setIsBillPreviewOpen(false);
-                    setPaymentAmount((selectedBill.total - selectedBill.amountPaid).toString());
+                    setPaymentAmount(String(draft.amount));
+                    if (draft.mode) setPaymentMode(draft.mode);
                     setIsPaymentModalOpen(true);
                   }}
                   disabled={!canDo("vendor:record_payment")}
@@ -1454,6 +1673,66 @@ const VendorDetail = () => {
                 </Button>
               )
             )}
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={!!acquireTarget} onOpenChange={(o) => !o && setAcquireTarget(null)}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Mark as acquired</SheetTitle>
+            <SheetDescription>
+              {acquireTarget?.materialName} — enter quantity and rate (last purchase rate pre-filled).
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Quantity</Label>
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                value={acquireQty}
+                onChange={(e) => setAcquireQty(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Rate (₹ / unit)</Label>
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                value={acquireRate}
+                onChange={(e) => setAcquireRate(e.target.value)}
+              />
+              {acquireTarget ? (
+                <p className="text-xs text-muted-foreground">
+                  Last purchase rate: {formatINR(acquireTarget.lastPurchaseRate)}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <SheetFooter className="gap-2">
+            <Button variant="outline" onClick={() => setAcquireTarget(null)}>
+              Cancel
+            </Button>
+            {acquireTarget && !acquireTarget.materialId.startsWith("nm:") ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const q = encodeURIComponent(acquireQty || String(acquireTarget.qtyNeeded));
+                  const pid = encodeURIComponent(acquireTarget.projectId || "");
+                  navigate(
+                    `/vendors/${vendorIdStr}?action=add-purchase&inventoryItemId=${encodeURIComponent(acquireTarget.materialId)}&qty=${q}&projectId=${pid}`,
+                  );
+                  setAcquireTarget(null);
+                }}
+              >
+                <Upload className="mr-1 h-4 w-4" />
+                Record bill
+              </Button>
+            ) : null}
+            <Button onClick={confirmMarkAcquired}>Save acquired</Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
@@ -1511,6 +1790,36 @@ const VendorDetail = () => {
         </SheetContent>
       </Sheet>
 
+      <AlertDialog open={confirmDeleteVendor} onOpenChange={setConfirmDeleteVendor}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {vendorBills.length > 0 || paymentHistory.length > 0
+                ? `This vendor has ${vendorBills.length} bill(s) and ${paymentHistory.length} payment(s). Clear them before deleting.`
+                : `Permanently remove ${vendor?.name ?? "this vendor"}?`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={vendorBills.length > 0 || paymentHistory.length > 0 || !vendor}
+              onClick={() => {
+                if (!vendor || vendorBills.length > 0 || paymentHistory.length > 0) return;
+                const result = deleteVendor(vendor.id);
+                if (!result.ok) return;
+                setConfirmDeleteVendor(false);
+                navigate("/vendors");
+                toast({ title: "Vendor deleted" });
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={!!deletePaymentId} onOpenChange={(open) => { if (!open) setDeletePaymentId(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1523,6 +1832,21 @@ const VendorDetail = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <DestructiveConfirmDialog
+        open={!!deleteBillTarget}
+        onOpenChange={(open) => { if (!open) setDeleteBillTarget(null); }}
+        title={`Delete bill ${deleteBillTarget?.billNumber}?`}
+        description="This will permanently remove the bill and cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          if (deleteBillTarget) {
+            deleteVendorBill(deleteBillTarget.id);
+            toast({ title: "Bill deleted" });
+            setDeleteBillTarget(null);
+          }
+        }}
+      />
     </PageShell>
   );
 };

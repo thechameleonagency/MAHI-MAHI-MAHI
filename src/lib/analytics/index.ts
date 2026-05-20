@@ -5,3 +5,4 @@ export { computeOperationsMetrics, type OperationsMetrics } from "./operations";
 export { computeFinanceMetrics, type FinanceMetrics, type DebtorBucket } from "./finance";
 export { computeInventoryMetrics, type InventoryMetrics } from "./inventory";
 export { computeCustomerMetrics, type CustomerMetrics } from "./customers";
+export { computePeopleMetrics, type PeopleMetrics } from "./people";

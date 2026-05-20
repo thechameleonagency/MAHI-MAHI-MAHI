@@ -1,23 +1,39 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Plus, X, Zap, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useMasters } from "@/contexts/MastersContext";
-import { toast } from "@/hooks/use-toast";
-import { ClientSelectionModal } from "./ClientSelectionModal";
+import { useAppData } from "@/contexts/AppDataContext";
+import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
+import { ClientSelectionSheet } from "./ClientSelectionSheet";
 import type { Invoice, InvoiceItem, InvoiceService, Customer } from "@/types/finance";
 import { PAYMENT_MODES } from "@/types/finance";
 import { inferInvoiceOrSaleBillType, nextDocumentNumber } from "@/lib/invoiceDocumentType";
 import { validateContactPhone } from "@/lib/phoneValidators";
+import { useFormDraft } from "@/hooks/useFormDraft";
+import { computeGstSplit } from "@/lib/gstCalculator";
+import { getCompanyStateCode } from "@/lib/companySettings";
+import { quotationLinkedProjectId } from "@/lib/quotationSelectors";
+import { formatINR } from "@/lib/formatCurrency";
+import { BillingDirectionGuardService } from "@/application/services/BillingDirectionGuardService";
+import { HighValueInvoiceJustificationBlock } from "@/components/invoices/HighValueInvoiceJustificationBlock";
 
-// Service presets for quick selection
+/** Sample service lines for quick pick — not loaded from masters (prototype). */
 const SERVICE_PRESETS = [
   { id: "installation", label: "Installation & Commissioning", sac: "998719", rate: 15000, gstRate: 18 },
   { id: "amc", label: "Annual Maintenance Contract", sac: "998719", rate: 12000, gstRate: 18 },
@@ -37,8 +53,9 @@ interface InvoiceCreateSheetProps {
   quotations?: any[];
   inventoryItems?: any[];
   servicePresets?: { id: string; name: string; services: { description: string; sac: string; rate: number; gstRate: number; }[] }[];
-  onCreated: (invoice: Invoice) => void;
-  onCustomerCreated?: (customer: Customer) => void;
+  onCreated: (invoice: Invoice, options?: { highValueJustification?: string }) => void;
+  /** Return false if the customer was not persisted (e.g. permission denied). */
+  onCustomerCreated?: (customer: Customer) => boolean;
   prefill?: {
     customerId?: string;
     customerName?: string;
@@ -54,10 +71,56 @@ interface InvoiceCreateSheetProps {
   };
 }
 
-const companyState = "08"; // Rajasthan
-
 /** GST slabs allowed for line items (matches validation in `handleCreateInvoice`). */
 const CANONICAL_GST_RATES = [0, 5, 12, 18, 28] as const;
+
+const INVOICE_CREATE_DRAFT_KEY = "invoice-create-v1";
+
+type InvoiceCreateDraft = {
+  invoiceDate: string;
+  dueDate: string;
+  selectedCustomerId: string;
+  selectedProjectId: string;
+  selectedQuotationId: string;
+  buyerName: string;
+  buyerAddress: string;
+  buyerGstin: string;
+  buyerState: string;
+  buyerContact: string;
+  invoiceServices: InvoiceService[];
+  invoiceItems: InvoiceItem[];
+  paymentTerms: string;
+  selectedBankAccount: string;
+  invoiceNotes: string;
+  amountReceived: string;
+  receivedIn: string;
+  receivedDate: string;
+  isAlreadyPaid: boolean;
+};
+
+function emptyInvoiceCreateDraft(): InvoiceCreateDraft {
+  return {
+    invoiceDate: new Date().toISOString().split("T")[0],
+    dueDate: "",
+    selectedCustomerId: "",
+    selectedProjectId: "",
+    selectedQuotationId: "",
+    buyerName: "",
+    buyerAddress: "",
+    buyerGstin: "",
+    buyerState: "",
+    buyerContact: "",
+    invoiceServices: [],
+    invoiceItems: [],
+    paymentTerms: "",
+    selectedBankAccount: "",
+    invoiceNotes: "",
+    amountReceived: "",
+    receivedIn: "",
+    receivedDate: "",
+    isAlreadyPaid: false,
+  };
+}
 
 export function InvoiceCreateSheet({
   open,
@@ -72,79 +135,74 @@ export function InvoiceCreateSheet({
   onCustomerCreated,
   prefill,
 }: InvoiceCreateSheetProps) {
-  const { getHsnCodes, getSacCodes, _getGstRates, getStateCodes, getBankAccounts } = useMasters();
-  
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
-  const [dueDate, setDueDate] = useState("");
-  
-  // Buyer details
-  const [selectedCustomerId, setSelectedCustomerId] = useState("");
-  const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [selectedQuotationId, setSelectedQuotationId] = useState("");
-  const [buyerName, setBuyerName] = useState("");
-  const [buyerAddress, setBuyerAddress] = useState("");
-  const [buyerGstin, setBuyerGstin] = useState("");
-  const [buyerState, setBuyerState] = useState("");
-  const [buyerContact, setBuyerContact] = useState("");
-  
-  // Items & Services
-  const [invoiceServices, setInvoiceServices] = useState<InvoiceService[]>([]);
-  const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
-  
-  
-  // Payment & Additional
-  const [paymentTerms, setPaymentTerms] = useState("");
-  const [selectedBankAccount, setSelectedBankAccount] = useState("");
-  const [invoiceNotes, setInvoiceNotes] = useState("");
-  
-  // Payment received (for both invoice and sale-bill)
-  const [amountReceived, setAmountReceived] = useState("");
-  const [receivedIn, setReceivedIn] = useState("");
-  const [receivedDate, setReceivedDate] = useState("");
-  
-  // Already paid option - marks invoice as fully paid on creation
-  const [isAlreadyPaid, setIsAlreadyPaid] = useState(false);
-  
+  const { getHsnCodes, getSacCodes, getGstRates: _getGstRates, getStateCodes, getBankAccounts } = useMasters();
+  const { generateId, addCustomer, canDo } = useAppData();
+
+  const { value: form, setValue: setForm, clearDraft } = useFormDraft(
+    INVOICE_CREATE_DRAFT_KEY,
+    emptyInvoiceCreateDraft(),
+  );
+  const {
+    invoiceDate,
+    dueDate,
+    selectedCustomerId,
+    selectedProjectId,
+    selectedQuotationId,
+    buyerName,
+    buyerAddress,
+    buyerGstin,
+    buyerState,
+    buyerContact,
+    invoiceServices,
+    invoiceItems,
+    paymentTerms,
+    selectedBankAccount,
+    invoiceNotes,
+    amountReceived,
+    receivedIn,
+    receivedDate,
+    isAlreadyPaid,
+  } = form;
+
+  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
+  const [highValueReason, setHighValueReason] = useState("");
+  const billingDirectionGuard = useMemo(() => new BillingDirectionGuardService(), []);
+
   // Client Selection Modal
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [qaName, setQaName] = useState("");
+  const [qaPhone, setQaPhone] = useState("");
+  const [qaEmail, setQaEmail] = useState("");
+  const [qaAddress, setQaAddress] = useState("");
 
   // Apply prefill data
   useEffect(() => {
-    if (prefill) {
-      if (prefill.customerId) setSelectedCustomerId(prefill.customerId);
-      if (prefill.customerName) setBuyerName(prefill.customerName);
-      if (prefill.customerAddress) setBuyerAddress(prefill.customerAddress);
-      if (prefill.customerGstin) setBuyerGstin(prefill.customerGstin);
-      if (prefill.customerState) setBuyerState(prefill.customerState);
-      if (prefill.customerContact) setBuyerContact(prefill.customerContact);
-      if (prefill.projectId) setSelectedProjectId(prefill.projectId);
-      if (prefill.quotationId) setSelectedQuotationId(prefill.quotationId);
-      if (prefill.items) setInvoiceItems(prefill.items);
-      if (prefill.services) setInvoiceServices(prefill.services);
-    }
-  }, [prefill]);
+    if (!prefill) return;
+    setForm((prev) => ({
+      ...prev,
+      ...(prefill.customerId ? { selectedCustomerId: prefill.customerId } : {}),
+      ...(prefill.customerName ? { buyerName: prefill.customerName } : {}),
+      ...(prefill.customerAddress ? { buyerAddress: prefill.customerAddress } : {}),
+      ...(prefill.customerGstin ? { buyerGstin: prefill.customerGstin } : {}),
+      ...(prefill.customerState ? { buyerState: prefill.customerState } : {}),
+      ...(prefill.customerContact ? { buyerContact: prefill.customerContact } : {}),
+      ...(prefill.projectId ? { selectedProjectId: prefill.projectId } : {}),
+      ...(prefill.quotationId ? { selectedQuotationId: prefill.quotationId } : {}),
+      ...(prefill.items ? { invoiceItems: prefill.items } : {}),
+      ...(prefill.services ? { invoiceServices: prefill.services } : {}),
+    }));
+  }, [prefill, setForm]);
 
   // Reset form
   const resetForm = () => {
-    setInvoiceDate(new Date().toISOString().split('T')[0]);
-    setDueDate("");
-    setSelectedCustomerId("");
-    setSelectedProjectId("");
-    setSelectedQuotationId("");
-    setBuyerName("");
-    setBuyerAddress("");
-    setBuyerGstin("");
-    setBuyerState("");
-    setBuyerContact("");
-    setInvoiceServices([]);
-    setInvoiceItems([]);
-    setPaymentTerms("");
-    setSelectedBankAccount("");
-    setInvoiceNotes("");
-    setAmountReceived("");
-    setReceivedIn("");
-    setReceivedDate("");
-    setIsAlreadyPaid(false);
+    clearDraft();
+    setHighValueReason("");
+    setQuickAddOpen(false);
+    setQaName("");
+    setQaPhone("");
+    setQaEmail("");
+    setQaAddress("");
   };
   
   // Build effective service presets - use context presets if available, fallback to hardcoded
@@ -164,225 +222,275 @@ export function InvoiceCreateSheet({
   const addServiceFromPreset = (presetId: string) => {
     const preset = effectiveServicePresets.find(p => p.id === presetId);
     if (preset) {
-      setInvoiceServices([...invoiceServices, {
-        description: preset.label,
-        sac: preset.sac,
-        rate: preset.rate,
-        gstRate: preset.gstRate
-      }]);
+      setForm((prev) => ({
+        ...prev,
+        invoiceServices: [...prev.invoiceServices, {
+          description: preset.label,
+          sac: preset.sac,
+          rate: preset.rate,
+          gstRate: preset.gstRate,
+        }],
+      }));
     }
   };
 
   // Quotation selection handler - auto-links to project if converted
   const handleQuotationSelect = (quotationId: string) => {
-    setSelectedQuotationId(quotationId);
     const quotation = quotations.find(q => q.id === quotationId);
-    if (quotation) {
-      setBuyerName(quotation.clientName);
-      setBuyerAddress(quotation.clientAddress || "");
-      setBuyerState(quotation.clientState);
-      setBuyerContact(quotation.clientPhone);
-      
-      // Auto-link to project if quotation was converted to a project
-      if (quotation.convertedToProjectId) {
-        const linkedProject = projects.find(p => p.id.toString() === quotation.convertedToProjectId);
-        if (linkedProject) {
-          setSelectedProjectId(linkedProject.id.toString());
-        }
+    setForm((prev) => {
+      const next: InvoiceCreateDraft = { ...prev, selectedQuotationId: quotationId };
+      if (!quotation) return next;
+      next.buyerName = quotation.clientName;
+      next.buyerAddress = quotation.clientAddress || "";
+      next.buyerState = quotation.clientState;
+      next.buyerContact = quotation.clientPhone;
+      const linkedPid = quotationLinkedProjectId(quotation);
+      if (linkedPid) {
+        const linkedProject = projects.find((p) => String(p.id) === linkedPid);
+        if (linkedProject) next.selectedProjectId = String(linkedProject.id);
       }
-      
-      // Auto-link to customer if exists
-      const matchingCustomer = customers.find(c => 
-        c.name === quotation.clientName || c.phone === quotation.clientPhone
+      const matchingCustomer = customers.find(c =>
+        c.name === quotation.clientName || c.phone === quotation.clientPhone,
       );
       if (matchingCustomer) {
-        setSelectedCustomerId(matchingCustomer.id);
-        setBuyerGstin(matchingCustomer.gstin || "");
-        setBuyerState(matchingCustomer.state || quotation.clientState || "");
+        next.selectedCustomerId = matchingCustomer.id;
+        next.buyerGstin = matchingCustomer.gstin || "";
+        next.buyerState = matchingCustomer.state || quotation.clientState || "";
       }
-    }
+      return next;
+    });
   };
 
   // Customer selection handler - auto-links to their latest project/quotation
   const _handleCustomerSelect = (customerId: string) => {
-    setSelectedCustomerId(customerId);
     const customer = customers.find(c => c.id === customerId);
-    if (customer) {
-      setBuyerName(customer.name);
-      setBuyerAddress(customer.address);
-      setBuyerGstin(customer.gstin || "");
-      setBuyerState(customer.state || "");
-      setBuyerContact(customer.phone);
-      
-      // Auto-link to customer's project if exists
+    setForm((prev) => {
+      const next: InvoiceCreateDraft = { ...prev, selectedCustomerId: customerId };
+      if (!customer) return next;
+      next.buyerName = customer.name;
+      next.buyerAddress = customer.address;
+      next.buyerGstin = customer.gstin || "";
+      next.buyerState = customer.state || "";
+      next.buyerContact = customer.phone;
       const customerProject = projects.find(p =>
-        p.client === customer.name || p.clientPhone === customer.phone
+        p.customerId === customer.id || p.clientPhone === customer.phone,
       );
-      if (customerProject) {
-        setSelectedProjectId(customerProject.id.toString());
-      }
-      
-      // Auto-link to customer's quotation if exists
-      const customerQuotation = quotations.find(q => 
-        q.clientName === customer.name || q.clientPhone === customer.phone
+      if (customerProject) next.selectedProjectId = customerProject.id.toString();
+      const customerQuotation = quotations.find(q =>
+        q.clientName === customer.name || q.clientPhone === customer.phone,
       );
-      if (customerQuotation) {
-        setSelectedQuotationId(customerQuotation.id);
-      }
-    }
+      if (customerQuotation) next.selectedQuotationId = customerQuotation.id;
+      return next;
+    });
   };
 
   // Project selection handler - auto-links to quotation and customer
   const handleProjectSelect = (projectId: string) => {
-    setSelectedProjectId(projectId);
     const project = projects.find(p => p.id.toString() === projectId);
-    if (project) {
-      setBuyerName(project.client);
-      setBuyerAddress(project.address);
-      setBuyerState(project.state);
-      setBuyerContact(project.clientPhone || "");
-
-      // Auto-link to quotation if project was created from one
-      if (project.quotationId) {
-        setSelectedQuotationId(project.quotationId);
-      }
-
-      // Auto-link to matching customer
+    setForm((prev) => {
+      const next: InvoiceCreateDraft = { ...prev, selectedProjectId: projectId };
+      if (!project) return next;
+      next.buyerName = project.client;
+      next.buyerAddress = project.address;
+      next.buyerState = project.state;
+      next.buyerContact = project.clientPhone || "";
+      if (project.quotationId) next.selectedQuotationId = project.quotationId;
       const matchingCustomer = customers.find(c =>
-        c.name === project.client || c.phone === project.clientPhone
+        (project.customerId && c.id === project.customerId) ||
+        c.name === project.client ||
+        c.phone === project.clientPhone,
       );
       if (matchingCustomer) {
-        setSelectedCustomerId(matchingCustomer.id);
-        if (matchingCustomer.gstin) {
-          setBuyerGstin(matchingCustomer.gstin);
-        }
+        next.selectedCustomerId = matchingCustomer.id;
+        if (matchingCustomer.gstin) next.buyerGstin = matchingCustomer.gstin;
       }
-    }
+      return next;
+    });
   };
 
   // Handle client selection from modal
   const handleClientFromModal = (customer: Customer) => {
-    setSelectedCustomerId(customer.id);
-    setBuyerName(customer.name);
-    setBuyerAddress(customer.address);
-    setBuyerGstin(customer.gstin || "");
-    setBuyerState(customer.state || "");
-    setBuyerContact(customer.phone);
+    setForm((prev) => ({
+      ...prev,
+      selectedCustomerId: customer.id,
+      buyerName: customer.name,
+      buyerAddress: customer.address,
+      buyerGstin: customer.gstin || "",
+      buyerState: customer.state || "",
+      buyerContact: customer.phone,
+    }));
     setIsClientModalOpen(false);
+  };
+
+  const resetQuickAddFields = () => {
+    setQaName("");
+    setQaPhone("");
+    setQaEmail("");
+    setQaAddress("");
+  };
+
+  const handleQuickAddCustomerSubmit = () => {
+    if (!qaName.trim() || !qaPhone.trim()) {
+      setLastConfirm({ variant: "error", title: "Missing fields", description: "Name and phone are required." });
+      return;
+    }
+    const ph = validateContactPhone(qaPhone);
+    if (!ph.ok) {
+      setLastConfirm({ variant: "error", title: "Invalid phone", description: (ph as { message: string }).message });
+      return;
+    }
+    const customer: Customer = {
+      id: generateId("C"),
+      name: qaName.trim(),
+      phone: qaPhone.trim(),
+      email: qaEmail.trim(),
+      address: qaAddress.trim(),
+      type: "individual",
+      itemsBought: [],
+      totalPurchases: 0,
+      createdAt: new Date().toISOString().split("T")[0],
+    };
+    const ok = onCustomerCreated ? onCustomerCreated(customer) : addCustomer(customer);
+    if (!ok) return;
+    handleClientFromModal(customer);
+    setQuickAddOpen(false);
+    resetQuickAddFields();
+    setLastConfirm({ variant: "success", title: "Client added", description: `${customer.name} is now selected for this document.` });
   };
 
   // Clear project link
   const handleClearProject = () => {
-    setSelectedProjectId("");
+    setForm((prev) => ({ ...prev, selectedProjectId: "" }));
   };
 
   // Clear quotation link
   const handleClearQuotation = () => {
-    setSelectedQuotationId("");
+    setForm((prev) => ({ ...prev, selectedQuotationId: "" }));
   };
 
   // Service row handlers
   const addServiceRow = () => {
-    setInvoiceServices([...invoiceServices, { description: "", sac: "", rate: 0, gstRate: 18, serviceNotes: "" }]);
+    setForm((prev) => ({
+      ...prev,
+      invoiceServices: [...prev.invoiceServices, { description: "", sac: "", rate: 0, gstRate: 18, serviceNotes: "" }],
+    }));
   };
 
   const removeServiceRow = (index: number) => {
-    setInvoiceServices(invoiceServices.filter((_, i) => i !== index));
+    setForm((prev) => ({
+      ...prev,
+      invoiceServices: prev.invoiceServices.filter((_, i) => i !== index),
+    }));
   };
 
   const updateService = (index: number, field: string, value: string | number) => {
-    const updated = [...invoiceServices];
-    updated[index] = { ...updated[index], [field]: value };
-    setInvoiceServices(updated);
+    setForm((prev) => {
+      const updated = [...prev.invoiceServices];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, invoiceServices: updated };
+    });
   };
 
   // Item row handlers
   const addItemRow = () => {
-    setInvoiceItems([...invoiceItems, { description: "", hsn: "", quantity: 1, rate: 0, gstRate: 18, itemNotes: "" }]);
+    setForm((prev) => ({
+      ...prev,
+      invoiceItems: [...prev.invoiceItems, { description: "", hsn: "", quantity: 1, rate: 0, gstRate: 18, itemNotes: "" }],
+    }));
   };
 
   const removeItemRow = (index: number) => {
-    setInvoiceItems(invoiceItems.filter((_, i) => i !== index));
+    setForm((prev) => ({
+      ...prev,
+      invoiceItems: prev.invoiceItems.filter((_, i) => i !== index),
+    }));
   };
 
   const updateItem = (index: number, field: string, value: string | number) => {
-    const updated = [...invoiceItems];
-    updated[index] = { ...updated[index], [field]: value };
-    setInvoiceItems(updated);
+    setForm((prev) => {
+      const updated = [...prev.invoiceItems];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, invoiceItems: updated };
+    });
   };
 
   // Calculate totals
   const calculateTotals = () => {
-    const isIGST = buyerState && buyerState !== companyState;
-    
     const servicesTotal = invoiceServices.reduce((sum, s) => sum + s.rate, 0);
     const servicesTax = invoiceServices.reduce((sum, s) => sum + (s.rate * s.gstRate / 100), 0);
-    
+
     const itemsTotal = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate), 0);
     const itemsTax = invoiceItems.reduce((sum, i) => sum + (i.quantity * i.rate * i.gstRate / 100), 0);
-    
+
     const subtotal = servicesTotal + itemsTotal;
     const totalTax = servicesTax + itemsTax;
-    
+    const effectiveGstRate = subtotal > 0 ? (totalTax / subtotal) * 100 : 0;
+    const split = computeGstSplit({
+      subtotal,
+      gstRatePercent: effectiveGstRate,
+      companyStateCode: getCompanyStateCode(),
+      counterpartyStateCode: buyerState,
+    });
+
     return {
       subtotal,
-      cgst: isIGST ? 0 : totalTax / 2,
-      sgst: isIGST ? 0 : totalTax / 2,
-      igst: isIGST ? totalTax : 0,
-      total: subtotal + totalTax
+      cgst: split.cgst,
+      sgst: split.sgst,
+      igst: split.igst,
+      total: split.total,
     };
   };
 
   // Create invoice handler
   const handleCreateInvoice = () => {
     if (!buyerName) {
-      toast({ title: "Error", description: "Customer/Buyer name is required", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Customer name required", description: "Customer/Buyer name is required" });
       return;
     }
 
     const hasNonZeroLine = invoiceItems.some(i => i.rate > 0) || invoiceServices.some(s => s.rate > 0);
     if (!hasNonZeroLine) {
-      toast({ title: "Empty Invoice", description: "Add at least one line item with a non-zero rate.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Empty invoice", description: "Add at least one line item with a non-zero rate." });
       return;
     }
 
     if (!buyerState) {
-      toast({ title: "State Required", description: "Select Place of Supply to determine IGST vs CGST/SGST split.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "State required", description: "Select Place of Supply to determine IGST vs CGST/SGST split." });
       return;
     }
 
     if (buyerGstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(buyerGstin)) {
-      toast({ title: "Invalid GSTIN", description: "GSTIN must be a valid 15-character format.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid GSTIN", description: "GSTIN must be a valid 15-character format." });
       return;
     }
 
     const buyerPhoneCheck = validateContactPhone(buyerContact);
     if (!buyerPhoneCheck.ok) {
-      toast({ title: "Invalid Phone", description: (buyerPhoneCheck as { message: string }).message, variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid phone", description: (buyerPhoneCheck as { message: string }).message });
       return;
     }
 
     const allowedGstRates = new Set([0, 5, 12, 18, 28]);
     const hasBadGst = invoiceItems.some(i => !allowedGstRates.has(i.gstRate)) || invoiceServices.some(s => !allowedGstRates.has(s.gstRate));
     if (hasBadGst) {
-      toast({ title: "Invalid GST Rate", description: "GST rate must be 0, 5, 12, 18, or 28.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid GST rate", description: "GST rate must be 0, 5, 12, 18, or 28." });
       return;
     }
 
     if (invoiceItems.some(i => i.quantity <= 0)) {
-      toast({ title: "Invalid Quantity", description: "All line item quantities must be greater than zero.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid quantity", description: "All line item quantities must be greater than zero." });
       return;
     }
 
     if (selectedProjectId && !projects.find(p => p.id.toString() === selectedProjectId)) {
-      toast({ title: "Invalid Project", description: "The selected project no longer exists.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid project", description: "The selected project no longer exists." });
       return;
     }
 
     if (selectedQuotationId) {
       const q = quotations.find(qq => qq.id === selectedQuotationId);
       if (q?.createdAt && invoiceDate < q.createdAt) {
-        toast({ title: "Invalid Date", description: "Invoice date cannot be earlier than the linked quotation date.", variant: "destructive" });
+        setLastConfirm({ variant: "error", title: "Invalid date", description: "Invoice date cannot be earlier than the linked quotation date." });
         return;
       }
     }
@@ -430,6 +538,16 @@ export function InvoiceCreateSheet({
     });
     const invoiceNumber = nextDocumentNumber(resolvedType, existingDocuments);
 
+    const highValueCheck = billingDirectionGuard.validateHighValueIssuance(totals.total, highValueReason);
+    if (!highValueCheck.ok) {
+      setLastConfirm({
+        variant: "error",
+        title: "Justification required",
+        description: highValueCheck.error,
+      });
+      return;
+    }
+
     const newInvoice: Invoice = {
       id: typeof crypto !== "undefined" && "randomUUID" in crypto ? `INV-${crypto.randomUUID()}` : `INV-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.toUpperCase(),
       invoiceNumber,
@@ -464,29 +582,31 @@ export function InvoiceCreateSheet({
       notes: invoiceNotes || undefined,
     };
 
-    onCreated(newInvoice);
+    onCreated(
+      newInvoice,
+      highValueCheck.requiresJustification
+        ? { highValueJustification: highValueReason.trim() }
+        : undefined,
+    );
     resetForm();
     onOpenChange(false);
-    toast({
-      title: `${resolvedType === "invoice" ? "Invoice" : "Sale bill"} created`,
-      description: `${newInvoice.invoiceNumber} has been created successfully`,
-    });
+    // Success surfaced by parent page via its own InlineConfirmBanner.
   };
 
   const handleSaveDraft = () => {
     if (!buyerName.trim()) {
-      toast({ title: "Error", description: "Customer/Buyer name is required.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Customer name required", description: "Customer/Buyer name is required." });
       return;
     }
     const states = getStateCodes();
-    const buyerStateEff = buyerState || states[0]?.value || companyState;
+    const buyerStateEff = buyerState || states[0]?.value || getCompanyStateCode();
     if (buyerGstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(buyerGstin)) {
-      toast({ title: "Invalid GSTIN", description: "GSTIN must be a valid 15-character format.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid GSTIN", description: "GSTIN must be a valid 15-character format." });
       return;
     }
     const buyerPhoneDraft = validateContactPhone(buyerContact);
     if (!buyerPhoneDraft.ok) {
-      toast({ title: "Invalid Phone", description: (buyerPhoneDraft as { message: string }).message, variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid phone", description: (buyerPhoneDraft as { message: string }).message });
       return;
     }
     const allowedGstRates = new Set([0, 5, 12, 18, 28]);
@@ -494,11 +614,11 @@ export function InvoiceCreateSheet({
       invoiceItems.some((i) => !allowedGstRates.has(i.gstRate)) ||
       invoiceServices.some((s) => !allowedGstRates.has(s.gstRate));
     if (hasBadGst) {
-      toast({ title: "Invalid GST Rate", description: "GST rate must be 0, 5, 12, 18, or 28.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid GST rate", description: "GST rate must be 0, 5, 12, 18, or 28." });
       return;
     }
     if (invoiceItems.some((i) => i.quantity <= 0)) {
-      toast({ title: "Invalid Quantity", description: "All line item quantities must be greater than zero.", variant: "destructive" });
+      setLastConfirm({ variant: "error", title: "Invalid quantity", description: "All line item quantities must be greater than zero." });
       return;
     }
     const totals = calculateTotals();
@@ -548,35 +668,45 @@ export function InvoiceCreateSheet({
     onCreated(newInvoice);
     resetForm();
     onOpenChange(false);
-    toast({
-      title: "Draft saved",
-      description: `${newInvoice.invoiceNumber} — finalize from Invoices when ready.`,
-    });
+    // Draft-saved success surfaced by parent page via its own InlineConfirmBanner.
   };
 
   const invoiceTotals = calculateTotals();
+  const highValueIssuanceCheck = billingDirectionGuard.validateHighValueIssuance(
+    invoiceTotals.total,
+    highValueReason,
+  );
+  const createBlockedByHighValue = !highValueIssuanceCheck.ok;
 
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) resetForm(); onOpenChange(o); }}>
-      <AppSheetContent layout="form" size="xxl">
+      <AppSheetContent layout="form" size="xl" className="w-[100vw] max-w-[100vw] sm:w-[95vw] sm:max-w-5xl">
         <SheetHeader>
           <SheetTitle>New invoice or sale bill</SheetTitle>
         </SheetHeader>
+        {lastConfirm && (
+          <InlineConfirmBanner
+            variant={lastConfirm.variant}
+            title={lastConfirm.title}
+            description={lastConfirm.description}
+            onDismiss={() => setLastConfirm(null)}
+          />
+        )}
         <div className="space-y-6 py-4">
             <div className="space-y-6">
               {/* Header Section */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Invoice Date</Label>
-                  <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+                  <Input type="date" value={invoiceDate} onChange={(e) => setForm((prev) => ({ ...prev, invoiceDate: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
                   <Label>Due Date</Label>
-                  <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                  <Input type="date" value={dueDate} onChange={(e) => setForm((prev) => ({ ...prev, dueDate: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
                   <Label>Place of Supply (State)</Label>
-                  <Select value={buyerState} onValueChange={setBuyerState}>
+                  <Select value={buyerState} onValueChange={(v) => setForm((prev) => ({ ...prev, buyerState: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select state" /></SelectTrigger>
                     <SelectContent>
                       {getStateCodes().map(s => (
@@ -609,8 +739,8 @@ export function InvoiceCreateSheet({
                             </SelectContent>
                           </Select>
                           {selectedProjectId && (
-                            <Button variant="ghost" size="icon" onClick={handleClearProject} className="h-9 w-9">
-                              <X className="h-4 w-4" />
+                            <Button variant="ghost" size="icon" onClick={handleClearProject} className="h-9 w-9" aria-label="Clear linked project">
+                              <X className="h-4 w-4" aria-hidden />
                             </Button>
                           )}
                         </div>
@@ -622,14 +752,14 @@ export function InvoiceCreateSheet({
                           <Select value={selectedQuotationId} onValueChange={handleQuotationSelect}>
                             <SelectTrigger className="flex-1"><SelectValue placeholder="Select quotation (optional)" /></SelectTrigger>
                             <SelectContent>
-                              {quotations.filter(q => q.status === "approved" || q.status === "confirmed").map(q => (
+                              {quotations.filter(q => q.status === "approved").map(q => (
                                 <SelectItem key={q.id} value={q.id}>{q.quotationNumber}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                           {selectedQuotationId && (
-                            <Button variant="ghost" size="icon" onClick={handleClearQuotation} className="h-9 w-9">
-                              <X className="h-4 w-4" />
+                            <Button variant="ghost" size="icon" onClick={handleClearQuotation} className="h-9 w-9" aria-label="Clear linked quotation">
+                              <X className="h-4 w-4" aria-hidden />
                             </Button>
                           )}
                         </div>
@@ -643,7 +773,7 @@ export function InvoiceCreateSheet({
                             // Find the preset and load items
                             const selectedProject = projects.find(p => p.id.toString() === selectedProjectId);
                             if (selectedProject) {
-                              toast({ title: "Preset Applied", description: "Items loaded from preset" });
+                              setLastConfirm({ variant: "success", title: "Preset applied", description: "Items loaded from preset" });
                             }
                           }}>
                             <SelectTrigger className="flex-1">
@@ -684,7 +814,7 @@ export function InvoiceCreateSheet({
                           <div className="flex gap-2">
                             <Input 
                               value={buyerName} 
-                              onChange={(e) => setBuyerName(e.target.value)} 
+                              onChange={(e) => setForm((prev) => ({ ...prev, buyerName: e.target.value }))} 
                               placeholder="Click Select Client or type name" 
                               className="flex-1"
                             />
@@ -692,17 +822,17 @@ export function InvoiceCreateSheet({
                         </div>
                         <div className="space-y-2">
                           <Label>Contact</Label>
-                          <Input value={buyerContact} onChange={(e) => setBuyerContact(e.target.value)} placeholder="+91 98765 43210" />
+                          <Input value={buyerContact} onChange={(e) => setForm((prev) => ({ ...prev, buyerContact: e.target.value }))} placeholder="+91 98765 43210" />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Address</Label>
-                          <Input value={buyerAddress} onChange={(e) => setBuyerAddress(e.target.value)} placeholder="Enter address" />
+                          <Input value={buyerAddress} onChange={(e) => setForm((prev) => ({ ...prev, buyerAddress: e.target.value }))} placeholder="Enter address" />
                         </div>
                         <div className="space-y-2">
                           <Label>GSTIN</Label>
-                          <Input value={buyerGstin} onChange={(e) => setBuyerGstin(e.target.value)} placeholder="e.g., 08AABCS1234A1Z5" />
+                          <Input value={buyerGstin} onChange={(e) => setForm((prev) => ({ ...prev, buyerGstin: e.target.value }))} placeholder="e.g., 08AABCS1234A1Z5" />
                         </div>
                       </div>
                     </CardContent>
@@ -811,13 +941,16 @@ export function InvoiceCreateSheet({
                     <Select onValueChange={(v) => {
                       const item = inventoryItems.find(i => i.id.toString() === v);
                       if (item) {
-                        setInvoiceItems([...invoiceItems, {
-                          description: item.name,
-                          hsn: item.hsn,
-                          quantity: 1,
-                          rate: item.price,
-                          gstRate: 18
-                        }]);
+                        setForm((prev) => ({
+                          ...prev,
+                          invoiceItems: [...prev.invoiceItems, {
+                            description: item.name,
+                            hsn: item.hsn,
+                            quantity: 1,
+                            rate: item.price,
+                            gstRate: 18,
+                          }],
+                        }));
                       }
                     }}>
                       <SelectTrigger className="w-[180px] h-8 text-xs">
@@ -917,28 +1050,28 @@ export function InvoiceCreateSheet({
                     <div className="w-64 space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Subtotal:</span>
-                        <span>₹{invoiceTotals.subtotal.toLocaleString()}</span>
+                        <span>{formatINR(invoiceTotals.subtotal)}</span>
                       </div>
                       {invoiceTotals.igst > 0 ? (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">IGST:</span>
-                          <span>₹{invoiceTotals.igst.toLocaleString()}</span>
+                          <span>{formatINR(invoiceTotals.igst)}</span>
                         </div>
                       ) : (
                         <>
                           <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">CGST:</span>
-                            <span>₹{invoiceTotals.cgst.toLocaleString()}</span>
+                            <span>{formatINR(invoiceTotals.cgst)}</span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">SGST:</span>
-                            <span>₹{invoiceTotals.sgst.toLocaleString()}</span>
+                            <span>{formatINR(invoiceTotals.sgst)}</span>
                           </div>
                         </>
                       )}
                       <div className="flex justify-between text-lg font-semibold border-t pt-2">
                         <span>Total:</span>
-                        <span>₹{invoiceTotals.total.toLocaleString()}</span>
+                        <span>{formatINR(invoiceTotals.total)}</span>
                       </div>
                     </div>
                   </div>
@@ -953,7 +1086,7 @@ export function InvoiceCreateSheet({
                     <Checkbox 
                       id="alreadyPaid" 
                       checked={isAlreadyPaid} 
-                      onCheckedChange={(checked) => setIsAlreadyPaid(checked === true)}
+                      onCheckedChange={(checked) => setForm((prev) => ({ ...prev, isAlreadyPaid: checked === true }))}
                     />
                     <Label htmlFor="alreadyPaid" className="text-sm font-medium cursor-pointer">
                       Already Paid in Full
@@ -964,7 +1097,7 @@ export function InvoiceCreateSheet({
                   {isAlreadyPaid ? (
                     <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 text-center">
                       <p className="text-sm text-primary font-medium">
-                        ✓ This invoice will be marked as fully paid (₹{calculateTotals().total.toLocaleString()})
+                        ✓ This invoice will be marked as fully paid ({formatINR(calculateTotals().total)})
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">Payment date: {invoiceDate}</p>
                     </div>
@@ -977,13 +1110,13 @@ export function InvoiceCreateSheet({
                           min="0"
                           step="0.01"
                           value={amountReceived}
-                          onChange={(e) => setAmountReceived(e.target.value)}
+                          onChange={(e) => setForm((prev) => ({ ...prev, amountReceived: e.target.value }))}
                           placeholder="0"
                         />
                       </div>
                       <div className="space-y-2">
                         <Label>Received In</Label>
-                        <Select value={receivedIn} onValueChange={setReceivedIn}>
+                        <Select value={receivedIn} onValueChange={(v) => setForm((prev) => ({ ...prev, receivedIn: v }))}>
                           <SelectTrigger><SelectValue placeholder="Payment mode" /></SelectTrigger>
                           <SelectContent>
                             {PAYMENT_MODES.map(m => (
@@ -994,7 +1127,7 @@ export function InvoiceCreateSheet({
                       </div>
                       <div className="space-y-2">
                         <Label>Date Received</Label>
-                        <Input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} />
+                        <Input type="date" value={receivedDate} onChange={(e) => setForm((prev) => ({ ...prev, receivedDate: e.target.value }))} />
                       </div>
                     </div>
                   )}
@@ -1005,11 +1138,11 @@ export function InvoiceCreateSheet({
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Payment Terms</Label>
-                  <Input value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} placeholder="e.g., 50% advance, 50% on completion" />
+                  <Input value={paymentTerms} onChange={(e) => setForm((prev) => ({ ...prev, paymentTerms: e.target.value }))} placeholder="e.g., 50% advance, 50% on completion" />
                 </div>
                 <div className="space-y-2">
                   <Label>Bank Account</Label>
-                  <Select value={selectedBankAccount} onValueChange={setSelectedBankAccount}>
+                  <Select value={selectedBankAccount} onValueChange={(v) => setForm((prev) => ({ ...prev, selectedBankAccount: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select bank account" /></SelectTrigger>
                     <SelectContent>
                       {getBankAccounts().map(b => (
@@ -1021,8 +1154,14 @@ export function InvoiceCreateSheet({
               </div>
               <div className="space-y-2">
                 <Label>Notes / Terms & Conditions</Label>
-                <Textarea value={invoiceNotes} onChange={(e) => setInvoiceNotes(e.target.value)} placeholder="Enter any additional notes or terms" rows={3} />
+                <Textarea value={invoiceNotes} onChange={(e) => setForm((prev) => ({ ...prev, invoiceNotes: e.target.value }))} placeholder="Enter any additional notes or terms" rows={3} />
               </div>
+
+              <HighValueInvoiceJustificationBlock
+                total={invoiceTotals.total}
+                reason={highValueReason}
+                onReasonChange={setHighValueReason}
+              />
             </div>
         </div>
         <div className="flex flex-wrap justify-between gap-3 pt-4 border-t">
@@ -1031,25 +1170,76 @@ export function InvoiceCreateSheet({
             <Button variant="secondary" type="button" onClick={handleSaveDraft}>
               Save as draft
             </Button>
-            <Button className="bg-primary text-primary-foreground" type="button" onClick={handleCreateInvoice}>
+            <Button
+              className="bg-primary text-primary-foreground"
+              type="button"
+              onClick={handleCreateInvoice}
+              disabled={createBlockedByHighValue}
+            >
               Create
             </Button>
           </div>
         </div>
       </AppSheetContent>
       {/* Client Selection Modal */}
-      <ClientSelectionModal
+      <ClientSelectionSheet
         open={isClientModalOpen}
         onOpenChange={setIsClientModalOpen}
         customers={customers}
         onSelect={handleClientFromModal}
         onAddNew={() => {
           setIsClientModalOpen(false);
-          if (onCustomerCreated) {
-            toast({ title: "Add New Client", description: "This would open the add customer form" });
+          if (!canDo("customer:create")) {
+            setLastConfirm({
+              variant: "error",
+              title: "Action not permitted",
+              description: "Your role cannot add new customers.",
+            });
+            return;
           }
+          setQuickAddOpen(true);
         }}
       />
+      <Dialog
+        open={quickAddOpen}
+        onOpenChange={(o) => {
+          setQuickAddOpen(o);
+          if (!o) resetQuickAddFields();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add new client</DialogTitle>
+            <DialogDescription>Create a customer record and use it on this invoice.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="qa-name">Name</Label>
+              <Input id="qa-name" value={qaName} onChange={(e) => setQaName(e.target.value)} placeholder="Customer name" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="qa-phone">Phone</Label>
+              <Input id="qa-phone" value={qaPhone} onChange={(e) => setQaPhone(e.target.value)} placeholder="10-digit mobile" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="qa-email">Email (optional)</Label>
+              <Input id="qa-email" type="email" value={qaEmail} onChange={(e) => setQaEmail(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="qa-address">Address (optional)</Label>
+              <Input id="qa-address" value={qaAddress} onChange={(e) => setQaAddress(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => { setQuickAddOpen(false); resetQuickAddFields(); }}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleQuickAddCustomerSubmit}>
+              Save and select
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }

@@ -21,6 +21,19 @@ export function formatINR(amount: number): string {
  */
 export const formatCurrency = formatINR;
 
+/**
+ * Renders a system-capacity value as `"<n> kW"`, stripping any trailing `kw`/`kW`/`kwp`/`kWp`
+ * already present in the stored string. This avoids the historic "10 kW kW" duplication that
+ * appeared when the capacity input auto-appended `kW` to values that already had it.
+ */
+export function formatCapacityKW(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  const stripped = raw.replace(/\s*k\s*w\s*p?\s*$/i, "").trim();
+  return stripped ? `${stripped} kW` : "";
+}
+
 export function formatINRCompact(amount: number): string {
   if (isNaN(amount) || amount == null) return "₹0";
   const abs = Math.abs(amount);

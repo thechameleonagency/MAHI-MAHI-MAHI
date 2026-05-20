@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { Plus, Search, Edit, Users, Building2, Mail, MapPin, ExternalLink, UserPlus } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Plus, Search, Edit, Users, Building2, Mail, MapPin, ExternalLink, UserPlus, Trash2 } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { ListSkeleton } from "@/components/ui/ListSkeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-// Removed AlertDialog
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
+import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { toast } from "@/hooks/use-toast";
 import type { Customer } from "@/types/finance";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -21,9 +23,17 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { useMasters } from "@/contexts/MastersContext";
 import { formatUiDate } from "@/lib/dateDisplay";
+import { getCustomerKind, isCustomerArchived } from "@/lib/selectors";
+import { useCan } from "@/hooks/useCan";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getCustomerReceivableAging } from "@/lib/agingHelpers";
+import { EntityLink } from "@/components/shared/EntityInfoSheet";
 
 const Customers = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const canCreateCustomer = useCan("customer", "create");
+  const canDeleteCustomer = useCan("customer", "delete");
   const { getStateCodes } = useMasters();
   const { 
     customers,
@@ -36,16 +46,51 @@ const Customers = () => {
     generateId,
   } = useAppData();
   
-  const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
+  const [listReady, setListReady] = useState(false);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setListReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
+  const [typeFilter, setTypeFilter] = useState(() => searchParams.get("type") ?? "all");
+  const [kindFilter, setKindFilter] = useState<"all" | "project" | "inventory" | "both" | "archived">(() => {
+    const k = searchParams.get("kind");
+    if (k === "project" || k === "inventory" || k === "both" || k === "archived") return k;
+    return "all";
+  });
   type CustomerSortKey = "name" | "purchases_desc" | "received_desc" | "type";
-  const [sortKey, setSortKey] = useState<CustomerSortKey>("name");
+  const [sortKey, setSortKey] = useState<CustomerSortKey>(() => {
+    const s = searchParams.get("sort");
+    if (s === "purchases_desc" || s === "received_desc" || s === "type") return s;
+    return "name";
+  });
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const q = searchQuery.trim();
+        if (q) next.set("q", q);
+        else next.delete("q");
+        if (typeFilter !== "all") next.set("type", typeFilter);
+        else next.delete("type");
+        if (kindFilter !== "all") next.set("kind", kindFilter);
+        else next.delete("kind");
+        if (sortKey !== "name") next.set("sort", sortKey);
+        else next.delete("sort");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchQuery, typeFilter, kindFilter, sortKey, setSearchParams]);
   
   // Customer Modal State
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
   const [isEditCustomerOpen, setIsEditCustomerOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
+  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
 
   // Customer Form State
   const [customerName, setCustomerName] = useState("");
@@ -113,10 +158,10 @@ const Customers = () => {
       createdAt: new Date().toISOString().split('T')[0],
     };
 
-    addCustomer(newCustomer);
+    if (!addCustomer(newCustomer)) return;
     setIsAddCustomerOpen(false);
     resetCustomerForm();
-    toast({ title: "Customer Added", description: `${customerName} has been added successfully` });
+    setLastConfirm({ variant: "success", title: "Customer added", description: `${customerName} has been added successfully.` });
   };
 
   const handleEditCustomer = () => {
@@ -152,7 +197,7 @@ const Customers = () => {
 
     setIsEditCustomerOpen(false);
     resetCustomerForm();
-    toast({ title: "Customer Updated", description: `${customerName} has been updated` });
+    setLastConfirm({ variant: "success", title: "Customer updated", description: `${customerName} has been updated.` });
   };
 
   const handleDeleteCustomer = () => {
@@ -161,18 +206,19 @@ const Customers = () => {
     const linkedProjects = projects.filter(p => p.customerId === customerToDelete.id);
     const linkedInvoices = [...invoices, ...(saleBills ?? [])].filter(i => i.customerId === customerToDelete.id);
     if (linkedProjects.length > 0 || linkedInvoices.length > 0) {
-      toast({
-        title: "Cannot Delete Customer",
+      setLastConfirm({
+        variant: "error",
+        title: "Cannot delete customer",
         description: `This customer has ${linkedProjects.length} project(s) and ${linkedInvoices.length} invoice(s). Reassign or delete those first.`,
-        variant: "destructive",
       });
       setCustomerToDelete(null);
       return;
     }
 
+    const name = customerToDelete.name;
     deleteCustomer(customerToDelete.id);
     setCustomerToDelete(null);
-    toast({ title: "Customer Deleted", description: "Customer has been removed" });
+    setLastConfirm({ variant: "warning", title: "Customer deleted", description: `${name} has been removed.` });
   };
 
   const openEditCustomer = (customer: Customer) => {
@@ -187,12 +233,18 @@ const Customers = () => {
     setIsEditCustomerOpen(true);
   };
 
-  const filteredCustomers = customers.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+  const filteredCustomers = customers.filter((c) => {
+    const matchesSearch =
+      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.phone.includes(searchQuery) ||
       c.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = typeFilter === "all" || c.type === typeFilter;
-    return matchesSearch && matchesType;
+    const kind = getCustomerKind(c);
+    const matchesKind =
+      kindFilter === "all" ||
+      (kindFilter === "archived" && isCustomerArchived(c)) ||
+      (kindFilter !== "archived" && !isCustomerArchived(c) && (kind === kindFilter || kind === "both"));
+    return matchesSearch && matchesType && matchesKind;
   });
 
   const sortedCustomers = useMemo(() => {
@@ -246,6 +298,18 @@ const Customers = () => {
                   <SelectItem value="company">Company</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={kindFilter} onValueChange={(v) => setKindFilter(v as typeof kindFilter)}>
+                <SelectTrigger className="h-9 w-full bg-muted/50 sm:w-[180px]">
+                  <SelectValue placeholder="Kind" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All kinds</SelectItem>
+                  <SelectItem value="project">Project</SelectItem>
+                  <SelectItem value="inventory">Inventory</SelectItem>
+                  <SelectItem value="both">Both</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={sortKey} onValueChange={(v) => setSortKey(v as CustomerSortKey)}>
                 <SelectTrigger className="h-9 w-full bg-muted/50 sm:w-[200px]">
                   <SelectValue placeholder="Sort" />
@@ -271,21 +335,40 @@ const Customers = () => {
           </>
         }
       >
-        <Button size="sm" onClick={() => { resetCustomerForm(); setIsAddCustomerOpen(true); }}>
+        <Button
+          size="sm"
+          disabled={!canCreateCustomer}
+          onClick={() => { resetCustomerForm(); setIsAddCustomerOpen(true); }}
+        >
           <Plus className="mr-2 h-4 w-4" />
           Add
         </Button>
       </StickyPageHeader>
 
+      {lastConfirm && (
+        <InlineConfirmBanner
+          variant={lastConfirm.variant}
+          title={lastConfirm.title}
+          description={lastConfirm.description}
+          onDismiss={() => setLastConfirm(null)}
+        />
+      )}
+
       {/* Customer Cards */}
+      {!listReady ? (
+        <ListSkeleton variant="cards" count={6} />
+      ) : (
+      <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {sortedCustomers.map((customer) => {
-          const customerInvoices = invoices.filter(i => i.customerId === customer.id || i.customerName === customer.name);
-          const customerSaleBills = saleBills.filter(sb => sb.customerId === customer.id || sb.customerName === customer.name);
+          const customerInvoices = invoices.filter((i) => i.customerId === customer.id);
+          const customerSaleBills = saleBills.filter((sb) => sb.customerId === customer.id);
           const allBills = [...customerInvoices, ...customerSaleBills];
-          const pendingAmount = allBills.reduce((sum, inv) => sum + (inv.total - inv.amountReceived), 0);
-          const totalReceived = allBills.reduce((sum, inv) => sum + inv.amountReceived, 0);
-          const activeProjectsCount = projects.filter(p => p.client === customer.name && p.status === "Ongoing").length;
+          const pendingAmount = allBills.reduce((sum, inv) => sum + (inv.total - (inv.amountReceived || 0)), 0);
+          const totalReceived = allBills.reduce((sum, inv) => sum + (inv.amountReceived || 0), 0);
+          const activeProjectsCount = projects.filter(
+            (p) => p.customerId === customer.id && p.status === "Ongoing",
+          ).length;
           const isLead = (customer.itemsBought?.length ?? 0) === 0 && (customer.totalPurchases ?? 0) === 0;
           
           return (
@@ -308,7 +391,7 @@ const Customers = () => {
                       </Badge>
                     )}
                     {pendingAmount > 0 ? (
-                      <Badge className="bg-amber-500/10 text-amber-500 border-0 text-xs">
+                      <Badge className="bg-warning/10 text-warning border-0 text-xs">
                         ₹{pendingAmount.toLocaleString()} Due
                       </Badge>
                     ) : (
@@ -327,7 +410,17 @@ const Customers = () => {
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="font-semibold text-foreground">{customer.name}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <EntityLink
+                        entityType="customer"
+                        entityId={customer.id}
+                        name={customer.name}
+                        className="font-semibold text-foreground truncate text-left"
+                      />
+                      {pendingAmount > 0 && (
+                        <AgingChip signal={getCustomerReceivableAging(allBills)} />
+                      )}
+                    </div>
                     <p className="text-sm text-muted-foreground">{customer.phone}</p>
                   </div>
                 </div>
@@ -376,7 +469,7 @@ const Customers = () => {
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Pending:</span>
-                      <span className={`font-medium ${pendingAmount > 0 ? 'text-amber-500' : 'text-primary'}`}>
+                      <span className={`font-medium ${pendingAmount > 0 ? 'text-warning' : 'text-primary'}`}>
                         ₹{pendingAmount.toLocaleString()}
                       </span>
                     </div>
@@ -389,29 +482,7 @@ const Customers = () => {
 
                 {/* Actions */}
                 <div className="mt-4 pt-3 border-t">
-                  {customerToDelete?.id === customer.id ? (
-                    <div className="bg-destructive/10 p-3 rounded-lg border border-destructive/20 flex flex-col gap-3 animate-in fade-in zoom-in-95 duration-200">
-                      <p className="text-xs text-destructive-foreground font-medium text-center">Delete {customer.name}?</p>
-                      {(() => {
-                        const invN = invoices.filter((i) => i.customerId === customerToDelete.id).length;
-                        const sbN = saleBills.filter((s) => s.customerId === customerToDelete.id).length;
-                        return invN + sbN > 0 ? (
-                          <p className="text-xs2 text-muted-foreground text-center leading-snug">
-                            Also removes {invN} invoice(s), {sbN} sale bill(s), linked payments, projects, and quotations for this customer.
-                          </p>
-                        ) : (
-                          <p className="text-xs2 text-muted-foreground text-center leading-snug">
-                            Also removes projects and quotations linked to this customer.
-                          </p>
-                        );
-                      })()}
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" className="flex-1 h-8" onClick={() => setCustomerToDelete(null)}>Cancel</Button>
-                        <Button variant="destructive" size="sm" className="flex-1 h-8" onClick={handleDeleteCustomer}>Delete</Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-2">
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" className="flex-1" onClick={() => openEditCustomer(customer)}>
                         <Edit className="h-3 w-3 mr-1" /> Edit
@@ -419,9 +490,11 @@ const Customers = () => {
                       <Button size="sm" className="flex-1" onClick={() => navigate(`/customers/${customer.id}`)}>
                         <ExternalLink className="h-3 w-3 mr-1" /> View
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => setCustomerToDelete(customer)}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
-                      </Button>
+                      {canDeleteCustomer && (
+                        <Button variant="ghost" size="icon" aria-label={`Delete customer ${customer.name}`} className="text-destructive hover:bg-destructive/10" onClick={() => setCustomerToDelete(customer)}>
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        </Button>
+                      )}
                     </div>
                     {isLead && (
                       <Button
@@ -435,8 +508,7 @@ const Customers = () => {
                         Start enquiry from lead
                       </Button>
                     )}
-                    </div>
-                  )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -450,8 +522,8 @@ const Customers = () => {
             icon={Users}
             title="No customers yet"
             description="Add your first customer to start tracking deals and invoices."
-            actionLabel="Add your first customer"
-            onAction={() => { resetCustomerForm(); setIsAddCustomerOpen(true); }}
+            actionLabel={canCreateCustomer ? "Add your first customer" : undefined}
+            onAction={canCreateCustomer ? () => { resetCustomerForm(); setIsAddCustomerOpen(true); } : undefined}
           />
         ) : (
           <ListEmptyState
@@ -459,9 +531,11 @@ const Customers = () => {
             title="No customers match"
             description="Try clearing search or type filter."
             actionLabel="Clear filters"
-            onAction={() => { setSearchQuery(""); setTypeFilter("all"); }}
+            onAction={() => { setSearchQuery(""); setTypeFilter("all"); setKindFilter("all"); setSortKey("name"); }}
           />
         )
+      )}
+      </>
       )}
 
       {/* Add Customer Sheet */}
@@ -562,7 +636,32 @@ const Customers = () => {
         </SheetContent>
       </Sheet>
 
-      {/* Deleted AlertDialog */}
+      <DestructiveConfirmDialog
+        open={!!customerToDelete}
+        onOpenChange={(o) => { if (!o) setCustomerToDelete(null); }}
+        title={customerToDelete ? `Delete ${customerToDelete.name}?` : "Delete customer?"}
+        description={
+          customerToDelete ? (() => {
+            const invN = invoices.filter((i) => i.customerId === customerToDelete.id).length;
+            const sbN = saleBills.filter((s) => s.customerId === customerToDelete.id).length;
+            const linkedProjects = projects.filter((p) => p.customerId === customerToDelete.id).length;
+            const hasLinks = invN + sbN + linkedProjects > 0;
+            return (
+              <div className="space-y-2">
+                <p>{hasLinks
+                  ? `This customer is linked to ${invN} invoice(s), ${sbN} sale bill(s), and ${linkedProjects} project(s).`
+                  : "This customer has no linked records."
+                }</p>
+                <p className="text-xs text-muted-foreground">
+                  Deleting them removes the contact record permanently. Linked invoices and projects must be reassigned or deleted first; otherwise this action is blocked.
+                </p>
+              </div>
+            );
+          })() : ""
+        }
+        confirmLabel="Delete customer"
+        onConfirm={handleDeleteCustomer}
+      />
     </PageShell>
   );
 };
