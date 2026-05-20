@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, IndianRupee, Pencil, Receipt, Trash2 } from "lucide-react";
+import { ArrowLeft, Briefcase, IndianRupee, Pencil, Receipt, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { findByRouteId } from "@/lib/resolveEntityId";
 import { canonicalProjectKind, projectKindRegistryLabel } from "@/lib/projectTaxonomyDisplay";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { formatINR } from "@/lib/formatCurrency";
@@ -513,9 +514,12 @@ const PartnerDetail = () => {
                   </div>
                 ))}
                 {linkedProjects.length === 0 && (
-                  <div className="p-8 text-center text-sm text-muted-foreground italic">
-                    No projects linked yet.
-                  </div>
+                  <ListEmptyState
+                    density="compact"
+                    icon={Briefcase}
+                    title="No projects linked yet"
+                    description="Projects with this partner on the roster will appear here."
+                  />
                 )}
               </div>
             </CardContent>
@@ -799,18 +803,18 @@ const PartnerDetail = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!deleteTxnId} onOpenChange={(open) => { if (!open) setDeleteTxnId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete transaction?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone. The transaction record will be permanently removed.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => { if (deleteTxnId) { deletePartnerTransaction(deleteTxnId); setDeleteTxnId(null); } }}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DestructiveConfirmDialog
+        open={!!deleteTxnId}
+        onOpenChange={(open) => { if (!open) setDeleteTxnId(null); }}
+        title="Delete transaction?"
+        description="The transaction record will be permanently removed from this partner's ledger."
+        onConfirm={() => {
+          if (deleteTxnId) {
+            deletePartnerTransaction(deleteTxnId);
+            setDeleteTxnId(null);
+          }
+        }}
+      />
 
       <Sheet open={isEndPartnershipOpen} onOpenChange={setIsEndPartnershipOpen}>
         <AppSheetContent layout="form" size="md">

@@ -78,6 +78,7 @@ import {
 import { AgingChip } from "@/components/ui/AgingChip";
 import { formatINR } from "@/lib/formatCurrency";
 import { toast } from "@/hooks/use-toast";
+import { showCommandErrorToast } from "@/lib/commandErrorToast";
 import { routeAccessDeniedToastContent } from "@/lib/routeAccessDenied";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { resolveQuotationCustomerId } from "@/lib/selectors";
@@ -702,7 +703,7 @@ const Dashboard = () => {
   const handleDashboardSendQuotation = async (enquiryId: string) => {
     const result = await transitionEnquiryStatus(enquiryId, "quotation_sent");
     if (!result.ok) {
-      toast({ title: "Could not update", description: result.error, variant: "destructive" });
+      showCommandErrorToast("Could not update", result.error, "Could not update enquiry status.");
       return;
     }
     toast({ title: "Marked quotation sent" });
@@ -711,7 +712,7 @@ const Dashboard = () => {
   const handleDashboardConvertEnquiry = async (enquiry: import("@/types/project").Enquiry) => {
     const result = await convertEnquiryToCustomer(enquiry.id);
     if (!result.ok) {
-      toast({ title: "Conversion failed", description: result.error, variant: "destructive" });
+      showCommandErrorToast("Conversion failed", result.error, "Could not convert enquiry.");
       return;
     }
     toast({ title: "Enquiry converted", description: "Create quotation when ready." });
@@ -1338,7 +1339,12 @@ const Dashboard = () => {
                   />
                 ))}
               {(activeModal === "followUps" ? overdueFollowUpEnquiries : openPipelineEnquiries).length === 0 && (
-                <p className="py-6 text-center text-sm text-muted-foreground">Nothing in this queue</p>
+                <ListEmptyState
+                  density="compact"
+                  icon={ClipboardList}
+                  title={activeModal === "followUps" ? "No overdue follow-ups" : "No open enquiries"}
+                  description="New pipeline items will appear here when logged."
+                />
               )}
             </div>
             <Button
@@ -1368,7 +1374,12 @@ const Dashboard = () => {
               <DashboardTaskRow key={t.id} task={t} />
             ))}
             {overdueTasksList.length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">No overdue tasks</p>
+              <ListEmptyState
+                density="compact"
+                icon={ClipboardList}
+                title="No overdue tasks"
+                description="Tasks past their work date will show here."
+              />
             )}
           </div>
           <Button className="w-full rounded-lg mt-4" onClick={() => navigateToKpiList("tasks")}>
@@ -1392,7 +1403,12 @@ const Dashboard = () => {
               <DashboardProjectRow key={project.id} project={project} />
             ))}
             {activeProjectsList.length === 0 && (
-              <p className="py-6 text-center text-muted-foreground">No active projects</p>
+              <ListEmptyState
+                density="compact"
+                icon={Building2}
+                title="No active projects"
+                description="Ongoing projects will appear in this list."
+              />
             )}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("projects")}>
@@ -1425,7 +1441,12 @@ const Dashboard = () => {
               );
             })}
             {sitesOnOngoingProjects.length === 0 && (
-              <p className="py-6 text-center text-muted-foreground">No sites linked to ongoing projects</p>
+              <ListEmptyState
+                density="compact"
+                icon={MapPin}
+                title="No sites on ongoing projects"
+                description="Sites linked to in-flight projects will show here."
+              />
             )}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("activeSites")}>
@@ -1449,7 +1470,12 @@ const Dashboard = () => {
               <DashboardInvoiceRow key={invoice.id} invoice={invoice} />
             ))}
             {stats.pendingInvoices.length === 0 && (
-              <p className="py-6 text-center text-muted-foreground">No pending receivables</p>
+              <ListEmptyState
+                density="compact"
+                icon={Receipt}
+                title="No pending receivables"
+                description="Open invoices with balance due will appear here."
+              />
             )}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("pending")}>
@@ -1474,6 +1500,15 @@ const Dashboard = () => {
             {presentEmployees.map((emp) => (
               <DashboardEmployeeCard key={emp.id} emp={emp} onSelect={handleEmployeeClick} />
             ))}
+            {presentEmployees.length === 0 && (
+              <ListEmptyState
+                density="compact"
+                icon={Users}
+                title="No active employees"
+                description="Active roster members will appear here."
+                className="sm:col-span-2"
+              />
+            )}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("employees")}>
             <ExternalLink className="mr-2 h-4 w-4" />
@@ -1561,7 +1596,12 @@ const Dashboard = () => {
               <DashboardQuotationRow key={quotation.id} quotation={quotation} />
             ))}
             {stats.pendingQuotations.length === 0 && (
-              <p className="py-6 text-center text-muted-foreground">No draft or sent quotations</p>
+              <ListEmptyState
+                density="compact"
+                icon={FileText}
+                title="No quotations in flight"
+                description="Draft or sent quotations will show here."
+              />
             )}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("quotations")}>
@@ -1594,10 +1634,12 @@ const Dashboard = () => {
                 <DashboardBlockageRow key={project.id} project={project} />
               ))}
             {stats.activeBlockages === 0 && (
-              <div className="py-8 text-center">
-                <AlertCircle className="mx-auto mb-2 h-12 w-12 text-primary" aria-hidden />
-                <p className="text-muted-foreground">Nothing on managerial hold.</p>
-              </div>
+              <ListEmptyState
+                density="compact"
+                icon={AlertCircle}
+                title="Nothing on managerial hold"
+                description="Projects marked On Hold will appear here."
+              />
             )}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("blockages")}>

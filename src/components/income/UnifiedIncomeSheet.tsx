@@ -24,6 +24,7 @@ import { UnifiedFinanceValidationService } from "@/application/services/UnifiedF
 import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
 import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
 import { requireDateNotBefore } from "@/lib/dateSanity";
+import { FORM_CREATE_LABEL } from "@/lib/formActionLabels";
 
 const INCOME_MODAL_DRAFT_KEY = "income-sheet-modal";
 
@@ -685,7 +686,7 @@ export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectI
             {step === "main-category" ? "Cancel" : <><ArrowLeft className="w-4 h-4 mr-2" />Back</>}
           </Button>
           {step === "confirm" ? (
-            <Button onClick={handleSubmit}><Check className="w-4 h-4 mr-2" />Confirm & Save</Button>
+            <Button onClick={handleSubmit}><Check className="w-4 h-4 mr-2" />{FORM_CREATE_LABEL}</Button>
           ) : (
             <Button onClick={goNext} disabled={!isStepValid()}>Next<ArrowRight className="w-4 h-4 ml-2" /></Button>
           )}

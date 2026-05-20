@@ -1,3 +1,4 @@
+/** Entity workflow/lifecycle state (paid, On Hold, draft). Pair with AgingChip for duration, not duplicate state text. */
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { getStatusColor } from "@/lib/statusColors";

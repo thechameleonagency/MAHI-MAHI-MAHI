@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Package, Check, AlertTriangle, ArrowUp, ArrowDown, Plus, Send, Truck, Calendar, CheckCircle2, Wrench, ChevronDown, ChevronRight, User, RotateCcw, ShieldAlert, MoreHorizontal } from "lucide-react";
+import { Package, Check, AlertTriangle, ArrowUp, ArrowDown, Plus, Send, Truck, Calendar, CheckCircle2, Wrench, ChevronDown, ChevronRight, User, RotateCcw, ShieldAlert, MoreHorizontal, ClipboardList } from "lucide-react";
 import { MaterialDamageSheet } from "@/components/projects/MaterialDamageSheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { format } from "date-fns";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -32,6 +33,7 @@ import { useAppSession } from "@/app/providers/AppSessionProvider";
 import type { ExecutionLineItem, ProjectSiteChecklistItem } from "@/types/project";
 import { findInventoryItemForMaterial, findPresetForMaterial } from "@/lib/inventoryPresetMatch";
 import { inferTransportWorkKind, resolveSiteForMaterialIssue } from "@/lib/materialIssueTransportTask";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 interface MaterialIssue {
   date: string;
@@ -441,7 +443,11 @@ export default function MaterialsSentTab({
       clientRequestId: returnMovementIdRef.current ?? undefined,
     }) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
     if (!result.ok) {
-      toast({ title: "Return Failed", description: result.error || "Unable to return material", variant: "destructive" });
+      toast({
+        title: "Return Failed",
+        description: friendlyCommandErrorMessage(result.error, "Unable to return material"),
+        variant: "destructive",
+      });
       return;
     }
     toast({ title: "Items Returned", description: `${qty} ${returnMaterial.unit} of ${returnMaterial.name} returned to warehouse` });
@@ -467,7 +473,11 @@ export default function MaterialsSentTab({
       clientRequestId: scrapMovementIdRef.current ?? undefined,
     }) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
     if (!result.ok) {
-      toast({ title: "Scrap Failed", description: result.error || "Unable to scrap material", variant: "destructive" });
+      toast({
+        title: "Scrap Failed",
+        description: friendlyCommandErrorMessage(result.error, "Unable to scrap material"),
+        variant: "destructive",
+      });
       return;
     }
     toast({ title: "Material Scrapped", description: `${qty} ${scrapMaterial.unit} of ${scrapMaterial.name} marked as scrap at site` });
@@ -493,7 +503,11 @@ export default function MaterialsSentTab({
       clientRequestId: consumeMovementIdRef.current ?? undefined,
     }) ?? Promise.resolve({ ok: true }))) as { ok: boolean; error?: string };
     if (!result.ok) {
-      toast({ title: "Consumption Failed", description: result.error || "Unable to record consumption", variant: "destructive" });
+      toast({
+        title: "Consumption Failed",
+        description: friendlyCommandErrorMessage(result.error, "Unable to record consumption"),
+        variant: "destructive",
+      });
       return;
     }
     toast({ title: "Consumption Recorded", description: `${qty} ${consumeMaterial.unit} of ${consumeMaterial.name} marked consumed at site` });
@@ -564,9 +578,12 @@ export default function MaterialsSentTab({
         </CardHeader>
         <CardContent className="p-0">
           {siteChecklist.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              No site checklist attached to this project yet. The checklist seeds from the linked quotation's BOM when the project is created.
-            </div>
+            <ListEmptyState
+              density="compact"
+              icon={ClipboardList}
+              title="No site checklist yet"
+              description="Checklist seeds from the linked quotation BOM when the project is created."
+            />
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-muted/30">

@@ -24,6 +24,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { useAppData } from "@/contexts/AppDataContext";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { toast } from "@/hooks/use-toast";
 import { buttonRoles } from "@/lib/buttonRoles";
 
@@ -185,7 +186,12 @@ const TeamDetail = () => {
             </div>
           </div>
           {members.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No members assigned yet.</p>
+            <ListEmptyState
+              density="compact"
+              icon={Users}
+              title="No members assigned yet"
+              description="Add employees to this team from the roster."
+            />
           ) : (
             <div className="flex flex-wrap gap-2">
               {members.map((emp) => emp && (
@@ -234,7 +240,14 @@ const TeamDetail = () => {
               .filter((s) => s.teamId === team.id)
               .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
             if (teamSchedules.length === 0) {
-              return <p className="text-sm text-muted-foreground">No scheduled installations for this team.</p>;
+              return (
+                <ListEmptyState
+                  density="compact"
+                  icon={Calendar}
+                  title="No scheduled installations"
+                  description="Install schedules linked to this team appear here."
+                />
+              );
             }
             return (
               <div className="space-y-2">
@@ -270,7 +283,12 @@ const TeamDetail = () => {
         </CardHeader>
         <CardContent>
           {teamWorkHistory.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No assignment history recorded yet.</p>
+            <ListEmptyState
+              density="compact"
+              icon={Calendar}
+              title="No assignment history yet"
+              description="Past project assignments for this team appear here."
+            />
           ) : (
             <Table>
               <TableHeader>

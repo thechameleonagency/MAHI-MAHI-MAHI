@@ -34,8 +34,9 @@ import { dataTableClasses, DEFAULT_TABLE_PAGE_SIZE, listTableViewportMaxHeight }
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { useAppData } from "@/contexts/AppDataContext";
-import { ChevronDown, Download, Info, Printer, Share2 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ChevronDown, Download, Info, Package, Printer, Share2 } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import jsPDF from "jspdf";
@@ -775,53 +776,44 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
               </PopoverContent>
             </Popover>
 
-            <Tooltip>
-              <Popover>
-                <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("min-w-[10rem]", filterTriggerClass)} type="button">
-                      Group / sort
-                      <span className="truncate text-muted-foreground">
-                        · {NEED_TO_GET_GROUP_LABELS[groupMode]}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className={cn("min-w-[10rem]", filterTriggerClass)} type="button">
+                  Group / sort
+                  <span className="truncate text-muted-foreground">
+                    · {NEED_TO_GET_GROUP_LABELS[groupMode]}
+                  </span>
+                  <Info className="ml-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/80" aria-hidden />
+                  <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[min(18rem,calc(100vw-2rem))] p-0" align="start">
+                <div className="space-y-1 border-b px-3 py-2">
+                  <p className="text-xs font-medium">Group / sort view</p>
+                  <p className="text-2xs leading-snug text-muted-foreground">
+                    {NEED_TO_GET_MERGE_HINT[groupMode]}
+                  </p>
+                  <p className="text-2xs text-foreground/90">{mergeSummary}</p>
+                </div>
+                <div className="flex flex-col gap-0.5 p-2">
+                  {NEED_TO_GET_GROUP_MODES.map((mode) => (
+                    <Button
+                      key={mode}
+                      type="button"
+                      variant={groupMode === mode ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-auto min-h-9 flex-col items-start gap-0.5 py-2 font-normal"
+                      onClick={() => handleGroupModeChange(mode)}
+                    >
+                      <span>{NEED_TO_GET_GROUP_LABELS[mode]}</span>
+                      <span className="text-left text-2xs font-normal leading-snug text-muted-foreground">
+                        {NEED_TO_GET_MERGE_HINT[mode]}
                       </span>
-                      <Info className="ml-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/80" aria-hidden />
-                      <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
                     </Button>
-                  </PopoverTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-sm text-left hidden md:block">
-                  <p className="font-medium">{NEED_TO_GET_GROUP_LABELS[groupMode]}</p>
-                  <p className="mt-1 text-muted-foreground">{NEED_TO_GET_MERGE_HINT[groupMode]}</p>
-                  <p className="mt-2 border-t border-border/60 pt-2 text-foreground/90">{mergeSummary}</p>
-                </TooltipContent>
-                <PopoverContent className="w-[min(18rem,calc(100vw-2rem))] p-0" align="start">
-                  <div className="space-y-1 border-b px-3 py-2">
-                    <p className="text-xs font-medium">Group / sort view</p>
-                    <p className="text-2xs leading-snug text-muted-foreground md:hidden">
-                      {NEED_TO_GET_MERGE_HINT[groupMode]}
-                    </p>
-                    <p className="text-2xs text-foreground/90 md:hidden">{mergeSummary}</p>
-                  </div>
-                  <div className="flex flex-col gap-0.5 p-2">
-                    {NEED_TO_GET_GROUP_MODES.map((mode) => (
-                      <Button
-                        key={mode}
-                        type="button"
-                        variant={groupMode === mode ? "secondary" : "ghost"}
-                        size="sm"
-                        className="h-auto min-h-9 flex-col items-start gap-0.5 py-2 font-normal"
-                        onClick={() => handleGroupModeChange(mode)}
-                      >
-                        <span>{NEED_TO_GET_GROUP_LABELS[mode]}</span>
-                        <span className="text-left text-2xs font-normal leading-snug text-muted-foreground">
-                          {NEED_TO_GET_MERGE_HINT[mode]}
-                        </span>
-                      </Button>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </Tooltip>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
             {mergeStats.linesMergedAway > 0 ? (
               <Badge
                 variant="outline"
@@ -872,7 +864,12 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
 
           <div className="space-y-2 md:hidden print:hidden">
             {pageRows.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No shortfalls for current filters.</p>
+              <ListEmptyState
+                density="compact"
+                icon={Package}
+                title="No shortfalls for filters"
+                description="Adjust project, material, or date filters."
+              />
             ) : (
               pageRows.map((r, idx) => (
                 <div
@@ -931,11 +928,12 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
               </TableHeader>
               <TableBody>
                 {pageRows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                      No shortfalls for current filters.
-                    </TableCell>
-                  </TableRow>
+                  <TableEmptyRow
+                    colSpan={8}
+                    icon={Package}
+                    title="No shortfalls for filters"
+                    description="Adjust project, material, or date filters."
+                  />
                 ) : (
                   pageRows.map((r, idx) => {
                     const band = rowBandForPage[idx];

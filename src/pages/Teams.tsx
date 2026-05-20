@@ -23,6 +23,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import type { Team } from "@/types/project";
 import { useCan } from "@/hooks/useCan";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 
 const Teams = () => {
   const { teams, employees, projects, addTeam, updateTeam, deleteTeam, generateId } = useAppData();
@@ -276,7 +277,7 @@ const Teams = () => {
       )}
 
       <Sheet open={isAddOpen} onOpenChange={(v) => { if(!v) resetForm(); setIsAddOpen(v); }}>
-        <AppSheetContent size="xl" layout="form">
+        <AppSheetContent preset="wideForm">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2 text-primary">
               <Users className="h-5 w-5" />
@@ -327,7 +328,7 @@ const Teams = () => {
               Cancel
             </Button>
             <Button className="flex-1 shadow-lg shadow-primary/20" onClick={handleSaveTeam}>
-              {selectedTeam ? "Update Team" : "Create Team"}
+              {formPrimaryLabel(selectedTeam ? "edit" : "create", "team")}
             </Button>
           </div>
         </AppSheetContent>

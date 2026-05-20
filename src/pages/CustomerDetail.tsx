@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { findByRouteId } from "@/lib/resolveEntityId";
-import { ArrowLeft, Phone, Mail, MapPin, Building2, User, IndianRupee, Plus, Check, Clock, AlertTriangle, ExternalLink, CreditCard, Eye, Pencil } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Building2, User, IndianRupee, Plus, Check, Clock, AlertTriangle, ExternalLink, CreditCard, Eye, Pencil, FileText, Receipt, FolderOpen } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -273,8 +274,8 @@ const CustomerDetail = () => {
           <ArrowLeft className="mr-2 h-4 w-4" /> Back
         </Button>
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            Customer not found
+          <CardContent>
+            <ListEmptyState icon={User} title="Customer not found" />
           </CardContent>
         </Card>
       </div>
@@ -584,8 +585,8 @@ const CustomerDetail = () => {
 
           {customerInvoices.length === 0 && (
             <Card>
-              <CardContent className="py-10 text-center text-muted-foreground">
-                No invoices found for this customer
+              <CardContent>
+                <ListEmptyState icon={FileText} title="No invoices for this customer" />
               </CardContent>
             </Card>
           )}
@@ -639,9 +640,11 @@ const CustomerDetail = () => {
                   </TableBody>
                 </DataTableShell>
               ) : (
-                <div className="px-6 py-10 text-center text-muted-foreground">
-                  No sale bills found for this customer
-                </div>
+                <ListEmptyState
+                  density="compact"
+                  icon={Receipt}
+                  title="No sale bills for this customer"
+                />
               )}
             </CardContent>
           </Card>
@@ -748,13 +751,17 @@ const CustomerDetail = () => {
                   </TableBody>
                 </DataTableShell>
               ) : (
-                <div className="py-10 text-center text-muted-foreground">
-                  <IndianRupee className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No payments recorded yet</p>
-                  <Button variant="outline" className="mt-4" onClick={() => setIsPaymentModalOpen(true)} disabled={pendingInvoices.length === 0}>
-                    <Plus className="h-4 w-4 mr-2" /> Record First Payment
-                  </Button>
-                </div>
+                <ListEmptyState
+                  icon={IndianRupee}
+                  title="No payments recorded yet"
+                  description={
+                    pendingInvoices.length === 0
+                      ? "No pending invoices to pay against."
+                      : "Payments apply to invoices and sale bills (FIFO)."
+                  }
+                  actionLabel={pendingInvoices.length > 0 ? "Record first payment" : undefined}
+                  onAction={pendingInvoices.length > 0 ? () => setIsPaymentModalOpen(true) : undefined}
+                />
               )}
             </CardContent>
           </Card>
@@ -814,9 +821,11 @@ const CustomerDetail = () => {
                   </TableBody>
                 </DataTableShell>
               ) : (
-                <div className="px-6 py-10 text-center text-muted-foreground">
-                  No projects found for this customer
-                </div>
+                <ListEmptyState
+                  density="compact"
+                  icon={FolderOpen}
+                  title="No projects for this customer"
+                />
               )}
             </CardContent>
           </Card>
@@ -874,9 +883,11 @@ const CustomerDetail = () => {
                   </TableBody>
                 </DataTableShell>
               ) : (
-                <div className="px-6 py-10 text-center text-muted-foreground">
-                  No quotations found for this customer
-                </div>
+                <ListEmptyState
+                  density="compact"
+                  icon={FileText}
+                  title="No quotations for this customer"
+                />
               )}
             </CardContent>
           </Card>

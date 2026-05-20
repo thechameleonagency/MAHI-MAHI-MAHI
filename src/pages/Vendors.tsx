@@ -25,16 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { formatINR } from "@/lib/formatCurrency";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { toast } from "@/hooks/use-toast";
 import type { Vendor } from "@/types/project";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -542,35 +533,25 @@ const Vendors = () => {
         </AppSheetContent>
       </Sheet>
 
-      <AlertDialog open={!!vendorPendingDelete} onOpenChange={(open) => !open && setVendorPendingDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {vendorPendingDelete
-                ? `Remove ${vendorPendingDelete.name} from the directory. Outstanding: ${formatINR(vendorPendingDelete.outstandingAmount)}. Bills and payments in the prototype are not cascade-deleted.`
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (vendorPendingDelete) {
-                  const result = deleteVendor(vendorPendingDelete.id);
-                  if (result.ok) {
-                    toast({ title: "Vendor removed", description: `${vendorPendingDelete.name} was deleted.` });
-                  }
-                }
-                setVendorPendingDelete(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DestructiveConfirmDialog
+        open={!!vendorPendingDelete}
+        onOpenChange={(open) => !open && setVendorPendingDelete(null)}
+        title="Delete vendor?"
+        description={
+          vendorPendingDelete
+            ? `Remove ${vendorPendingDelete.name} from the directory. Outstanding: ${formatINR(vendorPendingDelete.outstandingAmount)}. Bills and payments in the prototype are not cascade-deleted.`
+            : ""
+        }
+        onConfirm={() => {
+          if (vendorPendingDelete) {
+            const result = deleteVendor(vendorPendingDelete.id);
+            if (result.ok) {
+              toast({ title: "Vendor removed", description: `${vendorPendingDelete.name} was deleted.` });
+            }
+          }
+          setVendorPendingDelete(null);
+        }}
+      />
     </PageShell>
   );
 };

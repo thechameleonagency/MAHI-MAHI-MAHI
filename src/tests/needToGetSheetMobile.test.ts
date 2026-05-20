@@ -17,8 +17,9 @@ describe("NeedToGetSheet mobile merge visibility (MR5)", () => {
     expect(source).toContain("{mergeSummary}");
   });
 
-  it("surfaces merge copy inside Group/sort popover on mobile", () => {
+  it("surfaces merge copy inside Group/sort popover (DS10 — not tooltip)", () => {
     expect(source).toContain("w-[min(18rem,calc(100vw-2rem))]");
-    expect(source).toContain("text-2xs leading-snug text-muted-foreground md:hidden");
+    expect(source).toContain("text-2xs leading-snug text-muted-foreground");
+    expect(source).not.toMatch(/TooltipContent[\s\S]{0,400}NEED_TO_GET_MERGE_HINT/);
   });
 });

@@ -1,6 +1,7 @@
 import { Fragment, useState, useMemo, useCallback, useEffect } from "react";
 import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
+import { AppSheetFormFooter } from "@/components/shared/AppSheetFormFooter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +20,7 @@ import { format, parseISO, isValid } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { fileExceedsLimit, MAX_UPLOAD_BYTES } from "@/lib/fileLimits";
 import { formatINR } from "@/lib/formatCurrency";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 
 interface BankTransaction {
   date: string;
@@ -690,11 +692,12 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
                 </TableHeader>
                 <TableBody>
                   {filteredResults.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                        {statements.length === 0 ? "Upload statements to begin" : "No results found"}
-                      </TableCell>
-                    </TableRow>
+                    <TableEmptyRow
+                      colSpan={7}
+                      icon={statements.length === 0 ? Upload : Search}
+                      title={statements.length === 0 ? "Upload statements to begin" : "No results found"}
+                      description={statements.length === 0 ? "Import bank CSV or statement files first." : "Try adjusting search or filters."}
+                    />
                   )}
                   {filteredResults.map((r, i) => {
                     const rowKey = reconciliationResultRowKey(r.statementId, i);
@@ -778,14 +781,11 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end gap-2 border-t pt-3 shrink-0">
-          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
-            Close
-          </Button>
+        <AppSheetFormFooter onCancel={() => handleOpenChange(false)}>
           <Button type="button" onClick={handleSave} disabled={!setBankReconciliationStatements}>
             Save
           </Button>
-        </div>
+        </AppSheetFormFooter>
       </AppSheetContent>
     </Sheet>
   );

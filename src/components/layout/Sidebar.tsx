@@ -21,6 +21,7 @@ import {
   sidebarNavSections,
   type SidebarNavItem,
 } from "@/lib/sidebarNav";
+import { ICON_CLASS_NAV } from "@/lib/iconSizes";
 
 type SidebarProps = {
   mobileOpen: boolean;
@@ -116,7 +117,7 @@ const Sidebar = ({
               : "text-sidebar-foreground hover:bg-sidebar-accent/50",
           )}
         >
-          <item.icon className="h-4 w-4 shrink-0 opacity-90" />
+          <item.icon className={cn(ICON_CLASS_NAV, "opacity-90")} />
           <span className="min-w-0 flex-1 truncate leading-snug">{item.label}</span>
           {badge != null && badge > 0 && (
             <Badge variant="destructive" className="h-5 min-w-[20px] px-1.5 text-xs">
@@ -136,7 +137,7 @@ const Sidebar = ({
             handlePinToggle(item.path);
           }}
         >
-          {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+          {pinned ? <PinOff className={ICON_CLASS_NAV} /> : <Pin className={ICON_CLASS_NAV} />}
         </button>
       </div>
     );
@@ -221,7 +222,7 @@ const Sidebar = ({
                 : "text-sidebar-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <Settings className="h-4 w-4" />
+            <Settings className={ICON_CLASS_NAV} />
             <span>Settings &amp; data</span>
           </NavLink>
         )}

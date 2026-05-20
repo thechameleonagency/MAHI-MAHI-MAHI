@@ -14,7 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download } from "lucide-react";
+import { Download, Landmark } from "lucide-react";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { downloadCSV } from "@/lib/csvExport";
 import { formatINR } from "@/lib/formatCurrency";
 import { toast } from "@/hooks/use-toast";
@@ -168,11 +169,7 @@ const CashBankLedger = () => {
             </TableHeader>
             <TableBody>
               {entriesWithBalance.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    No transactions
-                  </TableCell>
-                </TableRow>
+                <TableEmptyRow colSpan={6} icon={Landmark} title="No transactions" />
               )}
               {pagedLedger.map((e, i) => (
                 <TableRow key={`${e.reference}-${e.date}-${i}`}>

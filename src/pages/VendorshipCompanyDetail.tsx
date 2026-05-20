@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { ArrowLeft, Building2, MapPin, Phone, Mail, Code } from "lucide-react";
+import { ArrowLeft, Building2, MapPin, Phone, Mail, Code, IndianRupee } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { useAppData } from "@/contexts/AppDataContext";
 import { findByRouteId } from "@/lib/resolveEntityId";
 import { formatINR } from "@/lib/formatCurrency";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 const VendorshipCompanyDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -162,7 +163,12 @@ const VendorshipCompanyDetail = () => {
         </CardHeader>
         <CardContent>
           {feeExpenses.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No vendorship fee payments recorded for this company yet.</p>
+            <ListEmptyState
+              density="compact"
+              icon={IndianRupee}
+              title="No vendorship fees recorded"
+              description="Fee expenses linked to this company appear here."
+            />
           ) : (
             <Table>
               <TableHeader>

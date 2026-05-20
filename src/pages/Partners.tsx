@@ -21,16 +21,7 @@ import { DEFAULT_TABLE_PAGE_SIZE, dataTableClasses, listTableViewportMaxHeight }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { toast } from "@/hooks/use-toast";
 import { useAppData } from "@/contexts/AppDataContext";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import {
   calculateProjectPartnerEarning,
   isPartnerCreditTransaction,
@@ -38,6 +29,7 @@ import {
 } from "@/domain/partners/derivePartnerEconomics";
 import type { PartnerType } from "@/types/finance";
 import { formatINR } from "@/lib/formatCurrency";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { PARTNER_TYPES_ORDERED, PARTNER_TYPE_PURPOSE } from "@/domain/partners/partnerConfig";
 import { getIndianFyBoundsForReferenceDate, isProjectDateInIndianFy } from "@/lib/indianFiscalYear";
 import { useCan } from "@/hooks/useCan";
@@ -418,39 +410,29 @@ const Partners = () => {
               Cancel
             </Button>
             <Button className="flex-1" onClick={handleAddPartner}>
-              {editingPartnerId ? "Update Partner" : "Save Partner"}
+              {formPrimaryLabel(editingPartnerId ? "edit" : "create", "partner")}
             </Button>
           </div>
         </AppSheetContent>
       </Sheet>
 
-      <AlertDialog open={!!partnerToDelete} onOpenChange={(open) => !open && setPartnerToDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete partner?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {partnerToDelete
-                ? `Remove ${partnerToDelete.name} from the directory. Project links and transactions may need cleanup. This cannot be undone.`
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (partnerToDelete) {
-                  deletePartner(partnerToDelete.id);
-                  toast({ title: "Partner removed", description: `${partnerToDelete.name} was deleted.` });
-                }
-                setPartnerToDelete(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DestructiveConfirmDialog
+        open={!!partnerToDelete}
+        onOpenChange={(open) => !open && setPartnerToDelete(null)}
+        title="Delete partner?"
+        description={
+          partnerToDelete
+            ? `Remove ${partnerToDelete.name} from the directory. Project links and transactions may need cleanup.`
+            : ""
+        }
+        onConfirm={() => {
+          if (partnerToDelete) {
+            deletePartner(partnerToDelete.id);
+            toast({ title: "Partner removed", description: `${partnerToDelete.name} was deleted.` });
+          }
+          setPartnerToDelete(null);
+        }}
+      />
     </PageShell>
   );
 };

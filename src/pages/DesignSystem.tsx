@@ -28,6 +28,29 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { PageShell } from "@/components/layout/PageShell";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import { APP_SHEET_PRESETS } from "@/lib/sheetPresets";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { formPrimaryLabel, FORM_CREATE_LABEL, FORM_SAVE_LABEL } from "@/lib/formActionLabels";
+import { DESTRUCTIVE_CONFIRM_COMPONENT } from "@/lib/confirmDialogPolicy";
+import { AGING_CHIP_COMPONENT, STATUS_BADGE_COMPONENT } from "@/lib/chipUsagePolicy";
+import { DASHBOARD_COMPACT_ROW_MENU_COMPONENT } from "@/lib/dashboardRowActionPolicy";
+import { COMMAND_ERROR_TOAST_HELPER } from "@/lib/toastErrorPolicy";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
+import { FORM_SHEET_FOOTER_COMPONENT } from "@/lib/sheetDismissPolicy";
+import { ICON_CLASS_NAV, ICON_CLASS_NAV_MENU } from "@/lib/iconSizes";
+import { LAYOUT_ICON_SIZE } from "@/lib/iconSizePolicy";
+import {
+  PAGE_HEADER_PIN_CONTROLS_COMPONENT,
+  TOOLTIP_MAX_CHARS,
+} from "@/lib/tooltipPopoverPolicy";
+import { PAGE_HEADER_PIN_HELP, pageHeaderPinTooltip } from "@/lib/pageHeaderPinCopy";
+import { PageHeaderPinControls } from "@/components/layout/PageHeaderPinControls";
+import { FORM_SHEET_CANCEL_LABEL } from "@/lib/formActionLabels";
+import { AppSheetFormFooter } from "@/components/shared/AppSheetFormFooter";
+import { DashboardCompactRowMenu, DashboardCompactRowMenuLink } from "@/components/dashboard/DashboardCompactRowMenu";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { Inbox, Search, Settings } from "lucide-react";
 import jsPDF from "jspdf";
 
 export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
@@ -605,6 +628,201 @@ export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
                     </CardContent>
                   </Card>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Sheet sizes (AppSheetContent)</CardTitle>
+                <CardDescription>
+                  Always use <code className="text-xs">AppSheetContent</code> with a <code className="text-xs">preset</code> or explicit <code className="text-xs">size</code> + <code className="text-xs">layout</code>. Never put <code className="text-xs">max-w-*</code> / <code className="text-xs">w-[90vw]</code> on the sheet — mobile gutter is built in.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-3 font-medium">Preset</th>
+                        <th className="py-2 pr-3 font-medium">Size</th>
+                        <th className="py-2 font-medium">Layout</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(APP_SHEET_PRESETS).map(([key, { size, layout }]) => (
+                        <tr key={key} className="border-b border-border/50">
+                          <td className="py-2 pr-3 font-mono text-foreground">{key}</td>
+                          <td className="py-2 pr-3 font-mono">{size}</td>
+                          <td className="py-2 font-mono">{layout}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>List empty states (DS2)</CardTitle>
+                <CardDescription>
+                  Use <code className="text-xs">ListEmptyState</code> for cards, tabs, and sheet bodies;{" "}
+                  <code className="text-xs">TableEmptyRow</code> for paginated tables. Prefer{" "}
+                  <code className="text-xs">density="compact"</code> inside tables and drill-down sheets.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-6 md:grid-cols-2">
+                <div className="rounded-lg border border-dashed border-border">
+                  <ListEmptyState
+                    icon={Inbox}
+                    title="No items yet"
+                    description="Default density for full-page list areas."
+                    actionLabel="Create item"
+                    onAction={() => toast({ title: "Example action" })}
+                  />
+                </div>
+                <div className="rounded-lg border border-dashed border-border">
+                  <ListEmptyState
+                    density="compact"
+                    icon={Inbox}
+                    title="No rows match filters"
+                    description="Compact density for tables and nested panels."
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Form primary actions (DS3)</CardTitle>
+                <CardDescription>
+                  Create flows use <code className="text-xs">{FORM_CREATE_LABEL}</code> (optionally with entity:{" "}
+                  <code className="text-xs">formPrimaryLabel(&quot;create&quot;, &quot;agent&quot;)</code>).
+                  Edit flows use <code className="text-xs">{FORM_SAVE_LABEL}</code> only — avoid mixed labels like
+                  Update, Confirm+Save, or Save+Changes variants.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-3">
+                <Button size="sm">{formPrimaryLabel("create", "customer")}</Button>
+                <Button size="sm" variant="secondary">
+                  {formPrimaryLabel("edit")}
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Confirm dialogs (DS4)</CardTitle>
+                <CardDescription>
+                  Use <code className="text-xs">{DESTRUCTIVE_CONFIRM_COMPONENT}</code> for delete, void, and remove
+                  actions. Use raw <code className="text-xs">AlertDialog</code> only for non-destructive confirms (e.g.
+                  approve quotation, proceed despite warning). Never use the browser&apos;s native confirm dialog.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground space-y-2">
+                <p>Destructive confirms include explanation, optional typed confirmation, and a cannot-undo warning.</p>
+                <p>See <code className="text-xs">src/lib/confirmDialogPolicy.ts</code>.</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Status vs aging chips (DS5)</CardTitle>
+                <CardDescription>
+                  <code className="text-xs">{STATUS_BADGE_COMPONENT}</code> = workflow/lifecycle state.{" "}
+                  <code className="text-xs">{AGING_CHIP_COMPONENT}</code> = time-based urgency. Show both only when
+                  duration adds information (e.g. pending + overdue days).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap items-center gap-2">
+                <StatusBadge status="pending" label="Pending" />
+                <AgingChip signal={{ label: "Overdue 15d", tone: "danger" }} />
+                <StatusBadge status="On Hold" label="On Hold" />
+                <AgingChip signal={{ label: "On hold 5d", tone: "warning" }} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Dashboard compact row actions (DS6)</CardTitle>
+                <CardDescription>
+                  KPI drill-down rows use <code className="text-xs">{DASHBOARD_COMPACT_ROW_MENU_COMPONENT}</code> (⋮)
+                  for navigation and workflow actions — not a second inline button row. Entity detail pages keep inline
+                  actions.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex justify-end rounded-lg border border-dashed border-border px-3 py-3">
+                <DashboardCompactRowMenu>
+                  <DashboardCompactRowMenuLink to="/enquiries">View in enquiries</DashboardCompactRowMenuLink>
+                </DashboardCompactRowMenu>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Toast errors (DS7)</CardTitle>
+                <CardDescription>
+                  Destructive toasts use prose titles and{" "}
+                  <code className="text-xs">{COMMAND_ERROR_TOAST_HELPER}()</code> for descriptions — never raw codes
+                  like <code className="text-xs">ENQUIRY_NOT_FOUND</code> in the UI.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground space-y-2">
+                <p>
+                  Example:{" "}
+                  {friendlyCommandErrorMessage("ENQUIRY_NOT_FOUND", "Something went wrong.")}
+                </p>
+                <p>See <code className="text-xs">src/lib/commandErrorMessages.ts</code>.</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Layout icon sizes (DS9)</CardTitle>
+                <CardDescription>
+                  App shell chrome (sidebar, header, search, notification bell) uses{" "}
+                  <code className="text-xs">{LAYOUT_ICON_SIZE}</code> via{" "}
+                  <code className="text-xs">ICON_CLASS_NAV</code> and{" "}
+                  <code className="text-xs">ICON_CLASS_NAV_MENU</code> — not mixed 3.5 / 4.5 / 18px lucide sizes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex items-center gap-3 text-sm text-muted-foreground">
+                <Search className={ICON_CLASS_NAV} aria-hidden />
+                <Settings className={ICON_CLASS_NAV_MENU} aria-hidden />
+                <span>16px nav icons</span>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Tooltip vs popover (DS10)</CardTitle>
+                <CardDescription>
+                  Tooltips are short (≤ {TOOLTIP_MAX_CHARS} chars). Rich help uses a popover — e.g.{" "}
+                  <code className="text-xs">{PAGE_HEADER_PIN_CONTROLS_COMPONENT}</code> puts{" "}
+                  <code className="text-xs">{pageHeaderPinTooltip(false)}</code> in a tooltip and longer copy in a
+                  popover.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="max-w-sm space-y-2 text-sm text-muted-foreground">
+                <PageHeaderPinControls pinned={false} onToggle={() => undefined} />
+                <p className="text-2xs leading-snug">{PAGE_HEADER_PIN_HELP}</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Form sheet dismiss (DS8)</CardTitle>
+                <CardDescription>
+                  Sheets with unsaved input use the built-in top-right X plus{" "}
+                  <code className="text-xs">{FORM_SHEET_FOOTER_COMPONENT}</code> with{" "}
+                  <code className="text-xs">{FORM_SHEET_CANCEL_LABEL}</code> on the bottom left. Read-only
+                  sheets may use Close or Done only.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="rounded-lg border border-dashed border-border">
+                <AppSheetFormFooter onCancel={() => undefined}>
+                  <Button size="sm">Save</Button>
+                </AppSheetFormFooter>
               </CardContent>
             </Card>
 

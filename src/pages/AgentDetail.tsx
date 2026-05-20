@@ -295,8 +295,8 @@ const AgentDetail = () => {
           <ArrowLeft className="mr-2 h-4 w-4" /> Back
         </Button>
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            Agent not found
+          <CardContent>
+            <ListEmptyState icon={UserCheck} title="Agent not found" />
           </CardContent>
         </Card>
       </div>
@@ -356,7 +356,7 @@ const AgentDetail = () => {
             <Pencil className="h-4 w-4 mr-2" /> Edit profile
           </Button>
           <Button onClick={() => navigate(`/enquiries?createFrom=agent:${agent.id}`)}>
-            <Plus className="h-4 w-4 mr-2" /> Add Enquiry from Agent
+            <Plus className="h-4 w-4 mr-2" /> Create enquiry from agent
           </Button>
           {agent.status === "inactive" ? (
             <Button variant="outline" onClick={() => { updateAgent(agent.id, { status: "active" }); }}>
@@ -648,9 +648,12 @@ const AgentDetail = () => {
                   </TableBody>
                 </DataTableShell>
               ) : (
-                <div className="px-6 py-10 text-center text-muted-foreground">
-                  No projects referred by this agent yet
-                </div>
+                <ListEmptyState
+                  density="compact"
+                  icon={MapPin}
+                  title="No referred projects yet"
+                  description="Projects linked to this agent appear here."
+                />
               )}
             </CardContent>
           </Card>
@@ -751,9 +754,12 @@ const AgentDetail = () => {
                   </TableFooter>
                 </DataTableShell>
               ) : (
-                <div className="px-6 py-10 text-center text-muted-foreground">
-                  No commission records yet
-                </div>
+                <ListEmptyState
+                  density="compact"
+                  icon={Wallet}
+                  title="No commission records yet"
+                  description="Commission accrues when referred projects are recorded."
+                />
               )}
             </CardContent>
           </Card>
@@ -775,7 +781,12 @@ const AgentDetail = () => {
                 </CardHeader>
                 <CardContent className="space-y-0 p-0">
                   {payments.length === 0 ? (
-                    <div className="px-6 py-8 text-center text-sm text-muted-foreground">No commission payments recorded yet.</div>
+                    <ListEmptyState
+                      density="compact"
+                      icon={Wallet}
+                      title="No commission payments yet"
+                      description="Record payouts when commission is settled."
+                    />
                   ) : (
                     <DataTableShell variant="inline">
                       <TableHeader>

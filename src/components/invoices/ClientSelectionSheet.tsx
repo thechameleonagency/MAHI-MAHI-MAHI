@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Customer } from "@/types/finance";
 import { normalizePhoneDigits } from "@/lib/phoneNormalize";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 interface ClientSelectionSheetProps {
   open: boolean;
@@ -157,11 +158,12 @@ export function ClientSelectionSheet({
                 </div>
               ))
             ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <User className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p>No customers found</p>
-                <p className="text-xs mt-1">Try a different search or add a new customer</p>
-              </div>
+              <ListEmptyState
+                density="compact"
+                icon={User}
+                title="No customers found"
+                description="Try a different search or add a new customer."
+              />
             )}
           </div>
         </ScrollArea>

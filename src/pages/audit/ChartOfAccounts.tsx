@@ -12,7 +12,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { ChevronRight, ChevronDown, Search, Building2, Layers, ShieldCheck, Download } from "lucide-react";
+import { ChevronRight, ChevronDown, Search, Building2, Layers, ShieldCheck, Download, FileText } from "lucide-react";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { Button } from "@/components/ui/button";
 import { downloadCSV } from "@/lib/csvExport";
 import { formatINR } from "@/lib/formatCurrency";
@@ -71,11 +72,7 @@ function ChartDetailLedgerTable({
       </TableHeader>
       <TableBody>
         {rows.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={columns.length} className="py-8 text-center text-muted-foreground">
-              No records found
-            </TableCell>
-          </TableRow>
+          <TableEmptyRow colSpan={columns.length} icon={FileText} title="No records found" />
         ) : (
           pagedRows.map((row, i) => (
             <TableRow key={`${resetKey}-${i}`}>

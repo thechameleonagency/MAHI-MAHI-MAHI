@@ -20,6 +20,7 @@ import type { ClientPaymentRecord } from "@/types/blockage";
 import { formatINR } from "@/lib/formatCurrency";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { validateClientPaymentRecord } from "@/lib/clientPaymentReconciliation";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 interface ClientPaymentHistoryProps {
   projectId: string;
@@ -311,13 +312,13 @@ export function ClientPaymentHistory({
             </TableBody>
           </DataTableShell>
         ) : (
-          <div className="text-center py-8 text-muted-foreground">
-            <IndianRupee className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p>No payments recorded yet</p>
-            <Button variant="link" className="mt-2" onClick={() => setIsRecordPaymentOpen(true)}>
-              Record first payment
-            </Button>
-          </div>
+          <ListEmptyState
+            density="compact"
+            icon={IndianRupee}
+            title="No payments recorded yet"
+            actionLabel="Record first payment"
+            onAction={() => setIsRecordPaymentOpen(true)}
+          />
         )}
       </CardContent>
 

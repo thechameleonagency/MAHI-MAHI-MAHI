@@ -31,6 +31,7 @@ import { PayrollPolicyService } from "@/application/services/PayrollPolicyServic
 import { formatINR } from "@/lib/formatCurrency";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { useCan } from "@/hooks/useCan";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 const Attendance = () => {
   const payrollPolicyService = new PayrollPolicyService();
@@ -877,7 +878,7 @@ const Attendance = () => {
 
       {/* Site Selection Sheet - Enhanced with Paid Leave Option */}
       <Sheet open={isSiteSelectionOpen} onOpenChange={setIsSiteSelectionOpen}>
-        <AppSheetContent size="xl" layout="form">
+        <AppSheetContent preset="wideForm">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">
               {isEditMode ? "Edit Work Sites" : "Mark Attendance"}
@@ -1080,7 +1081,7 @@ const Attendance = () => {
 
       {/* Edit Absent Confirmation Sheet */}
       <Sheet open={isEditAbsentOpen} onOpenChange={setIsEditAbsentOpen}>
-        <AppSheetContent size="xl" layout="form">
+        <AppSheetContent preset="standardForm">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Edit Attendance</SheetTitle>
             <SheetDescription>
@@ -1139,7 +1140,7 @@ const Attendance = () => {
 
       {/* Mark Holiday Sheet - With Tabs */}
       <Sheet open={isMarkHolidayOpen} onOpenChange={setIsMarkHolidayOpen}>
-        <AppSheetContent size="xl" layout="form">
+        <AppSheetContent preset="wideForm">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Company Holidays</SheetTitle>
           </SheetHeader>
@@ -1291,11 +1292,11 @@ const Attendance = () => {
                   </TableBody>
                 </DataTableShell>
               ) : (
-                <div className="text-center py-12">
-                  <CalendarIcon className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
-                  <p className="text-muted-foreground">No holidays marked yet.</p>
-                  <p className="text-sm text-muted-foreground">Switch to "Mark Holiday" tab to add holidays.</p>
-                </div>
+                <ListEmptyState
+                  icon={CalendarIcon}
+                  title="No holidays marked yet"
+                  description='Switch to "Mark Holiday" tab to add holidays.'
+                />
               )}
               
               <div className="flex justify-end pt-4 border-t mt-4">

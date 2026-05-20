@@ -1,6 +1,6 @@
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { useState, useMemo } from "react";
-import { RefreshCw, MapPin, AlertTriangle, CheckCircle, Clock, ExternalLink, AlertCircle, User, Users, Circle, CheckCircle2, IndianRupee, FileText, Wrench, Zap, ChevronDown, ChevronRight } from "lucide-react";
+import { RefreshCw, MapPin, AlertTriangle, CheckCircle, Clock, ExternalLink, AlertCircle, User, Users, Circle, CheckCircle2, IndianRupee, FileText, Wrench, Zap, ChevronDown, ChevronRight, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,8 @@ import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
 import type { Blockage, ProjectTimelineStatus } from "@/types/blockage";
 import ActiveSitesFilters, { type ActiveSitesFiltersState } from "@/components/activesites/ActiveSitesFilters";
-import { getPriorityColor, getStatusColor } from "@/lib/statusColors";
+import { getPriorityColor } from "@/lib/statusColors";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getProjectIdleAging, getBlockageUpdatedAging } from "@/lib/agingHelpers";
@@ -767,9 +768,7 @@ const ActiveSites = () => {
                     )}
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
-                    <Badge className={`${getStatusColor(project.status)} shrink-0 text-xs px-2`}>
-                      {project.status}
-                    </Badge>
+                    <StatusBadge status={project.status} label={project.status} className="shrink-0 text-xs" />
                     {(procurementShortQtyByProject.get(project.id) ?? 0) > 0 && (
                       <Badge
                         variant="outline"
@@ -1255,7 +1254,14 @@ const ActiveSites = () => {
               if (!linkTaskTarget) return null;
               const projectTasks = tasks.filter((t) => t.projectId === linkTaskTarget.projectId);
               if (projectTasks.length === 0) {
-                return <p className="text-sm text-muted-foreground">No tasks exist on this project yet.</p>;
+                return (
+                  <ListEmptyState
+                    density="compact"
+                    icon={ClipboardList}
+                    title="No tasks on this project"
+                    description="Create field tasks before linking a blockage."
+                  />
+                );
               }
               return (
                 <div className="space-y-2">

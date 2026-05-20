@@ -753,7 +753,7 @@ export function InvoiceCreateSheet({
 
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) resetForm(); onOpenChange(o); }}>
-      <AppSheetContent layout="form" size="xxl">
+      <AppSheetContent preset="financeForm">
         <SheetHeader>
           <SheetTitle>New invoice or sale bill</SheetTitle>
         </SheetHeader>
@@ -1376,7 +1376,7 @@ export function InvoiceCreateSheet({
               Cancel
             </Button>
             <Button type="button" onClick={handleQuickAddCustomerSubmit}>
-              Save and select
+              Create and select
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
+import { AppSheetFormFooter } from "@/components/shared/AppSheetFormFooter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { resolveChangeRequestDeltaAmount } from "@/lib/changeRequestApproval";
 import { parseMaterialDeltaFromLines } from "@/lib/changeRequestMaterialDelta";
 import {
@@ -96,7 +98,11 @@ export function ChangeRequestSheet({
       notes: notes.trim() || undefined,
     });
     if (!result.ok) {
-      toast({ title: "Cannot save change request", description: result.error, variant: "destructive" });
+      toast({
+        title: "Cannot save change request",
+        description: friendlyCommandErrorMessage(result.error, "Could not save change request."),
+        variant: "destructive",
+      });
       return;
     }
 
@@ -214,12 +220,9 @@ export function ChangeRequestSheet({
           </div>
         </div>
 
-        <SheetFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
+        <AppSheetFormFooter onCancel={() => onOpenChange(false)}>
           <Button onClick={handleSubmit}>Save draft request</Button>
-        </SheetFooter>
+        </AppSheetFormFooter>
       </AppSheetContent>
     </Sheet>
   );

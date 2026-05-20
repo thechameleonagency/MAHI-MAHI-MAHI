@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { getPriorityColor } from "@/lib/statusColors";
+import { formatEnquiryStatusLabel } from "@/lib/enquiryStatusUi";
 import { formatINR } from "@/lib/formatCurrency";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -51,6 +52,8 @@ import { canReopenLostEnquiry } from "@/domain/stateMachines/enquiryStateMachine
 import { useCan } from "@/hooks/useCan";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { EnquiryListFilterHint } from "@/components/enquiries/EnquiryListFilterHint";
 import {
   clearEnquiryListFilters,
@@ -356,17 +359,8 @@ const formatCapacityInput = (capacity: string) => {
   return Number.isFinite(numeric) && String(numeric) === trimmed ? `${trimmed}kW` : trimmed;
 };
 
-  const enquiryStatusLabels: Record<Enquiry["status"], string> = {
-    new: "New",
-    meeting_scheduled: "Meeting Scheduled",
-    quotation_sent: "Quotation Sent",
-    quotation_rejected: "Quotation Rejected",
-    converted: "Converted",
-    lost: "Lost",
-  };
-
   const getStatusBadge = (status: Enquiry["status"]) => (
-    <StatusBadge status={status} label={enquiryStatusLabels[status]} />
+    <StatusBadge status={status} label={formatEnquiryStatusLabel(status)} />
   );
 
   const getPriorityBadge = (priority: Enquiry["priority"]) => (
@@ -410,7 +404,11 @@ const formatCapacityInput = (capacity: string) => {
 
     const result = await addEnquiry(newEnquiry);
     if (!result.ok) {
-      toast({ title: "Could not add enquiry", description: result.error ?? "Command failed", variant: "destructive" });
+      toast({
+        title: "Could not add enquiry",
+        description: friendlyCommandErrorMessage(result.error, "Command failed"),
+        variant: "destructive",
+      });
       return;
     }
     setIsAddEnquiryOpen(false);
@@ -543,7 +541,11 @@ const formatCapacityInput = (capacity: string) => {
       setIsMarkLostReasonOpen(false);
       setIsViewEnquiryOpen(false);
     } else {
-      toast({ title: "Could not mark lost", description: result.error || "Invalid transition", variant: "destructive" });
+      toast({
+        title: "Could not mark lost",
+        description: friendlyCommandErrorMessage(result.error, "Invalid transition"),
+        variant: "destructive",
+      });
     }
   };
 
@@ -577,7 +579,14 @@ const formatCapacityInput = (capacity: string) => {
       setIsReopenEnquiryOpen(false);
       setReopenReasonText("");
     } else {
-      toast({ title: "Could not reopen", description: result.error || "Only admins can reopen lost enquiries.", variant: "destructive" });
+      toast({
+        title: "Could not reopen",
+        description: friendlyCommandErrorMessage(
+          result.error,
+          "Only admins can reopen lost enquiries.",
+        ),
+        variant: "destructive",
+      });
     }
   };
 
@@ -627,7 +636,11 @@ const formatCapacityInput = (capacity: string) => {
   const handleSendQuotation = async (enquiry: Enquiry) => {
     const result = await transitionEnquiryStatus(enquiry.id, "quotation_sent");
     if (!result.ok) {
-      toast({ title: "Could not update", description: result.error || "Invalid transition", variant: "destructive" });
+      toast({
+        title: "Could not update",
+        description: friendlyCommandErrorMessage(result.error, "Invalid transition"),
+        variant: "destructive",
+      });
       return;
     }
     toast({ title: "Marked as Quotation Sent", description: "Mark the lead as Converted once the customer confirms." });
@@ -638,7 +651,7 @@ const formatCapacityInput = (capacity: string) => {
     if (!result.ok) {
       toast({ 
         title: "Conversion Failed", 
-        description: result.error || "Could not convert enquiry", 
+        description: friendlyCommandErrorMessage(result.error, "Could not convert enquiry"),
         variant: "destructive" 
       });
       return;
@@ -655,7 +668,11 @@ const formatCapacityInput = (capacity: string) => {
   const _handleStatusChange = async (enquiryId: string, newStatus: Enquiry["status"]) => {
     const result = await transitionEnquiryStatus(enquiryId, newStatus);
     if (!result.ok) {
-      toast({ title: "Invalid Transition", description: result.error || "Status change not allowed", variant: "destructive" });
+      toast({
+        title: "Invalid Transition",
+        description: friendlyCommandErrorMessage(result.error, "Status change not allowed"),
+        variant: "destructive",
+      });
       return;
     }
     toast({ title: "Status Updated", description: `Enquiry status changed to ${newStatus}` });
@@ -1126,7 +1143,7 @@ const formatCapacityInput = (capacity: string) => {
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsAddEnquiryOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddEnquiry}>Add Enquiry</Button>
+            <Button onClick={handleAddEnquiry}>{formPrimaryLabel("create", "enquiry")}</Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
@@ -1930,7 +1947,7 @@ const formatCapacityInput = (capacity: string) => {
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsEditEnquiryOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveEdit}>Save Changes</Button>
+            <Button onClick={handleSaveEdit}>{formPrimaryLabel("edit")}</Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>

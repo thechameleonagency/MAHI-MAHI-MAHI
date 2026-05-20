@@ -22,11 +22,13 @@ import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { format, getDaysInMonth } from "date-fns";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { formatINR } from "@/lib/formatCurrency";
 import { validateContactPhone } from "@/lib/phoneValidators";
@@ -36,6 +38,7 @@ import { useCan } from "@/hooks/useCan";
 import { useCanAction } from "@/hooks/useCanAction";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { ExpenseReimbursementStatus } from "@/components/expenses/ExpenseReimbursementStatus";
 import type { Expense } from "@/types/finance";
 
@@ -356,7 +359,10 @@ const EmployeeProfile = () => {
     } else {
       toast({
         title: "Could not save",
-        description: res.error === "forbidden" ? "Your role cannot record wallet entries." : res.error ?? "Check amount and date.",
+        description: friendlyCommandErrorMessage(
+          res.error,
+          "Check amount and date.",
+        ),
         variant: "destructive",
       });
     }
@@ -979,7 +985,12 @@ const EmployeeProfile = () => {
               {activeTab === "visits" && (
                 <div className="space-y-2">
                   {siteVisits.filter((v) => v.visitedBy === id).length === 0 ? (
-                    <p className="py-6 text-center text-sm text-muted-foreground">No site visits recorded for this employee.</p>
+                    <ListEmptyState
+                      density="compact"
+                      icon={MapPin}
+                      title="No site visits recorded"
+                      description="Site visits logged on projects will appear here."
+                    />
                   ) : (
                     siteVisits
                       .filter((v) => v.visitedBy === id)
@@ -1002,7 +1013,12 @@ const EmployeeProfile = () => {
               {activeTab === "schedule" && (
                 <div className="space-y-2">
                   {scheduledInstallations.filter((s) => (s.employeeIds ?? []).includes(id)).length === 0 ? (
-                    <p className="py-6 text-center text-sm text-muted-foreground">No scheduled installations for this employee.</p>
+                    <ListEmptyState
+                      density="compact"
+                      icon={Calendar}
+                      title="No scheduled installations"
+                      description="Install schedules that include this employee will appear here."
+                    />
                   ) : (
                     scheduledInstallations
                       .filter((s) => (s.employeeIds ?? []).includes(id))
@@ -1100,11 +1116,12 @@ const EmployeeProfile = () => {
                       </TableHeader>
                       <TableBody>
                         {walletLedgerRows.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                              No wallet entries yet.
-                            </TableCell>
-                          </TableRow>
+                          <TableEmptyRow
+                            colSpan={4}
+                            icon={Wallet}
+                            title="No wallet entries yet"
+                            description="Advances, recoveries, and adjustments appear in chronological order."
+                          />
                         ) : (
                           walletLedgerRows.map((row) => (
                             <TableRow key={row.id}>
@@ -1246,11 +1263,12 @@ const EmployeeProfile = () => {
                             </TableRow>
                           ))
                         ) : (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                              No expenses found for the selected filters
-                            </TableCell>
-                          </TableRow>
+                          <TableEmptyRow
+                            colSpan={6}
+                            icon={Receipt}
+                            title="No expenses match filters"
+                            description="Try clearing category, month, or date filters."
+                          />
                         )}
                       </TableBody>
                   </DataTableShell>
@@ -1479,7 +1497,7 @@ const EmployeeProfile = () => {
               } as any);
               toast({ title: "Profile Updated", description: "Employee profile has been saved." });
               setIsEditProfileOpen(false);
-            }}>Save Changes</Button>
+            }}>{formPrimaryLabel("edit")}</Button>
           </div>
         </AppSheetContent>
       </Sheet>

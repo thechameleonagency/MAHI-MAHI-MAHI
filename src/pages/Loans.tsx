@@ -12,7 +12,6 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
@@ -25,6 +24,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatINR } from "@/lib/formatCurrency";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { normalizeLoanPersonKey } from "@/lib/loanPerson";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { ListSkeleton } from "@/components/ui/ListSkeleton";
@@ -807,7 +807,7 @@ const Loans = () => {
 
             <div className="flex gap-2 pt-4">
               <Button variant="outline" className="flex-1" onClick={() => setIsAddLoanOpen(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={handleAddLoan}>Add Loan</Button>
+              <Button className="flex-1" onClick={handleAddLoan}>{formPrimaryLabel("create", "loan")}</Button>
             </div>
           </div>
         </AppSheetContent>
@@ -852,18 +852,19 @@ const Loans = () => {
         </AppSheetContent>
       </Sheet>
 
-      <AlertDialog open={!!deleteRepaymentId} onOpenChange={(open) => { if (!open) setDeleteRepaymentId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete repayment?</AlertDialogTitle>
-            <AlertDialogDescription>This will reverse the repayment and restore the outstanding balance on the loan.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => { if (deleteRepaymentId) { deleteLoanRepayment(deleteRepaymentId); setDeleteRepaymentId(null); } }}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DestructiveConfirmDialog
+        open={!!deleteRepaymentId}
+        onOpenChange={(open) => { if (!open) setDeleteRepaymentId(null); }}
+        title="Delete repayment?"
+        description="This will reverse the repayment and restore the outstanding balance on the loan."
+        warnCannotUndo={false}
+        onConfirm={() => {
+          if (deleteRepaymentId) {
+            deleteLoanRepayment(deleteRepaymentId);
+            setDeleteRepaymentId(null);
+          }
+        }}
+      />
 
       <Sheet open={isEditLoanOpen} onOpenChange={(open) => { setIsEditLoanOpen(open); if (!open) setEditingLoanId(null); }}>
         <AppSheetContent layout="form" size="md">
@@ -908,7 +909,7 @@ const Loans = () => {
                 setEditingLoanId(null);
               }}
             >
-              Save changes
+              {formPrimaryLabel("edit")}
             </Button>
           </div>
         </AppSheetContent>

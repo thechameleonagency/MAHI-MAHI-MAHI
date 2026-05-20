@@ -1,3 +1,4 @@
+/** Time-based urgency from dates (overdue, idle, stale). Pair with StatusBadge when both apply; do not repeat lifecycle labels. */
 import { Badge } from "@/components/ui/badge";
 import type { AgingSignal, AgingTone } from "@/lib/agingHelpers";
 import { cn } from "@/lib/utils";

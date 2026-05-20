@@ -47,16 +47,7 @@ import { formatCurrency } from "@/lib/formatCurrency";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { ListSkeleton } from "@/components/ui/ListSkeleton";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getInvoiceOverdueAging } from "@/lib/agingHelpers";
 import { matchesOpenReceivable } from "@/lib/billingListFilters";
@@ -1266,24 +1257,18 @@ const Invoices = () => {
         </AppSheetContent>
       </Sheet>
 
-      <AlertDialog open={voidConfirmOpen} onOpenChange={setVoidConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Void invoice?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {selectedInvoice
-                ? `${selectedInvoice.invoiceNumber} will be marked voided and excluded from collections. This cannot be undone from the list.`
-                : "This invoice will be marked voided."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleVoidInvoice} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Void invoice
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DestructiveConfirmDialog
+        open={voidConfirmOpen}
+        onOpenChange={setVoidConfirmOpen}
+        title="Void invoice?"
+        description={
+          selectedInvoice
+            ? `${selectedInvoice.invoiceNumber} will be marked voided and excluded from collections. It cannot be re-opened from the list.`
+            : "This invoice will be marked voided."
+        }
+        confirmLabel="Void invoice"
+        onConfirm={handleVoidInvoice}
+      />
 
       <Sheet open={isEditDraftOpen} onOpenChange={setIsEditDraftOpen}>
         <AppSheetContent layout="form" size="md">

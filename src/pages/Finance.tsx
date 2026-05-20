@@ -2019,7 +2019,7 @@ const Finance = () => {
                   <span className="font-semibold">{formatINR(financeKpiBreakdowns.paymentsInTotal)}</span>
                 </div>
                 {financeKpiBreakdowns.topReceipts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-2">No incoming payments in ledger yet.</p>
+                  <ListEmptyState density="compact" icon={IndianRupee} title="No incoming payments in ledger yet" />
                 ) : (
                   financeKpiBreakdowns.topReceipts.map((row) => (
                     <div key={row.label} className="flex justify-between p-3 bg-muted/30 rounded-lg">
@@ -2078,7 +2078,7 @@ const Finance = () => {
               <h4 className="font-medium text-sm text-muted-foreground">Expense Breakdown</h4>
               <div className="space-y-2 max-h-[40vh] overflow-y-auto">
                 {financeKpiBreakdowns.expenseLines.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-2">No expenses recorded.</p>
+                  <ListEmptyState density="compact" icon={TrendingDown} title="No expenses recorded" />
                 ) : (
                   financeKpiBreakdowns.expenseLines.map((row) => (
                     <div key={row.name} className="flex justify-between p-3 bg-muted/30 rounded-lg">

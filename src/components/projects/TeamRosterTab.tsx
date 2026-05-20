@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, Calendar, Users, Info } from "lucide-react";
+import { Plus, Trash2, Calendar, Users } from "lucide-react";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDial
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import type { Project, ProjectTeamAssignment } from "@/types/project";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 
 interface TeamRosterTabProps {
   project: Project;
@@ -129,15 +130,12 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
                   </TableRow>
                 ))
               ) : (
-                <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                    <div className="flex flex-col items-center justify-center gap-2">
-                      <Info className="h-8 w-8 opacity-20" />
-                      <p className="text-sm">No teams assigned to this project yet.</p>
-                      <p className="text-xs">Click "Add team" above to assign one.</p>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                <TableEmptyRow
+                  colSpan={5}
+                  icon={Users}
+                  title="No teams assigned yet"
+                  description='Click "Add team" above to assign one.'
+                />
               )}
             </TableBody>
           </Table>

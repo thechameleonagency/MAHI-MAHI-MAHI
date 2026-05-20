@@ -108,7 +108,8 @@ export function getProjectOnHoldAging(
   const at = safeParse(project.updatedAt ?? project.startDate ?? project.createdAt);
   if (!at) return null;
   const days = daysSince(at);
-  if (days < 1) return { label: "On hold", tone: "warning" };
+  // DS5: StatusBadge already shows On Hold; aging chip only when duration adds info.
+  if (days < 1) return null;
   return {
     label: `On hold ${days}d`,
     tone: days >= 14 ? "danger" : "warning",

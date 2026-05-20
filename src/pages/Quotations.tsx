@@ -10,10 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
+import { AppSheetFormFooter } from "@/components/shared/AppSheetFormFooter";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { ToastAction } from "@/components/ui/toast";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
@@ -21,6 +23,8 @@ import { LifecycleTermHint } from "@/components/ui/LifecycleTermHint";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { lifecycleTermSummary } from "@/lib/lifecycleTerminology";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { QuotationStaticSectionsBlock } from "@/components/quotations/QuotationStaticSectionsBlock";
 import { QuotationCreateSourceGate } from "@/components/quotations/QuotationCreateSourceGate";
 import {
@@ -598,7 +602,10 @@ const Quotations = () => {
       setLastConfirm({
         variant: "error",
         title: "Cannot revise",
-        description: result.error || "Quotation is not revisable in its current status.",
+        description: friendlyCommandErrorMessage(
+          result.error,
+          "Quotation is not revisable in its current status.",
+        ),
       });
       return;
     }
@@ -631,7 +638,10 @@ const Quotations = () => {
       setLastConfirm({
         variant: "error",
         title: "Cannot withdraw",
-        description: result.error || "Withdrawal is not allowed for this quotation.",
+        description: friendlyCommandErrorMessage(
+          result.error,
+          "Withdrawal is not allowed for this quotation.",
+        ),
       });
       return;
     }
@@ -823,7 +833,11 @@ const Quotations = () => {
       totalAmount: Number(saveAmountFinal || saveAmountTemp) || 0,
     });
     if (!ur.ok) {
-      setLastConfirm({ variant: "error", title: "Could not save amounts", description: ur.error ?? "Command failed" });
+      setLastConfirm({
+        variant: "error",
+        title: "Could not save amounts",
+        description: friendlyCommandErrorMessage(ur.error, "Command failed"),
+      });
       return;
     }
     setLastConfirm({ variant: "success", title: "Amounts saved", description: "Quotation amounts have been updated." });
@@ -1052,7 +1066,11 @@ const Quotations = () => {
     if (editingQuotationId) {
       const ur = await updateQuotation(editingQuotationId, fieldPatch);
       if (!ur.ok) {
-        setLastConfirm({ variant: "error", title: "Could not update quotation", description: ur.error ?? "Command failed" });
+        setLastConfirm({
+          variant: "error",
+          title: "Could not update quotation",
+          description: friendlyCommandErrorMessage(ur.error, "Command failed"),
+        });
         return;
       }
       setLastConfirm({ variant: "success", title: "Quotation updated", description: `${quotationNumber} has been updated` });
@@ -1063,7 +1081,11 @@ const Quotations = () => {
         id: generateId("Q"),
       } as Quotation);
       if (!r.ok) {
-        setLastConfirm({ variant: "error", title: "Could not save quotation", description: r.error ?? "Command failed" });
+        setLastConfirm({
+          variant: "error",
+          title: "Could not save quotation",
+          description: friendlyCommandErrorMessage(r.error, "Command failed"),
+        });
         return;
       }
       setLastConfirm({ variant: "success", title: "Quotation saved", description: `${quotationNumber} has been saved as draft` });
@@ -1251,7 +1273,10 @@ const Quotations = () => {
         if (!sync.ok) {
           toast({
             title: "Cannot share quotation",
-            description: sync.error ?? "Could not save payment type before sharing",
+            description: friendlyCommandErrorMessage(
+              sync.error,
+              "Could not save payment type before sharing",
+            ),
             variant: "destructive",
           });
           return;
@@ -1260,14 +1285,22 @@ const Quotations = () => {
       const existingHistory = currentQuotation?.shareHistory || [];
       const result = await transitionQuotationStatus(quotationId, "sent");
       if (!result.ok) {
-        toast({ title: "Cannot Share Quotation", description: result.error || "Validation failed", variant: "destructive" });
+        toast({
+          title: "Cannot Share Quotation",
+          description: friendlyCommandErrorMessage(result.error, "Validation failed"),
+          variant: "destructive",
+        });
         return;
       }
       const ur = await updateQuotation(quotationId, {
         shareHistory: [...existingHistory, shareEntry],
       });
       if (!ur.ok) {
-        toast({ title: "Could not record share", description: ur.error ?? "Command failed", variant: "destructive" });
+        toast({
+          title: "Could not record share",
+          description: friendlyCommandErrorMessage(ur.error, "Command failed"),
+          variant: "destructive",
+        });
         return;
       }
       setStatus("sent");
@@ -1322,7 +1355,10 @@ const Quotations = () => {
       if (!sync.ok) {
         toast({
           title: "Cannot send quotation",
-          description: sync.error ?? "Could not save payment type before sending",
+          description: friendlyCommandErrorMessage(
+            sync.error,
+            "Could not save payment type before sending",
+          ),
           variant: "destructive",
         });
         return;
@@ -1330,7 +1366,11 @@ const Quotations = () => {
     }
     const result = await transitionQuotationStatus(quotationId, "sent");
     if (!result.ok) {
-      toast({ title: "Cannot send quotation", description: result.error || "Status change not allowed", variant: "destructive" });
+      toast({
+        title: "Cannot send quotation",
+        description: friendlyCommandErrorMessage(result.error, "Status change not allowed"),
+        variant: "destructive",
+      });
       return;
     }
     if (editingQuotationId === quotationId) {
@@ -1343,7 +1383,11 @@ const Quotations = () => {
     setLastConfirm(null);
     const result = await transitionQuotationStatus(quotationId, "rejected");
     if (!result.ok) {
-      toast({ title: "Invalid Transition", description: result.error || "Status change not allowed", variant: "destructive" });
+      toast({
+        title: "Invalid Transition",
+        description: friendlyCommandErrorMessage(result.error, "Status change not allowed"),
+        variant: "destructive",
+      });
       return;
     }
     toast({ title: "Status Updated", description: "Quotation marked as rejected" });
@@ -1405,7 +1449,10 @@ const Quotations = () => {
       if (!sync.ok) {
         toast({
           title: "Cannot approve quotation",
-          description: sync.error ?? "Could not save payment type before approval",
+          description: friendlyCommandErrorMessage(
+            sync.error,
+            "Could not save payment type before approval",
+          ),
           variant: "destructive",
         });
         return;
@@ -1494,7 +1541,10 @@ const Quotations = () => {
       if (!sync.ok) {
         toast({
           title: "Cannot approve quotation",
-          description: sync.error ?? "Could not save payment type before approval",
+          description: friendlyCommandErrorMessage(
+            sync.error,
+            "Could not save payment type before approval",
+          ),
           variant: "destructive",
         });
         return;
@@ -1502,7 +1552,11 @@ const Quotations = () => {
     }
     const result = await transitionQuotationStatus(quotationId, "approved");
     if (!result.ok) {
-      toast({ title: "Cannot approve quotation", description: result.error || "Status change not allowed", variant: "destructive" });
+      toast({
+        title: "Cannot approve quotation",
+        description: friendlyCommandErrorMessage(result.error, "Status change not allowed"),
+        variant: "destructive",
+      });
       return;
     }
     if (editingQuotationId === quotationId) {
@@ -1846,7 +1900,7 @@ const Quotations = () => {
     if (!created.ok) {
       toast({
         title: "Project creation failed",
-        description: created.error ?? "Command failed",
+        description: friendlyCommandErrorMessage(created.error, "Command failed"),
         variant: "destructive",
       });
       return;
@@ -2402,11 +2456,12 @@ const Quotations = () => {
                             });
                             if (items.length === 0) {
                               return (
-                                <TableRow className="hover:bg-transparent">
-                                  <TableCell colSpan={4} className="text-center text-2xs text-muted-foreground py-3 italic bg-muted/10">
-                                    No line items captured on this quotation yet.
-                                  </TableCell>
-                                </TableRow>
+                                <TableEmptyRow
+                                  colSpan={4}
+                                  icon={FileText}
+                                  title="No line items yet"
+                                  description="Commercial line items appear after capture on this quotation."
+                                />
                               );
                             }
                             const subtotal = items.reduce((sum, i) => sum + i.amount, 0);
@@ -3009,7 +3064,7 @@ const Quotations = () => {
                     <CardTitle className="text-lg">Material Items</CardTitle>
                     <Button size="sm" onClick={() => setIsAddMaterialOpen(true)}>
                       <Plus className="w-4 h-4 mr-2" />
-                      Add Item
+                      {formPrimaryLabel("create", "line item")}
                     </Button>
                   </div>
                 </CardHeader>
@@ -3029,11 +3084,12 @@ const Quotations = () => {
                     </TableHeader>
                     <TableBody>
                       {materials.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
-                            No material items yet. Click <span className="font-medium">Add Item</span> or apply a template above.
-                          </TableCell>
-                        </TableRow>
+                        <TableEmptyRow
+                          colSpan={8}
+                          icon={Package}
+                          title="No material items yet"
+                          description='Use Add Item or apply a template above.'
+                        />
                       ) : (
                         materials.map((item, idx) => (
                           <React.Fragment key={item.id}>
@@ -3866,7 +3922,7 @@ const Quotations = () => {
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button variant="outline" onClick={() => setIsAddMaterialOpen(false)}>Cancel</Button>
-                <Button onClick={handleAddMaterial}>Add Item</Button>
+                <Button onClick={handleAddMaterial}>{formPrimaryLabel("create", "line item")}</Button>
               </div>
             </TabsContent>
             <TabsContent value="inventory" className="space-y-4 pt-4">
@@ -3923,9 +3979,7 @@ const Quotations = () => {
                   ))}
                 </div>
               </div>
-              <div className="flex justify-end pt-4 border-t">
-                <Button variant="outline" onClick={() => setIsAddMaterialOpen(false)}>Close</Button>
-              </div>
+              <AppSheetFormFooter onCancel={() => setIsAddMaterialOpen(false)} />
             </TabsContent>
           </Tabs>
         </AppSheetContent>

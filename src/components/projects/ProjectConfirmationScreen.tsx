@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DateInput } from "@/components/ui/DateInput";
 import { formatINR } from "@/lib/formatCurrency";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import type { ProjectTeamAssignmentDraft, ProjectConfirmationViewModel } from "@/lib/projectTeamAssignment";
 
 export type { ProjectConfirmationViewModel as ProjectConfirmationData };
@@ -197,7 +198,7 @@ export default function ProjectConfirmationScreen({
         </Button>
         <Button className="flex-1 bg-primary text-primary-foreground" onClick={handleConfirm}>
           <Check className="w-4 h-4 mr-2" />
-          Confirm &amp; Create
+          {formPrimaryLabel("create", "project")}
         </Button>
       </div>
 

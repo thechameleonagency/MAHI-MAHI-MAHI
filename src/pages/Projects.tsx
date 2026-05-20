@@ -16,6 +16,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -422,7 +423,11 @@ const Projects = () => {
       resetDirectExForm();
       navigate(`/projects/${res.projectId}`, { state: { directExceptionReason: reason } });
     } else {
-      toast({ title: "Could not create project", description: res.error ?? "Unknown error", variant: "destructive" });
+      toast({
+        title: "Could not create project",
+        description: friendlyCommandErrorMessage(res.error, "Unknown error"),
+        variant: "destructive",
+      });
     }
   };
 

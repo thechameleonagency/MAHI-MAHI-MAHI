@@ -1,6 +1,9 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { APP_SHEET_PRESETS, type AppSheetPresetKey } from "@/lib/sheetPresets";
 import { SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+
+export { APP_SHEET_PRESETS, appSheetPreset, type AppSheetPresetKey } from "@/lib/sheetPresets";
 
 /**
  * Standard sheet widths — use `AppSheetContent` + `size` instead of ad-hoc `SheetContent` classes.
@@ -47,11 +50,16 @@ const APP_SHEET_LAYOUT_CLASS: Record<AppSheetLayoutMode, string> = {
 };
 
 type AppSheetContentProps = React.ComponentPropsWithoutRef<typeof SheetContent> & {
+  /** Semantic preset — overrides default `size` / `layout` when set. */
+  preset?: AppSheetPresetKey;
   size?: AppSheetSize;
   layout?: AppSheetLayoutMode;
   /** Use full viewport height/width below `md` (MR7). */
   mobileFullScreen?: boolean;
 };
+
+const FORBIDDEN_WIDTH_CLASS =
+  /\b(?:sm:)?max-w-(?!\[calc)|\bw-\[(?:min\()?(?:90|95|85|100)vw|\bmax-w-(?:3xl|4xl|5xl|6xl|7xl)\b/;
 
 /**
  * Application-standard `SheetContent`: mobile-safe width (never raw 100vw), semantic sizes,
@@ -60,21 +68,34 @@ type AppSheetContentProps = React.ComponentPropsWithoutRef<typeof SheetContent> 
 export const AppSheetContent = React.forwardRef<
   React.ElementRef<typeof SheetContent>,
   AppSheetContentProps
->(({ size = "md", layout = "form", mobileFullScreen = false, className, children, ...props }, ref) => (
-  <SheetContent
-    ref={ref}
-    className={cn(
-      "gap-0 p-0",
-      APP_DIALOG_SIZE_CLASS[size],
-      mobileFullScreen && APP_SHEET_MOBILE_FULLSCREEN_CLASS,
-      APP_SHEET_LAYOUT_CLASS[layout],
+>(({ preset, size: sizeProp, layout: layoutProp, mobileFullScreen = false, className, children, ...props }, ref) => {
+  const resolved = preset ? APP_SHEET_PRESETS[preset] : null;
+  const size = resolved?.size ?? sizeProp ?? "md";
+  const layout = resolved?.layout ?? layoutProp ?? "form";
+
+  if (import.meta.env.DEV && typeof className === "string" && FORBIDDEN_WIDTH_CLASS.test(className)) {
+    console.warn(
+      "[AppSheetContent] Avoid width classes in className; use `size` or `preset` instead:",
       className,
-    )}
-    {...props}
-  >
-    {children}
-  </SheetContent>
-));
+    );
+  }
+
+  return (
+    <SheetContent
+      ref={ref}
+      className={cn(
+        "gap-0 p-0",
+        APP_DIALOG_SIZE_CLASS[size],
+        mobileFullScreen && APP_SHEET_MOBILE_FULLSCREEN_CLASS,
+        APP_SHEET_LAYOUT_CLASS[layout],
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </SheetContent>
+  );
+});
 AppSheetContent.displayName = "AppSheetContent";
 
 /** Optional padded wrapper inside `layout="scroll"` / `document` sheets. */

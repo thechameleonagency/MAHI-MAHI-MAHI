@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { format, parseISO, subMonths, startOfMonth } from "date-fns";
 import { Download, Receipt } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { downloadCSV } from "@/lib/csvExport";
 import { formatINR } from "@/lib/formatCurrency";
 import { computeGstSummary, computeHsnSacBreakdown } from "@/lib/audit";
@@ -210,11 +211,7 @@ const GSTCompliance = () => {
                 </TableHeader>
                 <TableBody>
                   {salesRegister.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
-                        No sales records
-                      </TableCell>
-                    </TableRow>
+                    <TableEmptyRow colSpan={10} icon={Receipt} title="No sales records" />
                   )}
                   {pagedSales.map((r) => (
                     <TableRow key={r.id}>
@@ -295,11 +292,7 @@ const GSTCompliance = () => {
                 </TableHeader>
                 <TableBody>
                   {purchaseRegister.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                        No purchase records
-                      </TableCell>
-                    </TableRow>
+                    <TableEmptyRow colSpan={7} icon={Receipt} title="No purchase records" />
                   )}
                   {pagedPurchase.map((r) => (
                     <TableRow key={r.id}>
@@ -353,11 +346,12 @@ const GSTCompliance = () => {
                 </TableHeader>
                 <TableBody>
                   {hsnSacRows.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                        No HSN/SAC lines for this period
-                      </TableCell>
-                    </TableRow>
+                    <TableEmptyRow
+                      colSpan={7}
+                      icon={Receipt}
+                      title="No HSN/SAC lines"
+                      description="No taxable lines for the selected period."
+                    />
                   )}
                   {hsnSacRows.map((row) => (
                     <TableRow key={`${row.kind}-${row.code}`}>

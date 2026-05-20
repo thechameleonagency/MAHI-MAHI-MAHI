@@ -22,9 +22,11 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { TOOL_CATEGORY_SELECT_ITEMS } from "@/lib/formCategories";
 import { formatINR } from "@/lib/formatCurrency";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 
 const Tools = () => {
   const { tools, employees, sites, addTool, updateTool, deleteTool, reverseToolMovement, issueTool, returnTool, generateId: _generateId } = useAppData();
@@ -503,7 +505,7 @@ const Tools = () => {
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsAddToolOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddToolSave}>Add Tool</Button>
+            <Button onClick={handleAddToolSave}>{formPrimaryLabel("create", "tool")}</Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
@@ -750,7 +752,12 @@ const Tools = () => {
                 </div>
                 {/* Real movement history — B14 fix */}
                 {(selectedToolForHistory?.movementHistory ?? []).length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">No movement recorded yet.</p>
+                  <ListEmptyState
+                    density="compact"
+                    icon={History}
+                    title="No movement recorded yet"
+                    description="Issue and return events appear here."
+                  />
                 )}
                 {(selectedToolForHistory?.movementHistory ?? []).map((rec, idx) => (
                   <div key={rec.id ?? idx} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
@@ -886,7 +893,7 @@ const Tools = () => {
               });
               setIsEditToolOpen(false);
               toast({ title: "Tool Updated", description: "Changes saved successfully." });
-            }}>Save Changes</Button>
+            }}>{formPrimaryLabel("edit")}</Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
@@ -920,7 +927,12 @@ const Tools = () => {
         onConfirm={() => {
           if (reverseTarget) {
             const res = reverseToolMovement(reverseTarget.toolId, reverseTarget.recordId, reverseReason.trim() || undefined);
-            if (!res.ok) toast({ variant: "destructive", title: "Cannot reverse", description: res.error });
+            if (!res.ok)
+              toast({
+                variant: "destructive",
+                title: "Cannot reverse",
+                description: friendlyCommandErrorMessage(res.error, "Could not reverse movement."),
+              });
             setReverseTarget(null);
           }
         }}

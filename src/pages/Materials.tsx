@@ -4,6 +4,7 @@ import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Plus, Search, Package, AlertTriangle, History, Edit, ArrowRight, Trash2, Check, RotateCcw, AlertCircle, Eye, Truck, User, CheckCircle2, Recycle, Download, Printer } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { ListSkeleton } from "@/components/ui/ListSkeleton";
 import { TablePaginationBar, DEFAULT_TABLE_PAGE_SIZE } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
@@ -20,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import type { InventoryItem } from "@/types/project";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -37,6 +39,7 @@ import { MATERIAL_CATEGORY_ORDER, materialCategorySortKey } from "@/lib/formCate
 import { useCan } from "@/hooks/useCan";
 import { formatINR } from "@/lib/formatCurrency";
 import { stripQuickCreateParam } from "@/lib/createFromContext";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { isProcurementHandoffOnly } from "@/lib/procurementHandoff";
 
 function escapeHtmlMat(s: string) {
@@ -466,7 +469,11 @@ const Materials = () => {
         quantity: issueUnitQty,
       });
       if (!res.ok) {
-        toast({ title: "Could not add stock", description: res.error ?? "Movement failed", variant: "destructive" });
+        toast({
+          title: "Could not add stock",
+          description: friendlyCommandErrorMessage(res.error, "Movement failed"),
+          variant: "destructive",
+        });
         return;
       }
     }
@@ -817,11 +824,12 @@ const Materials = () => {
               </TableHeader>
               <TableBody>
                 {filteredDamageLog.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                      No damage records match filters.
-                    </TableCell>
-                  </TableRow>
+                  <TableEmptyRow
+                    colSpan={6}
+                    icon={AlertCircle}
+                    title="No damage records match"
+                    description="Adjust project or stage filters, or report damage from a site."
+                  />
                 ) : (
                   filteredDamageLog.map((d) => (
                     <TableRow key={d.id}>
@@ -1452,7 +1460,7 @@ const Materials = () => {
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsAddItemOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddItemSave}>Add Item</Button>
+            <Button onClick={handleAddItemSave}>{formPrimaryLabel("create", "item")}</Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
@@ -1639,7 +1647,7 @@ const Materials = () => {
           )}
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsEditItemOpen(false)}>Cancel</Button>
-            <Button onClick={handleEditItemSave}>Save Changes</Button>
+            <Button onClick={handleEditItemSave}>{formPrimaryLabel("edit")}</Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
@@ -1687,7 +1695,12 @@ const Materials = () => {
           </SheetHeader>
           <div className="space-y-3 max-h-[400px] overflow-y-auto">
             {(selectedItemForHistory?.movementHistory ?? []).length === 0 && (
-              <p className="text-sm text-muted-foreground py-6 text-center">No movements recorded for this item yet.</p>
+              <ListEmptyState
+                density="compact"
+                icon={History}
+                title="No movements yet"
+                description="Issues, returns, and purchases for this SKU will appear here."
+              />
             )}
             {(selectedItemForHistory?.movementHistory ?? []).map((record) => {
               const action =
@@ -1922,10 +1935,12 @@ const Materials = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="text-center py-8 text-muted-foreground">
-                  <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">Select items from the site to return</p>
-                </div>
+                <ListEmptyState
+                  density="compact"
+                  icon={Package}
+                  title="Select site items to return"
+                  description="Choose a site above, then pick materials to send back to stock."
+                />
               </>
             )}
           </div>
@@ -1984,7 +1999,12 @@ const Materials = () => {
               </div>
             ))}
             {scrapEligibleItems.length === 0 && (
-              <p className="text-center text-muted-foreground py-4">No scrap-eligible pipe items found in inventory.</p>
+              <ListEmptyState
+                density="compact"
+                icon={Recycle}
+                title="No scrap-eligible pipe stock"
+                description="Only pipe-category items with stock can be converted to scrap."
+              />
             )}
           </div>
           <SheetFooter>
@@ -2038,10 +2058,12 @@ const Materials = () => {
               );
             })}
             {Object.values(scrapStock).every(v => !v || v <= 0) && (
-              <div className="text-center py-8 text-muted-foreground">
-                <Recycle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No scrap items yet. Use "Add to Scrap" to convert pipe items.</p>
-              </div>
+              <ListEmptyState
+                density="compact"
+                icon={Recycle}
+                title="No scrap items yet"
+                description='Use "Add to Scrap" to convert pipe items.'
+              />
             )}
           </div>
           <SheetFooter>
@@ -2104,7 +2126,11 @@ const Materials = () => {
                   reverseMovementReason.trim() || undefined,
                 );
                 if (!res.ok) {
-                  toast({ variant: "destructive", title: "Cannot reverse", description: res.error });
+                  toast({
+                    variant: "destructive",
+                    title: "Cannot reverse",
+                    description: friendlyCommandErrorMessage(res.error, "Could not reverse movement."),
+                  });
                   return;
                 }
                 setReverseMovementTarget(null);

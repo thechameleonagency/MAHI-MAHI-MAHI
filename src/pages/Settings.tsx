@@ -442,7 +442,7 @@ const Settings = () => {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button className="bg-primary" onClick={handleSaveProfile}>Save Changes</Button>
+                  <Button className="bg-primary" onClick={handleSaveProfile}>Save</Button>
                 </div>
               </CardContent>
             </Card>
@@ -504,7 +504,7 @@ const Settings = () => {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button className="bg-primary" onClick={handleSaveCompany}>Save Changes</Button>
+                  <Button className="bg-primary" onClick={handleSaveCompany}>Save</Button>
                 </div>
               </CardContent>
             </Card>

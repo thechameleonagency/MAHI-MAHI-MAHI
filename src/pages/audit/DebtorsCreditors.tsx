@@ -14,7 +14,8 @@ import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, IndianRupee } from "lucide-react";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { downloadCSV } from "@/lib/csvExport";
 import { toast } from "@/hooks/use-toast";
 import { formatINR } from "@/lib/formatCurrency";
@@ -213,11 +214,7 @@ const DebtorsCreditors = () => {
                 </TableHeader>
                 <TableBody>
                   {debtors.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                        No outstanding receivables
-                      </TableCell>
-                    </TableRow>
+                    <TableEmptyRow colSpan={8} icon={IndianRupee} title="No outstanding receivables" />
                   )}
                   {pagedDebtors.map((d) => (
                     <TableRow key={d.id}>
@@ -284,11 +281,7 @@ const DebtorsCreditors = () => {
                 </TableHeader>
                 <TableBody>
                   {creditors.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                        No outstanding payables
-                      </TableCell>
-                    </TableRow>
+                    <TableEmptyRow colSpan={8} icon={IndianRupee} title="No outstanding payables" />
                   )}
                   {pagedCreditors.map((c) => (
                     <TableRow key={c.id}>

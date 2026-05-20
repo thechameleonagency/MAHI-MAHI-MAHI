@@ -14,6 +14,7 @@ import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { ScrollText, Plus, Pencil, Trash2, Download } from "lucide-react";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { downloadCSV } from "@/lib/csvExport";
 import { toast } from "@/hooks/use-toast";
 
@@ -239,15 +240,12 @@ const AuditLogs = () => {
             </TableHeader>
             <TableBody>
               {filteredLogs.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-12 text-center">
-                    <div className="flex flex-col items-center gap-2">
-                      <ScrollText className="h-8 w-8 text-muted-foreground/50" />
-                      <p className="text-muted-foreground">No audit logs recorded yet</p>
-                      <p className="text-xs text-muted-foreground">Changes to financial data will appear here</p>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                <TableEmptyRow
+                  colSpan={6}
+                  icon={ScrollText}
+                  title="No audit logs yet"
+                  description="Changes to financial data will appear here."
+                />
               )}
               {pagedLogs.map((log) => (
                 <TableRow key={log.id}>

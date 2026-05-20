@@ -29,6 +29,9 @@ import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { PageShell } from "@/components/layout/PageShell";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { DirectExceptionProjectBanner } from "@/components/projects/DirectExceptionProjectBanner";
 import { projectDirectExceptionReason } from "@/lib/projectDirectException";
@@ -49,6 +52,7 @@ import {
   type ProjectLifecycleStatus,
 } from "@/domain/stateMachines/projectStateMachine";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { ToastAction } from "@/components/ui/toast";
 import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
 import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet";
@@ -531,7 +535,11 @@ const ProjectDetail = () => {
   const handleReconcileSiteVisit = (visitId: string) => {
     const result = reconcileSiteVisitToChecklist(visitId);
     if (!result.ok) {
-      toast({ title: "Could not reconcile", description: result.error, variant: "destructive" });
+      toast({
+        title: "Could not reconcile",
+        description: friendlyCommandErrorMessage(result.error, "Could not reconcile site visit."),
+        variant: "destructive",
+      });
       return;
     }
     toast({ title: "Reconciled to checklist", description: "New inventory lines were added to the site checklist." });
@@ -1360,7 +1368,7 @@ const ProjectDetail = () => {
             </TabCard>
             <TabCard title="Materials Summary" icon={<Package className="h-4 w-4 text-primary" />}>
               {(project.materialsSent ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No material movement recorded.</p>
+                <ListEmptyState density="compact" icon={Package} title="No material movement recorded" />
               ) : (
                 <div className="space-y-2">
                   {(project.materialsSent ?? []).slice(0, 5).map((item) => (
@@ -1390,9 +1398,12 @@ const ProjectDetail = () => {
             </TabCard>
             <TabCard title="Scheduled installations" icon={<Calendar className="h-4 w-4 text-primary" />}>
               {projectSchedules.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No installs scheduled. Use Schedule installation in the project header.
-                </p>
+                <ListEmptyState
+                  density="compact"
+                  icon={Calendar}
+                  title="No installs scheduled"
+                  description="Use Schedule installation in the project header."
+                />
               ) : (
                 <div className="space-y-2">
                   {projectSchedules.map((sch) => (
@@ -1419,7 +1430,12 @@ const ProjectDetail = () => {
                 </Button>
               </div>
               {projectSiteVisits.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No site visits recorded yet.</p>
+                <ListEmptyState
+                  density="compact"
+                  icon={MapPin}
+                  title="No site visits yet"
+                  description='Use "Record visit" to log field activity.'
+                />
               ) : (
                 <div className="space-y-2">
                   {projectSiteVisits.map((visit) => {
@@ -1458,7 +1474,7 @@ const ProjectDetail = () => {
         <TabsContent value="attendance" className="space-y-4">
           <TabCard title="Attendance Records" icon={<Users className="h-4 w-4 text-primary" />}>
             {attendanceRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No attendance tied to this project yet.</p>
+              <ListEmptyState density="compact" icon={Users} title="No attendance for this project yet" />
             ) : (
               <DataTableShell
             variant="inline" >
@@ -1547,24 +1563,20 @@ const ProjectDetail = () => {
               </div>
             )}
             {projectSites.length === 0 ? (
-              <div className="py-8 text-center bg-muted/20 rounded-lg border border-dashed">
-                <MapPin className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
-                <p className="text-sm text-muted-foreground">No sites recorded for this project.</p>
-                <Button
-                  type="button"
-                  className="mt-4"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setNewSiteName("");
-                    setNewSiteWorkStart(new Date().toISOString().split("T")[0]);
-                    setNewSiteStatus("active");
-                    setIsAddSiteOpen(true);
-                  }}
-                >
-                  Add Site
-                </Button>
-              </div>
+              <ListEmptyState
+                density="compact"
+                icon={MapPin}
+                title="No sites for this project"
+                description="Add installation sites to track checklists and dispatch."
+                actionLabel="Add site"
+                onAction={() => {
+                  setNewSiteName("");
+                  setNewSiteWorkStart(new Date().toISOString().split("T")[0]);
+                  setNewSiteStatus("active");
+                  setIsAddSiteOpen(true);
+                }}
+                className="rounded-lg border border-dashed bg-muted/20"
+              />
             ) : (
               <div className="space-y-4">
                 {projectSites.map((site) => (
@@ -1585,7 +1597,11 @@ const ProjectDetail = () => {
                             onClick={() => {
                               const result = deleteSite(String(site.id));
                               if (!result.ok) {
-                                toast({ title: "Cannot delete site", description: result.error, variant: "destructive" });
+                                toast({
+                                  title: "Cannot delete site",
+                                  description: friendlyCommandErrorMessage(result.error, "Could not delete site."),
+                                  variant: "destructive",
+                                });
                                 return;
                               }
                               toast({ title: "Site removed", description: site.name });
@@ -1616,7 +1632,12 @@ const ProjectDetail = () => {
                               if (preset) {
                                 const res = applySiteChecklistFromTemplate(project.id, site.id, preset);
                                 if (res.ok) toast({ title: "Checklist Applied", description: `Applied ${preset.name} to ${site.name}` });
-                                else toast({ title: "Error", description: res.error, variant: "destructive" });
+                                else
+                                  toast({
+                                    title: "Error",
+                                    description: friendlyCommandErrorMessage(res.error),
+                                    variant: "destructive",
+                                  });
                               }
                             }}
                           >
@@ -1655,7 +1676,12 @@ const ProjectDetail = () => {
                                       onClick={async () => {
                                         const res = await dispatchSiteMaterial(project.id, site.id, item.id);
                                         if (res.ok) toast({ title: "Material Dispatched", description: `${item.materialName} deducted from warehouse.` });
-                                        else toast({ title: "Error", description: res.error, variant: "destructive" });
+                                        else
+                                  toast({
+                                    title: "Error",
+                                    description: friendlyCommandErrorMessage(res.error),
+                                    variant: "destructive",
+                                  });
                                       }}
                                     >
                                       <Truck className="w-3 h-3 mr-1" />
@@ -1666,11 +1692,12 @@ const ProjectDetail = () => {
                               </TableRow>
                             ))
                           ) : (
-                            <TableRow>
-                              <TableCell colSpan={3} className="h-24 text-center text-muted-foreground italic">
-                                No checklist items. Apply a preset above to initialize.
-                              </TableCell>
-                            </TableRow>
+                            <TableEmptyRow
+                              colSpan={3}
+                              icon={ClipboardList}
+                              title="No checklist items"
+                              description="Apply a preset above to initialize."
+                            />
                           )}
                         </TableBody>
                       </DataTableShell>
@@ -1709,7 +1736,7 @@ const ProjectDetail = () => {
               </Button>
             </div>
             {projectChangeRequests.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No change requests yet.</p>
+              <ListEmptyState density="compact" icon={FileText} title="No change requests yet" />
             ) : (
               <DataTableShell variant="inline">
                 <TableHeader>
@@ -1749,7 +1776,11 @@ const ProjectDetail = () => {
                                 onClick={() => {
                                   const res = approveProjectChangeRequest(cr.id);
                                   if (!res.ok) {
-                                    toast({ title: "Cannot approve", description: res.error, variant: "destructive" });
+                                    toast({
+                                      title: "Cannot approve",
+                                      description: friendlyCommandErrorMessage(res.error, "Could not approve."),
+                                      variant: "destructive",
+                                    });
                                     return;
                                   }
                                   toast({
@@ -1982,7 +2013,12 @@ const ProjectDetail = () => {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No photos yet. Upload site or handover images (stored in-browser for this prototype).</p>
+                  <ListEmptyState
+                    density="compact"
+                    icon={Camera}
+                    title="No photos yet"
+                    description="Upload site or handover images (stored in-browser for this prototype)."
+                  />
                 )}
               </TabCard>
             </TabsContent>
@@ -1997,11 +2033,14 @@ const ProjectDetail = () => {
                   </div>
                 )}
                 {projectSites.length === 0 ? (
-                  <div className="py-8 text-center bg-muted/20 rounded-lg border border-dashed">
-                    <MapPin className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
-                    <p className="text-sm text-muted-foreground">No sites recorded for this project.</p>
-                    <Button type="button" className="mt-4" variant="outline" size="sm" onClick={() => { setNewSiteName(""); setNewSiteWorkStart(new Date().toISOString().split("T")[0]); setNewSiteStatus("active"); setIsAddSiteOpen(true); }}>Add Site</Button>
-                  </div>
+                  <ListEmptyState
+                    density="compact"
+                    icon={MapPin}
+                    title="No sites for this project"
+                    actionLabel="Add site"
+                    onAction={() => { setNewSiteName(""); setNewSiteWorkStart(new Date().toISOString().split("T")[0]); setNewSiteStatus("active"); setIsAddSiteOpen(true); }}
+                    className="rounded-lg border border-dashed bg-muted/20"
+                  />
                 ) : (
                   <div className="space-y-4">
                     {projectSites.map((site) => (
@@ -2018,7 +2057,37 @@ const ProjectDetail = () => {
                                 <SelectTrigger className="h-8 w-[200px]"><SelectValue placeholder="Select Checklist Preset" /></SelectTrigger>
                                 <SelectContent>{getSiteChecklistPresets().map(p => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}</SelectContent>
                               </Select>
-                              <Button size="sm" variant="secondary" className="h-8" disabled={!siteTemplateChoice[site.id]} onClick={() => { const preset = getSiteChecklistPresets().find(p => p.id === siteTemplateChoice[site.id]); if (preset) { const res = applySiteChecklistFromTemplate(project.id, site.id, preset); if (res.ok) toast({ title: "Checklist Applied", description: `Applied ${preset.name} to ${site.name}` }); else toast({ title: "Error", description: res.error, variant: "destructive" }); } }}>Apply Preset</Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="h-8"
+                                disabled={!siteTemplateChoice[site.id]}
+                                onClick={() => {
+                                  const preset = getSiteChecklistPresets().find(
+                                    (p) => p.id === siteTemplateChoice[site.id],
+                                  );
+                                  if (!preset) return;
+                                  const res = applySiteChecklistFromTemplate(
+                                    project.id,
+                                    site.id,
+                                    preset,
+                                  );
+                                  if (res.ok) {
+                                    toast({
+                                      title: "Checklist Applied",
+                                      description: `Applied ${preset.name} to ${site.name}`,
+                                    });
+                                  } else {
+                                    toast({
+                                      title: "Error",
+                                      description: friendlyCommandErrorMessage(res.error),
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                              >
+                                Apply Preset
+                              </Button>
                             </div>
                           </div>
                         </CardHeader>
@@ -2041,7 +2110,30 @@ const ProjectDetail = () => {
                                       {item.status === "dispatched" ? (
                                         <Badge className="bg-primary/10 text-primary border-0 text-2xs"><CheckCircle2 className="w-3 h-3 mr-1" />Dispatched</Badge>
                                       ) : (
-                                        <Button size="sm" variant="outline" className="h-7 text-2xs px-2 border-primary text-primary hover:bg-primary hover:text-white" onClick={async () => { const res = await dispatchSiteMaterial(project.id, site.id, item.id); if (res.ok) toast({ title: "Material Dispatched", description: `${item.materialName} deducted from warehouse.` }); else toast({ title: "Error", description: res.error, variant: "destructive" }); }}>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 text-2xs px-2 border-primary text-primary hover:bg-primary hover:text-white"
+                                          onClick={async () => {
+                                            const res = await dispatchSiteMaterial(
+                                              project.id,
+                                              site.id,
+                                              item.id,
+                                            );
+                                            if (res.ok) {
+                                              toast({
+                                                title: "Material Dispatched",
+                                                description: `${item.materialName} deducted from warehouse.`,
+                                              });
+                                            } else {
+                                              toast({
+                                                title: "Error",
+                                                description: friendlyCommandErrorMessage(res.error),
+                                                variant: "destructive",
+                                              });
+                                            }
+                                          }}
+                                        >
                                           <Truck className="w-3 h-3 mr-1" />Dispatch
                                         </Button>
                                       )}
@@ -2049,7 +2141,12 @@ const ProjectDetail = () => {
                                   </TableRow>
                                 ))
                               ) : (
-                                <TableRow><TableCell colSpan={3} className="h-24 text-center text-muted-foreground italic">No checklist items. Apply a preset above to initialize.</TableCell></TableRow>
+                                <TableEmptyRow
+                                  colSpan={3}
+                                  icon={ClipboardList}
+                                  title="No checklist items"
+                                  description="Apply a preset above to initialize."
+                                />
                               )}
                             </TableBody>
                           </DataTableShell>
@@ -2064,7 +2161,7 @@ const ProjectDetail = () => {
             <TabsContent value="attendance-tab" className="space-y-4 mt-4">
               <TabCard title="Attendance Records" icon={<Users className="h-4 w-4 text-primary" />}>
                 {attendanceRows.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No attendance tied to this project yet.</p>
+                  <ListEmptyState density="compact" icon={Users} title="No attendance for this project yet" />
                 ) : (
                   <DataTableShell variant="inline">
                     <TableHeader>
@@ -2268,7 +2365,7 @@ const ProjectDetail = () => {
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setIsEditProjectOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveEditProject}>Save Changes</Button>
+            <Button onClick={handleSaveEditProject}>{formPrimaryLabel("edit")}</Button>
           </div>
         </AppSheetContent>
       </Sheet>

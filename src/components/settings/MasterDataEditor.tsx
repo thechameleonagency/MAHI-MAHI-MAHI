@@ -4,16 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { AppSheetFormFooter } from "@/components/shared/AppSheetFormFooter";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import {
   TableBody,
@@ -206,39 +198,29 @@ export function MasterDataEditor({ categoryId }: MasterDataEditorProps) {
               />
             </div>
           </div>
-          <SheetFooter className="flex gap-2 sm:justify-end">
-            <Button variant="outline" onClick={() => setSheetOpen(false)}>
-              Cancel
-            </Button>
+          <AppSheetFormFooter onCancel={() => setSheetOpen(false)}>
             <Button onClick={handleSave}>{editingValue ? "Save changes" : "Add item"}</Button>
-          </SheetFooter>
+          </AppSheetFormFooter>
         </AppSheetContent>
       </Sheet>
 
-      <AlertDialog
+      <DestructiveConfirmDialog
         open={!!confirmDeleteValue}
         onOpenChange={(open) => { if (!open) setConfirmDeleteValue(null); }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete master item?</AlertDialogTitle>
-            <AlertDialogDescription>
+        title="Delete master item?"
+        description={
+          confirmDeleteValue ? (
+            <>
               This removes the value <strong>{confirmDeleteValue}</strong> from the {category.label} list.
               If the value is referenced anywhere in the app, that reference will become invalid.
               Consider deactivating instead.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleDelete}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </>
+          ) : (
+            ""
+          )
+        }
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { ArrowLeft, Phone, Mail, MapPin, Package, IndianRupee, Plus, Check, Clock, AlertTriangle, Store, Edit, Trash2, FileText, Receipt, Eye, Upload, Download, Pencil } from "lucide-react";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +13,6 @@ import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE }
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Sheet, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/ui/DateInput";
@@ -634,8 +634,8 @@ const VendorDetail = () => {
           <ArrowLeft className="mr-2 h-4 w-4" /> Back
         </Button>
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            Vendor not found
+          <CardContent>
+            <ListEmptyState icon={Store} title="Vendor not found" />
           </CardContent>
         </Card>
       </div>
@@ -776,9 +776,12 @@ const VendorDetail = () => {
             </CardHeader>
             <CardContent className="p-0">
               {toAcquireLines.length === 0 ? (
-                <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-                  No open procurement lines assigned to this vendor. Assign vendors in Need to Get.
-                </p>
+                <ListEmptyState
+                  density="compact"
+                  icon={Package}
+                  title="No procurement lines"
+                  description="Assign this vendor on shortfalls in Need to Get."
+                />
               ) : (
                 <DataTableShell variant="inline" maxHeight={listTableViewportMaxHeight(8)}>
                   <TableHeader>
@@ -1015,12 +1018,14 @@ const VendorDetail = () => {
 
           {vendorBills.length === 0 && (
             <Card>
-              <CardContent className="py-10 text-center text-muted-foreground">
-                <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No purchase bills found for this vendor</p>
-                <Button variant="outline" className="mt-4" onClick={() => setIsPurchaseModalOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" /> Add First Purchase
-                </Button>
+              <CardContent>
+                <ListEmptyState
+                  icon={Receipt}
+                  title="No purchase bills yet"
+                  description="Record vendor purchases against this supplier."
+                  actionLabel="Add first purchase"
+                  onAction={() => setIsPurchaseModalOpen(true)}
+                />
               </CardContent>
             </Card>
           )}
@@ -1084,10 +1089,11 @@ const VendorDetail = () => {
                   </TableBody>
                 </DataTableShell>
               ) : (
-                <div className="py-10 text-center text-muted-foreground">
-                  <IndianRupee className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No payment history found</p>
-                </div>
+                <ListEmptyState
+                  icon={IndianRupee}
+                  title="No payment history"
+                  description="Payments to this vendor appear after bills are recorded."
+                />
               )}
             </CardContent>
           </Card>
@@ -1256,7 +1262,7 @@ const VendorDetail = () => {
               <div className="flex justify-between items-center">
                 <Label>Items</Label>
                 <Button variant="outline" size="sm" onClick={handleAddPurchaseItem}>
-                  <Plus className="h-3 w-3 mr-1" /> Add Item
+                  <Plus className="h-3 w-3 mr-1" /> Add line
                 </Button>
               </div>
 
@@ -1791,48 +1797,34 @@ const VendorDetail = () => {
         </AppSheetContent>
       </Sheet>
 
-      <AlertDialog open={confirmDeleteVendor} onOpenChange={setConfirmDeleteVendor}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {vendorBills.length > 0 || paymentHistory.length > 0
-                ? `This vendor has ${vendorBills.length} bill(s) and ${paymentHistory.length} payment(s). Clear them before deleting.`
-                : `Permanently remove ${vendor?.name ?? "this vendor"}?`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={vendorBills.length > 0 || paymentHistory.length > 0 || !vendor}
-              onClick={() => {
-                if (!vendor || vendorBills.length > 0 || paymentHistory.length > 0) return;
-                const result = deleteVendor(vendor.id);
-                if (!result.ok) return;
-                setConfirmDeleteVendor(false);
-                navigate("/vendors");
-                toast({ title: "Vendor deleted" });
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DestructiveConfirmDialog
+        open={confirmDeleteVendor}
+        onOpenChange={setConfirmDeleteVendor}
+        title="Delete vendor?"
+        description={`Permanently remove ${vendor?.name ?? "this vendor"} from the directory.`}
+        onConfirm={() => {
+          if (!vendor) return;
+          const result = deleteVendor(vendor.id);
+          if (!result.ok) return;
+          setConfirmDeleteVendor(false);
+          navigate("/vendors");
+          toast({ title: "Vendor deleted" });
+        }}
+      />
 
-      <AlertDialog open={!!deletePaymentId} onOpenChange={(open) => { if (!open) setDeletePaymentId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete payment?</AlertDialogTitle>
-            <AlertDialogDescription>This will reverse the payment and restore the outstanding balance on the vendor account.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => { if (deletePaymentId) { deleteVendorPayment(deletePaymentId); setDeletePaymentId(null); } }}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DestructiveConfirmDialog
+        open={!!deletePaymentId}
+        onOpenChange={(open) => { if (!open) setDeletePaymentId(null); }}
+        title="Delete payment?"
+        description="This will reverse the payment and restore the outstanding balance on the vendor account."
+        warnCannotUndo={false}
+        onConfirm={() => {
+          if (deletePaymentId) {
+            deleteVendorPayment(deletePaymentId);
+            setDeletePaymentId(null);
+          }
+        }}
+      />
 
       <DestructiveConfirmDialog
         open={!!deleteBillTarget}

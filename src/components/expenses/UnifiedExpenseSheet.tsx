@@ -55,6 +55,7 @@ import {
   type ExpensePayerType,
 } from "@/lib/expensePayerValidation";
 import { ExpenseReimbursementStatus } from "@/components/expenses/ExpenseReimbursementStatus";
+import { FORM_CREATE_LABEL } from "@/lib/formActionLabels";
 
 /** Ledger preview: negative outflow (formatINR is always positive ₹…). */
 function formatInrOutflow(n: number): string {
@@ -1733,7 +1734,7 @@ export function UnifiedExpenseSheet({
           </Button>
           {step === "confirm" ? (
             <Button onClick={handleSubmit} disabled={!wizardReadyForSubmit} title={!wizardReadyForSubmit ? payerValidation.errors[0] : undefined}>
-              <Check className="w-4 h-4 mr-2" />Confirm & Save
+              <Check className="w-4 h-4 mr-2" />{FORM_CREATE_LABEL}
             </Button>
           ) : (
             <Button onClick={goNext} disabled={!isStepValid()}>Next<ArrowRight className="w-4 h-4 ml-2" /></Button>

@@ -25,6 +25,8 @@ interface DestructiveConfirmDialogProps {
   typedConfirmation?: string;
   /** Label shown for the confirm button. Default "Delete". */
   confirmLabel?: string;
+  /** Show the standard cannot-undo footer warning. Default true. */
+  warnCannotUndo?: boolean;
   /** Called after the user confirms. */
   onConfirm: () => void;
 }
@@ -73,9 +75,11 @@ export function DestructiveConfirmDialog({
           <AlertDialogDescription asChild>
             <div className="space-y-2">
               <div>{description}</div>
-              <p className="text-xs font-semibold text-destructive">
-                ⚠ This action cannot be undone.
-              </p>
+              {warnCannotUndo ? (
+                <p className="text-xs font-semibold text-destructive">
+                  ⚠ This action cannot be undone.
+                </p>
+              ) : null}
               {needsTyping && (
                 <div className="pt-2 space-y-1.5">
                   <Label className="text-xs">

@@ -1,21 +1,25 @@
-import { Link } from "react-router-dom";
-import { Building2, ExternalLink } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { Project } from "@/types/project";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { useAppData } from "@/contexts/AppDataContext";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getProjectIdleAging } from "@/lib/agingHelpers";
 import { isDirectExceptionProject, projectDirectExceptionReason } from "@/lib/projectDirectException";
+import {
+  DashboardCompactRowMenu,
+  DashboardCompactRowMenuLink,
+} from "@/components/dashboard/DashboardCompactRowMenu";
 
 export function DashboardProjectRow({ project }: { project: Project }) {
   const { customers } = useAppData();
   const customerId = project.customerId ?? customers.find((c) => c.name === project.client)?.id;
   const statusLabel = project.status ?? project.lifecycleStatus ?? "Active";
   const aging = getProjectIdleAging(project);
+
   return (
-    <div className="rounded-xl border border-border/60 bg-card px-3 py-3 space-y-2">
+    <div className="rounded-xl border border-border/60 bg-card px-3 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <p className="font-medium leading-tight">
@@ -35,9 +39,7 @@ export function DashboardProjectRow({ project }: { project: Project }) {
             · {project.capacity}
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" className="text-2xs">
-              {statusLabel}
-            </Badge>
+            <StatusBadge status={statusLabel} label={statusLabel} className="text-2xs" />
             {project.progressStage && (
               <Badge variant="outline" className="text-2xs">
                 {project.progressStage}
@@ -61,18 +63,12 @@ export function DashboardProjectRow({ project }: { project: Project }) {
             </p>
           )}
         </div>
-        <Button size="sm" variant="ghost" className="shrink-0 h-8" asChild>
-          <Link to={`/projects/${project.id}`}>
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        </Button>
+        <DashboardCompactRowMenu>
+          <DashboardCompactRowMenuLink to={`/projects/${project.id}`} icon={Building2}>
+            Open project
+          </DashboardCompactRowMenuLink>
+        </DashboardCompactRowMenu>
       </div>
-      <Button size="sm" variant="outline" className="h-7 text-xs" asChild>
-        <Link to={`/projects/${project.id}`}>
-          <Building2 className="mr-1 h-3 w-3" />
-          Open project
-        </Link>
-      </Button>
     </div>
   );
 }

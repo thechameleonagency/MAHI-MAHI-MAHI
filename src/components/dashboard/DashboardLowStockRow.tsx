@@ -1,8 +1,10 @@
-import { Link } from "react-router-dom";
-import { ExternalLink, Package } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Package } from "lucide-react";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getLowStockAging } from "@/lib/agingHelpers";
+import {
+  DashboardCompactRowMenu,
+  DashboardCompactRowMenuLink,
+} from "@/components/dashboard/DashboardCompactRowMenu";
 
 export interface DashboardLowStockRowProps {
   item: {
@@ -17,8 +19,10 @@ export interface DashboardLowStockRowProps {
 
 export function DashboardLowStockRow({ item }: DashboardLowStockRowProps) {
   const shortBy = Math.max(0, (item.min || 0) - (item.stock || 0));
+  const aging = getLowStockAging(item.stock, item.min);
+
   return (
-    <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-3 space-y-2">
+    <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <p className="font-medium leading-tight">{item.name}</p>
@@ -34,18 +38,12 @@ export function DashboardLowStockRow({ item }: DashboardLowStockRowProps) {
           </p>
           <AgingChip signal={aging} />
         </div>
-        <Button size="sm" variant="ghost" className="shrink-0 h-8" asChild>
-          <Link to="/inventory/materials">
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        </Button>
+        <DashboardCompactRowMenu>
+          <DashboardCompactRowMenuLink to="/inventory/materials" icon={Package}>
+            Open materials
+          </DashboardCompactRowMenuLink>
+        </DashboardCompactRowMenu>
       </div>
-      <Button size="sm" variant="outline" className="h-7 text-xs" asChild>
-        <Link to="/inventory/materials">
-          <Package className="mr-1 h-3 w-3" />
-          Open materials
-        </Link>
-      </Button>
     </div>
   );
 }

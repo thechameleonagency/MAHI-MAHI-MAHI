@@ -10,7 +10,7 @@ describe("InvoiceCreateSheet mobile width (MR3)", () => {
   );
 
   it("uses AppSheetContent xxl preset without raw 100vw width overrides", () => {
-    expect(source).toContain('<AppSheetContent layout="form" size="xxl">');
+    expect(source).toContain('<AppSheetContent preset="financeForm">');
     expect(source).not.toMatch(/100vw/);
     expect(source).not.toMatch(/className=.*w-\[100vw\]/);
   });

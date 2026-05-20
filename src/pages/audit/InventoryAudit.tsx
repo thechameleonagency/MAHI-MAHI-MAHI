@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, Package } from "lucide-react";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { downloadCSV } from "@/lib/csvExport";
 import { toast } from "@/hooks/use-toast";
 import { formatINR, formatINR as fmt } from "@/lib/formatCurrency";
@@ -438,11 +439,7 @@ const InventoryAudit = () => {
                 </TableHeader>
                 <TableBody>
                   {movements.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                        No stock movements recorded
-                      </TableCell>
-                    </TableRow>
+                    <TableEmptyRow colSpan={7} icon={Package} title="No stock movements recorded" />
                   )}
                   {pagedMovements.map((m, i) => (
                     <TableRow key={`${m.refId}-${m.date}-${m.item}-${i}`}>

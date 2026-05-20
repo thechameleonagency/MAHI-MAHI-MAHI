@@ -1,19 +1,23 @@
-import { Link } from "react-router-dom";
-import { ExternalLink, FileText } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { FileText } from "lucide-react";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { formatQuotationStatusLabel } from "@/lib/quotationStatusUi";
 import type { Quotation } from "@/types/project";
 import { formatINR } from "@/lib/formatCurrency";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { resolveQuotationCustomerId } from "@/lib/selectors";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getQuotationInFlightAging } from "@/lib/agingHelpers";
+import {
+  DashboardCompactRowMenu,
+  DashboardCompactRowMenuLink,
+} from "@/components/dashboard/DashboardCompactRowMenu";
 
 export function DashboardQuotationRow({ quotation }: { quotation: Quotation }) {
   const customerId = resolveQuotationCustomerId(quotation);
   const aging = getQuotationInFlightAging(quotation);
+
   return (
-    <div className="rounded-xl border border-border/60 bg-card px-3 py-3 space-y-2">
+    <div className="rounded-xl border border-border/60 bg-card px-3 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <p className="font-medium leading-tight">
@@ -31,24 +35,24 @@ export function DashboardQuotationRow({ quotation }: { quotation: Quotation }) {
             {quotation.quotationNumber} · {formatINR(quotation.totalAmount || 0)}
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" className="capitalize text-2xs">
-              {quotation.status.replace(/_/g, " ")}
-            </Badge>
+            <StatusBadge
+              status={quotation.status}
+              label={formatQuotationStatusLabel(quotation.status)}
+              className="text-2xs"
+            />
             <AgingChip signal={aging} />
           </div>
         </div>
-        <Button size="sm" variant="ghost" className="shrink-0 h-8" asChild>
-          <Link to="/quotations" state={{ focusQuotationId: quotation.id }}>
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        </Button>
+        <DashboardCompactRowMenu>
+          <DashboardCompactRowMenuLink
+            to="/quotations"
+            state={{ focusQuotationId: quotation.id }}
+            icon={FileText}
+          >
+            Open quotation
+          </DashboardCompactRowMenuLink>
+        </DashboardCompactRowMenu>
       </div>
-      <Button size="sm" variant="outline" className="h-7 text-xs" asChild>
-        <Link to="/quotations" state={{ focusQuotationId: quotation.id }}>
-          <FileText className="mr-1 h-3 w-3" />
-          Open quotation
-        </Link>
-      </Button>
     </div>
   );
 }

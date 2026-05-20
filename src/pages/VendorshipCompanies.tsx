@@ -7,6 +7,7 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { DEFAULT_TABLE_PAGE_SIZE, dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
 import { formatINR } from "@/lib/formatCurrency";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { toast } from "@/hooks/use-toast";
 import type { VendorshipCompany } from "@/types/finance";
@@ -117,7 +118,7 @@ export default function VendorshipCompanies() {
       >
         <Button size="sm" onClick={openAdd} disabled={!canCreate}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Company
+          {formPrimaryLabel("create", "company")}
         </Button>
       </StickyPageHeader>
 
@@ -252,7 +253,7 @@ export default function VendorshipCompanies() {
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setSheetOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave}>{editingId ? "Save Changes" : "Add Company"}</Button>
+            <Button onClick={handleSave}>{formPrimaryLabel(editingId ? "edit" : "create", "company")}</Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>

@@ -13,16 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "@/hooks/use-toast";
@@ -33,6 +24,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { formatINR } from "@/lib/formatCurrency";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { useCan } from "@/hooks/useCan";
 
 const Agents = () => {
@@ -466,7 +458,7 @@ const Agents = () => {
           <AgentFormFields />
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleAdd}>Add Agent</Button>
+            <Button onClick={handleAdd}>{formPrimaryLabel("create", "agent")}</Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
@@ -478,38 +470,28 @@ const Agents = () => {
           <AgentFormFields />
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
-            <Button onClick={handleEdit}>Save Changes</Button>
+            <Button onClick={handleEdit}>{formPrimaryLabel("edit")}</Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
 
-      <AlertDialog open={!!agentPendingDelete} onOpenChange={(open) => !open && setAgentPendingDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete agent?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {agentPendingDelete
-                ? `Remove ${agentPendingDelete.name} from the directory. Linked history may become orphaned in the prototype. This cannot be undone.`
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (agentPendingDelete) {
-                  deleteAgent(agentPendingDelete.id);
-                  toast({ title: "Agent deleted", description: "Agent has been removed." });
-                }
-                setAgentPendingDelete(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DestructiveConfirmDialog
+        open={!!agentPendingDelete}
+        onOpenChange={(open) => !open && setAgentPendingDelete(null)}
+        title="Delete agent?"
+        description={
+          agentPendingDelete
+            ? `Remove ${agentPendingDelete.name} from the directory. Linked commission and enquiry history may become orphaned in the prototype.`
+            : ""
+        }
+        onConfirm={() => {
+          if (agentPendingDelete) {
+            deleteAgent(agentPendingDelete.id);
+            toast({ title: "Agent deleted", description: "Agent has been removed." });
+          }
+          setAgentPendingDelete(null);
+        }}
+      />
     </PageShell>
   );
 };

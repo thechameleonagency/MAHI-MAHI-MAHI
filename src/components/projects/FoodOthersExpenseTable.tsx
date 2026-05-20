@@ -9,6 +9,7 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Input } from "@/components/ui/input";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 interface Expense {
   id: string;
@@ -167,14 +168,11 @@ export default function FoodOthersExpenseTable({
             </TableBody>
           </DataTableShell>
         ) : (
-          <div className="text-center py-8 text-muted-foreground">
-            {type === "food" ? (
-              <Coffee className="w-10 h-10 mx-auto mb-2 opacity-30" />
-            ) : (
-              <Package className="w-10 h-10 mx-auto mb-2 opacity-30" />
-            )}
-            <p>No {type} expenses recorded</p>
-          </div>
+          <ListEmptyState
+            density="compact"
+            icon={type === "food" ? Coffee : Package}
+            title={`No ${type} expenses recorded`}
+          />
         )}
 
         {/* Summary by Payer */}

@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ICON_CLASS_NAV } from "@/lib/iconSizes";
 
 type NotificationBellLinkProps = {
   count: number;
@@ -33,7 +34,7 @@ export function NotificationBellLink({ count, className }: NotificationBellLinkP
           aria-label={ariaLabel}
           className="inline-flex size-full items-center justify-center"
         >
-          <Bell className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+          <Bell className={ICON_CLASS_NAV} />
         </Link>
       </Button>
       {count > 0 && (

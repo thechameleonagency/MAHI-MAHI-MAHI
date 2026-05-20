@@ -32,6 +32,7 @@ import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
 import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { useCan } from "@/hooks/useCan";
+import { formPrimaryLabel, FORM_CREATE_LABEL } from "@/lib/formActionLabels";
 import { formatINR } from "@/lib/formatCurrency";
 
 // Data is pulled from AppDataContext and MastersContext
@@ -948,7 +949,7 @@ const Employees = () => {
 
           <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsAddEmployeeOpen(false)}>Cancel</Button>
-            <Button className="bg-primary text-primary-foreground" onClick={handleSaveEmployee} disabled={!newEmpName.trim() || !newEmpRole}>Save Employee</Button>
+            <Button className="bg-primary text-primary-foreground" onClick={handleSaveEmployee} disabled={!newEmpName.trim() || !newEmpRole}>{formPrimaryLabel("create", "employee")}</Button>
           </div>
         </AppSheetContent>
       </Sheet>
@@ -1350,7 +1351,7 @@ const Employees = () => {
               setIsExpenseConfirmOpen(false);
               setExpenseAmount(""); setExpenseSite(""); setExpenseCategory(""); setExpenseItem(""); setExpenseWhoPaid("company"); setExpenseCostAllocation("reimburse");
             }}>
-              Confirm & Save
+              {FORM_CREATE_LABEL}
             </Button>
           </div>
         </AppSheetContent>

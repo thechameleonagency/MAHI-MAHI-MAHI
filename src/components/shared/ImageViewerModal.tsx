@@ -49,7 +49,7 @@ export function ImageViewerModal({
         }
       }}
     >
-      <AppSheetContent layout="bare" size="xl" className="max-w-3xl gap-0 overflow-hidden p-0">
+      <AppSheetContent preset="mediaViewer" className="gap-0 overflow-hidden p-0">
         <div className="relative">
           {/* Close button */}
           <Button 

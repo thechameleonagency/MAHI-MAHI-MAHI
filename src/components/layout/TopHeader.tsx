@@ -1,17 +1,13 @@
-import { Menu, Settings, Plus, Pin, PinOff, Search, CircleHelp, MoreHorizontal } from "lucide-react";
+import { Menu, Settings, Plus, Pin, PinOff, Search, MoreHorizontal } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  PAGE_HEADER_PIN_HELP,
-  pageHeaderPinAriaLabel,
-  pageHeaderPinTooltip,
-} from "@/lib/pageHeaderPinCopy";
+import { PAGE_HEADER_PIN_HELP, pageHeaderPinTooltip } from "@/lib/pageHeaderPinCopy";
+import { PageHeaderPinControls } from "@/components/layout/PageHeaderPinControls";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +28,7 @@ import { usePageHeaderSticky } from "@/contexts/PageHeaderStickyContext";
 import { useDerivedAlertCount } from "@/hooks/useDerivedAlertCount";
 import { useRoleMatrixOverride } from "@/contexts/RoleMatrixContext";
 import { mobilePageTitleFromBreadcrumbs } from "@/lib/pageHeaderMobileTitle";
+import { ICON_CLASS_NAV, ICON_CLASS_NAV_MENU } from "@/lib/iconSizes";
 
 type TopHeaderProps = {
   onOpenSidebar: () => void;
@@ -69,7 +66,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           onClick={onOpenSidebar}
           aria-label="Open menu"
         >
-          <Menu className="h-5 w-5" />
+          <Menu className={ICON_CLASS_NAV} />
         </Button>
         
         {mobilePageTitle && (
@@ -116,48 +113,13 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           aria-label="Search"
           onClick={() => setMobileSearchOpen(true)}
         >
-          <Search className="h-4 w-4" />
+          <Search className={ICON_CLASS_NAV} />
         </Button>
         {hasPinnablePageHeader && (
-          <div className="hidden items-center gap-0.5 md:flex">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="inline-flex h-8 w-8 shrink-0 sm:h-9 sm:w-9"
-                  aria-pressed={stickyPageHeader}
-                  aria-label={pageHeaderPinAriaLabel(stickyPageHeader)}
-                  onClick={() => setStickyPageHeader(!stickyPageHeader)}
-                >
-                  {stickyPageHeader ? (
-                    <Pin className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
-                  ) : (
-                    <PinOff className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{pageHeaderPinTooltip(stickyPageHeader)}</TooltipContent>
-            </Tooltip>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="inline-flex h-7 w-7 shrink-0 text-muted-foreground sm:h-8 sm:w-8"
-                  aria-label="About page header pin"
-                >
-                  <CircleHelp className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent side="bottom" align="end" className="text-sm">
-                <p className="font-medium text-foreground">Page header pin</p>
-                <p className="mt-1 text-muted-foreground">{PAGE_HEADER_PIN_HELP}</p>
-              </PopoverContent>
-            </Popover>
-          </div>
+          <PageHeaderPinControls
+            pinned={stickyPageHeader}
+            onToggle={() => setStickyPageHeader(!stickyPageHeader)}
+          />
         )}
       </div>
 
@@ -174,7 +136,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
                 className="h-8 w-8 shrink-0 md:hidden"
                 aria-label="More header actions"
               >
-                <MoreHorizontal className="h-4 w-4" />
+                <MoreHorizontal className={ICON_CLASS_NAV} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
@@ -183,12 +145,12 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
                 <DropdownMenuItem onSelect={() => setStickyPageHeader(!stickyPageHeader)}>
                   {stickyPageHeader ? (
                     <>
-                      <PinOff className="mr-2 h-4 w-4" />
+                      <PinOff className={ICON_CLASS_NAV_MENU} />
                       {pageHeaderPinTooltip(true)}
                     </>
                   ) : (
                     <>
-                      <Pin className="mr-2 h-4 w-4" />
+                      <Pin className={ICON_CLASS_NAV_MENU} />
                       {pageHeaderPinTooltip(false)}
                     </>
                   )}
@@ -201,7 +163,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
                 <>
                   {hasPinnablePageHeader && <DropdownMenuSeparator />}
                   <DropdownMenuItem onSelect={() => navigate("/settings")}>
-                    <Settings className="mr-2 h-4 w-4" />
+                    <Settings className={ICON_CLASS_NAV_MENU} />
                     Settings
                   </DropdownMenuItem>
                 </>
@@ -219,7 +181,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
               className="h-8 gap-1 px-2.5 text-xs font-medium shadow-sm sm:px-3"
               aria-label="Create or add"
             >
-              <Plus className="h-3.5 w-3.5 opacity-90" />
+              <Plus className={cn(ICON_CLASS_NAV, "opacity-90")} />
               <span className="hidden sm:inline">Add</span>
             </Button>
           </DropdownMenuTrigger>
@@ -274,7 +236,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
             asChild
           >
             <Link to="/settings" aria-label="Settings">
-              <Settings className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+              <Settings className={ICON_CLASS_NAV} />
             </Link>
           </Button>
         )}

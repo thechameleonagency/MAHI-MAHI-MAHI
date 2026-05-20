@@ -18,6 +18,7 @@ import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { useAppData } from "@/contexts/AppDataContext";
 import { findByRouteId } from "@/lib/resolveEntityId";
 import { formatINR } from "@/lib/formatCurrency";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 const INCWorkSourceDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -123,7 +124,12 @@ const INCWorkSourceDetail = () => {
         </CardHeader>
         <CardContent>
           {linkedProjects.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No INC jobs from this source yet.</p>
+            <ListEmptyState
+              density="compact"
+              icon={HardHat}
+              title="No INC jobs from this source"
+              description="Projects linked to this work source appear here."
+            />
           ) : (
             <Table>
               <TableHeader>

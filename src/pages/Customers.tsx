@@ -32,6 +32,7 @@ import { AgingChip } from "@/components/ui/AgingChip";
 import { getCustomerReceivableAging } from "@/lib/agingHelpers";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { createNextCustomerId } from "@/lib/idFactory";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 
 const Customers = () => {
   const navigate = useNavigate();
@@ -654,7 +655,7 @@ const Customers = () => {
             )}
             <div className="flex gap-2 pt-4">
               <Button variant="outline" className="flex-1" onClick={() => setIsAddCustomerOpen(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={handleAddCustomer}>Add Customer</Button>
+              <Button className="flex-1" onClick={handleAddCustomer}>{formPrimaryLabel("create", "customer")}</Button>
             </div>
           </div>
         </AppSheetContent>
@@ -703,7 +704,7 @@ const Customers = () => {
             )}
             <div className="flex gap-2 pt-4">
               <Button variant="outline" className="flex-1" onClick={() => setIsEditCustomerOpen(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={handleEditCustomer}>Save Changes</Button>
+              <Button className="flex-1" onClick={handleEditCustomer}>{formPrimaryLabel("edit")}</Button>
             </div>
           </div>
         </AppSheetContent>

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
+import { AppSheetFormFooter } from "@/components/shared/AppSheetFormFooter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import type { Project, ProjectScopeConfig } from "@/types/project";
 import type { ProjectIntakePayload } from "@/application/services/ProjectKindService";
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
@@ -261,7 +263,10 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
         if (!conv.ok) {
           toast({
             title: "Could not convert enquiry to customer",
-            description: conv.error || "Check enquiry status and try again.",
+            description: friendlyCommandErrorMessage(
+              conv.error,
+              "Check enquiry status and try again.",
+            ),
             variant: "destructive",
           });
           return;
@@ -674,7 +679,11 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
       resetForm();
       navigate(`/projects/${res.projectId || project.id}`);
     } else {
-      toast({ title: "Error", description: res.error, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: friendlyCommandErrorMessage(res.error, "Could not create project."),
+        variant: "destructive",
+      });
     }
   };
 
@@ -1591,13 +1600,12 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
         )}
 
         {sheetStep === "form" && (
-        <SheetFooter className="p-6 border-t flex items-center justify-end gap-2 sticky bottom-0 bg-background/95 backdrop-blur">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleCreate} disabled={!leadPath} className="bg-primary hover:bg-primary/90">
-            <Check className="w-4 h-4 mr-2" />
-            Review &amp; Create
-          </Button>
-        </SheetFooter>
+          <AppSheetFormFooter className="p-6 sm:px-6" onCancel={() => onOpenChange(false)}>
+            <Button onClick={handleCreate} disabled={!leadPath} className="bg-primary hover:bg-primary/90">
+              <Check className="w-4 h-4 mr-2" />
+              Review &amp; Create
+            </Button>
+          </AppSheetFormFooter>
         )}
       </AppSheetContent>
     </Sheet>

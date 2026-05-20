@@ -28,6 +28,8 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { formatINR } from "@/lib/formatCurrency";
 import { validateContactPhone } from "@/lib/phoneValidators";
+import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { normalizeLoanPersonKey } from "@/lib/loanPerson";
 
 const LoanPersonDetail = () => {
@@ -242,11 +244,13 @@ const LoanPersonDetail = () => {
           <p className="text-xl font-semibold text-foreground">Loan source not found</p>
         </div>
         <Card className="bg-card">
-          <CardContent className="p-8 text-center">
-            <p className="text-muted-foreground">No loans found for "{personName}"</p>
-            <Button className="mt-4" type="button" variant="outline" onClick={() => navigate(-1)}>
-              Back to loans
-            </Button>
+          <CardContent>
+            <ListEmptyState
+              icon={IndianRupee}
+              title={`No loans for "${personName}"`}
+              actionLabel="Back to loans"
+              onAction={() => navigate(-1)}
+            />
           </CardContent>
         </Card>
       </div>
@@ -277,7 +281,7 @@ const LoanPersonDetail = () => {
       >
         <Button variant="outline" onClick={() => setIsAddLoanOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Loan
+          {formPrimaryLabel("create", "loan")}
         </Button>
       </StickyPageHeader>
 
@@ -457,7 +461,7 @@ const LoanPersonDetail = () => {
               </TableBody>
             </DataTableShell>
           ) : (
-            <p className="text-center text-muted-foreground py-6">No repayments recorded yet</p>
+            <ListEmptyState density="compact" icon={IndianRupee} title="No repayments recorded yet" />
           )}
         </CardContent>
       </Card>
@@ -547,7 +551,7 @@ const LoanPersonDetail = () => {
               onClick={handleAddLoan}
               disabled={!loanPrincipal}
             >
-              Add Loan
+              {formPrimaryLabel("create", "loan")}
             </Button>
           </div>
         </AppSheetContent>

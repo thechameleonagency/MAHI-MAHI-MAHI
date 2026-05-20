@@ -27,6 +27,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { normalizeLoanPersonKey } from "@/lib/loanPerson";
+import { ICON_CLASS_NAV } from "@/lib/iconSizes";
 import {
   computeMatchTier,
   isEmployeeSearchTerminal,
@@ -533,7 +534,7 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
           embedded && "sticky top-0 z-10 bg-background pb-2",
         )}
       >
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className={cn("absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground", ICON_CLASS_NAV)} />
         <Input
           ref={inputRef}
           type="text"
@@ -558,7 +559,7 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
             }}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className={ICON_CLASS_NAV} />
           </button>
         )}
       </div>
@@ -584,7 +585,7 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
                   )}
                 >
                   <div className={cn("rounded p-1.5", config.color)}>
-                    <Icon className="h-3.5 w-3.5" />
+                    <Icon className={ICON_CLASS_NAV} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{result.name}</p>
