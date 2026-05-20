@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DateInput } from "@/components/ui/DateInput";
+import { formatINR } from "@/lib/formatCurrency";
 import type { ProjectTeamAssignmentDraft, ProjectConfirmationViewModel } from "@/lib/projectTeamAssignment";
 
 export type { ProjectConfirmationViewModel as ProjectConfirmationData };
@@ -126,7 +127,7 @@ export default function ProjectConfirmationScreen({
                 <IndianRupee className="w-3 h-3" />
                 Contract Value
               </p>
-              <p className="font-semibold text-primary text-lg">₹{data.contractAmount.toLocaleString()}</p>
+              <p className="font-semibold text-primary text-lg tabular-nums">{formatINR(data.contractAmount)}</p>
             </div>
             {data.referredBy && (
               <div className="space-y-1">

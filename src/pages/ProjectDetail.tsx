@@ -81,6 +81,13 @@ import type { Payment, Expense, Invoice } from "@/types/finance";
 import type { Project, ProjectPartner, ProjectPartnerType } from "@/types/project";
 import { formatINR } from "@/lib/formatCurrency";
 import {
+  canonicalProjectKind,
+  canonicalProjectMode,
+  PROJECT_KIND_UI_LABELS,
+  PROJECT_KIND_UI_TONES,
+  projectModeUiLabel,
+} from "@/lib/projectTaxonomyDisplay";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -90,28 +97,6 @@ import {
 } from "@/components/ui/dialog";
 
 const formatCurrency = (amount: number) => formatINR(Math.round(amount || 0));
-
-const projectKindLabel: Record<string, string> = {
-  SOLO_EPC: "Solo",
-  PARTNER_EPC: "Partner",
-  FIXED_EPC: "Fixed",
-  VENDOR_NETWORK: "Vendor / network",
-  INC: "INC",
-  INC_GIVEN: "INC Given",
-  OUTSOURCED_INC: "Outsourced INC",
-  VENDORSHIP_ONLY: "Vendorship Only",
-};
-
-const projectKindTone: Record<string, string> = {
-  SOLO_EPC: "bg-success/10 text-success border-success/25",
-  PARTNER_EPC: "bg-primary/10 text-primary border-primary/25",
-  FIXED_EPC: "bg-warning/10 text-warning border-warning/25",
-  VENDOR_NETWORK: "bg-accent/10 text-accent-foreground border-accent/25",
-  INC: "bg-slate-500/10 text-slate-700 border-slate-500/25",
-  INC_GIVEN: "bg-warning/10 text-warning border-warning/25",
-  OUTSOURCED_INC: "bg-primary/10 text-primary border-primary/25",
-  VENDORSHIP_ONLY: "bg-accent/10 text-accent-foreground border-accent/25",
-};
 
 function TabCard({
   title,
@@ -630,7 +615,8 @@ const ProjectDetail = () => {
     );
   }
 
-  const kind = project.projectKind ?? "SOLO_EPC";
+  const kind = canonicalProjectKind(project);
+  const projectMode = canonicalProjectMode(project);
   const partnerRow = project.partners?.[0];
   const linkedPartner = partnerRow
     ? partners.find((partner) => partner.id === partnerRow.partnerId)
@@ -670,7 +656,13 @@ const ProjectDetail = () => {
         title={
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-xl md:text-2xl font-semibold">{project.name}</span>
-            <Badge variant="outline" className={projectKindTone[kind]}>{projectKindLabel[kind]}</Badge>
+            <Badge
+              variant="outline"
+              className={PROJECT_KIND_UI_TONES[kind]}
+              title={`${projectModeUiLabel(projectMode)} · ${PROJECT_KIND_UI_LABELS[kind]}`}
+            >
+              {PROJECT_KIND_UI_LABELS[kind]}
+            </Badge>
             <Badge variant="secondary" className="h-5 text-2xs uppercase tracking-wider">{project.status}</Badge>
             {project.progressStage && <Badge variant="outline" className="h-5 text-2xs uppercase">{project.progressStage}</Badge>}
           </div>
@@ -1012,6 +1004,7 @@ const ProjectDetail = () => {
             projectPaymentType={project.paymentType}
             projectContractAmount={project.contractAmount}
             projectAmountReceived={project.amountReceived}
+            clientPaymentRecordedTotal={clientPayments.reduce((sum, p) => sum + p.amount, 0)}
             onAddBlockage={(b) => addBlockage(b)}
             onResolveBlockage={(bId, res) =>
               resolveBlockage({
@@ -1022,10 +1015,7 @@ const ProjectDetail = () => {
                 notesAppend: res.notes,
               })
             }
-            onRecordClientCash={(amount, notes) => {
-              if ((project.contractAmount || 0) > 0 && collected + amount > project.contractAmount) {
-                toast({ title: "Warning", description: `Payment of ${formatCurrency(amount)} would exceed contract amount of ${formatCurrency(project.contractAmount)}`, variant: "destructive" });
-              }
+            onRecordClientCash={(amount, notes) =>
               addClientPaymentRecord({
                 id: generateId("CPR"),
                 projectId: project.id,
@@ -1035,11 +1025,8 @@ const ProjectDetail = () => {
                 notes,
                 recordedAt: new Date().toISOString(),
                 paymentStage: "other",
-              });
-              updateProject(project.id, {
-                amountReceived: (project.amountReceived ?? 0) + amount,
-              });
-            }}
+              })
+            }
             onAddTicket={(t) => addOperationalTicket({ ...t, id: generateId("TKT"), createdAt: new Date().toISOString() })}
             onUpdateTimeline={(updates) => updateProjectTimelineForProject(project.id, updates)}
             scope={project.scope}
@@ -1175,6 +1162,7 @@ const ProjectDetail = () => {
                     <TableHead>Stage</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
                     <TableHead className="text-right">Impact</TableHead>
+                    <TableHead>Reason</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1187,6 +1175,14 @@ const ProjectDetail = () => {
                         <TableCell className="text-right">{dmg.qty}</TableCell>
                         <TableCell className="text-right">
                           {dmg.costImpact != null ? formatCurrency(dmg.costImpact) : "—"}
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate text-muted-foreground text-sm" title={dmg.notes}>
+                          {dmg.notes?.trim() || "—"}
+                          {(dmg.photoUrls?.length ?? 0) > 0 && (
+                            <span className="block text-2xs text-muted-foreground/80">
+                              {dmg.photoUrls!.length} photo URL(s)
+                            </span>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -1412,6 +1408,11 @@ const ProjectDetail = () => {
                       <div>
                         <p className="font-medium">{sch.scheduledDate}</p>
                         {sch.notes && <p className="text-xs text-muted-foreground">{sch.notes}</p>}
+                        {sch.doubleBookingOverrideReason && (
+                          <p className="text-xs text-warning">
+                            Double-booked: {sch.doubleBookingOverrideReason}
+                          </p>
+                        )}
                       </div>
                       <Badge variant="outline" className="capitalize">{sch.status.replace("_", " ")}</Badge>
                     </div>

@@ -248,7 +248,11 @@ const TeamDetail = () => {
                         </Link>
                         <span className="text-xs text-muted-foreground">{s.scheduledDate}</span>
                       </div>
-                      <p className="text-xs capitalize text-muted-foreground">{s.status}{s.notes ? ` — ${s.notes}` : ""}</p>
+                      <p className="text-xs capitalize text-muted-foreground">
+                        {s.status}
+                        {s.notes ? ` — ${s.notes}` : ""}
+                        {s.doubleBookingOverrideReason ? ` — Double-booked: ${s.doubleBookingOverrideReason}` : ""}
+                      </p>
                     </div>
                   );
                 })}

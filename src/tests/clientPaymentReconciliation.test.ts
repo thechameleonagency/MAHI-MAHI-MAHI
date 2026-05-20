@@ -4,6 +4,7 @@ import type { Invoice, Payment } from "@/types/finance";
 import type { Project } from "@/types/project";
 import {
   clientPaymentRecordPaymentId,
+  clientPaymentRemainingDue,
   fifoApplyClientPaymentToInvoices,
   reconcileClientPaymentLedger,
   validateClientPaymentRecord,
@@ -102,10 +103,20 @@ describe("clientPaymentReconciliation", () => {
     expect(second.projects[0].amountReceived).toBe(25000);
   });
 
-  it("validateClientPaymentRecord rejects non-positive and over-contract amounts", () => {
+  it("validateClientPaymentRecord rejects non-positive and over-contract amounts (Mn18)", () => {
     expect(validateClientPaymentRecord({ amount: 0, projectId: "P1" }, 100000, 0).ok).toBe(false);
-    expect(validateClientPaymentRecord({ amount: 5000, projectId: "P1" }, 100000, 96000).ok).toBe(false);
-    expect(validateClientPaymentRecord({ amount: 5000, projectId: "P1" }, 100000, 90000).ok).toBe(true);
+    expect(validateClientPaymentRecord({ amount: -100, projectId: "P1" }, 100000, 0).ok).toBe(false);
+    expect(validateClientPaymentRecord({ amount: 5000, projectId: "" }, 100000, 0).ok).toBe(false);
+
+    const over = validateClientPaymentRecord({ amount: 5000, projectId: "P1" }, 100000, 96000);
+    expect(over.ok).toBe(false);
+    if (!over.ok) expect(over.reason).toMatch(/remaining/i);
+
+    const ok = validateClientPaymentRecord({ amount: 5000, projectId: "P1" }, 100000, 90000);
+    expect(ok).toEqual({ ok: true, remainingDue: 10000 });
+
+    expect(clientPaymentRemainingDue(100000, 96000)).toBe(4000);
+    expect(clientPaymentRemainingDue(100000, 100000)).toBe(0);
   });
 
   it("keeps direct invoice payments when replaying CPR FIFO", () => {

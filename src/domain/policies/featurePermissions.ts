@@ -39,6 +39,19 @@ export type Crud = "view" | "create" | "edit" | "delete";
 
 export type FeaturePermissionMatrix = Record<Feature, Record<Crud, UserRole[]>>;
 
+/**
+ * Human-readable notes for matrix rows where View/Create columns look inconsistent by design.
+ * Shown in Settings → Masters reference matrix and Role Matrix editor.
+ */
+export const FEATURE_MATRIX_ROW_NOTES: Partial<Record<Feature, string>> = {
+  inventoryItem:
+    "Catalog master data. Field roles get view-only here; issue/return/receive stock uses inventoryMovement (not create/edit on this row).",
+  inventoryMovement:
+    "Stock ledger (issue, return, receive). Separate from inventoryItem; movement reversal is super_admin-only in AppDataContext.",
+  employeeWallet:
+    "Formal advance/recovery ledger on Employee Profile. Admin/management create; CEO view-only. Employee salary advances in attendance come from expense records (expense feature), not auto-synced here.",
+};
+
 /** Compact helper to build a row: `r("view,create", ["admin", "management"])`. */
 const r = (
   view: UserRole[],
@@ -132,6 +145,8 @@ export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
     [...ADMIN_MGMT, "installation_team"],
     ADMIN_MGMT,
   ),
+  // Catalog master data (SKU, min stock, pricing). installation_team + salesperson get view-only
+  // so they can pick materials in quotes / site flows; stock changes are gated under inventoryMovement.
   inventoryItem: r(
     [...ADMIN_MGMT_CEO_VIEW, "salesperson", "installation_team"],
     ADMIN_MGMT,
@@ -201,7 +216,8 @@ export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
   ),
   holiday: r(ADMIN_MGMT_CEO_VIEW, ADMIN_MGMT, ADMIN_MGMT, ADMIN_MGMT),
   payroll: r(ADMIN_MGMT_CEO_VIEW, ADMIN_MGMT, ADMIN_MGMT, ADMIN_ONLY),
-  employeeWallet: r(NONE, NONE, NONE, NONE), // super_admin only
+  /** Aligns with who can post employee advance expenses; distinct from `expense` (see FEATURE_MATRIX_ROW_NOTES). */
+  employeeWallet: r(ADMIN_MGMT_CEO_VIEW, ADMIN_MGMT, ADMIN_MGMT, ADMIN_ONLY),
 
   // ============ AUDIT + ANALYTICS + SYSTEM PAGES ============
   auditPage: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
@@ -264,4 +280,31 @@ export function featureFlags(
 /** Used by `permissionMatrix.ts` to delegate legacy AppAction → (feature, crud). */
 export function isFeature(value: string): value is Feature {
   return value in DEFAULT_FEATURE_PERMISSIONS;
+}
+
+function deepClonePermissionData<T>(value: T): T {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** Deep-clone a permission matrix for draft editing without mutating defaults. */
+export function cloneFeaturePermissionMatrix(
+  source: FeaturePermissionMatrix = DEFAULT_FEATURE_PERMISSIONS,
+): FeaturePermissionMatrix {
+  return deepClonePermissionData(source);
+}
+
+/** Editable Role Matrix draft: cloned defaults with optional override rows cloned on top. */
+export function buildFeaturePermissionMatrixDraft(
+  override?: Partial<FeaturePermissionMatrix>,
+): FeaturePermissionMatrix {
+  const merged = cloneFeaturePermissionMatrix(DEFAULT_FEATURE_PERMISSIONS);
+  if (!override) return merged;
+  for (const key of Object.keys(override) as Feature[]) {
+    const row = override[key];
+    if (row) merged[key] = deepClonePermissionData(row);
+  }
+  return merged;
 }

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  findScheduledInstallationConflicts,
   isScheduledInstallationDateInPast,
+  validateDoubleBookingOverride,
   validateScheduledInstallationDate,
   todayIsoDate,
   MIN_PAST_SCHEDULE_OVERRIDE_REASON_LENGTH,
+  MIN_DOUBLE_BOOKING_OVERRIDE_REASON_LENGTH,
 } from "@/lib/scheduledInstallationValidation";
+import type { ScheduledInstallation } from "@/types/operations";
 
 describe("scheduledInstallationValidation", () => {
   const today = "2026-05-20";
@@ -58,5 +62,65 @@ describe("scheduledInstallationValidation", () => {
 
   it("todayIsoDate returns YYYY-MM-DD", () => {
     expect(todayIsoDate(new Date("2026-05-20T12:00:00Z"))).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("detects team double-booking on the same date", () => {
+    const existing: ScheduledInstallation[] = [
+      {
+        id: "SCH-1",
+        projectId: "proj-a",
+        scheduledDate: "2026-05-25",
+        teamId: "team-1",
+        status: "scheduled",
+        createdAt: "2026-05-01T00:00:00Z",
+      },
+    ];
+    const result = findScheduledInstallationConflicts({
+      scheduledInstallations: existing,
+      scheduledDate: "2026-05-25",
+      projectId: "proj-b",
+      teamId: "team-1",
+    });
+    expect(result.hasConflict).toBe(true);
+    expect(result.teamConflicts).toHaveLength(1);
+  });
+
+  it("ignores cancelled schedules and same-project assignments", () => {
+    const existing: ScheduledInstallation[] = [
+      {
+        id: "SCH-1",
+        projectId: "proj-a",
+        scheduledDate: "2026-05-25",
+        teamId: "team-1",
+        status: "cancelled",
+        createdAt: "2026-05-01T00:00:00Z",
+      },
+      {
+        id: "SCH-2",
+        projectId: "proj-a",
+        scheduledDate: "2026-05-25",
+        teamId: "team-1",
+        status: "scheduled",
+        createdAt: "2026-05-01T00:00:00Z",
+      },
+    ];
+    const result = findScheduledInstallationConflicts({
+      scheduledInstallations: existing,
+      scheduledDate: "2026-05-25",
+      projectId: "proj-a",
+      teamId: "team-1",
+    });
+    expect(result.hasConflict).toBe(false);
+  });
+
+  it("requires reason when double-booking exists (Mn17)", () => {
+    const short = validateDoubleBookingOverride(true, "overlap");
+    expect(short.ok).toBe(false);
+    const ok = validateDoubleBookingOverride(
+      true,
+      "a".repeat(MIN_DOUBLE_BOOKING_OVERRIDE_REASON_LENGTH),
+    );
+    expect(ok).toEqual({ ok: true });
+    expect(validateDoubleBookingOverride(false, "")).toEqual({ ok: true });
   });
 });

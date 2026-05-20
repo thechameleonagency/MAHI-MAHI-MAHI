@@ -31,6 +31,7 @@ import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { toast } from "@/hooks/use-toast";
 import { useAppData } from "@/contexts/AppDataContext";
 import { findByRouteId } from "@/lib/resolveEntityId";
+import { canonicalProjectKind, projectKindRegistryLabel } from "@/lib/projectTaxonomyDisplay";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { formatUiDate } from "@/lib/formatUiDate";
@@ -476,13 +477,7 @@ const PartnerDetail = () => {
                       <p className="text-sm font-medium">{lp.project.name}</p>
                       <p className="text-2xs text-muted-foreground uppercase tracking-tight">
                         {lp.projectPartner?.partnerType
-                          ?? (lp.project.projectMode === "PARTNER_NETWORK"
-                            ? `Partner Network${lp.project.partnerRole ? ` · ${lp.project.partnerRole.replace(/_/g, " ")}` : ""}`
-                            : lp.project.projectMode === "DIRECT_CLIENT"
-                              ? "Direct Client"
-                              : lp.project.projectMode === "INC_GIVEN_TO_US"
-                                ? "INC Given to Us"
-                                : "Partner")}
+                          ?? projectKindRegistryLabel(canonicalProjectKind(lp.project))}
                       </p>
                       {lp.projectPartner && partnerEconomicsWarningMessage(lp.projectPartner) && (
                         <p className="text-2xs text-warning mt-1">{partnerEconomicsWarningMessage(lp.projectPartner)}</p>

@@ -1,5 +1,6 @@
 import { projectKindConfigs, resolveProjectCapabilities } from "@/domain/projectTypes/config";
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
+import { inferProjectKindFromTaxonomy } from "@/lib/projectTaxonomyDisplay";
 import { withResolvedExecutionLineItems } from "@/domain/project/executionLineItems";
 import { normalizeProjectPaymentType } from "@/domain/project/projectPaymentType";
 import type { Project } from "@/types/project";
@@ -59,7 +60,10 @@ function computeCapabilitiesSnapshot(p: Project, legacyKind: ProjectKind) {
  *    so visibleTabs / requiredDocuments / forbiddenActions track the actual project shape.
  */
 export function normalizeProject(p: Project): Project {
-  let kind: ProjectKind = p.projectKind ?? "SOLO_EPC";
+  let kind: ProjectKind =
+    p.projectKind && projectKindConfigs[p.projectKind]
+      ? p.projectKind
+      : inferProjectKindFromTaxonomy(p);
   if (!projectKindConfigs[kind]) {
     kind = "SOLO_EPC";
   }

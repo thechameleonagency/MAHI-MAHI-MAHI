@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Calendar as CalendarIcon, AlertTriangle, Users, User } from "lucide-react";
 import { Sheet, SheetDescription, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
@@ -14,8 +14,11 @@ import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { toast } from "@/hooks/use-toast";
 import {
   todayIsoDate,
+  findScheduledInstallationConflicts,
+  validateDoubleBookingOverride,
   validateScheduledInstallationDate,
   MIN_PAST_SCHEDULE_OVERRIDE_REASON_LENGTH,
+  MIN_DOUBLE_BOOKING_OVERRIDE_REASON_LENGTH,
 } from "@/lib/scheduledInstallationValidation";
 import type { Project } from "@/types/project";
 
@@ -23,9 +26,9 @@ import type { Project } from "@/types/project";
  * Phase 2.5 — ScheduleInstallationSheet
  *
  * Schedules an installation visit to a project's site on a specific date with
- * either a team or a set of employees. Conflict detection is visual-only: if
- * the same team/employee already has a schedule on the same date (for any
- * project), a warning chip is shown — but the user can still proceed.
+ * either a team or a set of employees. When the same team/employee is already
+ * booked on the same date elsewhere, a warning is shown and a double-booking
+ * reason is required before save.
  */
 
 export function ScheduleInstallationSheet({
@@ -55,6 +58,7 @@ export function ScheduleInstallationSheet({
   const [teamId, setTeamId] = useState<string>("");
   const [selectedEmployees, setSelectedEmployees] = useState<number[]>([]);
   const [notes, setNotes] = useState("");
+  const [doubleBookingReason, setDoubleBookingReason] = useState("");
 
   const dateValidation = useMemo(
     () =>
@@ -67,27 +71,35 @@ export function ScheduleInstallationSheet({
     [scheduledDate, today, isSuperAdmin, pastDateOverride, pastOverrideReason],
   );
 
-  // Conflict detection: any active schedule on the same date with overlapping
-  // team/employee assignment (across any project).
-  const conflicts = useMemo(() => {
-    const list = scheduledInstallations ?? [];
-    const sameDate = list.filter(
-      (s) =>
-        s.status !== "cancelled" &&
-        s.scheduledDate.slice(0, 10) === scheduledDate &&
-        s.projectId !== project.id, // self-conflict is fine
-    );
-    const teamConflicts = teamId
-      ? sameDate.filter((s) => s.teamId === teamId)
-      : [];
-    const employeeConflicts = selectedEmployees.length
-      ? sameDate.filter(
-          (s) =>
-            s.employeeIds?.some((e) => selectedEmployees.includes(e)) ?? false,
-        )
-      : [];
-    return { teamConflicts, employeeConflicts };
-  }, [scheduledInstallations, scheduledDate, teamId, selectedEmployees, project.id]);
+  const conflicts = useMemo(
+    () =>
+      findScheduledInstallationConflicts({
+        scheduledInstallations: scheduledInstallations ?? [],
+        scheduledDate,
+        projectId: project.id,
+        teamId: assignMode === "team" ? teamId : undefined,
+        employeeIds: assignMode === "employees" ? selectedEmployees : undefined,
+      }),
+    [
+      scheduledInstallations,
+      scheduledDate,
+      project.id,
+      assignMode,
+      teamId,
+      selectedEmployees,
+    ],
+  );
+
+  const doubleBookingValidation = useMemo(
+    () => validateDoubleBookingOverride(conflicts.hasConflict, doubleBookingReason),
+    [conflicts.hasConflict, doubleBookingReason],
+  );
+
+  const canSubmit = dateValidation.ok && doubleBookingValidation.ok;
+
+  useEffect(() => {
+    if (!conflicts.hasConflict) setDoubleBookingReason("");
+  }, [conflicts.hasConflict]);
 
   const projectsById = useMemo(
     () => Object.fromEntries(projects.map((p) => [p.id, p])),
@@ -102,6 +114,7 @@ export function ScheduleInstallationSheet({
     setTeamId("");
     setSelectedEmployees([]);
     setNotes("");
+    setDoubleBookingReason("");
   };
 
   const handlePastOverrideToggle = (checked: boolean) => {
@@ -131,6 +144,14 @@ export function ScheduleInstallationSheet({
       toast({ title: "Select at least one employee", variant: "destructive" });
       return;
     }
+    if (!doubleBookingValidation.ok) {
+      toast({
+        title: "Double-booking reason required",
+        description: doubleBookingValidation.message,
+        variant: "destructive",
+      });
+      return;
+    }
     const id = addScheduledInstallation({
       projectId: project.id,
       scheduledDate,
@@ -141,11 +162,14 @@ export function ScheduleInstallationSheet({
       pastDateOverrideReason: dateValidation.pastOverride
         ? pastOverrideReason.trim()
         : undefined,
+      doubleBookingOverrideReason: conflicts.hasConflict
+        ? doubleBookingReason.trim()
+        : undefined,
     });
     if (!id) return;
     toast({
       title: "Installation scheduled",
-      description: `Scheduled for ${scheduledDate}${conflicts.teamConflicts.length || conflicts.employeeConflicts.length ? " (with conflict — overrode warning)" : ""}.`,
+      description: `Scheduled for ${scheduledDate}${conflicts.hasConflict ? " (double-booked with documented reason)" : ""}.`,
     });
     resetForm();
     onOpenChange(false);
@@ -267,9 +291,8 @@ export function ScheduleInstallationSheet({
             </div>
           )}
 
-          {/* Conflict banner — visual warning only, does not block */}
-          {(conflicts.teamConflicts.length > 0 || conflicts.employeeConflicts.length > 0) && (
-            <div className="rounded border border-warning/40 bg-warning/10 p-3 space-y-2">
+          {conflicts.hasConflict && (
+            <div className="rounded border border-warning/40 bg-warning/10 p-3 space-y-3">
               <div className="flex items-center gap-2 text-warning font-medium text-sm">
                 <AlertTriangle className="h-4 w-4" />
                 Already booked for {scheduledDate}
@@ -284,9 +307,19 @@ export function ScheduleInstallationSheet({
                   Person also at {projectsById[c.projectId]?.name ?? c.projectId}
                 </Badge>
               ))}
-              <p className="text-xs text-warning/80">
-                You can still schedule — this is just a heads-up.
-              </p>
+              <div className="space-y-1">
+                <Label htmlFor="sched-double-book-reason">Reason for double-booking</Label>
+                <Textarea
+                  id="sched-double-book-reason"
+                  rows={2}
+                  value={doubleBookingReason}
+                  onChange={(e) => setDoubleBookingReason(e.target.value)}
+                  placeholder={`Explain why this overlap is acceptable (min ${MIN_DOUBLE_BOOKING_OVERRIDE_REASON_LENGTH} characters)`}
+                />
+                {!doubleBookingValidation.ok && (
+                  <p className="text-xs text-destructive">{doubleBookingValidation.message}</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -306,7 +339,7 @@ export function ScheduleInstallationSheet({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!dateValidation.ok}>
+          <Button onClick={handleSubmit} disabled={!canSubmit}>
             Schedule
           </Button>
         </SheetFooter>

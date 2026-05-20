@@ -1,3 +1,4 @@
+import { auditFieldDiff } from "@/lib/auditFieldDiff";
 import type { AuditLogEntry } from "@/types/finance";
 import type { ActorContext } from "@/domain/entities/identity";
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
@@ -32,5 +33,33 @@ export class AuditService {
 
     this.repositories.auditRepository.add(entry);
     return entry;
+  }
+
+  /** One audit row per changed scalar field in `updates` (old → new values). */
+  writeFieldDiff(
+    actor: ActorContext,
+    entityType: string,
+    entityId: string,
+    entityName: string,
+    oldRow: Record<string, unknown>,
+    updates: Record<string, unknown>,
+  ): AuditLogEntry[] {
+    return auditFieldDiff(
+      (action, et, eid, ename, field, oldValue, newValue) =>
+        this.write(actor, {
+          action,
+          entityType: et,
+          entityId: eid,
+          entityName: ename,
+          field,
+          oldValue,
+          newValue,
+        }),
+      entityType,
+      entityId,
+      entityName,
+      oldRow,
+      updates,
+    );
   }
 }

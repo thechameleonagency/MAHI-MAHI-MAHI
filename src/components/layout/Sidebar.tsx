@@ -7,14 +7,15 @@ import { Badge } from "@/components/ui/badge";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useDerivedAlertCount } from "@/hooks/useDerivedAlertCount";
+import { useCompanyDisplayName } from "@/hooks/useCompanyDisplayName";
 import {
   readPinnedPaths,
   writePinnedPaths,
   togglePinnedPath,
-  prunePinnedPathsForRole,
   NAV_PINS_STORAGE_KEY,
   NAV_PINS_CHANGED_EVENT,
 } from "@/lib/navPins";
+import { useNavPinsForRole } from "@/hooks/useNavPinsForRole";
 import {
   getSidebarNavItemByPath,
   sidebarNavSections,
@@ -40,8 +41,10 @@ const Sidebar = ({
   const [pinnedPaths, setPinnedPaths] = useState<string[]>(() => readPinnedPaths());
   const { permissionService } = useFoundation();
   const { currentRole } = useAppSession();
+  const companyDisplayName = useCompanyDisplayName();
 
   const refreshPins = useCallback(() => setPinnedPaths(readPinnedPaths()), []);
+  useNavPinsForRole(refreshPins);
   const [isMobileLayout, setIsMobileLayout] = useState(false);
 
   useEffect(() => {
@@ -64,11 +67,6 @@ const Sidebar = ({
       window.removeEventListener(NAV_PINS_CHANGED_EVENT, onCustom);
     };
   }, [refreshPins]);
-
-  useEffect(() => {
-    prunePinnedPathsForRole((path) => permissionService.canAccessPath(currentRole, path));
-    refreshPins();
-  }, [currentRole, permissionService, refreshPins]);
 
   const handlePinToggle = (path: string) => {
     const next = togglePinnedPath(path, pinnedPaths);
@@ -180,7 +178,9 @@ const Sidebar = ({
           M
         </div>
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="text-sm font-semibold tracking-tight text-foreground">Mahi Sola Solutions</div>
+          <div className="truncate text-sm font-semibold tracking-tight text-foreground" title={companyDisplayName}>
+            {companyDisplayName}
+          </div>
         </div>
       </div>
 
@@ -216,7 +216,7 @@ const Sidebar = ({
             onClick={() => onMobileClose()}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              location.pathname === "/settings"
+              location.pathname === "/settings" || location.pathname.startsWith("/settings/")
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent/50",
             )}

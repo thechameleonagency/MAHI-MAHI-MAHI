@@ -47,6 +47,7 @@ import type { ProcurementNeedLine } from "@/types/operations";
 import { formatINR } from "@/lib/formatCurrency";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { isProcurementHandoffOnly } from "@/lib/procurementHandoff";
 
 type NeedToGetSheetProps = {
   open: boolean;
@@ -216,8 +217,7 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
   }, [procurementNeedLines]);
 
   const canAssignVendor = canDo("vendor:record_bill");
-  const procurementHandoffOnly =
-    currentRole === "installation_team" && !canAssignVendor;
+  const procurementHandoffOnly = isProcurementHandoffOnly(currentRole, canAssignVendor);
 
   const activeSitesPerProject = useMemo(() => countActiveSitesByProjectId(sites), [sites]);
 

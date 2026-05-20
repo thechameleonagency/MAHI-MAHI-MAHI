@@ -35,6 +35,13 @@ import { CreateProjectSheet } from "@/components/projects/CreateProjectSheet";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import type { Project } from "@/types/project";
 import { normalizeProject } from "@/lib/projectNormalize";
+import {
+  canonicalProjectKind,
+  PROJECT_KIND_FILTER_OPTIONS,
+  PROJECT_KIND_UI_LABELS,
+  PROJECT_KIND_UI_TONES,
+  projectMatchesKindFilter,
+} from "@/lib/projectTaxonomyDisplay";
 import type { ProjectIntakePayload } from "@/application/services/ProjectKindService";
 import type { ProjectKind } from "@/domain/projectTypes/types";
 import { PROJECT_KINDS } from "@/domain/projectTypes/types";
@@ -115,28 +122,6 @@ const Projects = () => {
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
-  const projectKindLabel: Record<NonNullable<Project["projectKind"]>, string> = {
-    SOLO_EPC: "Solo", 
-    PARTNER_EPC: "Partner", 
-    FIXED_EPC: "Fixed",
-    VENDOR_NETWORK: "Vendor", 
-    INC: "INC",
-    INC_GIVEN: "INC Given",
-    OUTSOURCED_INC: "Outsourced",
-    VENDORSHIP_ONLY: "Vendorship Only"
-  };
-
-  const projectKindTone: Record<NonNullable<Project["projectKind"]>, string> = {
-    SOLO_EPC: "bg-success/10 text-success border-success/25",
-    PARTNER_EPC: "bg-primary/10 text-primary border-primary/25",
-    FIXED_EPC: "bg-warning/10 text-warning border-warning/25",
-    VENDOR_NETWORK: "bg-accent/10 text-accent-foreground border-accent/25",
-    INC: "bg-slate-500/10 text-slate-700 border-slate-500/25",
-    INC_GIVEN: "bg-warning/10 text-warning border-warning/25",
-    OUTSOURCED_INC: "bg-primary/10 text-primary border-primary/25",
-    VENDORSHIP_ONLY: "bg-accent/10 text-accent-foreground border-accent/25",
-  };
-
   const projectAgingContext = useMemo(() => {
     const byProject: Record<string, { lastPaymentDate?: string; lastTaskDate?: string }> = {};
     for (const p of projects) {
@@ -171,7 +156,7 @@ const Projects = () => {
         p.id.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === "all" || p.status === statusFilter;
       const matchesType = typeFilter === "all" || p.projectType === typeFilter;
-      const matchesKind = kindFilter === "all" || p.projectMode === kindFilter;
+      const matchesKind = projectMatchesKindFilter(p, kindFilter);
       const matchesCompleted = !hideCompleted || isProjectOpen(p);
       const matchesCustomer =
         !customerFilterParam ||
@@ -712,14 +697,16 @@ const Projects = () => {
             </SelectContent>
           </Select>
           <Select value={kindFilter} onValueChange={setKindFilter}>
-            <SelectTrigger className="w-full sm:w-44">
-              <SelectValue placeholder="Project type" />
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Project kind" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All project types</SelectItem>
-              <SelectItem value="DIRECT_CLIENT">Direct Client</SelectItem>
-              <SelectItem value="PARTNER_NETWORK">Partner Network</SelectItem>
-              <SelectItem value="INC_GIVEN_TO_US">INC Given to Us</SelectItem>
+              <SelectItem value="all">All kinds</SelectItem>
+              {PROJECT_KIND_FILTER_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button
@@ -783,7 +770,7 @@ const Projects = () => {
           </TableHeader>
           <TableBody>
             {pagedProjects.map((project, rowIdx) => {
-              const kind = project.projectKind || "SOLO_EPC";
+              const kind = canonicalProjectKind(project);
               const globalIdx = (tablePage - 1) * tablePageSize + rowIdx;
               const showDivider = completedDividerIndex === globalIdx;
               const aging = getProjectIdleAging(project, projectAgingContext[project.id]);
@@ -826,7 +813,7 @@ const Projects = () => {
                   )}
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline" className={`text-2xs ${projectKindTone[kind]}`}>{projectKindLabel[kind]}</Badge>
+                  <Badge variant="outline" className={`text-2xs ${PROJECT_KIND_UI_TONES[kind]}`}>{PROJECT_KIND_UI_LABELS[kind]}</Badge>
                 </TableCell>
                 <TableCell>{project.capacity}</TableCell>
                 <TableCell>
@@ -847,7 +834,7 @@ const Projects = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {pagedProjects.map(project => {
-            const kind = project.projectKind || "SOLO_EPC";
+            const kind = canonicalProjectKind(project);
             const assigneeCount = project.assignees?.length ?? 0;
             return (
             <Card key={project.id} className="group hover:shadow-md transition-shadow cursor-pointer rounded-xl" onClick={() => navigate(`/projects/${project.id}`)}>
@@ -866,7 +853,7 @@ const Projects = () => {
                 </div>
                 
                 <div className="flex flex-wrap gap-1.5 mb-3">
-                  <Badge variant="outline" className={`text-2xs ${projectKindTone[kind]}`}>{projectKindLabel[kind]}</Badge>
+                  <Badge variant="outline" className={`text-2xs ${PROJECT_KIND_UI_TONES[kind]}`}>{PROJECT_KIND_UI_LABELS[kind]}</Badge>
                   <Badge variant="secondary" className="text-2xs">{project.projectType}</Badge>
                   {projectNeedsTeamAssignment(project) && (
                     <Badge variant="outline" className="text-2xs bg-warning/10 text-warning border-warning/20">

@@ -6,7 +6,12 @@ import { Check, Minus, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRoleMatrix } from "@/contexts/RoleMatrixContext";
 import { USER_ROLES, ROLE_LABELS, type UserRole } from "@/domain/entities/identity";
-import type { Crud, Feature, FeaturePermissionMatrix } from "@/domain/policies/featurePermissions";
+import {
+  FEATURE_MATRIX_ROW_NOTES,
+  type Crud,
+  type Feature,
+  type FeaturePermissionMatrix,
+} from "@/domain/policies/featurePermissions";
 
 const CRUDS: Crud[] = ["view", "create", "edit", "delete"];
 const CRUD_LETTERS: Record<Crud, string> = { view: "V", create: "C", edit: "E", delete: "D" };
@@ -259,6 +264,11 @@ function FragmentDomain({
           <td className="sticky left-0 bg-background px-3 py-1.5 font-medium align-top">
             {f.label}
             <div className="text-2xs font-mono text-muted-foreground">{f.key}</div>
+            {FEATURE_MATRIX_ROW_NOTES[f.key] && (
+              <p className="mt-1 max-w-[240px] text-2xs font-normal leading-snug text-muted-foreground">
+                {FEATURE_MATRIX_ROW_NOTES[f.key]}
+              </p>
+            )}
           </td>
           {USER_ROLES.map((role) => (
             CRUDS.map((c) => {

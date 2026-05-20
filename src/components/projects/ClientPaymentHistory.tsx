@@ -19,13 +19,14 @@ import { format } from "date-fns";
 import type { ClientPaymentRecord } from "@/types/blockage";
 import { formatINR } from "@/lib/formatCurrency";
 import { formatUiDate } from "@/lib/formatUiDate";
+import { validateClientPaymentRecord } from "@/lib/clientPaymentReconciliation";
 
 interface ClientPaymentHistoryProps {
   projectId: string;
   clientName: string;
   contractAmount: number;
   payments: ClientPaymentRecord[];
-  onRecordPayment: (payment: Omit<ClientPaymentRecord, "id" | "recordedAt">) => void;
+  onRecordPayment: (payment: Omit<ClientPaymentRecord, "id" | "recordedAt">) => boolean;
   /** External partner name for labels when settlement is partner/split */
   partnerName?: string;
   /** When true, client cash cannot be recorded as received by partner or split (company-only). */
@@ -121,10 +122,6 @@ export function ClientPaymentHistory({
 
   const handleRecordPayment = () => {
     const amount = Number.parseFloat(paymentAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast({ title: "Error", description: "Please enter a valid amount", variant: "destructive" });
-      return;
-    }
     if (!paymentMode) {
       toast({ title: "Error", description: "Please select a payment mode", variant: "destructive" });
       return;
@@ -138,10 +135,15 @@ export function ClientPaymentHistory({
       return;
     }
 
-    if (totalReceived + amount > contractAmount + 0.01) {
+    const intakeCheck = validateClientPaymentRecord(
+      { amount, projectId },
+      contractAmount,
+      totalReceived,
+    );
+    if (!intakeCheck.ok) {
       toast({
-        title: "Over contract",
-        description: `Recorded payments (${formatINR(totalReceived)}) plus this entry (${formatINR(amount)}) exceed the contract (${formatINR(contractAmount)}). Adjust the amount or contract.`,
+        title: "Cannot record payment",
+        description: intakeCheck.reason,
         variant: "destructive",
       });
       return;
@@ -172,7 +174,7 @@ export function ClientPaymentHistory({
       ];
     }
 
-    onRecordPayment({
+    const saved = onRecordPayment({
       projectId,
       date: paymentDate,
       amount,
@@ -183,6 +185,7 @@ export function ClientPaymentHistory({
       ...(splitLines ? { splitLines } : {}),
       ...(stage ? { paymentStage: stage } : {}),
     });
+    if (!saved) return;
 
     // Reset form
     setPaymentDate(format(new Date(), "yyyy-MM-dd"));

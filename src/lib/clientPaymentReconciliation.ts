@@ -171,8 +171,18 @@ export function reconcileClientPaymentLedger(input: {
 }
 
 export type ClientPaymentValidationResult =
-  | { ok: true }
+  | { ok: true; remainingDue: number }
   | { ok: false; reason: string };
+
+/** Remaining contract balance before a new client payment record. */
+export function clientPaymentRemainingDue(
+  contractAmount: number,
+  totalAlreadyReceived: number,
+): number {
+  const contract = Number.isFinite(contractAmount) ? contractAmount : 0;
+  const received = Number.isFinite(totalAlreadyReceived) ? totalAlreadyReceived : 0;
+  return Math.max(0, contract - received);
+}
 
 /** Defense-in-depth guards for client payment intake (UI also validates). */
 export function validateClientPaymentRecord(
@@ -180,15 +190,25 @@ export function validateClientPaymentRecord(
   contractAmount: number,
   totalAlreadyReceived: number,
 ): ClientPaymentValidationResult {
+  if (!record.projectId?.trim()) {
+    return { ok: false, reason: "Project is required to record a payment." };
+  }
+
   const amount = record.amount;
   if (!Number.isFinite(amount) || amount <= 0) {
     return { ok: false, reason: "Payment amount must be greater than zero." };
   }
-  if (totalAlreadyReceived + amount > contractAmount + 0.01) {
+
+  const remainingDue = clientPaymentRemainingDue(contractAmount, totalAlreadyReceived);
+  if (amount > remainingDue + 0.01) {
     return {
       ok: false,
-      reason: `Payment would exceed the contract balance (${totalAlreadyReceived} + ${amount} > ${contractAmount}).`,
+      reason:
+        remainingDue <= 0
+          ? "Contract balance is already fully collected. No further client payments can be recorded."
+          : `Payment exceeds remaining contract balance (₹${remainingDue.toLocaleString("en-IN")} due).`,
     };
   }
-  return { ok: true };
+
+  return { ok: true, remainingDue };
 }

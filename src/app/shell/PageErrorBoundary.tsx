@@ -1,14 +1,20 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import { resolvePageErrorRecovery, type PageErrorRecovery } from "@/lib/routeErrorRecovery";
 
 const isDev = import.meta.env.DEV;
 
-type Props = { children: ReactNode };
+type Props = {
+  children: ReactNode;
+  /** When set (e.g. from current route), customizes the fallback copy and back link. */
+  recovery?: PageErrorRecovery;
+};
+
 type State = { hasError: boolean; error: Error | null };
 
 /**
- * Isolates per-route render failures so one bad page does not blank the whole app shell.
+ * Isolates routed page render failures. Mounted once in AppLayout — do not nest per-route copies.
  */
 export class PageErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false, error: null };
@@ -17,21 +23,28 @@ export class PageErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
+  componentDidUpdate(prevProps: Props) {
+    if (prevProps.recovery?.backTo !== this.props.recovery?.backTo && this.state.hasError) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("PageErrorBoundary", { error, errorInfo });
   }
 
   render() {
     if (this.state.hasError && this.state.error) {
+      const recovery = this.props.recovery ?? resolvePageErrorRecovery("/");
       return (
         <div className="space-y-4 p-4">
-          <h1 className="text-lg font-semibold">This page failed to load</h1>
+          <h1 className="text-lg font-semibold">{recovery.title}</h1>
           <p className="text-sm text-muted-foreground">
             Try{" "}
             <Button variant="link" className="h-auto p-0" onClick={() => window.location.reload()}>
               refreshing
             </Button>{" "}
-            or return to the dashboard.
+            or return to the previous list.
           </p>
           {isDev && (
             <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-muted/50 p-2 text-left text-xs">
@@ -39,7 +52,7 @@ export class PageErrorBoundary extends Component<Props, State> {
             </pre>
           )}
           <Button asChild variant="outline" size="sm">
-            <Link to="/">Back to dashboard</Link>
+            <Link to={recovery.backTo}>{recovery.backLabel}</Link>
           </Button>
         </div>
       );

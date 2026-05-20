@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { useAppData } from "@/contexts/AppDataContext";
+import { formatINR } from "@/lib/formatCurrency";
+import {
+  materialDamageReasonHint,
+  materialDamageRequiresReason,
+  parsePhotoUrlLines,
+  validateMaterialDamageForm,
+} from "@/lib/materialDamageValidation";
 import { toast } from "@/hooks/use-toast";
 import type { MaterialDamageStage } from "@/types/operations";
 
@@ -17,6 +24,7 @@ const defaultForm = (defaultUnitCost?: number) => ({
   transportRef: "",
   costImpact: defaultUnitCost ? String(defaultUnitCost) : "",
   notes: "",
+  photoUrls: "",
   reportedBy: "",
 });
 
@@ -55,36 +63,41 @@ export function MaterialDamageSheet({
     onOpenChange(v);
   };
 
-  const validate = (): { ok: true; qty: number; cost?: number } | { ok: false } => {
+  const parsedPreview = useMemo(() => {
     const q = Number.parseFloat(form.qty);
-    if (!Number.isFinite(q) || q <= 0) {
-      toast({ title: "Enter a valid quantity", variant: "destructive" });
-      return { ok: false };
-    }
     const costTrim = form.costImpact.trim();
-    if (costTrim) {
-      const cost = Number.parseFloat(costTrim);
-      if (!Number.isFinite(cost) || cost <= 0) {
-        toast({
-          title: "Invalid cost impact",
-          description: "Enter a positive amount or leave the field empty.",
-          variant: "destructive",
-        });
-        return { ok: false };
-      }
-      return { ok: true, qty: q, cost };
+    const cost = costTrim ? Number.parseFloat(costTrim) : undefined;
+    return {
+      qty: Number.isFinite(q) ? q : 0,
+      costImpact: costTrim && Number.isFinite(cost) ? cost : undefined,
+      notes: form.notes,
+    };
+  }, [form.qty, form.costImpact, form.notes]);
+
+  const reasonRequired = materialDamageRequiresReason({
+    qty: parsedPreview.qty,
+    costImpact: parsedPreview.costImpact,
+    notes: form.notes,
+  });
+
+  const runValidate = () => {
+    const result = validateMaterialDamageForm(form);
+    if (!result.ok) {
+      toast({ title: "Cannot report damage", description: result.message, variant: "destructive" });
+      return null;
     }
-    return { ok: true, qty: q };
+    return result;
   };
 
   const handleRequestConfirm = () => {
-    if (!validate().ok) return;
+    if (!runValidate()) return;
     setConfirmOpen(true);
   };
 
   const handleConfirmSubmit = () => {
-    const parsed = validate();
-    if (!parsed.ok) return;
+    const parsed = runValidate();
+    if (!parsed) return;
+    const photoUrls = parsePhotoUrlLines(form.photoUrls);
     const id = addMaterialDamage({
       itemId,
       qty: parsed.qty,
@@ -92,12 +105,14 @@ export function MaterialDamageSheet({
       projectId,
       transportRef: form.transportRef.trim() || undefined,
       reportedBy: form.reportedBy.trim() || undefined,
-      notes: form.notes.trim() || undefined,
+      notes: parsed.notes,
+      photoUrls: photoUrls.length ? photoUrls : undefined,
       costImpact: parsed.cost,
     });
+    if (!id) return;
     toast({
       title: "Damage reported",
-      description: `${parsed.qty} ${itemName} written off${parsed.cost ? ` — ₹${parsed.cost.toLocaleString("en-IN")} impact` : ""}.`,
+      description: `${parsed.qty} ${itemName} written off${parsed.cost ? ` — ${formatINR(parsed.cost)} impact` : ""}.`,
     });
     onReported?.(id);
     setConfirmOpen(false);
@@ -105,8 +120,10 @@ export function MaterialDamageSheet({
   };
 
   const costLabel = form.costImpact.trim()
-    ? `₹${Number.parseFloat(form.costImpact).toLocaleString("en-IN")}`
+    ? formatINR(Number.parseFloat(form.costImpact))
     : "none";
+
+  const photoCount = parsePhotoUrlLines(form.photoUrls).length;
 
   return (
     <>
@@ -158,6 +175,9 @@ export function MaterialDamageSheet({
                 value={form.costImpact}
                 onChange={(e) => setForm((f) => ({ ...f, costImpact: e.target.value }))}
               />
+              <p className="text-xs text-muted-foreground">
+                Financial write-off for P&amp;L when set. Large amounts require a reason below.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Reported by</Label>
@@ -175,12 +195,33 @@ export function MaterialDamageSheet({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Notes</Label>
+              <Label>
+                Reason / notes
+                {reasonRequired ? <span className="text-destructive"> *</span> : null}
+              </Label>
               <Textarea
                 value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                rows={2}
+                rows={3}
+                placeholder="What happened, where, and who witnessed it"
+                aria-required={reasonRequired}
               />
+              {reasonRequired && (
+                <p className="text-xs text-muted-foreground">{materialDamageReasonHint()}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="damage-photo-urls">Photo URL(s) (optional)</Label>
+              <Textarea
+                id="damage-photo-urls"
+                rows={2}
+                value={form.photoUrls}
+                onChange={(e) => setForm((f) => ({ ...f, photoUrls: e.target.value }))}
+                placeholder="https://… — comma or newline separated"
+              />
+              <p className="text-xs text-muted-foreground">
+                Link site photos or delivery proofs. URLs are stored on the damage record for audit review.
+              </p>
             </div>
           </div>
 
@@ -188,7 +229,11 @@ export function MaterialDamageSheet({
             <Button variant="outline" onClick={() => handleOpenChange(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleRequestConfirm}>
+            <Button
+              variant="destructive"
+              onClick={handleRequestConfirm}
+              disabled={reasonRequired && !form.notes.trim()}
+            >
               Report damage
             </Button>
           </SheetFooter>
@@ -202,7 +247,15 @@ export function MaterialDamageSheet({
         description={
           <>
             Write off <strong>{form.qty}</strong> of <strong>{itemName}</strong> on <strong>{projectName}</strong> (
-            {form.stage}). Cost impact: {costLabel}. This reduces inventory and cannot be undone.
+            {form.stage}). Cost impact: {costLabel}.
+            {form.notes.trim() ? (
+              <>
+                {" "}
+                Reason: {form.notes.trim()}
+              </>
+            ) : null}
+            {photoCount > 0 ? <> · {photoCount} photo URL(s) attached</> : null}. This reduces inventory and cannot
+            be undone.
           </>
         }
         confirmLabel="Report damage"

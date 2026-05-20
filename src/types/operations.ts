@@ -45,6 +45,8 @@ export interface ScheduledInstallation {
   notes?: string;
   /** Set when super_admin schedules before today; documents why. */
   pastDateOverrideReason?: string;
+  /** Set when team/employee is already booked on this date elsewhere; documents why. */
+  doubleBookingOverrideReason?: string;
   createdAt: string;
 }
 
@@ -110,6 +112,8 @@ export interface MaterialDamage {
   transportRef?: string;
   reportedBy?: string;
   notes?: string;
+  /** Optional evidence links (comma- or newline-separated in the form). */
+  photoUrls?: string[];
   costImpact?: number;
   reportedAt: string;
 }

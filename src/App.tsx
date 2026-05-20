@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,8 +8,6 @@ import { RoleMatrixProvider } from "@/contexts/RoleMatrixContext";
 import { FoundationProvider } from "@/app/providers/FoundationProvider";
 import { AppSessionProvider } from "@/app/providers/AppSessionProvider";
 import { AppErrorBoundary } from "@/app/shell/AppErrorBoundary";
-import { PageErrorBoundary } from "@/app/shell/PageErrorBoundary";
-import { ProjectRouteErrorBoundary } from "@/app/shell/ProjectRouteErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
@@ -40,6 +37,7 @@ import Timeline from "./pages/Timeline";
 import CalendarPage from "./pages/Calendar";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
+import DesignSystem from "./pages/DesignSystem";
 import NotFound from "./pages/NotFound";
 import CustomerDetail from "./pages/CustomerDetail";
 import VendorDetail from "./pages/VendorDetail";
@@ -64,10 +62,6 @@ import ChartOfAccounts from "./pages/audit/ChartOfAccounts";
 
 const queryClient = new QueryClient();
 
-function Page({ children }: { children: ReactNode }) {
-  return <PageErrorBoundary>{children}</PageErrorBoundary>;
-}
-
 const App = () => (
   <AppErrorBoundary>
     <QueryClientProvider client={queryClient}>
@@ -81,69 +75,62 @@ const App = () => (
                 <BrowserRouter>
                   <AppLayout>
                     <Routes>
-                <Route path="/" element={<Page><Dashboard /></Page>} />
-                <Route path="/active-sites" element={<Page><ActiveSites /></Page>} />
-                <Route path="/projects" element={<Page><Projects /></Page>} />
-                <Route
-                  path="/projects/:id"
-                  element={
-                    <ProjectRouteErrorBoundary>
-                      <ProjectDetail />
-                    </ProjectRouteErrorBoundary>
-                  }
-                />
-                <Route path="/quotations" element={<Page><Quotations /></Page>} />
-                <Route path="/enquiries" element={<Page><Enquiries /></Page>} />
-                <Route path="/agents" element={<Page><Agents /></Page>} />
-                <Route path="/agents/:id" element={<Page><AgentDetail /></Page>} />
-                <Route path="/customers" element={<Page><Customers /></Page>} />
-                <Route path="/customers/:id" element={<Page><CustomerDetail /></Page>} />
-                <Route path="/invoices" element={<Page><Invoices /></Page>} />
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/active-sites" element={<ActiveSites />} />
+                <Route path="/projects" element={<Projects />} />
+                <Route path="/projects/:id" element={<ProjectDetail />} />
+                <Route path="/quotations" element={<Quotations />} />
+                <Route path="/enquiries" element={<Enquiries />} />
+                <Route path="/agents" element={<Agents />} />
+                <Route path="/agents/:id" element={<AgentDetail />} />
+                <Route path="/customers" element={<Customers />} />
+                <Route path="/customers/:id" element={<CustomerDetail />} />
+                <Route path="/invoices" element={<Invoices />} />
                 {/* Legacy alias — not in appRouteRegistry / permission matrix (Md5). */}
                 <Route path="/sale-bills" element={<Navigate to="/invoices" replace />} />
                 {/* /inventory hub removed per audit B11 — `/inventory/materials` is the entry point. */}
                 <Route path="/inventory" element={<InventoryIndexRedirect />} />
-                <Route path="/inventory/materials" element={<Page><Materials /></Page>} />
-                <Route path="/inventory/tools" element={<Page><Tools /></Page>} />
-                <Route path="/templates" element={<Page><TemplatesPage /></Page>} />
+                <Route path="/inventory/materials" element={<Materials />} />
+                <Route path="/inventory/tools" element={<Tools />} />
+                <Route path="/templates" element={<TemplatesPage />} />
                 {/* Legacy aliases — not in appRouteRegistry / permission matrix (Md5). */}
                 <Route path="/presets" element={<Navigate to="/templates" replace />} />
                 <Route path="/inventory/presets" element={<Navigate to="/templates" replace />} />
-                <Route path="/employees" element={<Page><Employees /></Page>} />
-                <Route path="/teams" element={<Page><Teams /></Page>} />
-                <Route path="/teams/:id" element={<Page><TeamDetail /></Page>} />
-                <Route path="/employees/:id" element={<Page><EmployeeProfile /></Page>} />
-                <Route path="/attendance" element={<Page><Attendance /></Page>} />
-                <Route path="/finance" element={<Page><Finance /></Page>} />
-                <Route path="/vendors" element={<Page><Vendors /></Page>} />
-                <Route path="/vendors/:id" element={<Page><VendorDetail /></Page>} />
-                <Route path="/loans" element={<Page><Loans /></Page>} />
-                <Route path="/loans/person/:id" element={<Page><LoanPersonDetail /></Page>} />
-                <Route path="/partners" element={<Page><Partners /></Page>} />
-                <Route path="/partners/:id" element={<Page><PartnerDetail /></Page>} />
-                <Route path="/vendorship-companies" element={<Page><VendorshipCompanies /></Page>} />
-                <Route path="/vendorship/:id" element={<Page><VendorshipCompanyDetail /></Page>} />
-                <Route path="/inc-work-sources" element={<Page><INCWorkSources /></Page>} />
-                <Route path="/inc-sources/:id" element={<Page><INCWorkSourceDetail /></Page>} />
-                <Route path="/timeline" element={<Page><Timeline /></Page>} />
-                <Route path="/calendar" element={<Page><CalendarPage /></Page>} />
-                <Route path="/analytics" element={<Page><Analytics /></Page>} />
-                <Route path="/notifications" element={<Page><Notifications /></Page>} />
-                <Route path="/settings" element={<Page><Settings /></Page>} />
-                <Route path="/settings/design-system" element={<Page><Settings /></Page>} />
-                <Route path="/audit" element={<Page><AuditDashboard /></Page>} />
-                <Route path="/audit/chart-of-accounts" element={<Page><ChartOfAccounts /></Page>} />
-                <Route path="/audit/profit-loss" element={<Page><ProfitLoss /></Page>} />
-                <Route path="/audit/inventory" element={<Page><InventoryAudit /></Page>} />
-                <Route path="/audit/debtors-creditors" element={<Page><DebtorsCreditors /></Page>} />
-                <Route path="/audit/gst" element={<Page><GSTCompliance /></Page>} />
-                <Route path="/audit/cash-bank" element={<Page><CashBankLedger /></Page>} />
-                <Route path="/audit/expenses" element={<Page><ExpenseAudit /></Page>} />
-                <Route path="/audit/assets" element={<Page><FixedAssets /></Page>} />
-                <Route path="/audit/logs" element={<Page><AuditLogs /></Page>} />
-                <Route path="/audit/reports" element={<Page><AuditReports /></Page>} />
-                <Route path="/audit/data-flow" element={<Page><AuditDataFlow /></Page>} />
-                <Route path="*" element={<Page><NotFound /></Page>} />
+                <Route path="/employees" element={<Employees />} />
+                <Route path="/teams" element={<Teams />} />
+                <Route path="/teams/:id" element={<TeamDetail />} />
+                <Route path="/employees/:id" element={<EmployeeProfile />} />
+                <Route path="/attendance" element={<Attendance />} />
+                <Route path="/finance" element={<Finance />} />
+                <Route path="/vendors" element={<Vendors />} />
+                <Route path="/vendors/:id" element={<VendorDetail />} />
+                <Route path="/loans" element={<Loans />} />
+                <Route path="/loans/person/:id" element={<LoanPersonDetail />} />
+                <Route path="/partners" element={<Partners />} />
+                <Route path="/partners/:id" element={<PartnerDetail />} />
+                <Route path="/vendorship-companies" element={<VendorshipCompanies />} />
+                <Route path="/vendorship/:id" element={<VendorshipCompanyDetail />} />
+                <Route path="/inc-work-sources" element={<INCWorkSources />} />
+                <Route path="/inc-sources/:id" element={<INCWorkSourceDetail />} />
+                <Route path="/timeline" element={<Timeline />} />
+                <Route path="/calendar" element={<CalendarPage />} />
+                <Route path="/analytics" element={<Analytics />} />
+                <Route path="/notifications" element={<Notifications />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/settings/design-system" element={<DesignSystem />} />
+                <Route path="/audit" element={<AuditDashboard />} />
+                <Route path="/audit/chart-of-accounts" element={<ChartOfAccounts />} />
+                <Route path="/audit/profit-loss" element={<ProfitLoss />} />
+                <Route path="/audit/inventory" element={<InventoryAudit />} />
+                <Route path="/audit/debtors-creditors" element={<DebtorsCreditors />} />
+                <Route path="/audit/gst" element={<GSTCompliance />} />
+                <Route path="/audit/cash-bank" element={<CashBankLedger />} />
+                <Route path="/audit/expenses" element={<ExpenseAudit />} />
+                <Route path="/audit/assets" element={<FixedAssets />} />
+                <Route path="/audit/logs" element={<AuditLogs />} />
+                <Route path="/audit/reports" element={<AuditReports />} />
+                <Route path="/audit/data-flow" element={<AuditDataFlow />} />
+                <Route path="*" element={<NotFound />} />
                     </Routes>
                   </AppLayout>
                 </BrowserRouter>

@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
+import { parseValidatedPhotoUrlLines } from "@/lib/photoUrlLines";
 import type { Project } from "@/types/project";
 import type { SiteVisitItem } from "@/types/operations";
 
@@ -107,10 +108,18 @@ export function SiteVisitSheet({
       return;
     }
 
-    const photos = photoUrls
-      .split(/[\n,]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const { valid: photos, invalid: invalidPhotoUrls } = parseValidatedPhotoUrlLines(photoUrls);
+    if (invalidPhotoUrls.length > 0) {
+      const preview =
+        invalidPhotoUrls.length === 1
+          ? invalidPhotoUrls[0]
+          : `${invalidPhotoUrls.length} entries (e.g. ${invalidPhotoUrls[0]})`;
+      toast({
+        title: "Invalid photo URL(s) skipped",
+        description: `Use full http(s) links. Skipped: ${preview}`,
+        variant: "destructive",
+      });
+    }
 
     const visitId = addSiteVisit({
       projectId: project.id,

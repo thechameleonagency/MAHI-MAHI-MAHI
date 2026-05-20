@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/hooks/use-toast";
+import { validateClientPaymentRecord } from "@/lib/clientPaymentReconciliation";
 import { formatDistanceToNow } from "date-fns";
 import { formatUiDate } from "@/lib/formatUiDate";
 import type {
@@ -60,13 +61,15 @@ interface ProgressReportTabProps {
   projectContractAmount?: number;
   projectBankDocAmount?: number;
   projectAmountReceived?: number;
+  /** Sum of persisted client payment records (authoritative for contract cap). */
+  clientPaymentRecordedTotal?: number;
   onAddBlockage: (blockage: Omit<Blockage, "id" | "createdAt">) => void;
   onResolveBlockage: (
     blockageId: string,
     resolution: { resolvedBy: string; resolvedByName: string; resolvedAt: string; notes?: string },
   ) => void;
   /** When set, cash received is persisted (client payment record + project totals); otherwise local demo totals only. */
-  onRecordClientCash?: (amount: number, notes?: string) => void;
+  onRecordClientCash?: (amount: number, notes?: string) => boolean;
   onAddTicket: (ticket: Omit<Ticket, "id" | "createdAt">) => void;
   onUpdateTimeline: (updates: Partial<ProjectTimelineStatus>) => void;
   scope?: ProjectScopeConfig;
@@ -165,6 +168,7 @@ export function ProgressReportTab({
   projectContractAmount,
   projectBankDocAmount,
   projectAmountReceived,
+  clientPaymentRecordedTotal,
   onAddBlockage,
   onResolveBlockage,
   onRecordClientCash,
@@ -360,26 +364,25 @@ export function ProgressReportTab({
   // Helper to record a cash payment
   const handleRecordCashPayment = () => {
     const amount = parseFloat(cashPaymentAmount);
-    if (!amount || amount <= 0) {
-      toast({ title: "Error", description: "Enter a valid amount", variant: "destructive" });
-      return;
-    }
     const contract = projectContractAmount ?? 0;
-    if (contract > 0) {
-      const already = projectAmountReceived ?? 0;
-      const remaining = Math.max(0, contract - already);
-      if (amount > remaining + 0.01) {
-        toast({
-          title: "Exceeds contract balance",
-          description: `Outstanding contract balance is about ₹${remaining.toLocaleString("en-IN")}. Reduce the amount or update the contract.`,
-          variant: "destructive",
-        });
-        return;
-      }
+    const alreadyRecorded = clientPaymentRecordedTotal ?? projectAmountReceived ?? 0;
+    const intakeCheck = validateClientPaymentRecord(
+      { amount, projectId },
+      contract,
+      alreadyRecorded,
+    );
+    if (!intakeCheck.ok) {
+      toast({
+        title: "Cannot record payment",
+        description: intakeCheck.reason,
+        variant: "destructive",
+      });
+      return;
     }
     const notes = cashPaymentNotes.trim() || undefined;
     if (onRecordClientCash) {
-      onRecordClientCash(amount, notes);
+      const saved = onRecordClientCash(amount, notes);
+      if (!saved) return;
     } else {
       setTotalCashReceived((prev) => prev + amount);
     }

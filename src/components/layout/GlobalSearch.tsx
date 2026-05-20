@@ -28,6 +28,20 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { normalizeLoanPersonKey } from "@/lib/loanPerson";
+import {
+  computeMatchTier,
+  isEmployeeSearchTerminal,
+  isEnquirySearchTerminal,
+  isInvoiceSearchTerminal,
+  isProjectSearchTerminal,
+  isQuotationSearchTerminal,
+  isSiteSearchTerminal,
+  isTaskSearchTerminal,
+  isTeamSearchTerminal,
+  isToolSearchTerminal,
+  sortGlobalSearchResults,
+  type GlobalSearchMatchTier,
+} from "@/lib/globalSearchRank";
 import { cn } from "@/lib/utils";
 
 type SearchResult = {
@@ -54,6 +68,20 @@ type SearchResult = {
     | "template";
   subtitle?: string;
   path: string;
+  matchTier: GlobalSearchMatchTier;
+  isTerminal: boolean;
+};
+
+const pushSearchMatch = (
+  list: SearchResult[],
+  query: string,
+  fields: (string | undefined | null)[],
+  row: Omit<SearchResult, "matchTier" | "isTerminal">,
+  isTerminal: boolean,
+): void => {
+  const tier = computeMatchTier(query, fields);
+  if (tier === null) return;
+  list.push({ ...row, matchTier: tier, isTerminal });
 };
 
 const typeConfig = {
@@ -122,239 +150,295 @@ const GlobalSearch = ({ onNavigate }: GlobalSearchProps) => {
     const searchQuery = query.toLowerCase().trim();
     const searchResults: SearchResult[] = [];
 
-    // Search projects
     projects.forEach((p) => {
-      if (p.name.toLowerCase().includes(searchQuery) || p.client?.toLowerCase().includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [p.name, p.client],
+        {
           id: p.id,
           name: p.name,
           type: "project",
           subtitle: p.client,
           path: `/projects/${p.id}`,
-        });
-      }
+        },
+        isProjectSearchTerminal(p),
+      );
     });
 
-    // Search customers (active only — archived are reachable via customer detail / Show archived list)
     customers.forEach((c) => {
       if (c.archivedAt) return;
-      if (c.name.toLowerCase().includes(searchQuery) || c.phone?.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [c.name, c.phone],
+        {
           id: c.id,
           name: c.name,
           type: "customer",
           subtitle: c.phone,
           path: `/customers/${c.id}`,
-        });
-      }
+        },
+        false,
+      );
     });
 
-    // Search employees
     employees.forEach((e) => {
-      if (e.name.toLowerCase().includes(searchQuery) || e.phone?.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [e.name, e.phone],
+        {
           id: String(e.id),
           name: e.name,
           type: "employee",
           subtitle: e.role,
           path: `/employees/${e.id}`,
-        });
-      }
+        },
+        isEmployeeSearchTerminal(e.status),
+      );
     });
 
-    // Search invoices + sale bills (unified list route)
     [...invoices, ...saleBills].forEach((i) => {
-      if (i.invoiceNumber?.toLowerCase().includes(searchQuery) || i.customerName?.toLowerCase().includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [i.invoiceNumber, i.customerName],
+        {
           id: i.id,
           name: i.invoiceNumber || `DOC-${i.id}`,
           type: "invoice",
           subtitle: i.customerName,
           path: `/invoices?invoice=${i.id}`,
-        });
-      }
+        },
+        isInvoiceSearchTerminal(i.status),
+      );
     });
 
-    // Search quotations
     quotations.forEach((q) => {
       const qNum = q.quotationNumber || `QUO-${q.id}`;
-      if (qNum.toLowerCase().includes(searchQuery) || q.clientName?.toLowerCase().includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [qNum, q.clientName],
+        {
           id: q.id,
           name: qNum,
           type: "quotation",
           subtitle: q.clientName,
           path: `/quotations?quotation=${q.id}`,
-        });
-      }
+        },
+        isQuotationSearchTerminal(q.status),
+      );
     });
 
-    // Search partners
     partners.forEach((p) => {
-      if (p.name.toLowerCase().includes(searchQuery) || p.phone?.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [p.name, p.phone],
+        {
           id: p.id,
           name: p.name,
           type: "partner",
           subtitle: p.phone,
           path: `/partners/${p.id}`,
-        });
-      }
+        },
+        false,
+      );
     });
 
-    // Search vendors from context
     vendors.forEach((v) => {
-      if (v.name.toLowerCase().includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [v.name, v.category?.join(", ")],
+        {
           id: String(v.id),
           name: v.name,
           type: "vendor",
           subtitle: v.category?.join(", ") || "",
           path: `/vendors/${v.id}`,
-        });
-      }
+        },
+        false,
+      );
     });
 
     inventoryItems.forEach((it) => {
-      const hay = `${it.name} ${it.category ?? ""} ${it.hsn ?? ""}`.toLowerCase();
-      if (hay.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [it.name, it.category, it.hsn],
+        {
           id: `inv-item-${it.id}`,
           name: it.name,
           type: "inventory",
           subtitle: it.category,
           path: `/inventory/materials`,
-        });
-      }
+        },
+        false,
+      );
     });
 
     tools.forEach((t) => {
-      const hay = `${t.name} ${t.category} ${t.status}`.toLowerCase();
-      if (hay.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [t.name, t.category, t.status],
+        {
           id: `tool-${t.id}`,
           name: t.name,
           type: "tool",
           subtitle: t.status,
           path: `/inventory/tools`,
-        });
-      }
+        },
+        isToolSearchTerminal(t.status),
+      );
     });
 
     agents.forEach((a) => {
-      if (a.name.toLowerCase().includes(searchQuery) || a.phone?.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [a.name, a.phone],
+        {
           id: a.id,
           name: a.name,
           type: "agent",
           subtitle: a.phone,
           path: `/agents/${a.id}`,
-        });
-      }
+        },
+        false,
+      );
     });
 
     enquiries.forEach((e) => {
-      const hay = `${e.customerName} ${e.customerPhone} ${e.status}`.toLowerCase();
-      if (hay.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [e.customerName, e.customerPhone, e.status],
+        {
           id: e.id,
           name: e.customerName,
           type: "enquiry",
           subtitle: e.status,
           path: `/enquiries?open=${e.id}`,
-        });
-      }
+        },
+        isEnquirySearchTerminal(e.status),
+      );
     });
 
     teams.forEach((team) => {
-      if (team.name.toLowerCase().includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [team.name, team.status],
+        {
           id: team.id,
           name: team.name,
           type: "team",
           subtitle: team.status,
           path: `/teams/${team.id}`,
-        });
-      }
+        },
+        isTeamSearchTerminal(team.status),
+      );
     });
 
     loans.forEach((loan) => {
       const personKey = normalizeLoanPersonKey(loan);
-      const hay = `${loan.source} ${loan.personName ?? ""} ${personKey}`.toLowerCase();
-      if (hay.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [loan.personName, loan.source, personKey],
+        {
           id: loan.id,
           name: loan.personName?.trim() || loan.source,
           type: "loan",
           subtitle: loan.sourceType ? `${loan.sourceType} · ${loan.source}` : loan.source,
           path: `/loans/person/${encodeURIComponent(personKey)}`,
-        });
-      }
+        },
+        false,
+      );
     });
 
     tasks.forEach((task) => {
-      const hay = `${task.notes} ${task.workType} ${task.siteName}`.toLowerCase();
-      if (hay.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [task.workType, task.notes, task.siteName],
+        {
           id: task.id,
           name: task.workType || "Task",
           type: "task",
           subtitle: task.siteName,
           path: `/projects/${task.projectId}`,
-        });
-      }
+        },
+        isTaskSearchTerminal(task.status),
+      );
     });
 
     (vendorshipCompanies ?? []).forEach((c) => {
-      const hay = `${c.name} ${c.registrationCode ?? ""} ${c.email ?? ""} ${c.phone ?? ""}`.toLowerCase();
-      if (hay.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [c.name, c.registrationCode, c.email, c.phone],
+        {
           id: c.id,
           name: c.name,
           type: "vendorship_company",
           subtitle: c.registrationCode,
           path: `/vendorship/${c.id}`,
-        });
-      }
+        },
+        false,
+      );
     });
 
     (incGiverCompanies ?? []).forEach((c) => {
-      const hay = `${c.name} ${c.email ?? ""} ${c.phone ?? ""}`.toLowerCase();
-      if (hay.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [c.name, c.email, c.phone],
+        {
           id: c.id,
           name: c.name,
           type: "inc_source",
           subtitle: c.phone,
           path: `/inc-sources/${c.id}`,
-        });
-      }
+        },
+        false,
+      );
     });
 
     sites.forEach((s) => {
-      const hay = `${s.name} ${s.projectName ?? ""} ${s.projectId}`.toLowerCase();
-      if (hay.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [s.name, s.projectName, s.projectId],
+        {
           id: `site-${s.id}-${s.projectId}`,
           name: s.name,
           type: "site",
           subtitle: s.projectName || s.projectId,
           path: `/projects/${s.projectId}`,
-        });
-      }
+        },
+        isSiteSearchTerminal(s),
+      );
     });
 
     quotationTemplates.forEach((t) => {
-      const hay = `${t.name} ${t.segment}`.toLowerCase();
-      if (hay.includes(searchQuery)) {
-        searchResults.push({
+      pushSearchMatch(
+        searchResults,
+        searchQuery,
+        [t.name, t.segment],
+        {
           id: t.id,
           name: t.name,
           type: "template",
           subtitle: t.segment,
           path: `/templates`,
-        });
-      }
+        },
+        false,
+      );
     });
 
     const allowed = searchResults.filter((r) => {
@@ -362,7 +446,7 @@ const GlobalSearch = ({ onNavigate }: GlobalSearchProps) => {
       return permissionService.canAccessPath(currentRole, base);
     });
 
-    setResults(allowed.slice(0, 20));
+    setResults(sortGlobalSearchResults(allowed).slice(0, 20));
     setSelectedIndex(0);
   }, [
     query,

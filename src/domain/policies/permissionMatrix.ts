@@ -32,6 +32,7 @@ export type AppAction =
   | "vendor:update_payment"
   | "vendor:delete_payment"
   | "hr:release_payroll"
+  | "hr:record_wallet"
   | "hr:mark_holiday"
   | "hr:update_employee"
   | "approval:resolve";
@@ -55,6 +56,7 @@ const ACTION_TO_FEATURE: Record<AppAction, { feature: Feature; crud: Crud }> = {
   "project:create_direct_exception": { feature: "projectDirectCreate", crud: "create" },
   "project:update_commercial": { feature: "projectCommercial", crud: "edit" },
   "project:update_execution": { feature: "projectExecution", crud: "edit" },
+  /** Stock ledger — not inventoryItem create/edit (see FEATURE_MATRIX_ROW_NOTES.inventoryItem). */
   "inventory:material_movement": { feature: "inventoryMovement", crud: "create" },
   "finance:create_invoice": { feature: "invoice", crud: "create" },
   "finance:record_payment": { feature: "payment", crud: "create" },
@@ -76,6 +78,7 @@ const ACTION_TO_FEATURE: Record<AppAction, { feature: Feature; crud: Crud }> = {
   "vendor:update_payment": { feature: "vendorPayment", crud: "edit" },
   "vendor:delete_payment": { feature: "vendorPayment", crud: "delete" },
   "hr:release_payroll": { feature: "payroll", crud: "create" },
+  "hr:record_wallet": { feature: "employeeWallet", crud: "create" },
   "hr:mark_holiday": { feature: "holiday", crud: "create" },
   "hr:update_employee": { feature: "employee", crud: "edit" },
   "approval:resolve": { feature: "project", crud: "edit" }, // resolving reviews = project mutation
@@ -121,6 +124,7 @@ const actionPermissions: PermissionMatrix = {
   "vendor:update_payment": ["super_admin", "admin", "ceo", "management"],
   "vendor:delete_payment": ["super_admin", "admin"],
   "hr:release_payroll": ["super_admin", "admin", "ceo", "management"],
+  "hr:record_wallet": ["super_admin", "admin", "ceo", "management"],
   "hr:mark_holiday": ["super_admin", "admin", "ceo", "management"],
   "hr:update_employee": ["super_admin", "admin", "ceo", "management"],
   "approval:resolve": ["super_admin", "admin", "ceo", "management"],

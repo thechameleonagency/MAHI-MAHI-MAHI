@@ -269,7 +269,11 @@ export function DesignSystem({ embedded = false }: { embedded?: boolean }) {
     <div ref={contentRef} className="mx-auto w-full max-w-6xl space-y-8">
       {!embedded ? (
         <StickyPageHeader
-          breadcrumbs={[{ label: "Home", to: "/" }, { label: "Design system" }]}
+          breadcrumbs={[
+            { label: "Home", to: "/" },
+            { label: "Settings", to: "/settings" },
+            { label: "Design system" },
+          ]}
           subRow={
             <InlineKpiStrip
               className="w-full flex-wrap justify-start"

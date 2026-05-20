@@ -1,4 +1,4 @@
-import { Menu, Bell, Settings, Sparkles, Pin, PinOff, Search } from "lucide-react";
+import { Menu, Settings, Plus, Pin, PinOff, Search, CircleHelp } from "lucide-react";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -6,6 +6,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  PAGE_HEADER_PIN_HELP,
+  pageHeaderPinAriaLabel,
+  pageHeaderPinTooltip,
+} from "@/lib/pageHeaderPinCopy";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,10 +24,11 @@ import { ROLE_LABELS, USER_ROLES, type UserRole } from "@/domain/entities/identi
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { toast } from "@/hooks/use-toast";
-import { prunePinnedPathsForRole } from "@/lib/navPins";
 import { routeAccessDeniedToastContent } from "@/lib/routeAccessDenied";
+import { markRoleSwitchRouteDenied } from "@/lib/roleSwitchToast";
 import { quickCreatePath } from "@/lib/createFromContext";
 import GlobalSearch from "./GlobalSearch";
+import { NotificationBellLink } from "./NotificationBellLink";
 import { usePageHeaderSticky } from "@/contexts/PageHeaderStickyContext";
 import { useDerivedAlertCount } from "@/hooks/useDerivedAlertCount";
 import { useRoleMatrixOverride } from "@/contexts/RoleMatrixContext";
@@ -98,34 +105,45 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           <Search className="h-4 w-4" />
         </Button>
         {hasPinnablePageHeader && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="inline-flex h-8 w-8 shrink-0 sm:h-9 sm:w-9"
-                aria-pressed={stickyPageHeader}
-                aria-label={
-                  stickyPageHeader
-                    ? "Page header pinned to top; click to scroll with page"
-                    : "Page header scrolls; click to pin"
-                }
-                onClick={() => setStickyPageHeader(!stickyPageHeader)}
-              >
-                {stickyPageHeader ? (
-                  <Pin className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
-                ) : (
-                  <PinOff className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-[240px]">
-              {stickyPageHeader
-                ? "Page header pinned (sticky). Click to scroll with the page."
-                : "Page header scrolls with content. Click to pin under the bar."}
-            </TooltipContent>
-          </Tooltip>
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="inline-flex h-8 w-8 shrink-0 sm:h-9 sm:w-9"
+                  aria-pressed={stickyPageHeader}
+                  aria-label={pageHeaderPinAriaLabel(stickyPageHeader)}
+                  onClick={() => setStickyPageHeader(!stickyPageHeader)}
+                >
+                  {stickyPageHeader ? (
+                    <Pin className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+                  ) : (
+                    <PinOff className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{pageHeaderPinTooltip(stickyPageHeader)}</TooltipContent>
+            </Tooltip>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="inline-flex h-7 w-7 shrink-0 text-muted-foreground sm:h-8 sm:w-8"
+                  aria-label="About page header pin"
+                >
+                  <CircleHelp className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="text-sm">
+                <p className="font-medium text-foreground">Page header pin</p>
+                <p className="mt-1 text-muted-foreground">{PAGE_HEADER_PIN_HELP}</p>
+              </PopoverContent>
+            </Popover>
+          </div>
         )}
       </div>
 
@@ -141,7 +159,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
               className="h-8 gap-1 px-2.5 text-xs font-medium shadow-sm sm:px-3"
               aria-label="Create or add"
             >
-              <Sparkles className="h-3.5 w-3.5 opacity-90" />
+              <Plus className="h-3.5 w-3.5 opacity-90" />
               <span className="hidden sm:inline">Add</span>
             </Button>
           </DropdownMenuTrigger>
@@ -184,16 +202,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
         </DropdownMenu>
 
         {permissionService.canAccessPath(currentRole, "/notifications", roleMatrixOverride) && (
-          <Button type="button" variant="outline" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9" asChild>
-            <Link to="/notifications" aria-label="Notifications">
-              <Bell className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
-              {notificationCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-destructive px-0.5 text-2xs font-medium text-destructive-foreground">
-                  {notificationCount > 99 ? "99+" : notificationCount}
-                </span>
-              )}
-            </Link>
-          </Button>
+          <NotificationBellLink count={notificationCount} />
         )}
 
         {permissionService.canAccessPath(currentRole, "/settings", roleMatrixOverride) && (
@@ -223,9 +232,6 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           value={currentRole}
           onValueChange={(role) => {
             const next = role as UserRole;
-            const removedPins = prunePinnedPathsForRole((path) =>
-              permissionService.canAccessPath(next, path, roleMatrixOverride),
-            );
             setCurrentRole(next);
             const currentPageDenied = !permissionService.canAccessPath(
               next,
@@ -233,29 +239,16 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
               roleMatrixOverride,
             );
             if (currentPageDenied) {
+              markRoleSwitchRouteDenied();
               navigate("/", {
                 replace: true,
                 state: { routeAccessDeniedPath: location.pathname },
               });
-            }
-            const deniedCopy = currentPageDenied
-              ? routeAccessDeniedToastContent(location.pathname, next)
-              : null;
-            if (removedPins.length > 0) {
+              const deniedCopy = routeAccessDeniedToastContent(location.pathname, next);
               toast({
-                title: deniedCopy?.title ?? "Role updated",
-                description: deniedCopy
-                  ? deniedCopy.description
-                  : `${removedPins.length} pinned link(s) removed for ${ROLE_LABELS[next]}. Navigation now follows ${ROLE_LABELS[next]} permissions.`,
-                variant: deniedCopy ? "destructive" : undefined,
-              });
-            } else {
-              toast({
-                title: deniedCopy?.title ?? "Role updated",
-                description:
-                  deniedCopy?.description ??
-                  `Navigation and actions now follow ${ROLE_LABELS[next]} permissions.`,
-                variant: deniedCopy ? "destructive" : undefined,
+                title: deniedCopy.title,
+                description: deniedCopy.description,
+                variant: "destructive",
               });
             }
           }}

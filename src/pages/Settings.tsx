@@ -32,7 +32,6 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
-import { DesignSystem } from "@/pages/DesignSystem";
 import { ROLE_LABELS, USER_ROLES } from "@/domain/entities/identity";
 import {
   SETTINGS_PASSWORD_CURRENT_HELP,
@@ -79,10 +78,10 @@ const Settings = () => {
 
   useEffect(() => {
     const tabParam = new URLSearchParams(location.search).get("tab");
-    if (location.pathname.endsWith("/design-system") || tabParam === "design") {
-      setActiveTab("design");
+    if (tabParam === "design" && canViewTheme) {
+      navigate("/settings/design-system", { replace: true });
     }
-  }, [location.pathname, location.search]);
+  }, [location.search, canViewTheme, navigate]);
 
   useEffect(() => {
     const restricted: Record<string, boolean> = {
@@ -111,12 +110,11 @@ const Settings = () => {
   ]);
 
   const handleTabChange = (v: string) => {
-    setActiveTab(v);
     if (v === "design") {
       navigate("/settings/design-system", { replace: true });
-    } else if (location.pathname.endsWith("/design-system")) {
-      navigate("/settings", { replace: true });
+      return;
     }
+    setActiveTab(v);
   };
 
   // Single localStorage read per mount (Md28 — avoids 12× JSON.parse in useState initialisers)
@@ -716,12 +714,6 @@ const Settings = () => {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-          )}
-
-          {canViewTheme && (
-          <TabsContent value="design" className="mt-0 max-h-[calc(100vh-10rem)] min-h-0 overflow-y-auto pr-1">
-            <DesignSystem embedded />
           </TabsContent>
           )}
 

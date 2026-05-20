@@ -37,6 +37,7 @@ import { MATERIAL_CATEGORY_ORDER, materialCategorySortKey } from "@/lib/formCate
 import { useCan } from "@/hooks/useCan";
 import { formatINR } from "@/lib/formatCurrency";
 import { stripQuickCreateParam } from "@/lib/createFromContext";
+import { isProcurementHandoffOnly } from "@/lib/procurementHandoff";
 
 function escapeHtmlMat(s: string) {
   return s
@@ -79,8 +80,11 @@ const Materials = () => {
     getDamageByItem,
     canDo,
   } = useAppData();
-  const procurementHandoffOnly =
-    currentRole === "installation_team" && !canDo("vendor:record_bill");
+  /** See `procurementHandoff.ts` — controls Need-to-Get alerts and hides vendor bill shortcuts. */
+  const procurementHandoffOnly = isProcurementHandoffOnly(
+    currentRole,
+    canDo("vendor:record_bill"),
+  );
   const [pageView, setPageView] = useState<"stock" | "damage">(() => {
     const v = searchParams.get("view");
     return v === "damage" ? "damage" : "stock";

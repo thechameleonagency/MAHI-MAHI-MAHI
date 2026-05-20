@@ -102,6 +102,48 @@ describe("UpdateQuotation command (field patch)", () => {
     expect(r.ok).toBe(true);
     const stored = repositories.quotationRepository.getById("Q-PATCH");
     expect(stored?.notes).toBe("Updated note");
+    const audits = repositories.auditRepository.getAll();
+    const noteAudit = audits.find((a) => a.field === "notes");
+    expect(noteAudit).toBeDefined();
+    expect(noteAudit?.oldValue).toBe("");
+    expect(noteAudit?.newValue).toBe("Updated note");
+    expect(noteAudit?.newValue).not.toBe(JSON.stringify(["notes"]));
+    expect(audits.some((a) => a.field === "patch")).toBe(false);
+  });
+
+  it("records per-field old/new values (not patch key list only)", async () => {
+    const repositories = emptyRepos();
+    const bus = new CommandBus();
+    registerQuotationCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+    repositories.quotationRepository.add({
+      ...draftQuotation("Q-DIFF"),
+      notes: "Before",
+      totalAmount: 1000,
+    });
+    await bus.execute({
+      type: UPDATE_QUOTATION_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: {
+        quotationId: "Q-DIFF",
+        updates: { notes: "After", totalAmount: 1500 },
+      },
+    });
+    const audits = repositories.auditRepository.getAll();
+    expect(audits.find((a) => a.field === "notes")).toMatchObject({
+      oldValue: "Before",
+      newValue: "After",
+    });
+    expect(audits.find((a) => a.field === "totalAmount")).toMatchObject({
+      oldValue: "1000",
+      newValue: "1500",
+    });
+    expect(audits.every((a) => a.newValue !== JSON.stringify(["notes", "totalAmount"]))).toBe(true);
   });
 
   it("rejects locked commercial fields when approved", async () => {

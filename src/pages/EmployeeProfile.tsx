@@ -32,6 +32,7 @@ import { formatINR } from "@/lib/formatCurrency";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import { PayrollPolicyService } from "@/application/services/PayrollPolicyService";
 import { downloadCSV } from "@/lib/csvExport";
+import { useCan } from "@/hooks/useCan";
 import { useCanAction } from "@/hooks/useCanAction";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
@@ -72,8 +73,8 @@ const EmployeeProfile = () => {
     scheduledInstallations = [],
     projects: appProjects = [],
   } = useAppData();
-  const { currentRole } = useAppSession();
-  const isSuperAdmin = currentRole === "super_admin";
+  const canRecordWallet = useCan("employeeWallet", "create");
+  const canViewWalletLedger = useCan("employeeWallet", "view");
   const canApproveReimbursement = useCanAction("approval:resolve");
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [showTerminateDialog, setShowTerminateDialog] = useState(false);
@@ -339,7 +340,7 @@ const EmployeeProfile = () => {
   };
 
   const submitWalletEntry = () => {
-    if (!isSuperAdmin) return;
+    if (!canRecordWallet) return;
     const amt = parseFloat(walletAmount);
     const res = addEmployeeWalletLedgerEntry({
       employeeId,
@@ -355,7 +356,7 @@ const EmployeeProfile = () => {
     } else {
       toast({
         title: "Could not save",
-        description: res.error === "forbidden" ? "Super admin only." : res.error ?? "Check amount and date.",
+        description: res.error === "forbidden" ? "Your role cannot record wallet entries." : res.error ?? "Check amount and date.",
         variant: "destructive",
       });
     }
@@ -676,10 +677,12 @@ const EmployeeProfile = () => {
                       Schedule ({scheduledInstallations.filter((s) => (s.employeeIds ?? []).includes(id)).length})
                     </TabsTrigger>
                     <TabsTrigger value="expenses" className="flex-1 sm:flex-none">Expenses</TabsTrigger>
-                    <TabsTrigger value="wallet" className="flex-1 sm:flex-none">
-                      <Wallet className="w-3 h-3 mr-1" />
-                      Wallet
-                    </TabsTrigger>
+                    {canViewWalletLedger && (
+                      <TabsTrigger value="wallet" className="flex-1 sm:flex-none">
+                        <Wallet className="w-3 h-3 mr-1" />
+                        Wallet
+                      </TabsTrigger>
+                    )}
                   </TabsList>
                 </Tabs>
               </div>
@@ -1012,7 +1015,13 @@ const EmployeeProfile = () => {
                               <p className="font-medium text-sm">{proj?.name ?? s.projectId}</p>
                               <span className="text-xs text-muted-foreground">{s.scheduledDate}</span>
                             </div>
-                            <p className="text-xs capitalize text-muted-foreground">{s.status}{s.notes ? ` — ${s.notes}` : ""}</p>
+                            <p className="text-xs capitalize text-muted-foreground">
+                              {s.status}
+                              {s.notes ? ` — ${s.notes}` : ""}
+                              {s.doubleBookingOverrideReason
+                                ? ` — Double-booked: ${s.doubleBookingOverrideReason}`
+                                : ""}
+                            </p>
                           </div>
                         );
                       })
@@ -1020,7 +1029,7 @@ const EmployeeProfile = () => {
                 </div>
               )}
 
-              {activeTab === "wallet" && (
+              {activeTab === "wallet" && canViewWalletLedger && (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-muted/30 rounded-lg">
                     <div>
@@ -1031,11 +1040,12 @@ const EmployeeProfile = () => {
                       </p>
                     </div>
                     <p className="text-xs text-muted-foreground max-w-md">
-                      Recorded separately from monthly payroll runs. Only a super admin can add entries.
+                      Recorded separately from monthly payroll runs and from salary advances posted as expenses
+                      (shown on the Attendance tab). Admin or management can add formal ledger entries here.
                     </p>
                   </div>
 
-                  {isSuperAdmin && (
+                  {canRecordWallet && (
                     <div className="p-4 border rounded-lg space-y-3 bg-card">
                       <h4 className="text-sm font-medium">Add wallet entry</h4>
                       <div className="grid sm:grid-cols-2 gap-3">

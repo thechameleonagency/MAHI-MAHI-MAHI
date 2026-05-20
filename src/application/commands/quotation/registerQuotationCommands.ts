@@ -258,14 +258,14 @@ export const registerQuotationCommands = (
       };
     }
     repositories.quotationRepository.update(applied.quotation.id, applied.quotation);
-    auditService.write(command, {
-      action: "update",
-      entityType: "Quotation",
-      entityId: applied.quotation.id,
-      entityName: applied.quotation.quotationNumber,
-      field: "patch",
-      newValue: JSON.stringify(Object.keys(command.payload.updates)),
-    });
+    auditService.writeFieldDiff(
+      command,
+      "Quotation",
+      applied.quotation.id,
+      applied.quotation.quotationNumber,
+      existing as unknown as Record<string, unknown>,
+      command.payload.updates as unknown as Record<string, unknown>,
+    );
     return {
       ok: true,
       result: { quotationId: applied.quotation.id },

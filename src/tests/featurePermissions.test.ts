@@ -9,6 +9,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  buildFeaturePermissionMatrixDraft,
+  cloneFeaturePermissionMatrix,
   DEFAULT_FEATURE_PERMISSIONS,
   canFeature,
   featureFlags,
@@ -219,9 +221,14 @@ describe("canFeature — super_admin-only features", () => {
     expect(canFeature("super_admin", "resetPrototype", "view")).toBe(true);
   });
 
-  it("employeeWallet (advance/recovery) is locked to super_admin", () => {
-    expect(canFeature("admin", "employeeWallet", "create")).toBe(false);
-    expect(canFeature("management", "employeeWallet", "create")).toBe(false);
+  it("employeeWallet: admin/management create; CEO view-only; expense create is separate", () => {
+    expect(canFeature("admin", "employeeWallet", "create")).toBe(true);
+    expect(canFeature("management", "employeeWallet", "create")).toBe(true);
+    expect(canFeature("ceo", "employeeWallet", "view")).toBe(true);
+    expect(canFeature("ceo", "employeeWallet", "create")).toBe(false);
+    expect(canFeature("salesperson", "employeeWallet", "view")).toBe(false);
+    expect(canFeature("installation_team", "employeeWallet", "view")).toBe(false);
+    expect(canFeature("admin", "expense", "create")).toBe(true);
     expect(canFeature("super_admin", "employeeWallet", "create")).toBe(true);
   });
 });
@@ -251,5 +258,24 @@ describe("canFeature — override merging", () => {
     };
     // payment row not in override → uses default
     expect(canFeature("admin", "payment", "view", override)).toBe(true);
+  });
+});
+
+describe("feature permission matrix cloning (Mn21)", () => {
+  it("cloneFeaturePermissionMatrix does not alias DEFAULT_FEATURE_PERMISSIONS", () => {
+    const draft = cloneFeaturePermissionMatrix();
+    draft.enquiry.view = [...draft.enquiry.view, "installation_team"];
+    expect(DEFAULT_FEATURE_PERMISSIONS.enquiry.view).not.toContain("installation_team");
+  });
+
+  it("buildFeaturePermissionMatrixDraft merges override rows without aliasing", () => {
+    const override: Partial<FeaturePermissionMatrix> = {
+      invoice: { view: ["salesperson"], create: [], edit: [], delete: [] },
+    };
+    const draft = buildFeaturePermissionMatrixDraft(override);
+    expect(draft.invoice.view).toEqual(["salesperson"]);
+    draft.invoice.view.push("installation_team");
+    expect(override.invoice!.view).toEqual(["salesperson"]);
+    expect(DEFAULT_FEATURE_PERMISSIONS.invoice.view).not.toContain("installation_team");
   });
 });

@@ -85,7 +85,13 @@ import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
 import { formatINR } from "@/lib/formatCurrency";
 import { validateExpensePaidByRecord } from "@/lib/expensePayerValidation";
-import { validateScheduledInstallationDate } from "@/lib/scheduledInstallationValidation";
+import {
+  findScheduledInstallationConflicts,
+  validateDoubleBookingOverride,
+  validateScheduledInstallationDate,
+} from "@/lib/scheduledInstallationValidation";
+import { validateMaterialDamageForm } from "@/lib/materialDamageValidation";
+import { sanitizePhotoUrlList } from "@/lib/photoUrlLines";
 import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
 import {
   MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
@@ -424,7 +430,7 @@ interface AppDataContextType extends AppState {
   addOperationalTicket: (ticket: Ticket) => void;
   updateProjectTimelineForProject: (projectId: string, updates: Partial<ProjectTimelineStatus>) => void;
   getClientPaymentRecordsByProject: (projectId: string) => ClientPaymentRecord[];
-  addClientPaymentRecord: (record: ClientPaymentRecord) => void;
+  addClientPaymentRecord: (record: ClientPaymentRecord) => boolean;
   updateSite: (siteNumericId: number, updates: Partial<SiteRecord>) => void;
   applySiteChecklistFromTemplate: (
     projectId: string,
@@ -3393,11 +3399,19 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     [state.clientPaymentRecords],
   );
 
-  const addClientPaymentRecord = useCallback((record: ClientPaymentRecord) => {
+  const addClientPaymentRecord = useCallback((record: ClientPaymentRecord): boolean => {
     const project = state.projects.find((p) => p.id === record.projectId);
     if (!project) {
       toast({ title: "Cannot record payment", description: "Project not found.", variant: "destructive" });
-      return;
+      return false;
+    }
+    if (state.clientPaymentRecords.some((r) => r.id === record.id)) {
+      toast({
+        title: "Cannot record payment",
+        description: "A payment record with this id already exists.",
+        variant: "destructive",
+      });
+      return false;
     }
     const totalAlreadyReceived = state.clientPaymentRecords
       .filter((r) => r.projectId === record.projectId)
@@ -3413,7 +3427,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         description: validation.reason,
         variant: "destructive",
       });
-      return;
+      return false;
     }
 
     setState((prev) => {
@@ -3447,6 +3461,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         projects: updatedProjects,
       };
     });
+    return true;
   }, [state.clientPaymentRecords, state.projects]);
 
   const updateSite = useCallback((siteNumericId: number, updates: Partial<SiteRecord>) => {
@@ -4062,12 +4077,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const addEmployeeWalletLedgerEntry = useCallback(
     (entry: Omit<EmployeeWalletLedgerEntry, "id" | "createdAt">): { ok: boolean; error?: string } => {
-      if (actorRole !== "super_admin") {
-        toast({
-          title: "Not permitted",
-          description: "Only a super admin can record employee wallet advances or recoveries.",
-          variant: "destructive",
-        });
+      if (!canPerformActionOrWarn("hr:record_wallet")) {
         return { ok: false, error: "forbidden" };
       }
       const emp = state.employees.find((e) => e.id === entry.employeeId);
@@ -4096,7 +4106,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }));
       return { ok: true };
     },
-    [actorRole, state.employees, generateId, createAuditEntry],
+    [canPerformActionOrWarn, state.employees, generateId, createAuditEntry],
   );
 
   const getEmployeeWalletLedger = useCallback(
@@ -4238,22 +4248,51 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return "";
       }
 
-      const id = `SCH-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
       const scheduledDate = input.scheduledDate.trim().slice(0, 10);
+      const conflicts = findScheduledInstallationConflicts({
+        scheduledInstallations: state.scheduledInstallations ?? [],
+        scheduledDate,
+        projectId: input.projectId,
+        teamId: input.teamId,
+        employeeIds: input.employeeIds,
+      });
+      const conflictCheck = validateDoubleBookingOverride(
+        conflicts.hasConflict,
+        input.doubleBookingOverrideReason,
+      );
+      if (!conflictCheck.ok) {
+        toast({
+          title: "Cannot schedule installation",
+          description: conflictCheck.message,
+          variant: "destructive",
+        });
+        return "";
+      }
+
+      const id = `SCH-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
       const row: import("@/types/operations").ScheduledInstallation = {
         ...input,
         scheduledDate,
         pastDateOverrideReason: dateCheck.pastOverride
           ? input.pastDateOverrideReason?.trim()
           : undefined,
+        doubleBookingOverrideReason: conflicts.hasConflict
+          ? input.doubleBookingOverrideReason?.trim()
+          : undefined,
         id,
         createdAt: new Date().toISOString(),
       };
+      const auditSuffix = [
+        row.pastDateOverrideReason ? "past override" : "",
+        row.doubleBookingOverrideReason ? "double-booked" : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
       const auditEntry = createAuditEntry(
         "create",
         "ScheduledInstallation",
         id,
-        `${input.projectId} @ ${scheduledDate}${row.pastDateOverrideReason ? " (past override)" : ""}`,
+        `${input.projectId} @ ${scheduledDate}${auditSuffix ? ` (${auditSuffix})` : ""}`,
       );
       setState((prev) => ({
         ...prev,
@@ -4262,7 +4301,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }));
       return id;
     },
-    [createAuditEntry, actorRole],
+    [createAuditEntry, actorRole, state.scheduledInstallations],
   );
   const updateScheduledInstallation = useCallback(
     (id: string, updates: Partial<import("@/types/operations").ScheduledInstallation>) => {
@@ -4331,6 +4370,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       const id = `VIS-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
       const row: import("@/types/operations").SiteVisit = {
         ...input,
+        photos: sanitizePhotoUrlList(input.photos),
         id,
         createdAt: new Date().toISOString(),
       };
@@ -4579,6 +4619,15 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   // ---- Material Damage ----
   const addMaterialDamage = useCallback(
     (input: Omit<import("@/types/operations").MaterialDamage, "id" | "reportedAt">) => {
+      const gate = validateMaterialDamageForm({
+        qty: String(input.qty),
+        costImpact: input.costImpact != null ? String(input.costImpact) : "",
+        notes: input.notes ?? "",
+      });
+      if (!gate.ok) {
+        toast({ title: "Cannot report damage", description: gate.message, variant: "destructive" });
+        return "";
+      }
       const id = `DMG-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
       const row: import("@/types/operations").MaterialDamage = {
         ...input,

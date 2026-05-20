@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
 import {
+  buildFeaturePermissionMatrixDraft,
+  cloneFeaturePermissionMatrix,
   DEFAULT_FEATURE_PERMISSIONS,
+  FEATURE_MATRIX_ROW_NOTES,
   type Crud,
   type Feature,
   type FeaturePermissionMatrix,
@@ -166,15 +169,10 @@ const NON_SUPER_ROLES: UserRole[] = USER_ROLES.filter((r) => r !== "super_admin"
 export function RoleMatrixTab() {
   const { override, hasOverride, saveOverride, resetToDefaults } = useRoleMatrix();
 
-  const initialDraft = useMemo<FeaturePermissionMatrix>(() => {
-    if (!override) return JSON.parse(JSON.stringify(DEFAULT_FEATURE_PERMISSIONS));
-    const merged: FeaturePermissionMatrix = JSON.parse(JSON.stringify(DEFAULT_FEATURE_PERMISSIONS));
-    for (const key of Object.keys(override) as Feature[]) {
-      const row = override[key];
-      if (row) merged[key] = JSON.parse(JSON.stringify(row));
-    }
-    return merged;
-  }, [override]);
+  const initialDraft = useMemo(
+    () => buildFeaturePermissionMatrixDraft(override),
+    [override],
+  );
 
   const [draft, setDraft] = useState<FeaturePermissionMatrix>(initialDraft);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -219,7 +217,7 @@ export function RoleMatrixTab() {
 
   const handleReset = () => {
     resetToDefaults();
-    setDraft(JSON.parse(JSON.stringify(DEFAULT_FEATURE_PERMISSIONS)));
+    setDraft(cloneFeaturePermissionMatrix());
     toast({ title: "Reset to defaults", description: "All custom permissions cleared." });
   };
 
@@ -321,6 +319,11 @@ export function RoleMatrixTab() {
                               <td className="sticky left-0 z-10 bg-card py-2 pr-3">
                                 <div className="font-medium">{FEATURE_LABELS[feature] ?? feature}</div>
                                 <div className="text-2xs font-mono text-muted-foreground">{feature}</div>
+                                {FEATURE_MATRIX_ROW_NOTES[feature] && (
+                                  <p className="mt-1 max-w-[220px] text-2xs font-normal leading-snug text-muted-foreground">
+                                    {FEATURE_MATRIX_ROW_NOTES[feature]}
+                                  </p>
+                                )}
                               </td>
                               {NON_SUPER_ROLES.map((role) => (
                                 <td key={role} className="px-2 py-2">

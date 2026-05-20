@@ -1,4 +1,4 @@
-import { ReactNode, useState, useEffect, useCallback } from "react";
+import { ReactNode, useState, useEffect, useCallback, useMemo } from "react";
 import { useMobileSidebarSwipe } from "@/hooks/useMobileSidebarSwipe";
 import { useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
@@ -6,6 +6,7 @@ import TopHeader from "./TopHeader";
 import RouteAccessGate, { RouteAccessBoundary } from "./RouteAccessGate";
 import { PageHeaderStickyProvider } from "@/contexts/PageHeaderStickyContext";
 import { PageErrorBoundary } from "@/app/shell/PageErrorBoundary";
+import { resolvePageErrorRecovery } from "@/lib/routeErrorRecovery";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -21,8 +22,13 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     setSidebarOpen(false);
   }, [location.pathname, location.search]);
 
+  const pageErrorRecovery = useMemo(
+    () => resolvePageErrorRecovery(location.pathname),
+    [location.pathname],
+  );
+
   return (
-    <PageErrorBoundary>
+    <PageErrorBoundary key={location.pathname} recovery={pageErrorRecovery}>
     <div className="flex h-screen min-h-0 w-full overflow-hidden bg-canvas">
       {sidebarOpen && (
         <button

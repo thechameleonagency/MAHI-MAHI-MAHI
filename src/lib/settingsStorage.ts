@@ -6,6 +6,9 @@ export const SETTINGS_LS_KEYS = {
   twoFa: "mss.settings.2fa",
 } as const;
 
+/** Fired after `saveSettingsCompany` so shell UI (sidebar brand) refreshes same-tab. */
+export const SETTINGS_COMPANY_CHANGED_EVENT = "mss.settings.company-changed";
+
 export type SettingsProfileStored = {
   firstName: string;
   lastName: string;
@@ -119,6 +122,9 @@ export function saveSettingsCompany(
   storage: Storage = window.localStorage,
 ): void {
   storage.setItem(SETTINGS_LS_KEYS.company, JSON.stringify(company));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(SETTINGS_COMPANY_CHANGED_EVENT));
+  }
 }
 
 export function saveSettingsTheme(theme: string, storage: Storage = window.localStorage): void {
