@@ -206,6 +206,8 @@ export interface Project {
     visibleTabs: string[];
     requiredDocuments: string[];
     forbiddenActions: string[];
+    /** When false, completion does not require project-linked client invoices. */
+    requiresClientInvoice?: boolean;
   };
 
   // New project taxonomy (3 types + attribute fields). See [domain/projectTypes/types.ts].
@@ -265,6 +267,7 @@ export interface Project {
 
   /** Frozen commercial baseline + BOQ-derived execution rows. */
   commercialBaseline?: CommercialBaseline;
+  /** Always an array after {@link normalizeProject} / create commands; optional only on raw legacy JSON. */
   executionLineItems?: ExecutionLineItem[];
 
   /** Direct / exception intake without quotation (audit). */

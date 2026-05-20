@@ -23,6 +23,7 @@ import { formatUiDate } from "@/lib/formatUiDate";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import type { ExecutionLineItem, ProjectSiteChecklistItem } from "@/types/project";
+import { findInventoryItemForMaterial, findPresetForMaterial } from "@/lib/inventoryPresetMatch";
 import { inferTransportWorkKind, resolveSiteForMaterialIssue } from "@/lib/materialIssueTransportTask";
 
 interface MaterialIssue {
@@ -240,13 +241,10 @@ export default function MaterialsSentTab({
     if (!isConsumeModalOpen) consumeMovementIdRef.current = null;
   }, [isConsumeModalOpen]);
 
-  // Match materials against preset
+  // Match materials against preset (inventory id first; name substring only when ≥6 chars)
   const getMatchStatus = (material: MaterialItem): { status: MatchStatus; preset?: PresetItem; difference: number } => {
-    const preset = presetItems.find(p => 
-      material.name.toLowerCase().includes(p.name.toLowerCase().split(' ')[0]) ||
-      p.name.toLowerCase().includes(material.name.toLowerCase().split(' ')[0])
-    );
-    
+    const preset = findPresetForMaterial(material, presetItems);
+
     if (!preset) return { status: "no-preset", difference: 0 };
     
     const difference = material.totalQuantitySent - preset.quantity;
@@ -268,7 +266,7 @@ export default function MaterialsSentTab({
     
     for (const mat of materialsWithStatus) {
       // Try to find category from global inventory
-      const invItem = globalInventoryItems.find(i => i.id === mat.id || i.name.toLowerCase().includes(mat.name.toLowerCase().split(' ')[0]));
+      const invItem = findInventoryItemForMaterial(mat, globalInventoryItems);
       const category = mat.category || invItem?.category || "Other";
       if (!groups[category]) groups[category] = [];
       groups[category].push(mat);

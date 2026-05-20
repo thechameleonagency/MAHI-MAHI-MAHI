@@ -34,12 +34,19 @@ import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { DesignSystem } from "@/pages/DesignSystem";
 import { ROLE_LABELS, USER_ROLES } from "@/domain/entities/identity";
-
-const LS_PROFILE = "mss.settings.profile";
-const LS_COMPANY = "mss.settings.company";
-const LS_THEME = "mss.settings.theme";
-const LS_ACCENT = "mss.settings.accent";
-const LS_2FA = "mss.settings.2fa";
+import {
+  SETTINGS_PASSWORD_CURRENT_HELP,
+  SETTINGS_PASSWORD_SUCCESS_DESCRIPTION,
+  validateSettingsPasswordUpdate,
+} from "@/lib/settingsPasswordUpdate";
+import {
+  loadSettingsPageInitialState,
+  saveSettingsAccent,
+  saveSettingsCompany,
+  saveSettingsProfile,
+  saveSettingsTheme,
+  saveSettingsTwoFa,
+} from "@/lib/settingsStorage";
 
 const ACCENT_COLORS = [
   { label: "Blue", cls: "bg-primary", value: "blue" },
@@ -112,27 +119,30 @@ const Settings = () => {
     }
   };
 
+  // Single localStorage read per mount (Md28 — avoids 12× JSON.parse in useState initialisers)
+  const [storedSettings] = useState(() => loadSettingsPageInitialState());
+
   // Profile form state (I1)
-  const [profileFirstName, setProfileFirstName] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').firstName || "");
-  const [profileLastName, setProfileLastName] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').lastName || "");
-  const [profileEmail, setProfileEmail] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').email || "");
-  const [profilePhone, setProfilePhone] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').phone || "");
-  const [profileRole, setProfileRole] = useState(() => JSON.parse(localStorage.getItem(LS_PROFILE) || '{}').role || "");
+  const [profileFirstName, setProfileFirstName] = useState(storedSettings.profile.firstName);
+  const [profileLastName, setProfileLastName] = useState(storedSettings.profile.lastName);
+  const [profileEmail, setProfileEmail] = useState(storedSettings.profile.email);
+  const [profilePhone, setProfilePhone] = useState(storedSettings.profile.phone);
+  const [profileRole, setProfileRole] = useState(storedSettings.profile.role);
 
   // Company form state (I2)
-  const [companyName, setCompanyName] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').companyName || "");
-  const [companyGst, setCompanyGst] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').gstNumber || "");
-  const [companyPan, setCompanyPan] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').panNumber || "");
-  const [companyAddress, setCompanyAddress] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').address || "");
-  const [companyWebsite, setCompanyWebsite] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').website || "");
-  const [companyIndustry, setCompanyIndustry] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').industry || "construction");
-  const [companyState, setCompanyState] = useState(() => JSON.parse(localStorage.getItem(LS_COMPANY) || '{}').companyState || "08");
+  const [companyName, setCompanyName] = useState(storedSettings.company.companyName);
+  const [companyGst, setCompanyGst] = useState(storedSettings.company.gstNumber);
+  const [companyPan, setCompanyPan] = useState(storedSettings.company.panNumber);
+  const [companyAddress, setCompanyAddress] = useState(storedSettings.company.address);
+  const [companyWebsite, setCompanyWebsite] = useState(storedSettings.company.website);
+  const [companyIndustry, setCompanyIndustry] = useState(storedSettings.company.industry);
+  const [companyState, setCompanyState] = useState(storedSettings.company.companyState);
 
   // Theme state (I3)
-  const [selectedTheme, setSelectedTheme] = useState(() => localStorage.getItem(LS_THEME) || "dark");
+  const [selectedTheme, setSelectedTheme] = useState(storedSettings.theme);
 
   // Accent color state (I4)
-  const [selectedAccent, setSelectedAccent] = useState(() => localStorage.getItem(LS_ACCENT) || "blue");
+  const [selectedAccent, setSelectedAccent] = useState(storedSettings.accent);
 
   // Password form (I5)
   const [currentPassword, setCurrentPassword] = useState("");
@@ -140,7 +150,7 @@ const Settings = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   // 2FA state (I6)
-  const [twoFAEnabled, setTwoFAEnabled] = useState(() => localStorage.getItem(LS_2FA) === "true");
+  const [twoFAEnabled, setTwoFAEnabled] = useState(storedSettings.twoFAEnabled);
 
   // Apply theme on mount and change
   useEffect(() => {
@@ -152,36 +162,57 @@ const Settings = () => {
     } else {
       root.classList.add(selectedTheme);
     }
-    localStorage.setItem(LS_THEME, selectedTheme);
+    saveSettingsTheme(selectedTheme);
   }, [selectedTheme]);
 
   const handleSaveProfile = () => {
-    localStorage.setItem(LS_PROFILE, JSON.stringify({ firstName: profileFirstName, lastName: profileLastName, email: profileEmail, phone: profilePhone, role: profileRole }));
+    saveSettingsProfile({
+      firstName: profileFirstName,
+      lastName: profileLastName,
+      email: profileEmail,
+      phone: profilePhone,
+      role: profileRole,
+    });
     setLastConfirm({ variant: "success", title: "Profile saved", description: "Your profile has been updated." });
   };
 
   const handleSaveCompany = () => {
-    localStorage.setItem(LS_COMPANY, JSON.stringify({ companyName, gstNumber: companyGst, panNumber: companyPan, address: companyAddress, website: companyWebsite, industry: companyIndustry, companyState }));
+    saveSettingsCompany({
+      companyName,
+      gstNumber: companyGst,
+      panNumber: companyPan,
+      address: companyAddress,
+      website: companyWebsite,
+      industry: companyIndustry,
+      companyState,
+    });
     setLastConfirm({ variant: "success", title: "Company info saved", description: "Company details have been updated." });
   };
 
   const handleUpdatePassword = () => {
-    if (!newPassword || newPassword !== confirmPassword) {
-      toast({ title: "Password mismatch", description: "New password and confirm password do not match.", variant: "destructive" });
+    const result = validateSettingsPasswordUpdate({
+      currentPassword,
+      newPassword,
+      confirmPassword,
+    });
+    if (!result.ok) {
+      toast({ title: result.title, description: result.description, variant: "destructive" });
       return;
     }
-    if (newPassword.length < 6) {
-      toast({ title: "Too short", description: "Password must be at least 6 characters.", variant: "destructive" });
-      return;
-    }
-    setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
-    setLastConfirm({ variant: "success", title: "Password updated", description: "Your password has been changed successfully." });
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setLastConfirm({
+      variant: "success",
+      title: "Password updated",
+      description: SETTINGS_PASSWORD_SUCCESS_DESCRIPTION,
+    });
   };
 
   const handleToggle2FA = () => {
     const next = !twoFAEnabled;
     setTwoFAEnabled(next);
-    localStorage.setItem(LS_2FA, String(next));
+    saveSettingsTwoFa(next);
     setLastConfirm({ variant: next ? "success" : "warning", title: next ? "2FA enabled" : "2FA disabled", description: next ? "Two-factor authentication is now active." : "Two-factor authentication has been disabled." });
   };
   
@@ -613,7 +644,7 @@ const Settings = () => {
                       <button
                         key={ac.value}
                         title={ac.label}
-                        onClick={() => { setSelectedAccent(ac.value); localStorage.setItem(LS_ACCENT, ac.value); }}
+                        onClick={() => { setSelectedAccent(ac.value); saveSettingsAccent(ac.value); }}
                         className={`w-8 h-8 rounded-full ${ac.cls} ${selectedAccent === ac.value ? "ring-2 ring-offset-2 ring-offset-background ring-foreground" : ""}`}
                       />
                     ))}
@@ -633,17 +664,43 @@ const Settings = () => {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
-                  <Label>Current Password</Label>
-                  <Input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="Enter current password" className="bg-muted/50 border-border" />
+                  <Label htmlFor="settings-current-password">Current Password</Label>
+                  <Input
+                    id="settings-current-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    className="bg-muted/50 border-border"
+                    aria-describedby="settings-current-password-help"
+                  />
+                  <p id="settings-current-password-help" className="text-xs text-muted-foreground">
+                    {SETTINGS_PASSWORD_CURRENT_HELP}
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>New Password</Label>
-                    <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Enter new password" className="bg-muted/50 border-border" />
+                    <Input
+                      type="password"
+                      autoComplete="new-password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      className="bg-muted/50 border-border"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Confirm Password</Label>
-                    <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Confirm new password" className="bg-muted/50 border-border" />
+                    <Input
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                      className="bg-muted/50 border-border"
+                    />
                   </div>
                 </div>
                 <Button className="bg-primary" onClick={handleUpdatePassword}>Update Password</Button>

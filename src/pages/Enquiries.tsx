@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Plus, Search, Phone, Mail, MapPin, Calendar, UserPlus, FileText,
@@ -36,6 +36,12 @@ import {
   getEnquiryQuotationIds,
 } from "@/lib/enquiryQuotationHistory";
 import { assertCanLinkNewQuotationToEnquiry, enquiryAllowsNewQuotation } from "@/lib/enquiryQuotationCreateGate";
+import {
+  enquiryTerminalReasonRequiredMessage,
+  isEnquiryTerminalReasonValid,
+  MIN_ENQUIRY_TERMINAL_REASON_LENGTH,
+  trimEnquiryReason,
+} from "@/lib/enquiryReasonValidation";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
@@ -44,6 +50,14 @@ import { getEnquiryFollowUpAging } from "@/lib/agingHelpers";
 import { useCan } from "@/hooks/useCan";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
+import { EnquiryListFilterHint } from "@/components/enquiries/EnquiryListFilterHint";
+import {
+  clearEnquiryListFilters,
+  countEnquiriesHiddenByOpenFilter,
+  DEFAULT_ENQUIRY_STATUS_FILTER,
+  filterEnquiriesForList,
+  isEnquiryOpenPipelineFilterActive,
+} from "@/lib/enquiryListFilters";
 import {
   buildAgentToEnquiryDraft,
   buildEnquiryToQuotationDraft,
@@ -108,8 +122,10 @@ const Enquiries = () => {
   const canCreateQuotation = useCan("quotation", "create");
   
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
-  // Default to "open" so already-converted enquiries don't clutter the list (audit B12).
-  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "open");
+  // Default to open pipeline so converted/lost enquiries don't clutter the list (audit B12).
+  const [statusFilter, setStatusFilter] = useState(
+    () => searchParams.get("status") ?? DEFAULT_ENQUIRY_STATUS_FILTER,
+  );
   const [priorityFilter, setPriorityFilter] = useState(() => searchParams.get("priority") ?? "all");
   const [assigneeFilter, setAssigneeFilter] = useState(() => searchParams.get("assignee") ?? "all");
 
@@ -120,7 +136,7 @@ const Enquiries = () => {
         const q = searchQuery.trim();
         if (q) next.set("q", q);
         else next.delete("q");
-        if (statusFilter !== "open") next.set("status", statusFilter);
+        if (statusFilter !== DEFAULT_ENQUIRY_STATUS_FILTER) next.set("status", statusFilter);
         else next.delete("status");
         if (priorityFilter !== "all") next.set("priority", priorityFilter);
         else next.delete("priority");
@@ -249,27 +265,28 @@ const Enquiries = () => {
     setSelectedEnquiry(null);
   };
 
-  // Filtering
-  const filteredEnquiries = enquiries.filter(e => {
-    const matchesSearch = (e.customerName || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (e.customerPhone || "").includes(searchQuery) ||
-      (e.id || "").toLowerCase().includes(searchQuery.toLowerCase());
-    // "open" = anything still in the active pipeline (everything except already-converted / lost).
-    const matchesStatus =
-      statusFilter === "all"
-        ? true
-        : statusFilter === "archived"
-          ? !!e.archivedAt
-          : statusFilter === "open"
-            ? !e.archivedAt && e.status !== "converted" && e.status !== "lost"
-            : !e.archivedAt && e.status === statusFilter;
-    const matchesPriority = priorityFilter === "all" || e.priority === priorityFilter;
-    const matchesAssignee = assigneeFilter === "all" || e.assignedTo === assigneeFilter ||
-      (assigneeFilter === "unassigned" && !e.assignedTo);
-    // For "all" hide archived unless explicitly selected.
-    const hideArchived = statusFilter === "all" ? !e.archivedAt : true;
-    return matchesSearch && matchesStatus && matchesPriority && matchesAssignee && hideArchived;
-  });
+  const hiddenByOpenFilterCount = useMemo(
+    () => countEnquiriesHiddenByOpenFilter(enquiries),
+    [enquiries],
+  );
+
+  const showOpenFilterHint = isEnquiryOpenPipelineFilterActive(statusFilter);
+
+  const filteredEnquiries = useMemo(
+    () =>
+      filterEnquiriesForList(enquiries, {
+        searchQuery,
+        statusFilter,
+        priorityFilter,
+        assigneeFilter,
+      }),
+    [enquiries, searchQuery, statusFilter, priorityFilter, assigneeFilter],
+  );
+
+  const showAllEnquiries = () => {
+    setStatusFilter("all");
+    setTablePage(1);
+  };
 
   const enquiryTotalPages = Math.max(1, Math.ceil(filteredEnquiries.length / tablePageSize) || 1);
   const safeEnquiryPage = Math.min(tablePage, enquiryTotalPages);
@@ -523,9 +540,13 @@ const formatCapacityInput = (capacity: string) => {
   };
 
   const handleConfirmLostWithReason = () => {
-    const trimmed = lostReasonText.trim();
-    if (!trimmed) {
-      toast({ title: "Reason required", description: "Add a short reason before marking this lead as lost.", variant: "destructive" });
+    const trimmed = trimEnquiryReason(lostReasonText);
+    if (!isEnquiryTerminalReasonValid(trimmed)) {
+      toast({
+        title: "Reason required",
+        description: enquiryTerminalReasonRequiredMessage(),
+        variant: "destructive",
+      });
       return;
     }
     void submitMarkAsLost(trimmed);
@@ -533,9 +554,13 @@ const formatCapacityInput = (capacity: string) => {
 
   const handleReopenEnquiry = async () => {
     if (!selectedEnquiry) return;
-    const trimmed = reopenReasonText.trim();
-    if (trimmed.length < 3) {
-      toast({ title: "Reason required", description: "Provide a reason (at least 3 characters) for reopening.", variant: "destructive" });
+    const trimmed = trimEnquiryReason(reopenReasonText);
+    if (!isEnquiryTerminalReasonValid(trimmed)) {
+      toast({
+        title: "Reason required",
+        description: enquiryTerminalReasonRequiredMessage(),
+        variant: "destructive",
+      });
       return;
     }
     const result = await transitionEnquiryStatus(selectedEnquiry.id, "new", trimmed);
@@ -613,7 +638,9 @@ const formatCapacityInput = (capacity: string) => {
     
     toast({
       title: "Enquiry converted",
-      description: "Marked as converted. Start a project from an approved quotation on the Projects page.",
+      description: result.customerId
+        ? `Customer ${result.customerId} linked. Start a project from an approved quotation on the Projects page.`
+        : "Marked as converted. Start a project from an approved quotation on the Projects page.",
     });
   };
 
@@ -631,7 +658,7 @@ const formatCapacityInput = (capacity: string) => {
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Enquiries" }]}
         subRow={
-          <>
+          <div className="flex w-full min-w-0 flex-col gap-2">
             <div className="flex min-w-0 w-full flex-1 flex-wrap items-end gap-2">
               <div className="relative min-w-0 flex-1 max-w-full sm:max-w-sm">
                 <Search className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -703,6 +730,12 @@ const formatCapacityInput = (capacity: string) => {
                 </SelectContent>
               </Select>
             </div>
+            {showOpenFilterHint && (
+              <EnquiryListFilterHint
+                hiddenCount={hiddenByOpenFilterCount}
+                onShowAll={showAllEnquiries}
+              />
+            )}
             <InlineKpiStrip
               className="w-full sm:w-auto sm:justify-end"
               items={[
@@ -750,7 +783,7 @@ const formatCapacityInput = (capacity: string) => {
                 },
               ]}
             />
-          </>
+          </div>
         }
       >
         <Button size="sm" onClick={() => { resetCreateForm(); setIsAddEnquiryOpen(true); }} disabled={!canCreateEnquiry}>
@@ -880,20 +913,32 @@ const formatCapacityInput = (capacity: string) => {
           </DataTableShell>
 
       {filteredEnquiries.length === 0 && (
-                <ListEmptyState
+        <ListEmptyState
           icon={MessageCircle}
-          title={enquiries.length === 0 ? "No enquiries yet" : "No enquiries match the current filters"}
+          title={
+            enquiries.length === 0
+              ? "No enquiries yet"
+              : showOpenFilterHint && hiddenByOpenFilterCount > 0 && !searchQuery.trim()
+                ? "No open enquiries in the list"
+                : "No enquiries match the current filters"
+          }
           description={
             enquiries.length === 0
               ? "Create an enquiry to start the sales pipeline."
-              : "Try clearing filters or adjusting your search."
+              : showOpenFilterHint && hiddenByOpenFilterCount > 0 && !searchQuery.trim()
+                ? `${hiddenByOpenFilterCount} converted or lost ${
+                    hiddenByOpenFilterCount === 1 ? "enquiry is" : "enquiries are"
+                  } hidden while the Open filter is on. Show all to find them.`
+                : "Try clearing filters or adjusting your search."
           }
           actionLabel={
             enquiries.length === 0 && canCreateEnquiry
               ? "Add your first enquiry"
               : enquiries.length === 0
                 ? undefined
-                : "Clear filters"
+                : showOpenFilterHint && hiddenByOpenFilterCount > 0 && !searchQuery.trim()
+                  ? "Show all enquiries"
+                  : "Clear filters"
           }
           onAction={
             enquiries.length === 0 && canCreateEnquiry
@@ -903,9 +948,15 @@ const formatCapacityInput = (capacity: string) => {
                 }
               : enquiries.length > 0
                 ? () => {
-                    setSearchQuery("");
-                    setStatusFilter("all");
-                    setPriorityFilter("all");
+                    if (showOpenFilterHint && hiddenByOpenFilterCount > 0 && !searchQuery.trim()) {
+                      showAllEnquiries();
+                      return;
+                    }
+                    const cleared = clearEnquiryListFilters();
+                    setSearchQuery(cleared.searchQuery);
+                    setStatusFilter(cleared.statusFilter);
+                    setPriorityFilter(cleared.priorityFilter);
+                    setAssigneeFilter(cleared.assigneeFilter);
                     setTablePage(1);
                   }
                 : undefined
@@ -1523,7 +1574,8 @@ const formatCapacityInput = (capacity: string) => {
           <SheetHeader>
             <SheetTitle>Reason for marking lost</SheetTitle>
             <SheetDescription>
-              After a quotation was sent, record why this enquiry did not convert.
+              After a quotation was sent, record why this enquiry did not convert (at least{" "}
+              {MIN_ENQUIRY_TERMINAL_REASON_LENGTH} characters).
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-2">
@@ -1554,7 +1606,10 @@ const formatCapacityInput = (capacity: string) => {
         <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Reopen enquiry</SheetTitle>
-            <SheetDescription>Admin/super-admin only. Provide a reason for reopening this lost lead.</SheetDescription>
+            <SheetDescription>
+              Admin/super-admin only. Provide a reason for reopening this lost lead (at least{" "}
+              {MIN_ENQUIRY_TERMINAL_REASON_LENGTH} characters).
+            </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">

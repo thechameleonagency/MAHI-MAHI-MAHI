@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { CommandBus } from "@/application/commands/CommandBus";
-import { CREATE_ENQUIRY_COMMAND, registerEnquiryCommands } from "@/application/commands/enquiry/registerEnquiryCommands";
+import {
+  CONVERT_ENQUIRY_COMMAND,
+  CREATE_ENQUIRY_COMMAND,
+  registerEnquiryCommands,
+} from "@/application/commands/enquiry/registerEnquiryCommands";
 import { PermissionService } from "@/application/services/PermissionService";
 import { AuditService } from "@/application/services/AuditService";
 import { LocalStorageJsonRepository } from "@/infrastructure/repositories/localStorage/LocalStorageJsonRepository";
@@ -19,10 +23,10 @@ const emptyRepos = (): AppRepositoryContext => ({
   auditRepository: new LocalStorageJsonRepository<AuditLogEntry>("mss.test.enquiry.audit", []),
 });
 
-const baseEnquiry = (): Enquiry => ({
+const baseEnquiry = (overrides: Partial<Enquiry> = {}): Enquiry => ({
   id: "ENQ-TEST-001",
   customerName: "Test User",
-  customerPhone: "999",
+  customerPhone: "9876543210",
   customerEmail: "t@x.com",
   customerAddress: "Addr",
   customerType: "individual",
@@ -36,6 +40,7 @@ const baseEnquiry = (): Enquiry => ({
   createdAt: "2026-01-01",
   updatedAt: "2026-01-01",
   notes: [],
+  ...overrides,
 });
 
 describe("Enquiry commands", () => {
@@ -71,5 +76,82 @@ describe("Enquiry commands", () => {
       payload: { enquiry },
     });
     expect(r2.ok).toBe(false);
+  });
+
+  it("ConvertEnquiry creates customer, links enquiry, and rejects invalid status", async () => {
+    const repositories = emptyRepos();
+    const bus = new CommandBus();
+    registerEnquiryCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+
+    const enquiry = baseEnquiry({ status: "quotation_sent" });
+    repositories.enquiryRepository.add(enquiry);
+
+    const converted = await bus.execute({
+      type: CONVERT_ENQUIRY_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { enquiryId: "ENQ-TEST-001" },
+    });
+    expect(converted.ok).toBe(true);
+    if (!converted.ok) return;
+
+    expect(converted.result.customerId).toMatch(/^CUST-/);
+    const storedEnquiry = repositories.enquiryRepository.getById("ENQ-TEST-001");
+    expect(storedEnquiry?.status).toBe("converted");
+    expect(storedEnquiry?.customerId).toBe(converted.result.customerId);
+    expect(repositories.customerRepository.getById(converted.result.customerId)?.name).toBe(
+      "Test User",
+    );
+
+    const duplicate = baseEnquiry({ id: "ENQ-TEST-002", status: "new" });
+    repositories.enquiryRepository.add(duplicate);
+    const blocked = await bus.execute({
+      type: CONVERT_ENQUIRY_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { enquiryId: "ENQ-TEST-002" },
+    });
+    expect(blocked.ok).toBe(false);
+  });
+
+  it("ConvertEnquiry reuses existing customer by phone instead of duplicating", async () => {
+    const repositories = emptyRepos();
+    const bus = new CommandBus();
+    registerEnquiryCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+
+    repositories.customerRepository.add({
+      id: "CUST-EXIST",
+      name: "Existing",
+      phone: "9876543210",
+      email: "",
+      address: "",
+      type: "individual",
+      itemsBought: [],
+      totalPurchases: 0,
+      createdAt: "2026-01-01",
+    });
+    repositories.enquiryRepository.add(baseEnquiry({ status: "quotation_sent" }));
+
+    const result = await bus.execute({
+      type: CONVERT_ENQUIRY_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { enquiryId: "ENQ-TEST-001" },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.result.customerId).toBe("CUST-EXIST");
+    expect(repositories.customerRepository.getAll()).toHaveLength(1);
   });
 });

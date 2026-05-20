@@ -10,6 +10,7 @@ import type { Quotation } from "@/types/project";
 import { applyQuotationPatch } from "@/domain/quotation/applyQuotationPatch";
 import { propagateQuotationDeathToEnquiry } from "@/lib/enquiryQuotationPropagation";
 import { validateQuotationSendOrApprove } from "@/domain/quotation/quotationCommercialAmount";
+import { validateQuotationPaymentTypeForSend } from "@/domain/quotation/quotationPaymentType";
 import { buildEnquiryQuotationLinkUpdate } from "@/lib/enquiryQuotationHistory";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
 import {
@@ -150,14 +151,23 @@ export const registerQuotationCommands = (
             message: amountCheck.message,
           };
         }
+        const paymentCheck = validateQuotationPaymentTypeForSend(quotation);
+        if (!paymentCheck.ok) {
+          return {
+            ok: false,
+            errorCode: "QUOTATION_PAYMENT_TYPE_REQUIRED",
+            message: paymentCheck.message,
+          };
+        }
       }
 
       if (nextStatus === "converted_to_project") {
-        if (!quotation.paymentType) {
+        const paymentCheck = validateQuotationPaymentTypeForSend(quotation);
+        if (!paymentCheck.ok) {
           return {
             ok: false,
             errorCode: "QUOTATION_CONVERT_VALIDATION_FAILED",
-            message: "Converting a quotation to a project requires a payment type",
+            message: paymentCheck.message,
           };
         }
       }

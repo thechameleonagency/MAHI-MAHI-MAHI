@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Archive, Ban, Undo2, CheckCircle2, XCircle, UserMinus } from "lucide-react";
+import { AlertTriangle, Archive, Ban, Undo2, CheckCircle2, XCircle, UserMinus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,7 @@ const variantStyles: Record<TerminalVariant, { tone: string; icon: typeof Archiv
   rejected:   { tone: "border-l-warning bg-warning/10",            icon: XCircle },
   completed:  { tone: "border-l-success bg-success/10",            icon: CheckCircle2 },
   terminated: { tone: "border-l-destructive bg-destructive/10",    icon: UserMinus },
+  exception:  { tone: "border-l-warning bg-warning/10",            icon: AlertTriangle },
 };
 
 /**

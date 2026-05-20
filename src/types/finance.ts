@@ -44,10 +44,15 @@ export interface InvoiceService {
   serviceNotes?: string;
 }
 
+/** How `type` was chosen — user selections must never be re-inferred from line items after save. */
+export type InvoiceDocumentTypeSource = "user" | "inferred";
+
 export interface Invoice {
   id: string;
   invoiceNumber: string;
   type: "invoice" | "sale-bill";
+  /** Set at create; `user` locks classification across edits and hydration. */
+  documentTypeSource?: InvoiceDocumentTypeSource;
   customerId: string;
   customerName: string;
   customerAddress?: string;
@@ -133,6 +138,10 @@ export interface ExpenseReimbursement {
   amount: number;
   status: "pending" | "paid";
   paidDate?: string;
+  /** Set when status transitions to paid (requires approval:resolve). */
+  approvedByUserId?: string;
+  approvedByUserName?: string;
+  approvedAt?: string;
 }
 
 export interface ExpenseAllocation {

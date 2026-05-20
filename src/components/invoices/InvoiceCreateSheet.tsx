@@ -23,7 +23,14 @@ import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { ClientSelectionSheet } from "./ClientSelectionSheet";
 import type { Invoice, InvoiceItem, InvoiceService, Customer } from "@/types/finance";
 import { PAYMENT_MODES } from "@/types/finance";
-import { inferInvoiceOrSaleBillType, nextDocumentNumber } from "@/lib/invoiceDocumentType";
+import {
+  inferInvoiceOrSaleBillType,
+  invoiceDocumentTypeLabel,
+  nextDocumentNumber,
+  buildPersistedDocumentTypeAtCreate,
+  type InvoiceDocumentType,
+} from "@/lib/invoiceDocumentType";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import { useFormDraft } from "@/hooks/useFormDraft";
 import { computeGstSplit } from "@/lib/gstCalculator";
@@ -79,7 +86,11 @@ interface InvoiceCreateSheetProps {
     items?: InvoiceItem[];
     services?: InvoiceService[];
     total?: number;
+    /** Optional explicit document type (e.g. from /invoices?type=sale-bill). */
+    documentType?: InvoiceDocumentType;
   };
+  /** When opening the sheet, seed document type before inference runs. */
+  initialDocumentType?: InvoiceDocumentType;
 }
 
 /** GST slabs allowed for line items (matches validation in `handleCreateInvoice`). */
@@ -107,6 +118,8 @@ type InvoiceCreateDraft = {
   receivedIn: string;
   receivedDate: string;
   isAlreadyPaid: boolean;
+  documentType: InvoiceDocumentType;
+  documentTypeUserOverride: boolean;
 };
 
 function emptyInvoiceCreateDraft(): InvoiceCreateDraft {
@@ -130,6 +143,8 @@ function emptyInvoiceCreateDraft(): InvoiceCreateDraft {
     receivedIn: "",
     receivedDate: "",
     isAlreadyPaid: false,
+    documentType: "invoice",
+    documentTypeUserOverride: false,
   };
 }
 
@@ -145,6 +160,7 @@ export function InvoiceCreateSheet({
   onCreated,
   onCustomerCreated,
   prefill,
+  initialDocumentType,
 }: InvoiceCreateSheetProps) {
   const { getHsnCodes, getSacCodes, getGstRates: _getGstRates, getStateCodes, getBankAccounts } = useMasters();
   const { allocateCustomerId, addCustomer, canDo } = useAppData();
@@ -173,7 +189,31 @@ export function InvoiceCreateSheet({
     receivedIn,
     receivedDate,
     isAlreadyPaid,
+    documentType,
+    documentTypeUserOverride,
   } = form;
+
+  const inferredDocumentType = useMemo(
+    () =>
+      inferInvoiceOrSaleBillType({
+        projectId: selectedProjectId || undefined,
+        quotationId: selectedQuotationId || undefined,
+        items: invoiceItems,
+        services: invoiceServices,
+      }),
+    [selectedProjectId, selectedQuotationId, invoiceItems, invoiceServices],
+  );
+
+  const previewDocumentNumber = useMemo(
+    () => nextDocumentNumber(documentType, existingDocuments),
+    [documentType, existingDocuments],
+  );
+
+  useEffect(() => {
+    if (documentTypeUserOverride) return;
+    if (documentType === inferredDocumentType) return;
+    setForm((prev) => ({ ...prev, documentType: inferredDocumentType }));
+  }, [inferredDocumentType, documentType, documentTypeUserOverride, setForm]);
 
   const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
   const [highValueReason, setHighValueReason] = useState("");
@@ -203,8 +243,20 @@ export function InvoiceCreateSheet({
       ...(prefill.quotationId ? { selectedQuotationId: prefill.quotationId } : {}),
       ...(prefill.items ? { invoiceItems: prefill.items } : {}),
       ...(prefill.services ? { invoiceServices: prefill.services } : {}),
+      ...(prefill.documentType
+        ? { documentType: prefill.documentType, documentTypeUserOverride: true }
+        : {}),
     }));
   }, [prefill, setForm]);
+
+  useEffect(() => {
+    if (!open || !initialDocumentType) return;
+    setForm((prev) => ({
+      ...prev,
+      documentType: initialDocumentType,
+      documentTypeUserOverride: true,
+    }));
+  }, [open, initialDocumentType, setForm]);
 
   // Reset form
   const resetForm = () => {
@@ -522,13 +574,15 @@ export function InvoiceCreateSheet({
 
     const finalItems = invoiceItems;
 
-    const resolvedType = inferInvoiceOrSaleBillType({
+    const persistedDocType = buildPersistedDocumentTypeAtCreate({
+      userSelectedType: documentType,
+      userOverrideLocked: documentTypeUserOverride,
       projectId: selectedProjectId || undefined,
       quotationId: selectedQuotationId || undefined,
       items: finalItems,
       services: invoiceServices,
     });
-    const invoiceNumber = nextDocumentNumber(resolvedType, existingDocuments);
+    const invoiceNumber = nextDocumentNumber(persistedDocType.type, existingDocuments);
 
     const highValueCheck = billingDirectionGuard.validateHighValueIssuance(totals.total, highValueReason);
     if (!highValueCheck.ok) {
@@ -543,7 +597,8 @@ export function InvoiceCreateSheet({
     const newInvoice: Invoice = {
       id: typeof crypto !== "undefined" && "randomUUID" in crypto ? `INV-${crypto.randomUUID()}` : `INV-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.toUpperCase(),
       invoiceNumber,
-      type: resolvedType,
+      type: persistedDocType.type,
+      documentTypeSource: persistedDocType.documentTypeSource,
       customerId: selectedCustomerId || undefined,
       customerName: buyerName,
       customerAddress: buyerAddress,
@@ -614,13 +669,15 @@ export function InvoiceCreateSheet({
       return;
     }
     const totals = calculateTotals();
-    const resolvedType = inferInvoiceOrSaleBillType({
+    const persistedDocType = buildPersistedDocumentTypeAtCreate({
+      userSelectedType: documentType,
+      userOverrideLocked: documentTypeUserOverride,
       projectId: selectedProjectId || undefined,
       quotationId: selectedQuotationId || undefined,
       items: invoiceItems,
       services: invoiceServices,
     });
-    const invoiceNumber = nextDocumentNumber(resolvedType, existingDocuments);
+    const invoiceNumber = nextDocumentNumber(persistedDocType.type, existingDocuments);
     const invDate = invoiceDate || new Date().toISOString().split("T")[0];
     const due = dueDate || invDate;
     const newInvoice: Invoice = {
@@ -629,7 +686,8 @@ export function InvoiceCreateSheet({
           ? `INV-${crypto.randomUUID()}`
           : `INV-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.toUpperCase(),
       invoiceNumber,
-      type: resolvedType,
+      type: persistedDocType.type,
+      documentTypeSource: persistedDocType.documentTypeSource,
       customerId: selectedCustomerId || undefined,
       customerName: buyerName,
       customerAddress: buyerAddress,
@@ -700,6 +758,63 @@ export function InvoiceCreateSheet({
         )}
         <div className="space-y-6 py-4">
             <div className="space-y-6">
+              <Card className="border-primary/20 bg-primary/5">
+                <CardContent className="pt-4 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">Document type</p>
+                      <p className="text-xs text-muted-foreground">
+                        Suggested: {invoiceDocumentTypeLabel(inferredDocumentType)}
+                        {documentTypeUserOverride ? " · you chose an override" : " · auto-updates until you pick"}
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono shrink-0">
+                      Next no. {previewDocumentNumber}
+                    </p>
+                  </div>
+                  <RadioGroup
+                    value={documentType}
+                    onValueChange={(v) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        documentType: v as InvoiceDocumentType,
+                        documentTypeUserOverride: true,
+                      }))
+                    }
+                    className="flex flex-col sm:flex-row gap-4"
+                  >
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="invoice" id="doc-type-invoice" />
+                      <Label htmlFor="doc-type-invoice" className="font-normal cursor-pointer">
+                        Invoice (services)
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="sale-bill" id="doc-type-sale-bill" />
+                      <Label htmlFor="doc-type-sale-bill" className="font-normal cursor-pointer">
+                        Sale bill (goods)
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                  {documentTypeUserOverride && documentType !== inferredDocumentType && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="h-auto p-0 text-xs"
+                      onClick={() =>
+                        setForm((prev) => ({
+                          ...prev,
+                          documentType: inferredDocumentType,
+                          documentTypeUserOverride: false,
+                        }))
+                      }
+                    >
+                      Reset to suggested {invoiceDocumentTypeLabel(inferredDocumentType)}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Header Section */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">

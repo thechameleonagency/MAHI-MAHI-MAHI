@@ -1,4 +1,4 @@
-import { format } from "date-fns";
+import { resolveProcurementNeedByDate } from "@/lib/procurementNeedByDate";
 import type { InventoryItem, Project, Quotation } from "@/types/project";
 import type { SiteChecklistTemplate } from "@/types/templates";
 import type { MaterialReservation } from "@/types/operations";
@@ -89,7 +89,7 @@ export class ProcurementShortfallService {
           availableStock: effectiveAvailable,
           reservedForOthers,
           shortfallQty,
-          needByDate: this.resolveNeedByDate(project.startDate),
+          needByDate: resolveProcurementNeedByDate({ projectStartDate: project.startDate }),
           lastPurchaseRate: inventoryItem.buyPrice,
         });
       });
@@ -121,10 +121,4 @@ export class ProcurementShortfallService {
     return presetFromQuotation || presetFromProject || [];
   }
 
-  private resolveNeedByDate(projectStartDate: string): string {
-    if (!projectStartDate) {
-      return format(new Date(), "yyyy-MM-dd");
-    }
-    return format(new Date(new Date(projectStartDate).getTime() - 24 * 60 * 60 * 1000), "yyyy-MM-dd");
-  }
 }

@@ -41,7 +41,8 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
   const can = (a: Parameters<typeof permissionService.canPerformAction>[1]) =>
     permissionService.canPerformAction(currentRole, a, roleMatrixOverride);
 
-  const { stickyPageHeader, setStickyPageHeader, breadcrumbs } = usePageHeaderSticky();
+  const { stickyPageHeader, setStickyPageHeader, breadcrumbs, hasPinnablePageHeader } =
+    usePageHeaderSticky();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   return (
@@ -96,28 +97,36 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
         >
           <Search className="h-4 w-4" />
         </Button>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="inline-flex h-8 w-8 shrink-0 sm:h-9 sm:w-9"
-              aria-pressed={stickyPageHeader}
-              aria-label={
-                stickyPageHeader ? "Page header pinned to top; click to scroll with page" : "Page header scrolls; click to pin"
-              }
-              onClick={() => setStickyPageHeader(!stickyPageHeader)}
-            >
-              {stickyPageHeader ? <Pin className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /> : <PinOff className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="max-w-[240px]">
-            {stickyPageHeader
-              ? "Page header pinned (sticky). Click to scroll with the page."
-              : "Page header scrolls with content. Click to pin under the bar."}
-          </TooltipContent>
-        </Tooltip>
+        {hasPinnablePageHeader && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="inline-flex h-8 w-8 shrink-0 sm:h-9 sm:w-9"
+                aria-pressed={stickyPageHeader}
+                aria-label={
+                  stickyPageHeader
+                    ? "Page header pinned to top; click to scroll with page"
+                    : "Page header scrolls; click to pin"
+                }
+                onClick={() => setStickyPageHeader(!stickyPageHeader)}
+              >
+                {stickyPageHeader ? (
+                  <Pin className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+                ) : (
+                  <PinOff className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[240px]">
+              {stickyPageHeader
+                ? "Page header pinned (sticky). Click to scroll with the page."
+                : "Page header scrolls with content. Click to pin under the bar."}
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
 
       <div className="hidden h-7 w-px shrink-0 bg-border/50 md:block" aria-hidden />

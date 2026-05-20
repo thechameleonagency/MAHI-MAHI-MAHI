@@ -29,6 +29,7 @@ import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { useMasters } from "@/hooks/useMasters";
 import { NeedToGetService } from "@/application/services/NeedToGetService";
 import { ProcurementShortfallService } from "@/application/services/ProcurementShortfallService";
+import { NeedToGetDamageChip } from "@/components/need-to-get/NeedToGetDamageChip";
 import { NeedToGetSheet } from "@/components/need-to-get/NeedToGetSheet";
 import { format } from "date-fns";
 import { downloadCSV } from "@/lib/csvExport";
@@ -256,8 +257,17 @@ const Materials = () => {
         inventoryItems,
         vendorBills,
         materialReservations ?? [],
+        materialDamageRecords ?? [],
       ),
-    [needToGetService, sites, projects, inventoryItems, vendorBills, materialReservations],
+    [
+      needToGetService,
+      sites,
+      projects,
+      inventoryItems,
+      vendorBills,
+      materialReservations,
+      materialDamageRecords,
+    ],
   );
   const procurementShortfallService = useMemo(() => new ProcurementShortfallService(), []);
   const procurementShortfalls = useMemo(
@@ -910,6 +920,9 @@ const Materials = () => {
                         <Badge variant="outline" className="mt-1 text-2xs font-normal">
                           Checklist (no SKU)
                         </Badge>
+                      ) : null}
+                      {row.shortfallIncludesDamage ? (
+                        <NeedToGetDamageChip damageQty={row.damageQtyAttributed} className="mt-1" />
                       ) : null}
                     </div>
                     <Badge className="bg-destructive/10 text-destructive border-0">

@@ -153,6 +153,46 @@ describe("Quotation lifecycle command", () => {
     }
   });
 
+  it("blocks draft -> sent when payment type is missing", async () => {
+    const repositories = createRepositories([
+      {
+        id: "Q-NP",
+        quotationNumber: "Q-NP",
+        status: "draft",
+        quotationType: "solar",
+        clientName: "A",
+        clientPhone: "1",
+        clientEmail: "a@a.com",
+        clientCity: "Jaipur",
+        clientState: "Rajasthan",
+        totalAmount: 1000,
+        isConverted: false,
+        createdAt: "2026-01-01",
+        presetSnapshot: [{ id: 1, name: "Panel", quantity: 1, unit: "pcs", rate: 1000 }],
+      },
+    ] as Quotation[]);
+
+    const commandBus = new CommandBus();
+    registerQuotationCommands(
+      commandBus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+
+    const result = await commandBus.execute({
+      type: TRANSITION_QUOTATION_STATUS_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { quotationId: "Q-NP", nextStatus: "sent" },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errorCode).toBe("QUOTATION_PAYMENT_TYPE_REQUIRED");
+    }
+  });
+
   it("blocks direct draft -> converted_to_project transition", async () => {
     const repositories = createRepositories([
       {

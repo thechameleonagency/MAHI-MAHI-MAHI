@@ -18,6 +18,10 @@ type PageHeaderStickyValue = {
   setStickyPageHeader: (value: boolean) => void;
   breadcrumbs: Breadcrumb[];
   setBreadcrumbs: (crumbs: Breadcrumb[]) => void;
+  /** True while a `StickyPageHeader` with title/actions/subRow is mounted on the active page */
+  hasPinnablePageHeader: boolean;
+  /** Called by `StickyPageHeader` on mount; returns cleanup for unmount */
+  registerPinnablePageHeader: () => () => void;
 };
 
 const PageHeaderStickyContext = createContext<PageHeaderStickyValue | null>(null);
@@ -25,6 +29,7 @@ const PageHeaderStickyContext = createContext<PageHeaderStickyValue | null>(null
 export function PageHeaderStickyProvider({ children }: { children: ReactNode }) {
   const [stickyPageHeader, setStickyState] = useState(true);
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
+  const [pinnablePageHeaderCount, setPinnablePageHeaderCount] = useState(0);
 
   useEffect(() => {
     try {
@@ -45,9 +50,30 @@ export function PageHeaderStickyProvider({ children }: { children: ReactNode }) 
     }
   }, []);
 
+  const registerPinnablePageHeader = useCallback(() => {
+    setPinnablePageHeaderCount((count) => count + 1);
+    return () => setPinnablePageHeaderCount((count) => Math.max(0, count - 1));
+  }, []);
+
+  const hasPinnablePageHeader = pinnablePageHeaderCount > 0;
+
   const value = useMemo(
-    () => ({ stickyPageHeader, setStickyPageHeader, breadcrumbs, setBreadcrumbs }),
-    [stickyPageHeader, setStickyPageHeader, breadcrumbs, setBreadcrumbs],
+    () => ({
+      stickyPageHeader,
+      setStickyPageHeader,
+      breadcrumbs,
+      setBreadcrumbs,
+      hasPinnablePageHeader,
+      registerPinnablePageHeader,
+    }),
+    [
+      stickyPageHeader,
+      setStickyPageHeader,
+      breadcrumbs,
+      setBreadcrumbs,
+      hasPinnablePageHeader,
+      registerPinnablePageHeader,
+    ],
   );
 
   return <PageHeaderStickyContext.Provider value={value}>{children}</PageHeaderStickyContext.Provider>;

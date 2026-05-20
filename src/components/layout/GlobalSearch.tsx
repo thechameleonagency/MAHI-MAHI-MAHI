@@ -135,8 +135,9 @@ const GlobalSearch = ({ onNavigate }: GlobalSearchProps) => {
       }
     });
 
-    // Search customers
+    // Search customers (active only — archived are reachable via customer detail / Show archived list)
     customers.forEach((c) => {
+      if (c.archivedAt) return;
       if (c.name.toLowerCase().includes(searchQuery) || c.phone?.includes(searchQuery)) {
         searchResults.push({
           id: c.id,

@@ -31,6 +31,7 @@ import {
   buildProjectConfirmationData,
   type ProjectTeamAssignmentDraft,
 } from "@/lib/projectTeamAssignment";
+import { filterActiveCustomers } from "@/lib/customerListFilters";
 
 interface CreateProjectSheetProps {
   open: boolean;
@@ -145,6 +146,14 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
     () => employees.filter((e) => e.status === "Active").map((e) => ({ id: e.id, name: e.name })),
     [employees],
   );
+  const selectableCustomers = useMemo(() => {
+    const active = filterActiveCustomers(customers);
+    if (selectedCustomerId && !active.some((c) => c.id === selectedCustomerId)) {
+      const selected = customers.find((c) => c.id === selectedCustomerId);
+      if (selected) return [...active, selected];
+    }
+    return active;
+  }, [customers, selectedCustomerId]);
 
   const dealBringerPartners = useMemo(
     () => partners.filter(p => p.type === "Profit-Share" || p.type === "Fixed-Rate"),
@@ -1049,7 +1058,11 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                   <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId}>
                     <SelectTrigger><SelectValue placeholder="Select customer..." /></SelectTrigger>
                     <SelectContent>
-                      {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                      {selectableCustomers.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 ) : (

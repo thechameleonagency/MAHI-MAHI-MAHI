@@ -99,6 +99,7 @@ export const projectKindConfigs: Record<string, ProjectKindConfig> = {
     visibleTabs: ["overview", "commercial", "parties", "sites", "work", "team_roster", "materials", "documents", "billing", "collections", "tasks", "audit"],
     requiredDocuments: ["proposal", "agreement", "feasibility", "meter_application", "dcr", "wcr", "handover"],
     forbiddenActions: ["partner_settlement", "channel_fee"],
+    requiresClientInvoice: true,
   },
   PARTNER_EPC: {
     kind: "PARTNER_EPC",
@@ -109,6 +110,7 @@ export const projectKindConfigs: Record<string, ProjectKindConfig> = {
     visibleTabs: ["overview", "commercial", "parties", "sites", "work", "team_roster", "materials", "documents", "billing", "collections", "partner_economics", "tasks", "audit"],
     requiredDocuments: ["proposal", "agreement", "feasibility", "dcr", "wcr", "handover"],
     forbiddenActions: [],
+    requiresClientInvoice: true,
   },
   FIXED_EPC: {
     kind: "FIXED_EPC",
@@ -119,6 +121,7 @@ export const projectKindConfigs: Record<string, ProjectKindConfig> = {
     visibleTabs: ["overview", "commercial", "parties", "sites", "work", "team_roster", "materials", "documents", "billing", "collections", "fixed_margin", "tasks", "audit"],
     requiredDocuments: ["proposal", "agreement", "feasibility", "dcr", "wcr", "handover"],
     forbiddenActions: [],
+    requiresClientInvoice: true,
   },
   VENDOR_NETWORK: {
     kind: "VENDOR_NETWORK",
@@ -129,6 +132,7 @@ export const projectKindConfigs: Record<string, ProjectKindConfig> = {
     visibleTabs: ["overview", "commercial", "parties", "work", "team_roster", "materials", "documents", "billing", "collections", "channel_fee", "tasks", "audit"],
     requiredDocuments: ["external_invoice_ref", "commission_doc", "handover"],
     forbiddenActions: [],
+    requiresClientInvoice: false,
   },
   INC: {
     kind: "INC",
@@ -139,6 +143,7 @@ export const projectKindConfigs: Record<string, ProjectKindConfig> = {
     visibleTabs: ["overview", "commercial", "parties", "work", "team_roster", "materials", "documents", "billing", "collections", "tasks", "audit"],
     requiredDocuments: ["site_photo", "work_completion", "handover"],
     forbiddenActions: ["full_epc_document_set"],
+    requiresClientInvoice: true,
   },
   OUTSOURCED_INC: {
     kind: "OUTSOURCED_INC",
@@ -149,6 +154,7 @@ export const projectKindConfigs: Record<string, ProjectKindConfig> = {
     visibleTabs: ["overview", "commercial", "parties", "work", "team_roster", "billing", "collections", "tasks", "audit"],
     requiredDocuments: ["site_photo", "work_completion", "handover", "subcontractor_agreement"],
     forbiddenActions: ["full_epc_document_set", "material_dispatch"],
+    requiresClientInvoice: false,
   },
   INC_GIVEN: {
     kind: "INC_GIVEN",
@@ -159,6 +165,7 @@ export const projectKindConfigs: Record<string, ProjectKindConfig> = {
     visibleTabs: ["overview", "commercial", "parties", "work", "team_roster", "collections", "tasks", "audit"],
     requiredDocuments: ["work_completion", "handover"],
     forbiddenActions: ["full_epc_document_set", "material_dispatch", "partner_settlement"],
+    requiresClientInvoice: false,
   },
   VENDORSHIP_ONLY: {
     kind: "VENDORSHIP_ONLY",
@@ -169,5 +176,6 @@ export const projectKindConfigs: Record<string, ProjectKindConfig> = {
     visibleTabs: ["overview", "parties", "billing", "collections", "team_roster", "tasks", "audit"],
     requiredDocuments: ["vendor_code_agreement"],
     forbiddenActions: ["material_dispatch", "work_tracking", "full_epc_document_set"],
+    requiresClientInvoice: false,
   },
 };

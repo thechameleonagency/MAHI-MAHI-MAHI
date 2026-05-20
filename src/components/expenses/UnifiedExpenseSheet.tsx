@@ -54,6 +54,7 @@ import {
   validateExpensePayerForm,
   type ExpensePayerType,
 } from "@/lib/expensePayerValidation";
+import { ExpenseReimbursementStatus } from "@/components/expenses/ExpenseReimbursementStatus";
 
 /** Ledger preview: negative outflow (formatINR is always positive ₹…). */
 function formatInrOutflow(n: number): string {
@@ -1601,17 +1602,30 @@ export function UnifiedExpenseSheet({
                 {needsMonth && <div className="flex justify-between"><span className="text-muted-foreground">Billing Month</span><span className="font-medium">{billingMonth}</span></div>}
                 {vendorName && <div className="flex justify-between"><span className="text-muted-foreground">Vendor</span><span className="font-medium">{vendorName}</span></div>}
                 {willReimburse && (
-                  <div className="flex justify-between text-primary">
-                    <span>Reimbursement</span>
-                    <span className="font-medium">
-                      {formatINR(
-                        (() => {
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-primary">
+                      <span>Reimbursement</span>
+                      <span className="font-medium">
+                        {formatINR(
+                          (() => {
+                            const r = Number.parseFloat(reimbursementAmount);
+                            const t = Number.parseFloat(amount);
+                            return Number.isFinite(r) && r > 0 ? r : Number.isFinite(t) ? t : 0;
+                          })(),
+                        )}
+                      </span>
+                    </div>
+                    <ExpenseReimbursementStatus
+                      reimbursement={{
+                        enabled: true,
+                        amount: (() => {
                           const r = Number.parseFloat(reimbursementAmount);
                           const t = Number.parseFloat(amount);
                           return Number.isFinite(r) && r > 0 ? r : Number.isFinite(t) ? t : 0;
                         })(),
-                      )}
-                    </span>
+                        status: "pending",
+                      }}
+                    />
                   </div>
                 )}
                 {notes && <div className="pt-2 border-t"><span className="text-muted-foreground text-sm">Notes: </span><span className="text-sm">{notes}</span></div>}

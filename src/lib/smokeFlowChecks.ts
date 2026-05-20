@@ -4,7 +4,8 @@
 import type { Project } from "@/types/project";
 import type { Customer, Invoice } from "@/types/finance";
 import { isProjectCompleted, isProjectOpen } from "@/lib/agingHelpers";
-import { getCustomerKind, isCustomerArchived } from "@/lib/selectors";
+import { filterCustomersForList, type CustomerKindFilter } from "@/lib/customerListFilters";
+import { isCustomerArchived } from "@/lib/selectors";
 
 export function sortProjectsOpenFirst(projects: Project[]): Project[] {
   const open = projects.filter(isProjectOpen);
@@ -41,18 +42,17 @@ export function filterActiveSiteProjects(projects: Project[]): Project[] {
   });
 }
 
-export type CustomerKindFilter = "all" | "project" | "inventory" | "both" | "archived";
+export type { CustomerKindFilter } from "@/lib/customerListFilters";
 
+/** @deprecated Use filterCustomersForList — kept for smoke tests. */
 export function filterCustomersByKind(
   customers: Customer[],
-  kindFilter: CustomerKindFilter,
+  kindFilter: CustomerKindFilter | "archived",
 ): Customer[] {
-  return customers.filter((c) => {
-    const kind = getCustomerKind(c);
-    if (kindFilter === "all") return true;
-    if (kindFilter === "archived") return isCustomerArchived(c);
-    return !isCustomerArchived(c) && (kind === kindFilter || kind === "both");
-  });
+  if (kindFilter === "archived") {
+    return filterCustomersForList(customers, { showArchived: true });
+  }
+  return filterCustomersForList(customers, { kindFilter });
 }
 
 export function canVoidInvoice(inv: Invoice): { ok: boolean; reason?: string } {

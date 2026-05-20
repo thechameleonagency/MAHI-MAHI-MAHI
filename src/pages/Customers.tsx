@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Search, Edit, Users, Building2, Mail, MapPin, ExternalLink, UserPlus, Trash2 } from "lucide-react";
+import { Plus, Search, Edit, Users, Building2, Mail, MapPin, ExternalLink, UserPlus, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { ListSkeleton } from "@/components/ui/ListSkeleton";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,9 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { useMasters } from "@/contexts/MastersContext";
 import { formatUiDate } from "@/lib/dateDisplay";
-import { getCustomerKind, isCustomerArchived } from "@/lib/selectors";
+import { filterCustomersForList, type CustomerKindFilter } from "@/lib/customerListFilters";
+import { isCustomerArchived } from "@/lib/selectors";
+import { Switch } from "@/components/ui/switch";
 import { useCan } from "@/hooks/useCan";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getCustomerReceivableAging } from "@/lib/agingHelpers";
@@ -35,6 +37,7 @@ const Customers = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const canCreateCustomer = useCan("customer", "create");
+  const canEditCustomer = useCan("customer", "edit");
   const canDeleteCustomer = useCan("customer", "delete");
   const { getStateCodes } = useMasters();
   const { 
@@ -55,11 +58,14 @@ const Customers = () => {
 
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
   const [typeFilter, setTypeFilter] = useState(() => searchParams.get("type") ?? "all");
-  const [kindFilter, setKindFilter] = useState<"all" | "project" | "inventory" | "both" | "archived">(() => {
+  const [kindFilter, setKindFilter] = useState<CustomerKindFilter>(() => {
     const k = searchParams.get("kind");
-    if (k === "project" || k === "inventory" || k === "both" || k === "archived") return k;
+    if (k === "project" || k === "inventory" || k === "both") return k;
     return "all";
   });
+  const [showArchived, setShowArchived] = useState(
+    () => searchParams.get("archived") === "1" || searchParams.get("kind") === "archived",
+  );
   type CustomerSortKey = "name" | "purchases_desc" | "received_desc" | "type";
   const [sortKey, setSortKey] = useState<CustomerSortKey>(() => {
     const s = searchParams.get("sort");
@@ -78,13 +84,15 @@ const Customers = () => {
         else next.delete("type");
         if (kindFilter !== "all") next.set("kind", kindFilter);
         else next.delete("kind");
+        if (showArchived) next.set("archived", "1");
+        else next.delete("archived");
         if (sortKey !== "name") next.set("sort", sortKey);
         else next.delete("sort");
         return next;
       },
       { replace: true },
     );
-  }, [searchQuery, typeFilter, kindFilter, sortKey, setSearchParams]);
+  }, [searchQuery, typeFilter, kindFilter, showArchived, sortKey, setSearchParams]);
   
   // Customer Modal State
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
@@ -234,19 +242,31 @@ const Customers = () => {
     setIsEditCustomerOpen(true);
   };
 
-  const filteredCustomers = customers.filter((c) => {
-    const matchesSearch =
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.phone.includes(searchQuery) ||
-      c.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = typeFilter === "all" || c.type === typeFilter;
-    const kind = getCustomerKind(c);
-    const matchesKind =
-      kindFilter === "all" ||
-      (kindFilter === "archived" && isCustomerArchived(c)) ||
-      (kindFilter !== "archived" && !isCustomerArchived(c) && (kind === kindFilter || kind === "both"));
-    return matchesSearch && matchesType && matchesKind;
-  });
+  const archivedCount = useMemo(
+    () => customers.filter((c) => isCustomerArchived(c)).length,
+    [customers],
+  );
+
+  const filteredCustomers = useMemo(
+    () =>
+      filterCustomersForList(customers, {
+        searchQuery,
+        typeFilter: typeFilter as "all" | "individual" | "company",
+        kindFilter,
+        showArchived,
+      }),
+    [customers, searchQuery, typeFilter, kindFilter, showArchived],
+  );
+
+  const handleArchiveCustomer = (customer: Customer) => {
+    updateCustomer(customer.id, { archivedAt: new Date().toISOString() });
+    toast({ title: "Customer archived", description: customer.name });
+  };
+
+  const handleUnarchiveCustomer = (customer: Customer) => {
+    updateCustomer(customer.id, { archivedAt: null });
+    toast({ title: "Customer restored", description: customer.name });
+  };
 
   const sortedCustomers = useMemo(() => {
     const received = (customerId: string, customerName: string) => {
@@ -299,7 +319,7 @@ const Customers = () => {
                   <SelectItem value="company">Company</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={kindFilter} onValueChange={(v) => setKindFilter(v as typeof kindFilter)}>
+              <Select value={kindFilter} onValueChange={(v) => setKindFilter(v as CustomerKindFilter)}>
                 <SelectTrigger className="h-9 w-full bg-muted/50 sm:w-[180px]">
                   <SelectValue placeholder="Kind" />
                 </SelectTrigger>
@@ -308,9 +328,18 @@ const Customers = () => {
                   <SelectItem value="project">Project</SelectItem>
                   <SelectItem value="inventory">Inventory</SelectItem>
                   <SelectItem value="both">Both</SelectItem>
-                  <SelectItem value="archived">Archived</SelectItem>
                 </SelectContent>
               </Select>
+              <label className="flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-md border border-border bg-muted/50 px-3 text-sm">
+                <Switch
+                  checked={showArchived}
+                  onCheckedChange={setShowArchived}
+                  aria-label="Show archived customers"
+                />
+                <span className="whitespace-nowrap text-muted-foreground">
+                  Show archived{archivedCount > 0 ? ` (${archivedCount})` : ""}
+                </span>
+              </label>
               <Select value={sortKey} onValueChange={(v) => setSortKey(v as CustomerSortKey)}>
                 <SelectTrigger className="h-9 w-full bg-muted/50 sm:w-[200px]">
                   <SelectValue placeholder="Sort" />
@@ -330,7 +359,10 @@ const Customers = () => {
                 { label: "Companies", value: customers.filter((c) => c.type === "company").length },
                 { label: "Individuals", value: customers.filter((c) => c.type === "individual").length },
                 { label: "Volume", value: formatCurrency(customers.reduce((s, c) => s + c.totalPurchases, 0)) },
-                { label: "Showing", value: sortedCustomers.length },
+                { label: showArchived ? "Archived" : "Active", value: sortedCustomers.length },
+                ...(archivedCount > 0 && !showArchived
+                  ? [{ label: "Archived (hidden)", value: archivedCount }]
+                  : []),
               ]}
             />
           </>
@@ -373,7 +405,10 @@ const Customers = () => {
           const isLead = (customer.itemsBought?.length ?? 0) === 0 && (customer.totalPurchases ?? 0) === 0;
           
           return (
-            <Card key={customer.id} className="bg-card hover:shadow-md transition-shadow">
+            <Card
+              key={customer.id}
+              className={`bg-card hover:shadow-md transition-shadow ${isCustomerArchived(customer) ? "opacity-90 border-dashed" : ""}`}
+            >
               <CardContent className="p-4 md:p-5">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-3">
@@ -381,6 +416,11 @@ const Customers = () => {
                     {customer.type === "company" ? "Company" : "Individual"}
                   </span>
                   <div className="flex flex-wrap gap-2 justify-end">
+                    {isCustomerArchived(customer) && (
+                      <Badge variant="outline" className="text-2xs border-muted-foreground/40">
+                        Archived
+                      </Badge>
+                    )}
                     {isLead && (
                       <Badge variant="outline" className="text-2xs border-dashed">
                         Lead
@@ -491,13 +531,35 @@ const Customers = () => {
                       <Button size="sm" className="flex-1" onClick={() => navigate(`/customers/${customer.id}`)}>
                         <ExternalLink className="h-3 w-3 mr-1" /> View
                       </Button>
+                      {canEditCustomer &&
+                        (isCustomerArchived(customer) ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => handleUnarchiveCustomer(customer)}
+                          >
+                            <ArchiveRestore className="h-3 w-3 mr-1" />
+                            Restore
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 text-muted-foreground"
+                            onClick={() => handleArchiveCustomer(customer)}
+                          >
+                            <Archive className="h-3 w-3 mr-1" />
+                            Archive
+                          </Button>
+                        ))}
                       {canDeleteCustomer && (
                         <Button variant="ghost" size="icon" aria-label={`Delete customer ${customer.name}`} className="text-destructive hover:bg-destructive/10" onClick={() => setCustomerToDelete(customer)}>
                           <Trash2 className="h-4 w-4" aria-hidden />
                         </Button>
                       )}
                     </div>
-                    {isLead && (
+                    {isLead && !isCustomerArchived(customer) && (
                       <Button
                         variant="secondary"
                         size="sm"
@@ -530,9 +592,19 @@ const Customers = () => {
           <ListEmptyState
             icon={Users}
             title="No customers match"
-            description="Try clearing search or type filter."
+            description={
+              showArchived
+                ? "No archived customers match your filters."
+                : "Try clearing search or filters, or turn on Show archived."
+            }
             actionLabel="Clear filters"
-            onAction={() => { setSearchQuery(""); setTypeFilter("all"); setKindFilter("all"); setSortKey("name"); }}
+            onAction={() => {
+              setSearchQuery("");
+              setTypeFilter("all");
+              setKindFilter("all");
+              setShowArchived(false);
+              setSortKey("name");
+            }}
           />
         )
       )}

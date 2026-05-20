@@ -115,4 +115,19 @@ describe("ProjectInvariantService", () => {
     const { ok } = svc.canMarkCompleted("P3", w);
     expect(ok).toBe(false);
   });
+
+  it("allows VENDORSHIP_ONLY without project invoices", () => {
+    const p = baseProject({ id: "P4", projectKind: "VENDORSHIP_ONLY", executionLineItems: [] });
+    const w = emptyWorld([p]);
+    const { ok, reasons } = svc.canMarkCompleted("P4", w);
+    expect(ok).toBe(true);
+    expect(reasons).toHaveLength(0);
+  });
+
+  it("allows OUTSOURCED_INC without project invoices", () => {
+    const p = baseProject({ id: "P5", projectKind: "OUTSOURCED_INC", executionLineItems: [] });
+    const w = emptyWorld([p]);
+    const { ok } = svc.canMarkCompleted("P5", w);
+    expect(ok).toBe(true);
+  });
 });

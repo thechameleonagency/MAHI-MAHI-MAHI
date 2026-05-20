@@ -1,4 +1,6 @@
 import { canTransitionQuotationStatus, type QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
+import { validateQuotationSendOrApprove } from "@/domain/quotation/quotationCommercialAmount";
+import { validateQuotationPaymentTypeForSend } from "@/domain/quotation/quotationPaymentType";
 import type { Quotation } from "@/types/project";
 
 /** Commercial line items locked after approval/confirm (aligns with AppDataContext). */
@@ -74,6 +76,27 @@ export function applyQuotationPatch(quotation: Quotation, updates: Partial<Quota
 
   const nextQuotation: Quotation = { ...quotation, ...updates };
   const isStatusTransitionToSent = quotation.status !== "sent" && nextQuotation.status === "sent";
+  const isStatusTransitionToApproved =
+    quotation.status !== "approved" && nextQuotation.status === "approved";
+
+  if (isStatusTransitionToSent || isStatusTransitionToApproved) {
+    const amountCheck = validateQuotationSendOrApprove(nextQuotation);
+    if (!amountCheck.ok) {
+      return {
+        ok: false,
+        code: "QUOTATION_ZERO_AMOUNT",
+        message: amountCheck.message,
+      };
+    }
+    const paymentCheck = validateQuotationPaymentTypeForSend(nextQuotation);
+    if (!paymentCheck.ok) {
+      return {
+        ok: false,
+        code: "QUOTATION_PAYMENT_TYPE_REQUIRED",
+        message: paymentCheck.message,
+      };
+    }
+  }
 
   if (isStatusTransitionToSent && !nextQuotation.commercialSnapshot) {
     nextQuotation.commercialSnapshot = createCommercialSnapshot(nextQuotation);

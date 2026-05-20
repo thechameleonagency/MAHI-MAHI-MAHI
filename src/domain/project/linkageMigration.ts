@@ -1,7 +1,8 @@
+import { resolveProjectExecutionLineItems } from "@/domain/project/executionLineItems";
 import { normalizeProject } from "@/lib/projectNormalize";
 import { migrateQuotationProjectLink } from "@/lib/quotationProjectLink";
 import type { Customer, Invoice } from "@/types/finance";
-import type { ExecutionLineItem, Project, Quotation } from "@/types/project";
+import type { Project, Quotation } from "@/types/project";
 
 const LEGACY_FALLBACK = "C001";
 
@@ -38,20 +39,10 @@ function normalizeLegacyProjectFields(project: Project): Project {
 export function hydrateProjectLinkage(projects: Project[], customers: Customer[]): Project[] {
   return projects.map((p) => {
     const customerId = p.customerId || matchCustomerId(p.client, customers);
-    let executionLineItems = p.executionLineItems;
-    if ((!executionLineItems || executionLineItems.length === 0) && p.commercialBaseline?.lines?.length) {
-      executionLineItems = p.commercialBaseline.lines.map(
-        (l): ExecutionLineItem => ({
-          ...l,
-          source: p.quotationId ? "quotation" : "intake",
-          issuedQty: p.status === "Completed" ? l.quantity : 0,
-        }),
-      );
-    }
     return normalizeLegacyProjectFields({
       ...p,
       customerId,
-      executionLineItems,
+      executionLineItems: resolveProjectExecutionLineItems({ ...p, customerId }),
     });
   });
 }

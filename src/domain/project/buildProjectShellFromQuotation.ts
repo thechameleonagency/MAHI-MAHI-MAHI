@@ -1,35 +1,14 @@
 import type { ProjectIntakePayload } from "@/application/services/ProjectTypeService";
+import { resolveProjectKindFromIntake } from "@/domain/project/intakePayload";
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
 import { formatCapacityKW } from "@/lib/formatCurrency";
+import { resolveProjectPaymentTypeFromSources } from "@/domain/project/projectPaymentType";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import type { Project, Quotation } from "@/types/project";
 
 export type BuildProjectShellResult =
   | { ok: true; project: Project }
   | { ok: false; errorCode: string; message: string };
-
-function isLegacyIntake(
-  intake: ProjectIntakePayload,
-): intake is Extract<ProjectIntakePayload, { kind: ProjectKind }> {
-  return "kind" in intake && Boolean((intake as { kind?: ProjectKind }).kind);
-}
-
-function resolveProjectKind(intake: ProjectIntakePayload): ProjectKind {
-  if (isLegacyIntake(intake)) {
-    return intake.kind;
-  }
-  const typed = intake as Extract<ProjectIntakePayload, { projectMode: string }>;
-  const match = (
-    Object.entries(LEGACY_KIND_TO_TYPE) as [ProjectKind, (typeof LEGACY_KIND_TO_TYPE)[ProjectKind]][]
-  ).find(
-    ([, v]) =>
-      v.projectType === typed.projectMode &&
-      v.vendorshipOwner === typed.vendorshipOwner &&
-      v.partnerRole === typed.partnerRole &&
-      v.executionScope === typed.executionScope,
-  );
-  return match?.[0] ?? "SOLO_EPC";
-}
 
 /** Human-readable site label — never emits a lone `", "` when city/state are empty. */
 export function formatProjectLocationFromQuotation(quotation: Quotation): string {
@@ -73,7 +52,15 @@ export function buildProjectShellFromQuotation(params: {
   projectId: string;
 }): BuildProjectShellResult {
   const { quotation, intake, projectName, projectId } = params;
-  const projectKind = resolveProjectKind(intake);
+  const kindResult = resolveProjectKindFromIntake(intake);
+  if (!kindResult.ok) {
+    return {
+      ok: false,
+      errorCode: kindResult.errorCode,
+      message: kindResult.message,
+    };
+  }
+  const projectKind = kindResult.kind;
 
   if (quotation.quotationType === "solar" && !quotation.systemCategory) {
     return {
@@ -84,7 +71,14 @@ export function buildProjectShellFromQuotation(params: {
     };
   }
 
-  const legacyMap = LEGACY_KIND_TO_TYPE[projectKind] ?? LEGACY_KIND_TO_TYPE.SOLO_EPC;
+  const legacyMap = LEGACY_KIND_TO_TYPE[projectKind];
+  if (!legacyMap) {
+    return {
+      ok: false,
+      errorCode: "PROJECT_KIND_CONFIG_MISSING",
+      message: `No taxonomy mapping for project kind ${projectKind}.`,
+    };
+  }
   const capacity = formatCapacityKW(quotation.systemCapacity);
   const location = formatProjectLocationFromQuotation(quotation);
   const contractAmount =
@@ -92,10 +86,10 @@ export function buildProjectShellFromQuotation(params: {
     quotation.clientAgreedAmount ||
     quotation.totalAmount ||
     0;
-  const paymentType =
-    (intake.commercial?.paymentType as Project["paymentType"]) ||
-    (quotation.paymentType as Project["paymentType"]) ||
-    undefined;
+  const paymentType = resolveProjectPaymentTypeFromSources({
+    intakePayment: intake.commercial?.paymentType,
+    quotationPayment: quotation.paymentType,
+  });
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -136,6 +130,7 @@ export function buildProjectShellFromQuotation(params: {
     startDate: today,
     endDate: null,
     createdAt: today,
+    executionLineItems: [],
   };
 
   return { ok: true, project };

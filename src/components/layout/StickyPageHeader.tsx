@@ -20,14 +20,20 @@ type StickyPageHeaderProps = {
  * Place as the first child inside the scrollable `main` region so `sticky top-0` pins under the app shell.
  */
 export function StickyPageHeader({ breadcrumbs, children, subRow, title, className }: StickyPageHeaderProps) {
-  const { stickyPageHeader: pinned, setBreadcrumbs } = usePageHeaderSticky();
+  const { stickyPageHeader: pinned, setBreadcrumbs, registerPinnablePageHeader } = usePageHeaderSticky();
+  const hasPinnableSurface = Boolean(children || subRow || title);
 
   useEffect(() => {
     setBreadcrumbs(breadcrumbs);
     return () => setBreadcrumbs([]);
   }, [breadcrumbs, setBreadcrumbs]);
 
-  if (!children && !subRow && !title) return null;
+  useEffect(() => {
+    if (!hasPinnableSurface) return;
+    return registerPinnablePageHeader();
+  }, [hasPinnableSurface, registerPinnablePageHeader]);
+
+  if (!hasPinnableSurface) return null;
 
   return (
     <div

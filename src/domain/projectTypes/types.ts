@@ -66,6 +66,8 @@ export interface ProjectKindConfig {
   visibleTabs: string[];
   requiredDocuments: string[];
   forbiddenActions: string[];
+  /** When false, project completion does not require MSS client invoices / sale bills. */
+  requiresClientInvoice: boolean;
 }
 
 /** Static legacy-kind → new-type mapping. Used by {@link normalizeProject} to migrate persisted

@@ -42,6 +42,12 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
 import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
+import type { QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
+import {
+  formatQuotationStatusLabel,
+  isQuotationFormLocked,
+  quotationStatusBadgeClass,
+} from "@/lib/quotationStatusUi";
 import { useMasters } from "@/contexts/MastersContext";
 import { ProjectKindService, type ProjectIntakePayload } from "@/application/services/ProjectKindService";
 import { projectKindConfigs } from "@/domain/projectTypes/config";
@@ -72,6 +78,11 @@ import {
   QUOTATION_ZERO_AMOUNT_ERROR,
   validateQuotationSendOrApprove,
 } from "@/domain/quotation/quotationCommercialAmount";
+import {
+  QUOTATION_PAYMENT_TYPE_REQUIRED_MESSAGE,
+  validateQuotationPaymentTypeForSend,
+} from "@/domain/quotation/quotationPaymentType";
+import { isProjectPaymentType } from "@/domain/project/projectPaymentType";
 import {
   buildPaymentTermsSummary,
   validateQuotationClientForApproval,
@@ -216,7 +227,8 @@ const Quotations = () => {
   // Quotation state
   const [quotationNumber, setQuotationNumber] = useState(`Q-2024-${String(savedQuotations.length + 1).padStart(3, '0')}`);
   const [quotationDate] = useState(new Date().toISOString().split('T')[0]);
-  const [status, setStatus] = useState<"draft" | "sent" | "approved" | "rejected" | "converted_to_project">("draft");
+  const [status, setStatus] = useState<QuotationStatus>("draft");
+  const formLocked = isQuotationFormLocked(status);
   const [referenceClientName, setReferenceClientName] = useState("");
   
   // Modal states
@@ -259,9 +271,7 @@ const Quotations = () => {
   const [systemConfigNotes, setSystemConfigNotes] = useState("");
   
   // Status filter for list view
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "draft" | "sent" | "approved" | "rejected" | "withdrawn" | "converted_to_project"
-  >("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | QuotationStatus>("all");
   const [listSearchQuery, setListSearchQuery] = useState("");
 
   const QUOTE_LIST_COL_LS = "mss.quotations.listColumns.v1";
@@ -409,7 +419,11 @@ const Quotations = () => {
   const totalError = effectivePrice < 0 ? "Total cost cannot be negative" : "";
   const zeroAmountError =
     effectivePrice <= 0 && !totalError ? QUOTATION_ZERO_AMOUNT_ERROR : "";
-  const blocksSendApproveActions = !!discountError || !!totalError || !!zeroAmountError;
+  const paymentTypeError = isProjectPaymentType(paymentType)
+    ? ""
+    : QUOTATION_PAYMENT_TYPE_REQUIRED_MESSAGE;
+  const blocksSendApproveActions =
+    !!discountError || !!totalError || !!zeroAmountError || !!paymentTypeError;
 
   // Reset form
   const resetForm = () => {
@@ -533,6 +547,9 @@ const Quotations = () => {
       title: "Quotation withdrawn",
       description: `${withdrawDialogQuotation.quotationNumber} marked withdrawn.`,
     });
+    if (editingQuotationId === withdrawDialogQuotation.id) {
+      setStatus("withdrawn");
+    }
     setWithdrawDialogQuotation(null);
     setWithdrawReason("");
     setIsViewQuotationOpen(false);
@@ -855,6 +872,14 @@ const Quotations = () => {
   };
 
   const handleSaveQuotation = async () => {
+    if (formLocked) {
+      toast({
+        title: "Quotation locked",
+        description: "Terminal quotations cannot be edited. Clone or revise from the list.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!clientName) {
       toast({ title: "Error", description: "Please enter client name", variant: "destructive" });
       return;
@@ -864,9 +889,8 @@ const Quotations = () => {
       return;
     }
 
-    const quotationData: Omit<Quotation, 'id'> = {
+    const fieldPatch: Partial<Quotation> = {
       quotationNumber,
-      status: "draft",
       quotationType: "solar", // Default to solar for existing flow
       clientName,
       clientPhone,
@@ -887,7 +911,7 @@ const Quotations = () => {
       systemCategory: systemCategory as "residential" | "commercial" | "industrial",
       // Strip any trailing "kW"/"kWp" so persisted value is the bare number; display helpers re-append the unit.
       systemCapacity: systemCapacity.replace(/\s*k\s*w\s*p?\s*$/i, "").trim(),
-      paymentType: paymentType,
+      paymentType: isProjectPaymentType(paymentType) ? paymentType : undefined,
       clientAgreedAmount: effectivePrice,
       bankDocumentationAmount: paymentType === "loan" ? (bankDocumentationAmount || effectivePrice) : undefined,
       temporaryAmount: effectivePrice,
@@ -896,18 +920,22 @@ const Quotations = () => {
       customerId: customerId || undefined,
       enquiryId: enquiryId || undefined,
       agentId: agentId || undefined,
-      createdAt: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString().split("T")[0],
     };
 
     if (editingQuotationId) {
-      const ur = await updateQuotation(editingQuotationId, quotationData);
+      const ur = await updateQuotation(editingQuotationId, fieldPatch);
       if (!ur.ok) {
         setLastConfirm({ variant: "error", title: "Could not update quotation", description: ur.error ?? "Command failed" });
         return;
       }
       setLastConfirm({ variant: "success", title: "Quotation updated", description: `${quotationNumber} has been updated` });
     } else {
-      const r = await addQuotation({ ...quotationData, id: generateId("Q") });
+      const r = await addQuotation({
+        ...fieldPatch,
+        status: "draft",
+        id: generateId("Q"),
+      } as Quotation);
       if (!r.ok) {
         setLastConfirm({ variant: "error", title: "Could not save quotation", description: r.error ?? "Command failed" });
         return;
@@ -1030,12 +1058,25 @@ const Quotations = () => {
     return check.ok ? null : check.message;
   };
 
+  const assertQuotationPaymentTypeForTransition = (
+    quotationId: string,
+    livePaymentType?: string,
+  ): string | null => {
+    if (livePaymentType !== undefined) {
+      return isProjectPaymentType(livePaymentType) ? null : QUOTATION_PAYMENT_TYPE_REQUIRED_MESSAGE;
+    }
+    const q = savedQuotations.find((x) => x.id === quotationId);
+    if (!q) return "Quotation not found";
+    const check = validateQuotationPaymentTypeForSend(q);
+    return check.ok ? null : check.message;
+  };
+
   // Handle Share to Client
   const handleOpenShareModal = () => {
     if (blocksSendApproveActions) {
       toast({
         title: "Cannot share quotation",
-        description: zeroAmountError || totalError || discountError,
+        description: paymentTypeError || zeroAmountError || totalError || discountError,
         variant: "destructive",
       });
       return;
@@ -1068,6 +1109,28 @@ const Quotations = () => {
       if (amountError) {
         toast({ title: "Cannot share quotation", description: amountError, variant: "destructive" });
         return;
+      }
+      const paymentError = assertQuotationPaymentTypeForTransition(quotationId, paymentType);
+      if (paymentError) {
+        toast({ title: "Cannot share quotation", description: paymentError, variant: "destructive" });
+        return;
+      }
+      if (isProjectPaymentType(paymentType)) {
+        const sync = await updateQuotation(quotationId, {
+          paymentType,
+          clientAgreedAmount: effectivePrice,
+          totalAmount: effectivePrice,
+          finalAmount: effectivePrice,
+          temporaryAmount: effectivePrice,
+        });
+        if (!sync.ok) {
+          toast({
+            title: "Cannot share quotation",
+            description: sync.error ?? "Could not save payment type before sharing",
+            variant: "destructive",
+          });
+          return;
+        }
       }
       const existingHistory = currentQuotation?.shareHistory || [];
       const result = await transitionQuotationStatus(quotationId, "sent");
@@ -1115,6 +1178,31 @@ const Quotations = () => {
     if (amountError) {
       toast({ title: "Cannot send quotation", description: amountError, variant: "destructive" });
       return;
+    }
+    const paymentError = assertQuotationPaymentTypeForTransition(
+      quotationId,
+      editingQuotationId === quotationId ? paymentType : undefined,
+    );
+    if (paymentError) {
+      toast({ title: "Cannot send quotation", description: paymentError, variant: "destructive" });
+      return;
+    }
+    if (editingQuotationId === quotationId && isProjectPaymentType(paymentType)) {
+      const sync = await updateQuotation(quotationId, {
+        paymentType,
+        clientAgreedAmount: effectivePrice,
+        totalAmount: effectivePrice,
+        finalAmount: effectivePrice,
+        temporaryAmount: effectivePrice,
+      });
+      if (!sync.ok) {
+        toast({
+          title: "Cannot send quotation",
+          description: sync.error ?? "Could not save payment type before sending",
+          variant: "destructive",
+        });
+        return;
+      }
     }
     const result = await transitionQuotationStatus(quotationId, "sent");
     if (!result.ok) {
@@ -1171,6 +1259,31 @@ const Quotations = () => {
     if (amountError) {
       toast({ title: "Cannot approve quotation", description: amountError, variant: "destructive" });
       return;
+    }
+    const paymentError = assertQuotationPaymentTypeForTransition(
+      quotationId,
+      editingQuotationId === quotationId ? paymentType : undefined,
+    );
+    if (paymentError) {
+      toast({ title: "Cannot approve quotation", description: paymentError, variant: "destructive" });
+      return;
+    }
+    if (editingQuotationId === quotationId && isProjectPaymentType(paymentType)) {
+      const sync = await updateQuotation(quotationId, {
+        paymentType,
+        clientAgreedAmount: effectivePrice,
+        totalAmount: effectivePrice,
+        finalAmount: effectivePrice,
+        temporaryAmount: effectivePrice,
+      });
+      if (!sync.ok) {
+        toast({
+          title: "Cannot approve quotation",
+          description: sync.error ?? "Could not save payment type before approval",
+          variant: "destructive",
+        });
+        return;
+      }
     }
     const clientSource = resolveQuotationClientForApproval(quotationId);
     if (!clientSource) {
@@ -1519,12 +1632,14 @@ const Quotations = () => {
   };
 
   const handleEditQuotation = async (quotation: Quotation) => {
-    // Direct update logic as per user requirement
-    // We skip the revision logic to avoid creating duplicates
-    if (quotation.status === "approved" || quotation.status === "converted_to_project") {
+    if (isQuotationFormLocked(quotation.status)) {
+      const lockedHint =
+        quotation.status === "withdrawn" || quotation.status === "rejected"
+          ? "This quotation is terminal. Open it from the list to preview, or clone it to start a new draft."
+          : "Approved or converted quotations are locked for data integrity. Clone to start a new draft.";
       toast({
-        title: "Quotation Locked",
-        description: "Approved quotations are locked for data integrity. Use Super Admin override to edit.",
+        title: "Quotation locked",
+        description: lockedHint,
         variant: "destructive",
       });
       return;
@@ -1545,6 +1660,8 @@ const Quotations = () => {
     setSystemCategory(quotation.systemCategory);
     setSystemCapacity(quotation.systemCapacity);
     setStatus(quotation.status);
+    setPaymentType(isProjectPaymentType(quotation.paymentType) ? quotation.paymentType : "");
+    setProjectPaymentType(isProjectPaymentType(quotation.paymentType) ? quotation.paymentType : "cash");
     handlePresetChange(quotation.systemCategory, quotation.systemCapacity);
     setCurrentView("edit");
     setActiveTab("create");
@@ -1556,29 +1673,8 @@ const Quotations = () => {
     setCurrentView("create");
   };
 
-  const getStatusColor = (s: string) => {
-    switch (s) {
-      case "draft": return "bg-warning/10 text-warning";
-      case "sent": return "bg-primary/10 text-primary";
-      case "approved": return "bg-primary/10 text-primary";
-      case "converted_to_project": return "bg-success/10 text-success";
-      case "rejected": return "bg-destructive/10 text-destructive";
-      case "withdrawn": return "bg-zinc-500/10 text-zinc-600";
-      default: return "bg-muted text-muted-foreground";
-    }
-  };
-
-  const formatQuotationStatus = (s: string) => {
-    switch (s) {
-      case "draft": return "Draft";
-      case "sent": return "Sent";
-      case "approved": return "Approved";
-      case "rejected": return "Rejected";
-      case "withdrawn": return "Withdrawn";
-      case "converted_to_project": return "Converted to project";
-      default: return s;
-    }
-  };
+  const getStatusColor = quotationStatusBadgeClass;
+  const formatQuotationStatus = formatQuotationStatusLabel;
 
   // List View
   if (currentView === "list") {
@@ -1846,8 +1942,8 @@ const Quotations = () => {
                 {quoteListColVis.status && (
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <Badge className={`${getStatusColor(quotation.status)} border-0 capitalize`}>
-                      {quotation.status}
+                    <Badge className={`${getStatusColor(quotation.status)} border-0`}>
+                      {formatQuotationStatus(quotation.status)}
                     </Badge>
                     {quotationLinkedProjectId(quotation) && (
                       <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
@@ -1873,8 +1969,8 @@ const Quotations = () => {
                 <div className="flex items-center gap-2">
                   {selectedQuotation?.quotationNumber}
                   {selectedQuotation && (
-                    <Badge className={`${getStatusColor(selectedQuotation.status)} border-0 capitalize`}>
-                      {selectedQuotation.status}
+                    <Badge className={`${getStatusColor(selectedQuotation.status)} border-0`}>
+                      {formatQuotationStatus(selectedQuotation.status)}
                     </Badge>
                   )}
                 </div>
@@ -2111,6 +2207,14 @@ const Quotations = () => {
                         if (selectedQuotation.rejectedAt) {
                           events.push({ label: "Rejected", description: selectedQuotation.rejectionReason || "Quotation rejected.", at: selectedQuotation.rejectedAt, tone: "destructive" });
                         }
+                        if (selectedQuotation.withdrawnAt) {
+                          events.push({
+                            label: "Withdrawn",
+                            description: selectedQuotation.withdrawnReason || "Quotation withdrawn by seller.",
+                            at: selectedQuotation.withdrawnAt,
+                            tone: "muted",
+                          });
+                        }
                         if (selectedQuotation.convertedAt || quotationLinkedProjectId(selectedQuotation)) {
                           const pid = quotationLinkedProjectId(selectedQuotation) || "";
                           events.push({
@@ -2127,6 +2231,7 @@ const Quotations = () => {
                           teal: "border-primary/20 text-primary",
                           green: "border-success/20 text-success",
                           destructive: "border-destructive/20 text-destructive",
+                          muted: "border-muted/40 text-muted-foreground",
                         };
                         return events.map((e, idx) => (
                           <div key={idx} className="relative pl-8 group">
@@ -2331,6 +2436,18 @@ const Quotations = () => {
         />
       )}
 
+      {(status === "withdrawn" || status === "rejected") && (
+        <LifecycleTerminalBanner
+          variant={status === "withdrawn" ? "withdrawn" : "rejected"}
+          title={`Quotation ${formatQuotationStatus(status)}`}
+          description={
+            status === "withdrawn"
+              ? "This quotation is withdrawn and locked. Clone it to start a new draft for re-quoting."
+              : "This quotation is rejected and locked. Revise or clone from the list to create a new draft."
+          }
+        />
+      )}
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="flex items-center gap-3 border-b border-border pb-3">
           <Button variant="ghost" size="sm" className="shrink-0" onClick={() => { setCurrentView("list"); resetForm(); }} aria-label="Back to quotations">
@@ -2343,7 +2460,7 @@ const Quotations = () => {
           </TabsList>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-2xs uppercase tracking-wider text-muted-foreground">{currentView === "edit" ? `Edit · ${quotationNumber}` : "New"}</span>
-            <Badge className={`${getStatusColor(status)} border-0 capitalize`}>{status}</Badge>
+            <Badge className={`${getStatusColor(status)} border-0`}>{formatQuotationStatus(status)}</Badge>
           </div>
         </div>
 
@@ -2782,6 +2899,31 @@ const Quotations = () => {
                   {zeroAmountError && (
                     <p className="text-xs text-destructive">{zeroAmountError}</p>
                   )}
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">
+                      Payment type <span className="text-destructive">*</span>
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Required before send or approve — drives project timeline (cash vs loan).
+                    </p>
+                    <Select
+                      value={paymentType || undefined}
+                      onValueChange={(v) => setPaymentType(v as "cash" | "loan" | "cash-and-loan")}
+                    >
+                      <SelectTrigger className={paymentTypeError ? "border-destructive" : undefined}>
+                        <SelectValue placeholder="Select payment type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="loan">Loan</SelectItem>
+                        <SelectItem value="cash-and-loan">Combined (Cash + Loan)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {paymentTypeError && (
+                      <p className="text-xs text-destructive">{paymentTypeError}</p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
 
@@ -2950,7 +3092,11 @@ const Quotations = () => {
 
               {/* Action Buttons */}
               <div className="space-y-3">
-                <Button className="w-full" onClick={handleSaveQuotation} disabled={!!discountError || !!totalError}>
+                <Button
+                  className="w-full"
+                  onClick={handleSaveQuotation}
+                  disabled={formLocked || !!discountError || !!totalError}
+                >
                   <Save className="w-4 h-4 mr-2" />
                   Save Quotation
                 </Button>
@@ -3078,7 +3224,7 @@ const Quotations = () => {
             <Button
               className="bg-primary text-primary-foreground"
               onClick={handleOpenShareModal}
-              disabled={blocksSendApproveActions}
+              disabled={formLocked || blocksSendApproveActions}
             >
               <Send className="w-4 h-4 mr-2" />
               Send to Client
@@ -3101,7 +3247,7 @@ const Quotations = () => {
                 <p className="text-xs text-muted-foreground mt-1">GSTIN: {companyInfo.gstin}</p>
               </div>
               <div className="text-right">
-                <Badge className={`${getStatusColor(status)} border-0 capitalize text-sm px-3 py-1`}>{status}</Badge>
+                <Badge className={`${getStatusColor(status)} border-0 text-sm px-3 py-1`}>{formatQuotationStatus(status)}</Badge>
                 <p className="text-2xl font-bold mt-2">{quotationNumber}</p>
                 <p className="text-sm text-muted-foreground">Date: {quotationDate}</p>
               </div>

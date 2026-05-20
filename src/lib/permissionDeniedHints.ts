@@ -10,4 +10,5 @@ export const PERMISSION_DENIED_HINTS = {
   changeRequestApprove: "Only admin, management, or CEO can approve commercial change requests.",
   customerCreateQuotation: "Your role cannot create quotations for this customer.",
   customerCreateProject: "Your role cannot create projects from the customer page.",
+  expenseReimbursementApprove: "Only admin, management, or CEO can approve expense reimbursements.",
 } as const;

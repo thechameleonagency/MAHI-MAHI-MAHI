@@ -8,13 +8,15 @@ import { ProjectKindService, type ProjectIntakePayload } from "@/application/ser
 import { buildProjectShellFromDirectException } from "@/domain/project/buildProjectShellFromDirectException";
 import { buildProjectShellFromQuotation } from "@/domain/project/buildProjectShellFromQuotation";
 import { commercialBaselineFromIntake, commercialBaselineFromQuotation } from "@/domain/project/commercialBaseline";
+import { withResolvedExecutionLineItems } from "@/domain/project/executionLineItems";
+import { isProjectPaymentType } from "@/domain/project/projectPaymentType";
 import {
   ProjectInvariantService,
   type ProjectCreateInvariantInput,
   type ProjectInvariantValidationResult,
 } from "@/domain/project/ProjectInvariantService";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
-import type { Project } from "@/types/project";
+import type { ExecutionLineItem, Project } from "@/types/project";
 import { buildQuotationProjectLinkPatch, isQuotationConverted } from "@/lib/quotationProjectLink";
 
 type CreateProjectFromQuotationPayload = {
@@ -48,6 +50,37 @@ const makeProjectId = () =>
 
 const projectInvariantService = new ProjectInvariantService();
 
+type CommandReject = { ok: false; errorCode: string; message: string };
+
+function rejectInvalidIntakePaymentType(intake: ProjectIntakePayload): CommandReject | null {
+  const raw = intake.commercial?.paymentType;
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  if (!isProjectPaymentType(raw)) {
+    return {
+      ok: false,
+      errorCode: "PROJECT_PAYMENT_TYPE_INVALID",
+      message: `Invalid payment type "${String(raw)}". Must be cash, loan, or cash-and-loan.`,
+    };
+  }
+  return null;
+}
+
+function rejectInvalidProjectPaymentType(project: Project | undefined): CommandReject | null {
+  if (!project?.paymentType) {
+    return null;
+  }
+  if (!isProjectPaymentType(project.paymentType)) {
+    return {
+      ok: false,
+      errorCode: "PROJECT_PAYMENT_TYPE_INVALID",
+      message: `Invalid payment type "${String(project.paymentType)}". Must be cash, loan, or cash-and-loan.`,
+    };
+  }
+  return null;
+}
+
 function rejectProjectCreateInvariants(
   input: ProjectCreateInvariantInput,
 ): ProjectInvariantValidationResult | null {
@@ -65,6 +98,11 @@ export const registerProjectCommands = (
 
   commandBus.register<Command<CreateProjectFromQuotationPayload>, { projectId: string }>(CREATE_PROJECT_FROM_QUOTATION_COMMAND, (command) => {
     assertCommandPermission(permissionService, command, "project:create_from_quote");
+
+    const intakePaymentReject = rejectInvalidIntakePaymentType(command.payload.intake);
+    if (intakePaymentReject) {
+      return intakePaymentReject;
+    }
 
     const quotation = repositories.quotationRepository.getById(command.payload.quotationId);
     if (!quotation) {
@@ -91,6 +129,10 @@ export const registerProjectCommands = (
         return createInvariant;
       }
       const p = command.payload.project;
+      const projectPaymentReject = rejectInvalidProjectPaymentType(p);
+      if (projectPaymentReject) {
+        return projectPaymentReject;
+      }
       if (p.quotationId !== command.payload.quotationId) {
         return { ok: false, errorCode: "QUOTATION_PROJECT_MISMATCH", message: "Project quotationId must match command quotationId" };
       }
@@ -98,12 +140,14 @@ export const registerProjectCommands = (
         return { ok: false, errorCode: "PROJECT_ID_EXISTS", message: "A project with this id already exists" };
       }
       const { baseline, executionLineItems } = commercialBaselineFromQuotation(quotation);
-      repositories.projectRepository.add({
-        ...p,
-        customerId: p.customerId || quotation.customerId || "",
-        commercialBaseline: p.commercialBaseline ?? baseline,
-        executionLineItems: p.executionLineItems?.length ? p.executionLineItems : executionLineItems,
-      });
+      repositories.projectRepository.add(
+        withResolvedExecutionLineItems({
+          ...p,
+          customerId: p.customerId || quotation.customerId || "",
+          commercialBaseline: p.commercialBaseline ?? baseline,
+          executionLineItems: p.executionLineItems?.length ? p.executionLineItems : executionLineItems,
+        }),
+      );
       repositories.quotationRepository.update(quotation.id, buildQuotationProjectLinkPatch(p.id));
       auditService.write(command, {
         action: "create",
@@ -142,11 +186,13 @@ export const registerProjectCommands = (
     }
 
     const { baseline, executionLineItems } = commercialBaselineFromQuotation(quotation);
-    repositories.projectRepository.add({
-      ...built.project,
-      commercialBaseline: baseline,
-      executionLineItems,
-    });
+    repositories.projectRepository.add(
+      withResolvedExecutionLineItems({
+        ...built.project,
+        commercialBaseline: baseline,
+        executionLineItems,
+      }),
+    );
 
     repositories.quotationRepository.update(quotation.id, buildQuotationProjectLinkPatch(projectId));
     auditService.write(command, {
@@ -167,6 +213,15 @@ export const registerProjectCommands = (
     assertCommandPermission(permissionService, command, "project:create_from_quote");
     const { project, intake, quotationId } = command.payload;
 
+    const intakePaymentReject = rejectInvalidIntakePaymentType(intake);
+    if (intakePaymentReject) {
+      return intakePaymentReject;
+    }
+    const projectPaymentReject = rejectInvalidProjectPaymentType(project);
+    if (projectPaymentReject) {
+      return projectPaymentReject;
+    }
+
     const createInvariant = rejectProjectCreateInvariants({ project, quotationId });
     if (createInvariant) {
       return createInvariant;
@@ -180,7 +235,7 @@ export const registerProjectCommands = (
       if (repositories.projectRepository.getById(project.id)) {
         return { ok: false, errorCode: "PROJECT_ID_EXISTS", message: "A project with this id already exists" };
       }
-      let toAdd = project;
+      let toAdd: Project = project;
       if ((!project.commercialBaseline || !project.executionLineItems?.length) && project.customerId) {
         const { baseline, executionLineItems } = commercialBaselineFromIntake({
           projectId: project.id,
@@ -194,7 +249,7 @@ export const registerProjectCommands = (
           executionLineItems: project.executionLineItems?.length ? project.executionLineItems : executionLineItems,
         };
       }
-      repositories.projectRepository.add(toAdd);
+      repositories.projectRepository.add(withResolvedExecutionLineItems(toAdd));
       auditService.write(command, {
         action: "create",
         entityType: "Project",
@@ -232,7 +287,7 @@ export const registerProjectCommands = (
       commercialBaseline: project.commercialBaseline ?? baseline,
       executionLineItems: project.executionLineItems?.length ? project.executionLineItems : executionLineItems,
     };
-    repositories.projectRepository.add(withQuote);
+    repositories.projectRepository.add(withResolvedExecutionLineItems(withQuote));
     repositories.quotationRepository.update(quotation.id, buildQuotationProjectLinkPatch(project.id));
     auditService.write(command, {
       action: "create",
@@ -245,6 +300,11 @@ export const registerProjectCommands = (
 
   commandBus.register<Command<CreateDirectProjectExceptionPayload>, { projectId: string }>(CREATE_DIRECT_PROJECT_EXCEPTION_COMMAND, (command) => {
     assertCommandPermission(permissionService, command, "project:create_direct_exception");
+
+    const intakePaymentReject = rejectInvalidIntakePaymentType(command.payload.intake);
+    if (intakePaymentReject) {
+      return intakePaymentReject;
+    }
 
     const intakeValidation = projectKindService.validateIntake(command.payload.intake);
     if (!intakeValidation.ok) {
@@ -290,13 +350,15 @@ export const registerProjectCommands = (
           summaryLine: `Direct exception — ${command.payload.projectName}`,
           customerId: cid,
         })
-      : { baseline: undefined, executionLineItems: undefined };
+      : { baseline: undefined, executionLineItems: [] as ExecutionLineItem[] };
 
-    repositories.projectRepository.add({
-      ...built.project,
-      commercialBaseline: baseline,
-      executionLineItems,
-    });
+    repositories.projectRepository.add(
+      withResolvedExecutionLineItems({
+        ...built.project,
+        commercialBaseline: baseline,
+        executionLineItems: executionLineItems ?? [],
+      }),
+    );
 
     auditService.write(command, {
       action: "create",

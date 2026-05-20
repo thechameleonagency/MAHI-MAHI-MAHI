@@ -192,6 +192,7 @@ const ActiveSites = () => {
     inventoryItems,
     vendorBills,
     materialReservations,
+    materialDamageRecords,
     tasks,
   } = useAppData();
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
@@ -207,6 +208,7 @@ const ActiveSites = () => {
       inventoryItems,
       vendorBills,
       materialReservations ?? [],
+      materialDamageRecords ?? [],
     );
     const m = new Map<string, number>();
     for (const r of rows) {
@@ -214,7 +216,16 @@ const ActiveSites = () => {
       m.set(r.projectId, (m.get(r.projectId) ?? 0) + r.qtyShort);
     }
     return m;
-  }, [needToGetService, sites, projects, inventoryItems, vendorBills, materialReservations, refreshKey]);
+  }, [
+    needToGetService,
+    sites,
+    projects,
+    inventoryItems,
+    vendorBills,
+    materialReservations,
+    materialDamageRecords,
+    refreshKey,
+  ]);
   
   // State for expanded step in cards
   const [expandedStep, setExpandedStep] = useState<{projectId: string, step: string} | null>(null);

@@ -5,6 +5,7 @@ import {
   calculateProjectPartnerEarning,
   isPartnerCreditTransaction,
 } from "@/domain/partners/derivePartnerEconomics";
+import { projectRequiresClientInvoiceForCompletion } from "@/lib/projectCompletionInvoice";
 
 export type ProjectCreateInvariantInput = {
   /** Project shell about to be persisted (may include `partners[]`). */
@@ -43,8 +44,6 @@ export type ProjectInvariantWorld = {
   attendanceRecords: AttendanceRecord[];
   partnerTransactions?: PartnerTransaction[];
 };
-
-const kindsRequiringProjectInvoice = new Set<string>(["SOLO_EPC", "PARTNER_EPC", "FIXED_EPC", "INC"]);
 
 function reviewQueueTouchesProject(queue: AccountingReviewQueueItem[], projectId: string, world: ProjectInvariantWorld): boolean {
   return queue.some((q) => {
@@ -107,8 +106,7 @@ export class ProjectInvariantService {
       reasons.push(`Resolve ${activeBlockages.length} active blockage(s) before completion.`);
     }
 
-    const kind = project.projectKind ?? "SOLO_EPC";
-    if (kindsRequiringProjectInvoice.has(kind)) {
+    if (projectRequiresClientInvoiceForCompletion(project)) {
       const docs = [...world.invoices, ...world.saleBills].filter(
         (d) => d.projectId === projectId && d.billingScope !== "company_overhead",
       );

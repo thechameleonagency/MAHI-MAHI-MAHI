@@ -24,6 +24,8 @@ import {
  * Either shape produces the same capability resolution, so consumers can migrate at their own pace.
  */
 import type { DirectExceptionSiteDetails } from "@/domain/project/directExceptionSite";
+import { resolveIntakeLegacyKind } from "@/domain/project/intakePayload";
+import { isProjectPaymentType } from "@/domain/project/projectPaymentType";
 
 export type ProjectIntakePayload =
   | LegacyIntakePayload
@@ -62,10 +64,6 @@ export interface TypedIntakePayload {
   parties: LegacyIntakePayload["parties"];
   commercial: LegacyIntakePayload["commercial"];
   outsource?: unknown | null;
-}
-
-function isLegacyPayload(p: ProjectIntakePayload): p is LegacyIntakePayload {
-  return (p as LegacyIntakePayload).kind !== undefined;
 }
 
 /**
@@ -112,14 +110,11 @@ export class ProjectTypeService {
   validateIntake(payload: ProjectIntakePayload): { ok: boolean; errors: string[] } {
     const errors: string[] = [];
 
-    const legacyKind: ProjectKind = isLegacyPayload(payload)
-      ? payload.kind
-      : (Object.entries(LEGACY_KIND_TO_TYPE).find(([, v]) =>
-          v.projectType === payload.projectMode &&
-          v.vendorshipOwner === payload.vendorshipOwner &&
-          v.partnerRole === payload.partnerRole &&
-          v.executionScope === payload.executionScope,
-        )?.[0] as ProjectKind | undefined) ?? "SOLO_EPC";
+    const kindResolve = resolveIntakeLegacyKind(payload);
+    if (!kindResolve.ok) {
+      return { ok: false, errors: [kindResolve.error] };
+    }
+    const legacyKind = kindResolve.kind;
 
     const config = projectKindConfigs[legacyKind];
     if (!config) {
@@ -133,6 +128,18 @@ export class ProjectTypeService {
 
     config.requiredCommercialFields.forEach((fieldKey) => {
       const value = payload.commercial[fieldKey];
+      if (fieldKey === "paymentType") {
+        if (!isProjectPaymentType(value)) {
+          if (value === undefined || value === null || value === "") {
+            errors.push("Missing required commercial field: paymentType");
+          } else {
+            errors.push(
+              `Invalid payment type "${String(value)}". Must be cash, loan, or cash-and-loan.`,
+            );
+          }
+        }
+        return;
+      }
       if (value === undefined || value === null || value === "") {
         errors.push(`Missing required commercial field: ${fieldKey}`);
       }

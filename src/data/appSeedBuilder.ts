@@ -532,9 +532,11 @@ export function buildSequencedAppSeed(): AppState {
   const quotations = hydrateQuotationLinkage(state.quotations, customers);
   const invoices = sanitizeBillingDocuments(
     hydrateInvoiceLinkage(state.invoices, customers, hydratedProjects),
+    "invoices",
   );
   const saleBills = sanitizeBillingDocuments(
     hydrateInvoiceLinkage(state.saleBills, customers, hydratedProjects),
+    "saleBills",
   );
   const projectsWithBilling = reconcileProjectsAmountInvoiced(
     hydratedProjects,

@@ -1,4 +1,8 @@
 import type { UserRole } from "@/domain/entities/identity";
+import {
+  enquiryTransitionRequiresTerminalReason,
+  isEnquiryTerminalReasonValid,
+} from "@/lib/enquiryReasonValidation";
 
 export type EnquiryStatus =
   | "new"
@@ -23,13 +27,11 @@ export const canTransitionEnquiryStatus = (
   actorRole: UserRole,
   reason?: string,
 ): boolean => {
-  // Admins/super-admins can reopen lost enquiries back to "new" with a reason.
-  if (from === "lost" && to === "new") {
-    return ["super_admin", "admin"].includes(actorRole) && Boolean(reason?.trim());
-  }
-
-  if ((from === "quotation_sent" || from === "quotation_rejected") && to === "lost") {
-    return (reason?.trim().length ?? 0) >= 3;
+  if (enquiryTransitionRequiresTerminalReason(from, to)) {
+    if (from === "lost" && to === "new") {
+      return ["super_admin", "admin"].includes(actorRole) && isEnquiryTerminalReasonValid(reason);
+    }
+    return isEnquiryTerminalReasonValid(reason);
   }
 
   return baseTransitions[from]?.includes(to) ?? false;

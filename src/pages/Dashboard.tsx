@@ -57,7 +57,14 @@ import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardEnquiryRow } from "@/components/dashboard/DashboardEnquiryRow";
-import { buildEnquiryToQuotationDraft, saveCreateDraft } from "@/lib/createFromContext";
+import { buildEnquiryToQuotationDraft, quickCreatePath, saveCreateDraft } from "@/lib/createFromContext";
+import {
+  FIELD_OPS_METRICS,
+  resolveDashboardOnboardingVariant,
+  SALES_PIPELINE_METRICS,
+} from "@/lib/dashboardOnboarding";
+import { DashboardOnboardingHero } from "@/components/dashboard/DashboardOnboardingHero";
+import { useCan } from "@/hooks/useCan";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
 import { getEnquiryFollowUpAging, getInvoiceOverdueAging, getTaskOverdueAging } from "@/lib/agingHelpers";
 import { formatINR } from "@/lib/formatCurrency";
@@ -117,9 +124,13 @@ const Dashboard = () => {
     transitionEnquiryStatus,
     convertEnquiryToCustomer,
     materialReservations,
+    materialDamageRecords,
   } = useAppData();
   const { currentRole } = useAppSession();
   const { permissionService } = useFoundation();
+  const canCreateEnquiry = useCan("enquiry", "create");
+  const canAccessEnquiries = permissionService.canAccessPath(currentRole, "/enquiries");
+  const canAccessActiveSites = permissionService.canAccessPath(currentRole, "/active-sites");
   const dashboardService = useMemo(() => new RoleDashboardService(), []);
   const needToGetService = useMemo(() => new NeedToGetService(), []);
 
@@ -274,8 +285,17 @@ const Dashboard = () => {
         inventoryItems,
         vendorBills,
         materialReservations ?? [],
+        materialDamageRecords ?? [],
       ),
-    [needToGetService, sites, projects, inventoryItems, vendorBills, materialReservations],
+    [
+      needToGetService,
+      sites,
+      projects,
+      inventoryItems,
+      vendorBills,
+      materialReservations,
+      materialDamageRecords,
+    ],
   );
 
   const ntgActiveSitesPerProject = useMemo(() => countActiveSitesByProjectId(sites), [sites]);
@@ -291,6 +311,44 @@ const Dashboard = () => {
     () => tasks.filter((t) => getTaskOverdueAging(t) != null),
     [tasks],
   );
+
+  const pipelineCounts = useMemo(
+    () => ({
+      openPipelineEnquiries: openPipelineEnquiries.length,
+      overdueFollowUpEnquiries: overdueFollowUpEnquiries.length,
+      pendingQuotations: stats.pendingQuotations.length,
+      activeProjects: stats.activeProjects,
+      sitesOnOngoingProjects: sitesOnOngoingProjects.length,
+      overdueTasks: overdueTasksList.length,
+      openOpsBlockages: stats.openOpsBlockagesCount,
+      needToGetRows: needToGetRows.length,
+    }),
+    [
+      openPipelineEnquiries.length,
+      overdueFollowUpEnquiries.length,
+      stats.pendingQuotations.length,
+      stats.activeProjects,
+      sitesOnOngoingProjects.length,
+      overdueTasksList.length,
+      stats.openOpsBlockagesCount,
+      needToGetRows.length,
+    ],
+  );
+
+  const onboardingVariant = useMemo(
+    () => resolveDashboardOnboardingVariant(visibleMetrics, pipelineCounts),
+    [visibleMetrics, pipelineCounts],
+  );
+
+  const metricsSuppressedByOnboarding = useMemo(() => {
+    if (onboardingVariant === "sales_pipeline") {
+      return new Set<DashboardMetricKey>(SALES_PIPELINE_METRICS);
+    }
+    if (onboardingVariant === "field_ops") {
+      return new Set<DashboardMetricKey>(FIELD_OPS_METRICS);
+    }
+    return new Set<DashboardMetricKey>();
+  }, [onboardingVariant]);
 
   const statCardsRaw: StatCardDef[] = [
     {
@@ -619,6 +677,14 @@ const Dashboard = () => {
     customers,
   ]);
 
+  const kpiCardsToShow = useMemo(
+    () =>
+      metricsSuppressedByOnboarding.size === 0
+        ? statsCardsWithDetails
+        : statsCardsWithDetails.filter((c) => !metricsSuppressedByOnboarding.has(c.metric)),
+    [statsCardsWithDetails, metricsSuppressedByOnboarding],
+  );
+
   const handleCardClick = (cardId: string) => {
     if (cardId === "needToGet") {
       setNeedToGetOpen(true);
@@ -809,7 +875,39 @@ const Dashboard = () => {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {!kpiShellReady
               ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-xl border border-border/40" />)
-              : statsCardsWithDetails.map((card) => {
+              : (
+                <>
+                  {onboardingVariant && (
+                    <div className="sm:col-span-2 xl:col-span-4">
+                      <DashboardOnboardingHero
+                        variant={onboardingVariant}
+                        canCreateEnquiry={canCreateEnquiry}
+                        canAccessEnquiries={canAccessEnquiries}
+                        canAccessActiveSites={canAccessActiveSites}
+                        onPrimaryAction={() => {
+                          if (onboardingVariant === "sales_pipeline") {
+                            navigate(
+                              canCreateEnquiry && canAccessEnquiries
+                                ? quickCreatePath("/enquiries")
+                                : "/enquiries",
+                            );
+                            return;
+                          }
+                          navigate(
+                            canAccessActiveSites
+                              ? "/active-sites"
+                              : "/inventory/materials",
+                          );
+                        }}
+                        onSecondaryAction={
+                          onboardingVariant === "sales_pipeline" && canAccessEnquiries
+                            ? () => navigate("/enquiries")
+                            : undefined
+                        }
+                      />
+                    </div>
+                  )}
+                  {kpiCardsToShow.map((card) => {
                   const Icon = card.icon;
                   return (
                     <button
@@ -854,7 +952,9 @@ const Dashboard = () => {
                       <ArrowUpRight className="absolute right-3 top-4 h-4 w-4 text-muted-foreground/0 transition group-hover:text-muted-foreground/40" />
                     </button>
                   );
-                })}
+                  })}
+                </>
+              )}
           </div>
         </section>
 

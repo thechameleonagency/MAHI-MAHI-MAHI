@@ -26,6 +26,7 @@ describe("Every seed/dummy project normalizes + resolves cleanly", () => {
       expect(normalized.capacity).toBeTruthy();
       expect(normalized.projectCategory).toBe("solar");
       expect(typeof normalized.contractAmount).toBe("number");
+      expect(Array.isArray(normalized.executionLineItems)).toBe(true);
 
       // After normalize, the new taxonomy fields must be filled.
       expect(normalized.projectMode).toBeDefined();

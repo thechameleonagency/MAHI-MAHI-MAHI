@@ -110,6 +110,35 @@ describe("CREATE_DIRECT_PROJECT_EXCEPTION command", () => {
     expect(p.location).toBe("Jaipur, Rajasthan");
     expect(p.capacity).toBe("120 kW");
     expect(p.location).not.toBe("Pending");
+    expect(Array.isArray(p.executionLineItems)).toBe(true);
+    expect(p.executionLineItems!.length).toBeGreaterThan(0);
+  });
+
+  it("fails when payment type is an invalid string", () => {
+    const result = buildProjectShellFromDirectException({
+      intake: {
+        kind: "SOLO_EPC",
+        parties: { customer: "Client", vendorOrDiscom: "DISCOM" },
+        commercial: {
+          contractAmount: 500_000,
+          paymentType: "invalid" as unknown as "cash",
+          internalCostEstimate: 0,
+        },
+        site: {
+          projectType: "Residential",
+          projectCategory: "solar",
+          capacity: "5",
+          location: "Jaipur",
+        },
+      },
+      projectName: "Bad payment",
+      projectId: "P-BAD-PAY",
+      reason: "Test",
+      customerId: "C-1",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errorCode).toBe("DIRECT_EXCEPTION_PAYMENT_TYPE_INVALID");
   });
 
   it("fails when intake.site is omitted", async () => {

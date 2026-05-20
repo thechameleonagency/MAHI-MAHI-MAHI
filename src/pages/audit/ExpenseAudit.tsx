@@ -22,6 +22,7 @@ import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { findExpenseIntegrityIssues } from "@/lib/audit";
+import { ExpenseReimbursementStatus } from "@/components/expenses/ExpenseReimbursementStatus";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 function CategoryExpenseLinesTable({
@@ -65,6 +66,7 @@ function CategoryExpenseLinesTable({
           <TableHead>Project</TableHead>
           <TableHead>Paid By</TableHead>
           <TableHead>Mode</TableHead>
+          <TableHead>Reimbursement</TableHead>
           <TableHead>Notes</TableHead>
         </TableRow>
       </TableHeader>
@@ -81,6 +83,9 @@ function CategoryExpenseLinesTable({
             </TableCell>
             <TableCell >{e.paidBy?.entityName || e.paidBy?.type || "-"}</TableCell>
             <TableCell >{e.paymentMode || "-"}</TableCell>
+            <TableCell>
+              <ExpenseReimbursementStatus reimbursement={e.reimbursement} />
+            </TableCell>
             <TableCell className="max-w-[150px] truncate text-muted-foreground">{e.notes || e.description || "-"}</TableCell>
           </TableRow>
         ))}

@@ -70,12 +70,17 @@ import {
 } from "@/application/commands/quotation/registerQuotationCommands";
 import { createCommercialSnapshot } from "@/domain/quotation/applyQuotationPatch";
 import { validateQuotationSendOrApprove } from "@/domain/quotation/quotationCommercialAmount";
+import { validateQuotationPaymentTypeForSend } from "@/domain/quotation/quotationPaymentType";
 import {
   CREATE_PROJECT_FROM_QUOTATION_COMMAND,
   CREATE_PROJECT_INTAKE_COMMAND,
   CREATE_DIRECT_PROJECT_EXCEPTION_COMMAND,
 } from "@/application/commands/project/registerProjectCommands";
 import { normalizeProject } from "@/lib/projectNormalize";
+import {
+  prepareBillingDocumentForStorage,
+  stripVolatileDocumentTypeFields,
+} from "@/lib/invoiceDocumentType";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
 import { formatINR } from "@/lib/formatCurrency";
@@ -97,6 +102,7 @@ import {
 } from "@/domain/project/linkageMigration";
 import { ProjectInvariantService } from "@/domain/project/ProjectInvariantService";
 import { evaluateAutoArchive, applyAutoArchive } from "@/domain/customer/customerArchive";
+import { mergeExpenseUpdateWithReimbursementRules } from "@/lib/expenseReimbursement";
 import type { SiteChecklistPreset } from "@/data/masters";
 
 // ============ APP STATE INTERFACE ============
@@ -647,9 +653,11 @@ function applyHydrationPipeline(state: AppState): AppState {
   const quotations = hydrateQuotationLinkage(state.quotations, customers);
   const invoices = sanitizeBillingDocuments(
     hydrateInvoiceLinkage(state.invoices, customers, projects),
+    "invoices",
   );
   const saleBills = sanitizeBillingDocuments(
     hydrateInvoiceLinkage(state.saleBills, customers, projects),
+    "saleBills",
   );
   const reconciledProjects = reconcileProjectsAmountInvoiced(projects, invoices, saleBills);
   return {
@@ -1394,6 +1402,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!amountCheck.ok) {
           return { ok: false, error: amountCheck.message };
         }
+        const paymentCheck = validateQuotationPaymentTypeForSend(prevQuotation);
+        if (!paymentCheck.ok) {
+          return { ok: false, error: paymentCheck.message };
+        }
       }
 
       repositories.quotationRepository.replaceAll(state.quotations);
@@ -1678,12 +1690,14 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       );
     }
 
+    const stored = prepareBillingDocumentForStorage(invoice, "invoices");
+
     setState(prev => {
-      const nextInvoices = [invoice, ...prev.invoices];
-      const projectsWithRefs = invoice.projectId
+      const nextInvoices = [stored, ...prev.invoices];
+      const projectsWithRefs = stored.projectId
         ? prev.projects.map((project) =>
-            project.id === invoice.projectId
-              ? { ...project, ...mergeProjectInvoiceRef(project, invoice.id) }
+            project.id === stored.projectId
+              ? { ...project, ...mergeProjectInvoiceRef(project, stored.id) }
               : project,
           )
         : prev.projects;
@@ -1712,9 +1726,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   ]);
   
   const updateInvoice = useCallback((id: string, updates: Partial<Invoice>) => {
+    const safeUpdates = stripVolatileDocumentTypeFields(updates);
     setState(prev => {
       const originalInvoice = prev.invoices.find((i) => i.id === id);
-      const nextInvoices = prev.invoices.map((i) => (i.id === id ? { ...i, ...updates } : i));
+      const nextInvoices = prev.invoices.map((i) => (i.id === id ? { ...i, ...safeUpdates } : i));
       const updatedInvoice = nextInvoices.find((i) => i.id === id);
       const projectsWithRefs =
         originalInvoice && updatedInvoice
@@ -1828,12 +1843,14 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       );
     }
 
+    const stored = prepareBillingDocumentForStorage(saleBill, "saleBills");
+
     setState((prev) => {
-      const nextSaleBills = [saleBill, ...prev.saleBills];
-      const projectsWithRefs = saleBill.projectId
+      const nextSaleBills = [stored, ...prev.saleBills];
+      const projectsWithRefs = stored.projectId
         ? prev.projects.map((project) =>
-            project.id === saleBill.projectId
-              ? { ...project, ...mergeProjectInvoiceRef(project, saleBill.id) }
+            project.id === stored.projectId
+              ? { ...project, ...mergeProjectInvoiceRef(project, stored.id) }
               : project,
           )
         : prev.projects;
@@ -1862,9 +1879,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   ]);
   
   const updateSaleBill = useCallback((id: string, updates: Partial<Invoice>) => {
+    const safeUpdates = stripVolatileDocumentTypeFields(updates);
     setState(prev => {
       const originalBill = prev.saleBills.find((s) => s.id === id);
-      const nextSaleBills = prev.saleBills.map((s) => (s.id === id ? { ...s, ...updates } : s));
+      const nextSaleBills = prev.saleBills.map((s) => (s.id === id ? { ...s, ...safeUpdates } : s));
       const updatedBill = nextSaleBills.find((s) => s.id === id);
       const projectsWithRefs =
         originalBill && updatedBill
@@ -1989,17 +2007,50 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   
   const updateExpense = useCallback((id: string, updates: Partial<Expense>) => {
     if (!canPerformActionOrWarn("finance:update_expense")) return;
-    const auditEntry = createAuditEntry("update", "Expense", id, updates.description || updates.category || id);
+
+    const oldExpense = state.expenses.find((e) => e.id === id);
+    if (!oldExpense) {
+      toast({ title: "Expense not found", variant: "destructive" });
+      return;
+    }
+
+    const canApproveReimbursement = permissionService.canPerformAction(
+      actorRole,
+      "approval:resolve",
+      roleMatrixOverride,
+    );
+    const reimbMerge = mergeExpenseUpdateWithReimbursementRules(
+      oldExpense,
+      updates,
+      { userId: actorUserId, userName: actorDisplayName },
+      canApproveReimbursement,
+    );
+    if (!reimbMerge.ok) {
+      toast({
+        title: "Reimbursement not allowed",
+        description: reimbMerge.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    const mergedUpdates = reimbMerge.merged;
+
+    const auditEntry = createAuditEntry(
+      "update",
+      "Expense",
+      id,
+      mergedUpdates.description || mergedUpdates.category || id,
+    );
     setState(prev => {
-      const oldExpense = prev.expenses.find(e => e.id === id);
-      if (!oldExpense) {
+      const old = prev.expenses.find(e => e.id === id);
+      if (!old) {
         return {
           ...prev,
-          expenses: prev.expenses.map(e => e.id === id ? { ...e, ...updates } : e),
+          expenses: prev.expenses.map(e => e.id === id ? { ...e, ...mergedUpdates } : e),
           auditLogs: [auditEntry, ...prev.auditLogs],
         };
       }
-      const nextExpense: Expense = { ...oldExpense, ...updates };
+      const nextExpense: Expense = { ...old, ...mergedUpdates };
       const reconcileProjects = oldExpense.projectId || nextExpense.projectId;
       const nextProjects = reconcileProjects
         ? prev.projects.map(p => {
@@ -2016,7 +2067,16 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         auditLogs: [auditEntry, ...prev.auditLogs],
       };
     });
-  }, [canPerformActionOrWarn, createAuditEntry]);
+  }, [
+    actorDisplayName,
+    actorRole,
+    actorUserId,
+    canPerformActionOrWarn,
+    createAuditEntry,
+    permissionService,
+    roleMatrixOverride,
+    state.expenses,
+  ]);
   
   const deleteExpense = useCallback((id: string) => {
     if (!canPerformActionOrWarn("finance:delete_expense")) return;
@@ -2977,19 +3037,19 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const convertEnquiryToCustomer = useCallback(
     async (enquiryId: string): Promise<{ ok: boolean; error?: string; customerId?: string }> => {
-      if (!permissionService.canPerformAction(actorRole, "enquiry:create")) {
+      if (!permissionService.canPerformAction(actorRole, "enquiry:create", roleMatrixOverride)) {
         return { ok: false, error: "Not allowed" };
       }
 
-      const enquiry = state.enquiries.find((e) => e.id === enquiryId);
-      if (!enquiry) {
+      if (!state.enquiries.some((e) => e.id === enquiryId)) {
         return { ok: false, error: "Enquiry not found" };
       }
 
       repositories.enquiryRepository.replaceAll(state.enquiries);
+      repositories.customerRepository.replaceAll(state.customers);
 
       try {
-        const result = await runCommand<{ enquiryId: string }>({
+        const result = await runCommand<{ enquiryId: string; customerId: string }>({
           type: CONVERT_ENQUIRY_COMMAND,
           actorUserId,
           actorRole,
@@ -3000,54 +3060,34 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           return { ok: false, error: (result as { message: string }).message };
         }
 
-        // C1/C2: ensure there's a Customer for this enquiry. Look up by phone or email first
-        // so repeat conversions don't create duplicates; only fall through to a fresh create if both fail.
-        const enquiryPhone = (enquiry.customerPhone || "").replace(/\D/g, "");
-        const enquiryEmail = (enquiry.customerEmail || "").trim().toLowerCase();
-        let matchedCustomerId: string | undefined = enquiry.customerId;
-        if (!matchedCustomerId) {
-          const existing = state.customers.find((c) => {
-            const cp = (c.phone || "").replace(/\D/g, "");
-            const ce = (c.email || "").trim().toLowerCase();
-            return (enquiryPhone && cp === enquiryPhone) || (enquiryEmail && ce === enquiryEmail);
-          });
-          if (existing) {
-            matchedCustomerId = existing.id;
-          }
-        }
-
-        let createdCustomer: Customer | null = null;
-        if (!matchedCustomerId) {
-          const newCustomerId = createNextCustomerId(state.customers.map((c) => c.id));
-          createdCustomer = {
-            id: newCustomerId,
-            name: enquiry.customerName,
-            phone: enquiry.customerPhone || "",
-            email: enquiry.customerEmail || "",
-            address: enquiry.customerAddress || "",
-            type: enquiry.customerType,
-            itemsBought: [],
-            totalPurchases: 0,
-            createdAt: new Date().toISOString(),
-          };
-          matchedCustomerId = newCustomerId;
+        const updatedEnquiry = repositories.enquiryRepository.getById(enquiryId);
+        if (!updatedEnquiry) {
+          return { ok: false, error: "Enquiry not found after command" };
         }
 
         setState((prev) => ({
           ...prev,
           enquiries: prev.enquiries.map((e) =>
-            e.id === enquiryId ? { ...e, status: "converted", customerId: matchedCustomerId } : e,
+            e.id === enquiryId ? (updatedEnquiry as Enquiry) : e,
           ),
-          customers: createdCustomer ? [createdCustomer, ...prev.customers] : prev.customers,
+          customers: repositories.customerRepository.getAll() as Customer[],
           auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
         }));
 
-        return { ok: true, customerId: matchedCustomerId };
+        return { ok: true, customerId: result.result.customerId };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Conversion failed" };
       }
     },
-    [actorRole, commandBus, generateId, permissionService, repositories, state.customers, state.enquiries],
+    [
+      actorRole,
+      permissionService,
+      repositories,
+      roleMatrixOverride,
+      runCommand,
+      state.customers,
+      state.enquiries,
+    ],
   );
   
   // ============ AGENTS CRUD ============

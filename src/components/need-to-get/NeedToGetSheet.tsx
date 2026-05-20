@@ -19,7 +19,11 @@ import {
   NeedToGetService,
   aggregateNeedToGetRows,
   countActiveSitesByProjectId,
+  formatNeedToGetMergeSummary,
+  NEED_TO_GET_GROUP_LABELS,
+  NEED_TO_GET_MERGE_HINT,
   needToGetLocationLabel as needToGetLocationLabelFn,
+  summarizeNeedToGetMerge,
   type NeedToGetRow,
   type NeedToGetViewRow,
   type NeedToGetGroupMode,
@@ -29,12 +33,14 @@ import { dataTableClasses, DEFAULT_TABLE_PAGE_SIZE, listTableViewportMaxHeight }
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { useAppData } from "@/contexts/AppDataContext";
-import { ChevronDown, Download, Printer, Share2 } from "lucide-react";
+import { ChevronDown, Download, Info, Printer, Share2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import jsPDF from "jspdf";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
+import { NeedToGetDamageChip } from "@/components/need-to-get/NeedToGetDamageChip";
 import { cn } from "@/lib/utils";
 import { procurementNeedLineKey } from "@/types/operations";
 import type { ProcurementNeedLine } from "@/types/operations";
@@ -47,28 +53,6 @@ type NeedToGetSheetProps = {
   onOpenChange: (open: boolean) => void;
   /** Pre-select project filter when opened (e.g. from Active Sites shortfall badge). */
   initialProjectId?: string | null;
-};
-
-const GROUP_LABELS: Record<NeedToGetGroupMode, string> = {
-  flat: "Flat list",
-  project: "By project",
-  site: "By site",
-  material: "By material",
-  needBy: "By need-by date",
-};
-
-/** Explains how rows merge for the selected mode (shown under filters). */
-const GROUP_MERGE_HINT: Record<NeedToGetGroupMode, string> = {
-  flat:
-    "One row per site, material, and need-by date. Duplicate checklist lines at the same site collapse into one quantity.",
-  project:
-    "Combines rows inside each project when material and need-by date match (multiple sites roll into one line per project).",
-  site:
-    "Combines duplicate keys within the same site only (same material + same need-by date).",
-  material:
-    "Totals each material across the current filter. Need-by shows the earliest date among merged lines.",
-  needBy:
-    "Combines the same material on the same need-by date across projects and sites.",
 };
 
 function digitsForWhatsApp(phone: string): string {
@@ -200,6 +184,7 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
     employees,
     vendors,
     materialReservations,
+    materialDamageRecords,
     procurementNeedLines,
     upsertProcurementNeedLine,
     generateId,
@@ -210,8 +195,16 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
   const service = useMemo(() => new NeedToGetService(), []);
 
   const allRows = useMemo(
-    () => service.buildRows(sites, projects, inventoryItems, vendorBills, materialReservations),
-    [service, sites, projects, inventoryItems, vendorBills, materialReservations],
+    () =>
+      service.buildRows(
+        sites,
+        projects,
+        inventoryItems,
+        vendorBills,
+        materialReservations,
+        materialDamageRecords ?? [],
+      ),
+    [service, sites, projects, inventoryItems, vendorBills, materialReservations, materialDamageRecords],
   );
 
   const procurementByLineKey = useMemo(() => {
@@ -248,6 +241,8 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
   const [vendorFilter, setVendorFilter] = useState<string>("all");
   const [needByBefore, setNeedByBefore] = useState("");
   const [groupMode, setGroupMode] = useState<NeedToGetGroupMode>("flat");
+  /** Brief highlight when group mode changes to show raw-line → merged-row diff. */
+  const [mergeModeFlash, setMergeModeFlash] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
@@ -311,6 +306,28 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
     () => aggregateNeedToGetRows(filtered, groupMode, getLocationLabel),
     [filtered, groupMode, getLocationLabel],
   );
+
+  const mergeStats = useMemo(
+    () => summarizeNeedToGetMerge(filtered.length, displayRows),
+    [filtered.length, displayRows],
+  );
+
+  const mergeSummary = useMemo(
+    () => formatNeedToGetMergeSummary(mergeStats, groupMode),
+    [mergeStats, groupMode],
+  );
+
+  useEffect(() => {
+    if (!mergeModeFlash) return;
+    const t = window.setTimeout(() => setMergeModeFlash(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [mergeModeFlash]);
+
+  const handleGroupModeChange = useCallback((mode: NeedToGetGroupMode) => {
+    setGroupMode(mode);
+    setPage(1);
+    setMergeModeFlash(true);
+  }, []);
 
   const pageRows = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -567,8 +584,16 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
             Multi-site projects show the site in &ldquo;Where&rdquo;; single-site projects show the project name. Filters: pick projects first, then
             sites. Assign a vendor per line so shared lists show where to buy each item. Status-only checklist lines (no SKU) show qty &ldquo;—&rdquo;.
           </p>
-          <p className="text-xs text-muted-foreground print:hidden">
-            <span className="font-medium text-foreground/90">Row merge ({GROUP_LABELS[groupMode]}):</span> {GROUP_MERGE_HINT[groupMode]}
+          <p
+            className={cn(
+              "text-xs print:hidden rounded-md border px-2.5 py-1.5 transition-colors",
+              mergeModeFlash && mergeStats.linesMergedAway > 0
+                ? "border-amber-300/80 bg-amber-50 text-amber-950 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-100"
+                : "border-transparent text-muted-foreground",
+            )}
+            aria-live="polite"
+          >
+            <span className="font-medium text-foreground/90">Row merge:</span> {mergeSummary}
           </p>
 
           <div className="flex flex-wrap items-center gap-2 print:hidden">
@@ -749,35 +774,59 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
               </PopoverContent>
             </Popover>
 
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className={cn("min-w-[10rem]", filterTriggerClass)} type="button">
-                  Group / sort
-                  <span className="truncate text-muted-foreground">· {GROUP_LABELS[groupMode]}</span>
-                  <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-64 p-0" align="start">
-                <div className="border-b px-3 py-2 text-xs font-medium">Group / sort view</div>
-                <div className="flex flex-col p-2">
-                  {(Object.keys(GROUP_LABELS) as NeedToGetGroupMode[]).map((mode) => (
-                    <Button
-                      key={mode}
-                      type="button"
-                      variant={groupMode === mode ? "secondary" : "ghost"}
-                      size="sm"
-                      className="justify-start font-normal"
-                      onClick={() => {
-                        setGroupMode(mode);
-                        setPage(1);
-                      }}
-                    >
-                      {GROUP_LABELS[mode]}
+            <Tooltip>
+              <Popover>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("min-w-[10rem]", filterTriggerClass)} type="button">
+                      Group / sort
+                      <span className="truncate text-muted-foreground">
+                        · {NEED_TO_GET_GROUP_LABELS[groupMode]}
+                      </span>
+                      <Info className="ml-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/80" aria-hidden />
+                      <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
                     </Button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-sm text-left">
+                  <p className="font-medium">{NEED_TO_GET_GROUP_LABELS[groupMode]}</p>
+                  <p className="mt-1 text-muted-foreground">{NEED_TO_GET_MERGE_HINT[groupMode]}</p>
+                  <p className="mt-2 border-t border-border/60 pt-2 text-foreground/90">{mergeSummary}</p>
+                </TooltipContent>
+                <PopoverContent className="w-72 p-0" align="start">
+                  <div className="border-b px-3 py-2 text-xs font-medium">Group / sort view</div>
+                  <div className="flex flex-col gap-0.5 p-2">
+                    {(Object.keys(NEED_TO_GET_GROUP_LABELS) as NeedToGetGroupMode[]).map((mode) => (
+                      <Button
+                        key={mode}
+                        type="button"
+                        variant={groupMode === mode ? "secondary" : "ghost"}
+                        size="sm"
+                        className="h-auto min-h-9 flex-col items-start gap-0.5 py-2 font-normal"
+                        onClick={() => handleGroupModeChange(mode)}
+                      >
+                        <span>{NEED_TO_GET_GROUP_LABELS[mode]}</span>
+                        <span className="text-left text-2xs font-normal leading-snug text-muted-foreground">
+                          {NEED_TO_GET_MERGE_HINT[mode]}
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </Tooltip>
+            {mergeStats.linesMergedAway > 0 ? (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "h-9 shrink-0 tabular-nums print:hidden",
+                  mergeModeFlash &&
+                    "border-amber-400 bg-amber-100 text-amber-950 animate-pulse dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100",
+                )}
+              >
+                {mergeStats.rawLineCount} → {mergeStats.mergedRowCount} rows
+              </Badge>
+            ) : null}
           </div>
 
           <div className="space-y-2 md:hidden print:hidden">
@@ -790,7 +839,12 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
                   className="rounded-lg border border-border bg-card p-3 space-y-2"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <p className="font-medium text-sm">{r.materialName}</p>
+                    <div className="min-w-0 space-y-1">
+                      <p className="font-medium text-sm">{r.materialName}</p>
+                      {r.shortfallIncludesDamage ? (
+                        <NeedToGetDamageChip damageQty={r.damageQtyAttributed} />
+                      ) : null}
+                    </div>
                     <Badge variant="outline" className="shrink-0 tabular-nums">
                       Short {r.rowKind === "nonMaterial" ? "—" : r.qtyShort}
                     </Badge>
@@ -881,8 +935,16 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
                                 Checklist (no SKU)
                               </Badge>
                             ) : null}
+                            {r.shortfallIncludesDamage ? (
+                              <NeedToGetDamageChip damageQty={r.damageQtyAttributed} />
+                            ) : null}
                             {r.mergedCount != null && r.mergedCount > 1 ? (
-                              <span className="text-2xs text-muted-foreground/90">
+                              <span
+                                className={cn(
+                                  "text-2xs text-muted-foreground/90",
+                                  mergeModeFlash && "font-medium text-amber-800 dark:text-amber-200",
+                                )}
+                              >
                                 {r.mergedCount} demand lines merged
                               </span>
                             ) : null}

@@ -1,10 +1,12 @@
 import type { ProjectIntakePayload } from "@/application/services/ProjectTypeService";
+import { resolveProjectKindFromIntake } from "@/domain/project/intakePayload";
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
 import {
   validateDirectExceptionSite,
   type DirectExceptionSiteDetails,
   type DirectExceptionSiteValidation,
 } from "@/domain/project/directExceptionSite";
+import { parseProjectPaymentType } from "@/domain/project/projectPaymentType";
 import { formatCapacityKW } from "@/lib/formatCurrency";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import type { Project } from "@/types/project";
@@ -12,29 +14,6 @@ import type { Project } from "@/types/project";
 export type BuildDirectExceptionProjectResult =
   | { ok: true; project: Project }
   | { ok: false; errorCode: string; message: string };
-
-function isLegacyIntake(
-  intake: ProjectIntakePayload,
-): intake is Extract<ProjectIntakePayload, { kind: ProjectKind }> {
-  return "kind" in intake && Boolean((intake as { kind?: ProjectKind }).kind);
-}
-
-function resolveProjectKind(intake: ProjectIntakePayload): ProjectKind {
-  if (isLegacyIntake(intake)) {
-    return intake.kind;
-  }
-  const typed = intake as Extract<ProjectIntakePayload, { projectMode: string }>;
-  const match = (
-    Object.entries(LEGACY_KIND_TO_TYPE) as [ProjectKind, (typeof LEGACY_KIND_TO_TYPE)[ProjectKind]][]
-  ).find(
-    ([, v]) =>
-      v.projectType === typed.projectMode &&
-      v.vendorshipOwner === typed.vendorshipOwner &&
-      v.partnerRole === typed.partnerRole &&
-      v.executionScope === typed.executionScope,
-  );
-  return match?.[0] ?? "SOLO_EPC";
-}
 
 function ownerTypeFromKind(kind: ProjectKind): NonNullable<Project["ownerType"]> {
   if (kind === "PARTNER_EPC" || kind === "FIXED_EPC" || kind === "VENDOR_NETWORK") {
@@ -45,12 +24,6 @@ function ownerTypeFromKind(kind: ProjectKind): NonNullable<Project["ownerType"]>
 
 function resolveSiteFromIntake(intake: ProjectIntakePayload): DirectExceptionSiteDetails | undefined {
   return (intake as { site?: DirectExceptionSiteDetails }).site;
-}
-
-function resolvePaymentType(intake: ProjectIntakePayload): Project["paymentType"] | undefined {
-  const raw = intake.commercial?.paymentType;
-  if (raw === "cash" || raw === "loan" || raw === "cash-and-loan") return raw;
-  return undefined;
 }
 
 /**
@@ -72,10 +45,31 @@ export function buildProjectShellFromDirectException(params: {
   }
   const site = siteValidation.site;
 
-  const projectKind = resolveProjectKind(params.intake);
-  const paymentType = resolvePaymentType(params.intake);
+  const kindResult = resolveProjectKindFromIntake(params.intake);
+  if (!kindResult.ok) {
+    return {
+      ok: false,
+      errorCode: kindResult.errorCode,
+      message: kindResult.message,
+    };
+  }
+  const projectKind = kindResult.kind;
+  const rawPayment = params.intake.commercial?.paymentType;
+  const paymentType = parseProjectPaymentType(rawPayment);
   const paymentOptional =
     projectKind === "VENDORSHIP_ONLY" || projectKind === "VENDOR_NETWORK";
+  if (
+    rawPayment !== undefined &&
+    rawPayment !== null &&
+    String(rawPayment).trim() !== "" &&
+    !paymentType
+  ) {
+    return {
+      ok: false,
+      errorCode: "DIRECT_EXCEPTION_PAYMENT_TYPE_INVALID",
+      message: `Invalid payment type "${String(rawPayment)}". Must be cash, loan, or cash-and-loan.`,
+    };
+  }
   if (!paymentType && !paymentOptional) {
     return {
       ok: false,
@@ -83,7 +77,14 @@ export function buildProjectShellFromDirectException(params: {
       message: "Payment type (cash, loan, or cash-and-loan) is required for this project kind.",
     };
   }
-  const legacyMap = LEGACY_KIND_TO_TYPE[projectKind] ?? LEGACY_KIND_TO_TYPE.SOLO_EPC;
+  const legacyMap = LEGACY_KIND_TO_TYPE[projectKind];
+  if (!legacyMap) {
+    return {
+      ok: false,
+      errorCode: "PROJECT_KIND_CONFIG_MISSING",
+      message: `No taxonomy mapping for project kind ${projectKind}.`,
+    };
+  }
   const clientName =
     params.intake.parties?.customer ||
     params.intake.parties?.channelPartner ||
@@ -127,6 +128,7 @@ export function buildProjectShellFromDirectException(params: {
     createdAt: today,
     directCreationReason: params.reason,
     paymentType: paymentType || undefined,
+    executionLineItems: [],
   };
 
   return { ok: true, project };

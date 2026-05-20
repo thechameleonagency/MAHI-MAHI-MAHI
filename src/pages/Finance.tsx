@@ -722,6 +722,7 @@ const Finance = () => {
       id: generateId(invoiceType === "invoice" ? "INV" : "SB"),
       invoiceNumber: invoiceNum,
       type: invoiceType,
+      documentTypeSource: "user" as const,
       customerId: linkedProject?.customerId ?? "",
       customerName: buyerName || linkedProject?.client || "",
       customerAddress: buyerAddress,

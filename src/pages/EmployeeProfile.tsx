@@ -32,6 +32,11 @@ import { formatINR } from "@/lib/formatCurrency";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import { PayrollPolicyService } from "@/application/services/PayrollPolicyService";
 import { downloadCSV } from "@/lib/csvExport";
+import { useCanAction } from "@/hooks/useCanAction";
+import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
+import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
+import { ExpenseReimbursementStatus } from "@/components/expenses/ExpenseReimbursementStatus";
+import type { Expense } from "@/types/finance";
 
 // Shared instance — service is stateless, this avoids re-instantiating per render.
 const payrollPolicyService = new PayrollPolicyService();
@@ -69,6 +74,7 @@ const EmployeeProfile = () => {
   } = useAppData();
   const { currentRole } = useAppSession();
   const isSuperAdmin = currentRole === "super_admin";
+  const canApproveReimbursement = useCanAction("approval:resolve");
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [showTerminateDialog, setShowTerminateDialog] = useState(false);
   const [expandedMonths, setExpandedMonths] = useState<string[]>([]);
@@ -177,6 +183,11 @@ const EmployeeProfile = () => {
     );
   }, [getExpensesByEmployee, employeeId, expenses]);
 
+  const employeeExpenseRows = useMemo(
+    () => getExpensesByEmployee(employeeId.toString()),
+    [getExpensesByEmployee, employeeId, expenses],
+  );
+
   const filteredExpenses = useMemo(() => {
     return employeeExpenses.filter((expense) => {
       if (expenseCategoryFilter !== "All" && expense.category !== expenseCategoryFilter) return false;
@@ -201,11 +212,21 @@ const EmployeeProfile = () => {
     [filteredExpenses],
   );
 
+  const filteredExpenseRows = useMemo(() => {
+    const ids = new Set(filteredExpenses.map((e) => e.id));
+    return employeeExpenseRows.filter((e) => ids.has(e.id));
+  }, [filteredExpenses, employeeExpenseRows]);
+
   const { pagedItems: pagedFilteredExpenses, safePage: safeExpenseTablePage } = usePagedSlice(
     filteredExpenses,
     expenseTablePage,
     expenseTablePageSize,
   );
+
+  const pagedExpenseRows = useMemo(() => {
+    const pageIds = new Set(pagedFilteredExpenses.map((e) => e.id));
+    return filteredExpenseRows.filter((e) => pageIds.has(e.id));
+  }, [pagedFilteredExpenses, filteredExpenseRows]);
 
   useEffect(() => {
     setExpenseTablePage(1);
@@ -536,17 +557,19 @@ const EmployeeProfile = () => {
               <CardContent className="space-y-3">
                 {reimbursementPending.map((exp) => (
                   <div key={exp.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-card px-3 py-2 text-sm">
-                    <div className="min-w-0">
+                    <div className="min-w-0 space-y-1">
                       <p className="font-medium truncate">{exp.description || exp.category}</p>
                       <p className="text-2xs text-muted-foreground">{exp.date}</p>
+                      <ExpenseReimbursementStatus reimbursement={exp.reimbursement} />
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="font-semibold">{formatINR(exp.reimbursement?.amount ?? exp.amount)}</span>
-                      <Button
+                      <PermissionGatedButton
+                        allowed={canApproveReimbursement}
+                        deniedHint={PERMISSION_DENIED_HINTS.expenseReimbursementApprove}
                         size="sm"
                         variant="secondary"
                         type="button"
-                        disabled={!canDo("finance:update_expense")}
                         onClick={() => {
                           if (!exp.reimbursement?.enabled) return;
                           updateExpense(exp.id, {
@@ -556,11 +579,14 @@ const EmployeeProfile = () => {
                               paidDate: format(new Date(), "yyyy-MM-dd"),
                             },
                           });
-                          toast({ title: "Marked reimbursed", description: `${formatINR(exp.reimbursement.amount)} for ${exp.category}.` });
+                          toast({
+                            title: "Reimbursement approved",
+                            description: `${formatINR(exp.reimbursement.amount)} for ${exp.category}.`,
+                          });
                         }}
                       >
-                        Mark reimbursed
-                      </Button>
+                        Approve reimbursement
+                      </PermissionGatedButton>
                     </div>
                   </div>
                 ))}
@@ -1189,25 +1215,29 @@ const EmployeeProfile = () => {
                           <TableHead>Category</TableHead>
                           <TableHead>Description</TableHead>
                           <TableHead>Project</TableHead>
+                          <TableHead>Reimbursement</TableHead>
                           <TableHead className="text-right">Amount</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredExpenses.length > 0 ? (
-                          pagedFilteredExpenses.map(expense => (
+                          pagedExpenseRows.map((expense: Expense) => (
                             <TableRow key={expense.id}>
                               <TableCell className="text-muted-foreground">{expense.date}</TableCell>
                               <TableCell>
                                 <Badge variant="outline">{expense.category}</Badge>
                               </TableCell>
-                              <TableCell>{expense.description}</TableCell>
-                              <TableCell className="text-muted-foreground">{expense.project}</TableCell>
+                              <TableCell>{expense.description || expense.subCategory || "—"}</TableCell>
+                              <TableCell className="text-muted-foreground">{expense.projectName || "General"}</TableCell>
+                              <TableCell>
+                                <ExpenseReimbursementStatus reimbursement={expense.reimbursement} />
+                              </TableCell>
                               <TableCell className="text-right font-medium">{formatINR(expense.amount)}</TableCell>
                             </TableRow>
                           ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                            <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                               No expenses found for the selected filters
                             </TableCell>
                           </TableRow>

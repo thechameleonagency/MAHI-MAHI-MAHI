@@ -60,7 +60,7 @@ import {
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getInvoiceOverdueAging } from "@/lib/agingHelpers";
 import { useCan } from "@/hooks/useCan";
-import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
+import { sanitizeMergedBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import {
   deriveInvoiceStatusAfterReceipt,
   formatInvoiceBalanceLabel,
@@ -145,6 +145,7 @@ const Invoices = () => {
     quotationId?: string;
     total?: number;
     items?: InvoiceItem[];
+    documentType?: "invoice" | "sale-bill";
   } | undefined>(undefined);
   
   // Invoice preview ref for PDF export
@@ -563,7 +564,7 @@ const Invoices = () => {
 
   const allBillingDocuments = useMemo(
     () =>
-      sanitizeBillingDocuments([...invoices, ...saleBills]).sort(
+      sanitizeMergedBillingDocuments(invoices, saleBills).sort(
         (a, b) => new Date(b.invoiceDate).getTime() - new Date(a.invoiceDate).getTime(),
       ),
     [invoices, saleBills],
@@ -719,7 +720,16 @@ const Invoices = () => {
           </>
         }
       >
-        <Button size="sm" onClick={() => setIsAddInvoiceOpen(true)} disabled={!canCreateInvoice}>
+        <Button
+          size="sm"
+          onClick={() => {
+            setInvoicePrefill(
+              docTypeFilter === "sale-bill" ? { documentType: "sale-bill" } : undefined,
+            );
+            setIsAddInvoiceOpen(true);
+          }}
+          disabled={!canCreateInvoice}
+        >
           <Plus className="mr-2 h-4 w-4" />
           New
         </Button>
@@ -878,6 +888,9 @@ const Invoices = () => {
         onCreated={handleInvoiceCreated}
         onCustomerCreated={(customer) => addCustomer(customer)}
         prefill={invoicePrefill}
+        initialDocumentType={
+          docTypeFilter === "sale-bill" && !invoicePrefill?.documentType ? "sale-bill" : undefined
+        }
       />
 
       {/* Invoice Detail Modal */}

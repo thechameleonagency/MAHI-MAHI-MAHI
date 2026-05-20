@@ -1,5 +1,7 @@
 import { projectKindConfigs, resolveProjectCapabilities } from "@/domain/projectTypes/config";
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
+import { withResolvedExecutionLineItems } from "@/domain/project/executionLineItems";
+import { normalizeProjectPaymentType } from "@/domain/project/projectPaymentType";
 import type { Project } from "@/types/project";
 import { normalizeSiteReadinessMarkedBy } from "@/lib/siteReadinessNormalize";
 
@@ -18,6 +20,7 @@ export function projectKindConfigSnapshot(kind: ProjectKind) {
     visibleTabs: [...cfg.visibleTabs],
     requiredDocuments: [...cfg.requiredDocuments],
     forbiddenActions: [...cfg.forbiddenActions],
+    requiresClientInvoice: cfg.requiresClientInvoice,
   };
 }
 
@@ -45,6 +48,7 @@ function computeCapabilitiesSnapshot(p: Project, legacyKind: ProjectKind) {
     visibleTabs: [...caps.visibleTabs],
     requiredDocuments: [...caps.requiredDocuments],
     forbiddenActions: [...caps.forbiddenActions],
+    requiresClientInvoice: legacy.requiresClientInvoice,
   };
 }
 
@@ -118,13 +122,14 @@ export function normalizeProject(p: Project): Project {
     address: p.address ?? p.clientAddress ?? p.location ?? "",
     clientAddress: p.clientAddress ?? p.address ?? p.location ?? "",
     state: p.state ?? "08",
+    paymentType: normalizeProjectPaymentType(p.paymentType),
   };
 
   // Always recompute the snapshot from the resolver so visibleTabs / requiredDocuments /
   // forbiddenActions / allowedBillingDirections reflect the (possibly newer) attribute fields
   // rather than a stale snapshot captured at create time under the legacy registry.
-  return {
+  return withResolvedExecutionLineItems({
     ...baseProject,
     projectKindConfigSnapshot: computeCapabilitiesSnapshot(baseProject, kind),
-  };
+  });
 }

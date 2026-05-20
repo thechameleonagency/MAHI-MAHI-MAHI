@@ -30,6 +30,11 @@ import { PageShell } from "@/components/layout/PageShell";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
+import { isDirectExceptionProject, projectDirectExceptionReason } from "@/lib/projectDirectException";
+import {
+  projectCompletionInvoiceBlockReason,
+  projectRequiresClientInvoiceForCompletion,
+} from "@/lib/projectCompletionInvoice";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useMasters } from "@/contexts/MastersContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
@@ -153,25 +158,6 @@ function expenseToOutsourcedWorkRow(e: Expense) {
   return { id: e.id, date: dateLabel, description: e.description ?? e.notes ?? "Outsourced work", employees: 0, days: 0, ratePerDay: 0, total: e.amount };
 }
 
-const INVOICE_BAL_EPS = 0.01;
-
-/** L05 / L11: require ≥1 project bill and no positive balance on any of them before lifecycle completion. */
-function projectCompletionInvoiceBlockReason(
-  projectBills: Pick<Invoice, "total" | "amountReceived" | "invoiceNumber">[],
-): string | null {
-  if (projectBills.length === 0) {
-    return "Add at least one invoice or sale bill linked to this project before completion.";
-  }
-  for (const inv of projectBills) {
-    const bal = (inv.total ?? 0) - (inv.amountReceived ?? 0);
-    if (bal > INVOICE_BAL_EPS) {
-      const label = inv.invoiceNumber?.trim() || "bill";
-      return `Outstanding ₹${Math.round(bal)} on ${label}. Record payments until every project bill is fully settled.`;
-    }
-  }
-  return null;
-}
-
 const ProjectDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -251,9 +237,13 @@ const ProjectDetail = () => {
     () => [...invoices, ...(saleBills ?? [])].filter((invoice) => invoice.projectId === id),
     [id, invoices, saleBills],
   );
+  const requiresClientInvoiceForCompletion = useMemo(
+    () => (project ? projectRequiresClientInvoiceForCompletion(project) : true),
+    [project],
+  );
   const projectCompletionInvoiceReason = useMemo(
-    () => projectCompletionInvoiceBlockReason(projectInvoices),
-    [projectInvoices],
+    () => (project ? projectCompletionInvoiceBlockReason(project, projectInvoices) : null),
+    [project, projectInvoices],
   );
   const projectPayments = useMemo(
     () => payments.filter((payment) => payment.projectId === id),
@@ -474,12 +464,15 @@ const ProjectDetail = () => {
     if (project.quotationId) invoiceParams.set("quotationId", project.quotationId);
     const invoiceUrl = `/invoices?${invoiceParams.toString()}`;
     setTimeout(() => {
+      const suggestInvoice = requiresClientInvoiceForCompletion && canCreateInvoice;
       toast({
         title: "Project marked complete",
-        description: canCreateInvoice
+        description: suggestInvoice
           ? "Create a final invoice when you are ready."
-          : "Project is complete. Invoice creation requires admin or management.",
-        action: canCreateInvoice ? (
+          : requiresClientInvoiceForCompletion
+            ? "Project is complete. Invoice creation requires admin or management."
+            : "Project is complete.",
+        action: suggestInvoice ? (
           <ToastAction altText="Create Invoice" onClick={() => navigate(invoiceUrl)}>
             Create Invoice
           </ToastAction>
@@ -719,11 +712,6 @@ const ProjectDetail = () => {
                 );
               })()}
             </div>
-            {project.directCreationReason && (
-              <div className="text-xs text-warning bg-warning border border-warning rounded-md px-3 py-2">
-                <span className="font-semibold">Direct creation reason:</span> {project.directCreationReason}
-              </div>
-            )}
             <div className="flex flex-wrap items-end justify-between gap-2">
               <InlineKpiStrip
                 className="w-full min-w-0 flex-wrap justify-start"
@@ -939,6 +927,37 @@ const ProjectDetail = () => {
           title={lastConfirm.title}
           description={lastConfirm.description}
           onDismiss={() => setLastConfirm(null)}
+        />
+      )}
+
+      {isDirectExceptionProject(project) && (
+        <LifecycleTerminalBanner
+          variant="exception"
+          title="Direct exception project"
+          description={
+            <span>
+              Created without an approved quotation — management exception only.{" "}
+              {!project.quotationId ? (
+                <span className="text-foreground/90">
+                  No quotation is linked to this project.
+                </span>
+              ) : (
+                <span className="text-foreground/90">
+                  A quotation id is on file, but this record was opened via the exception path.
+                </span>
+              )}{" "}
+              <span className="font-medium text-foreground">Audit reason:</span>{" "}
+              {projectDirectExceptionReason(project)}
+            </span>
+          }
+          primaryActionLabel={project.quotationId ? "View quotation" : "Open projects list"}
+          onPrimaryAction={() =>
+            project.quotationId
+              ? navigate("/quotations", { state: { focusQuotationId: project.quotationId } })
+              : navigate("/projects")
+          }
+          secondaryActionLabel="Audit logs"
+          onSecondaryAction={() => navigate("/audit/audit-logs")}
         />
       )}
 

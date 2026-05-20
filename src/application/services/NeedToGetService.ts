@@ -1,7 +1,12 @@
-import { format, subDays } from "date-fns";
+import { format } from "date-fns";
+import {
+  attributeDamageToShortfall,
+  buildDamageQtyIndex,
+} from "@/lib/needToGetDamageAttribution";
+import { resolveProcurementNeedByDate } from "@/lib/procurementNeedByDate";
 import type { VendorBill } from "@/data/inventoryData";
 import type { InventoryItem, Project, SiteRecord } from "@/types/project";
-import type { MaterialReservation } from "@/types/operations";
+import type { MaterialDamage, MaterialReservation } from "@/types/operations";
 
 export type NeedToGetRowKind = "material" | "nonMaterial";
 
@@ -17,6 +22,10 @@ export type NeedToGetRow = {
   lastPurchaseRate: number;
   /** Material shortfall vs checklist-only / status line (no warehouse SKU). */
   rowKind?: NeedToGetRowKind;
+  /** Warehouse damage write-offs widened this stock-based shortfall. */
+  shortfallIncludesDamage?: boolean;
+  /** Damaged qty attributed to this row (project-scoped when reported). */
+  damageQtyAttributed?: number;
 };
 
 function checklistNonMaterialRowId(siteId: string, lineId: string): string {
@@ -122,6 +131,11 @@ export function aggregateNeedToGetRows(
 
     const displayWhere = buildMergedWhereLabel(mode, members, getLocationLabel);
     const mergedCount = members.length;
+    const damageMembers = members.filter((m) => m.shortfallIncludesDamage);
+    const shortfallIncludesDamage = damageMembers.length > 0;
+    const damageQtyAttributed = shortfallIncludesDamage
+      ? damageMembers.reduce((s, m) => s + (m.damageQtyAttributed ?? 0), 0)
+      : undefined;
 
     out.push({
       ...base,
@@ -131,6 +145,8 @@ export function aggregateNeedToGetRows(
       lastPurchaseRate: rate,
       displayWhere,
       mergedCount: mergedCount > 1 ? mergedCount : undefined,
+      shortfallIncludesDamage: shortfallIncludesDamage || undefined,
+      damageQtyAttributed,
     });
   }
 
@@ -160,6 +176,64 @@ export function aggregateNeedToGetRows(
   });
 
   return sorted;
+}
+
+/** UI labels for aggregation modes (paired with `aggregateNeedToGetRows`). */
+export const NEED_TO_GET_GROUP_LABELS: Record<NeedToGetGroupMode, string> = {
+  flat: "Flat list",
+  project: "By project",
+  site: "By site",
+  material: "By material",
+  needBy: "By need-by date",
+};
+
+/** How rows merge for each mode — shown in tooltips and the group-mode picker. */
+export const NEED_TO_GET_MERGE_HINT: Record<NeedToGetGroupMode, string> = {
+  flat:
+    "One row per site, material, and need-by date. Duplicate checklist lines at the same site collapse into one quantity.",
+  project:
+    "Combines rows inside each project when material and need-by date match (multiple sites roll into one line per project).",
+  site:
+    "Combines duplicate keys within the same site only (same material + same need-by date).",
+  material:
+    "Totals each material across the current filter. Need-by shows the earliest date among merged lines.",
+  needBy:
+    "Combines the same material on the same need-by date across projects and sites.",
+};
+
+export type NeedToGetMergeStats = {
+  rawLineCount: number;
+  mergedRowCount: number;
+  /** Raw shortfall lines folded away by aggregation (raw − merged rows). */
+  linesMergedAway: number;
+  /** Display rows that combined 2+ raw lines inside one bucket. */
+  rowsWithInternalMerge: number;
+};
+
+export function summarizeNeedToGetMerge(
+  rawLineCount: number,
+  displayRows: NeedToGetViewRow[],
+): NeedToGetMergeStats {
+  const mergedRowCount = displayRows.length;
+  const linesMergedAway = Math.max(0, rawLineCount - mergedRowCount);
+  const rowsWithInternalMerge = displayRows.filter((r) => (r.mergedCount ?? 1) > 1).length;
+  return { rawLineCount, mergedRowCount, linesMergedAway, rowsWithInternalMerge };
+}
+
+/** One-line summary for the active group mode and current filter. */
+export function formatNeedToGetMergeSummary(
+  stats: NeedToGetMergeStats,
+  mode: NeedToGetGroupMode,
+): string {
+  const modeLabel = NEED_TO_GET_GROUP_LABELS[mode];
+  if (stats.rawLineCount === 0) {
+    return `No shortfall lines under current filters (${modeLabel}).`;
+  }
+  if (stats.linesMergedAway === 0) {
+    return `${stats.mergedRowCount} row${stats.mergedRowCount === 1 ? "" : "s"} — no lines combined (${modeLabel}).`;
+  }
+  const combined = stats.linesMergedAway === 1 ? "line" : "lines";
+  return `${stats.rawLineCount} shortfall lines → ${stats.mergedRowCount} rows (${stats.linesMergedAway} ${combined} combined · ${modeLabel})`;
 }
 
 export function buildLastPurchaseRateByMaterial(
@@ -226,11 +300,13 @@ export class NeedToGetService {
     inventoryItems: InventoryItem[],
     vendorBills: VendorBill[],
     materialReservations: MaterialReservation[],
+    materialDamageRecords: MaterialDamage[] = [],
   ): NeedToGetRow[] {
     const lastRate = buildLastPurchaseRateByMaterial(vendorBills, inventoryItems);
     const projectById = new Map(projects.map((p) => [p.id, p]));
     const stock = new Map(inventoryItems.map((i) => [String(i.id), i.stock]));
     const rows: NeedToGetRow[] = [];
+    const damageIndex = buildDamageQtyIndex(materialDamageRecords);
 
     const activeReservations = materialReservations.filter((r) => !r.releasedAt);
     const effectiveStockFor = (itemId: string, requestingProjectId: string): number => {
@@ -256,10 +332,10 @@ export class NeedToGetService {
       if (!site.checklistItems?.length) {
         continue;
       }
-      const workStart = site.workStartDate;
-      const needBy = workStart
-        ? format(subDays(new Date(workStart + "T12:00:00"), 1), "yyyy-MM-dd")
-        : format(new Date(), "yyyy-MM-dd");
+      const needBy = resolveProcurementNeedByDate({
+        workStartDate: site.workStartDate,
+        projectStartDate: proj?.startDate,
+      });
 
       for (const line of site.checklistItems) {
         if (!line.requiresMaterial || line.inventoryItemId == null || line.requiredQuantity == null) {
@@ -273,6 +349,15 @@ export class NeedToGetService {
           continue;
         }
         const inv = inventoryItems.find((i) => String(i.id) === id);
+        const totalDamageQty = damageIndex.totalByItem.get(id) ?? 0;
+        const projectDamageQty =
+          damageIndex.projectByItem.get(id)?.get(site.projectId || "") ?? 0;
+        const damageAttribution = attributeDamageToShortfall({
+          requiredQty: required,
+          effectiveStock: current,
+          totalDamageQty,
+          projectDamageQty,
+        });
         rows.push({
           projectId: site.projectId || "",
           projectName: site.projectName || proj?.name || "—",
@@ -284,6 +369,10 @@ export class NeedToGetService {
           needByDate: needBy,
           lastPurchaseRate: lastRate.get(id) ?? inv?.buyPrice ?? 0,
           rowKind: "material",
+          shortfallIncludesDamage: damageAttribution.shortfallIncludesDamage || undefined,
+          damageQtyAttributed: damageAttribution.shortfallIncludesDamage
+            ? damageAttribution.damageQtyAttributed
+            : undefined,
         });
       }
 
@@ -311,6 +400,10 @@ export class NeedToGetService {
     for (const project of projects) {
       const lines = project.executionLineItems ?? [];
       const siteForProject = sites.find((s) => s.projectId === project.id && (!s.status || s.status === "active"));
+      const boqNeedBy = resolveProcurementNeedByDate({
+        workStartDate: siteForProject?.workStartDate,
+        projectStartDate: project.startDate,
+      });
       for (const line of lines) {
         if (line.inventoryItemId == null) continue;
         const shortfall = Math.max(0, line.quantity - line.issuedQty);
@@ -325,7 +418,7 @@ export class NeedToGetService {
           materialId: id,
           materialName: line.description || inv?.name || "Material",
           qtyShort: shortfall,
-          needByDate: format(new Date(), "yyyy-MM-dd"),
+          needByDate: boqNeedBy,
           lastPurchaseRate: lastRate.get(id) ?? inv?.buyPrice ?? 0,
           rowKind: "material",
         });
