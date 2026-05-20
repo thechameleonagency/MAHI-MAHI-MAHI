@@ -1,7 +1,15 @@
 /**
- * Canonical list of client routes from `src/App.tsx` (excluding the `*` catch-all).
+ * Canonical list of permission-gated routes from `src/App.tsx` (excluding the `*` catch-all).
  * Used to tell "unknown URL" from "known URL denied for this role" in `RouteAccessGate`.
+ *
+ * Legacy `<Navigate>` aliases (`LEGACY_APP_REDIRECT_PATHS`) live in `App.tsx` but are
+ * intentionally excluded — they are not ACL-checked; React Router handles the redirect.
  */
+export const LEGACY_APP_REDIRECT_PATHS = [
+  "/sale-bills",
+  "/presets",
+  "/inventory/presets",
+] as const;
 export function normalizePathname(pathname: string): string {
   const trimmed = pathname.replace(/\/+$/, "");
   return trimmed === "" ? "/" : trimmed;
@@ -19,13 +27,10 @@ export function isRegisteredAppRoute(rawPathname: string): boolean {
     "/agents",
     "/customers",
     "/invoices",
-    "/sale-bills",
     "/inventory",
     "/inventory/materials",
     "/inventory/tools",
     "/templates",
-    "/presets",
-    "/inventory/presets",
     "/employees",
     "/teams",
     "/attendance",

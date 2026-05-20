@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -22,6 +23,7 @@ import { formatUiDate } from "@/lib/formatUiDate";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import type { ExecutionLineItem, ProjectSiteChecklistItem } from "@/types/project";
+import { inferTransportWorkKind, resolveSiteForMaterialIssue } from "@/lib/materialIssueTransportTask";
 
 interface MaterialIssue {
   date: string;
@@ -341,46 +343,43 @@ export default function MaterialsSentTab({
     
     // Create transport task if assigned
     if (assignTaskWithIssue && taskAssignee) {
-      const assignee = employees.find(e => e.id.toString() === taskAssignee);
-      const site = sites.find(s => s.name === projectName) || { id: 0, name: projectName };
-      
-      const materialNames = itemsToIssue.map(item => {
-        const mat = materials.find(m => m.id === item.id);
-        return mat?.name.toLowerCase() || "";
-      });
-      
-      let workType = "Material Transport";
-      let stageKey = "structure-transport";
-      
-      if (materialNames.some(n => n.includes("panel") || n.includes("module"))) {
-        workType = "Panel Transport";
-        stageKey = "panel-transport";
-      } else if (materialNames.some(n => n.includes("inverter"))) {
-        workType = "Inverter Transport";
-        stageKey = "inverter-transport";
-      } else if (materialNames.some(n => n.includes("structure") || n.includes("leg") || n.includes("raftor"))) {
-        workType = "Structure Transport";
-        stageKey = "structure-transport";
+      if (!projectId) {
+        toast({
+          title: "Cannot assign transport task",
+          description: "Project linkage is missing — save the task from a project with a valid id.",
+          variant: "destructive",
+        });
+      } else {
+        const assignee = employees.find((e) => e.id.toString() === taskAssignee);
+        const site = resolveSiteForMaterialIssue(sites, projectId, projectName);
+        const materialNames = itemsToIssue.map((item) => {
+          const mat = materials.find((m) => m.id === item.id);
+          return mat?.name ?? "";
+        });
+        const { workType, stageKey } = inferTransportWorkKind(materialNames);
+
+        addTask({
+          id: generateId("TASK"),
+          employeeId: taskAssignee,
+          projectId,
+          siteId: site.siteId,
+          siteName: site.siteName,
+          workType,
+          workTag: "Transport",
+          notes: taskNotes || `Transport ${itemsToIssue.length} item(s) to site`,
+          createdDate: format(new Date(), "yyyy-MM-dd"),
+          workDate: taskDate,
+          originalDate: taskDate,
+          status: "sent",
+          createdBy: "Admin",
+          workItems: [{ stageKey, stageName: workType, subItems: [] }],
+        });
+
+        toast({
+          title: "Task Assigned",
+          description: `Transport task assigned to ${assignee?.name || "employee"}`,
+        });
       }
-      
-      addTask({
-        id: generateId("TASK"),
-        employeeId: taskAssignee,
-        projectId: _projectId || "",
-        siteId: site.id.toString(),
-        siteName: projectName,
-        workType,
-        workTag: "Transport",
-        notes: taskNotes || `Transport ${itemsToIssue.length} item(s) to site`,
-        createdDate: format(new Date(), "yyyy-MM-dd"),
-        workDate: taskDate,
-        originalDate: taskDate,
-        status: "sent",
-        createdBy: "Admin",
-        workItems: [{ stageKey, stageName: workType, subItems: [] }]
-      });
-      
-      toast({ title: "Task Assigned", description: `Transport task assigned to ${assignee?.name || "employee"}` });
     }
     
     toast({ title: "Materials Issued", description: `${itemsToIssue.length} item(s) issued to ${projectName}` });
@@ -923,7 +922,7 @@ export default function MaterialsSentTab({
 
       {/* Issue Confirmation Modal - with expense & task assignment options */}
       <Sheet open={isIssueModalOpen} onOpenChange={setIsIssueModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Truck className="w-5 h-5 text-primary" /> Confirm Issue
@@ -1024,12 +1023,12 @@ export default function MaterialsSentTab({
               <CheckCircle2 className="w-4 h-4 mr-2" /> Confirm Issue
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Send More Modal */}
       <Sheet open={isSendMoreModalOpen} onOpenChange={setIsSendMoreModalOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Send More</SheetTitle>
             <SheetDescription>{selectedMaterialForSendMore?.name}</SheetDescription>
@@ -1052,12 +1051,12 @@ export default function MaterialsSentTab({
               <Send className="w-4 h-4 mr-2" /> Send
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Return to Warehouse Modal */}
       <Sheet open={isReturnModalOpen} onOpenChange={setIsReturnModalOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <RotateCcw className="w-5 h-5 text-primary" /> Return to Warehouse
@@ -1093,12 +1092,12 @@ export default function MaterialsSentTab({
               <RotateCcw className="w-4 h-4 mr-2" /> Confirm Return
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Scrap at Site Modal */}
       <Sheet open={isScrapModalOpen} onOpenChange={setIsScrapModalOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Scrap at Site</SheetTitle>
             <SheetDescription>{scrapMaterial?.name}</SheetDescription>
@@ -1111,12 +1110,12 @@ export default function MaterialsSentTab({
             <Button variant="outline" onClick={() => setIsScrapModalOpen(false)}>Cancel</Button>
             <Button onClick={handleConfirmScrap} disabled={!scrapQuantity || parseFloat(scrapQuantity) <= 0}>Confirm Scrap</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Consumption Modal */}
       <Sheet open={isConsumeModalOpen} onOpenChange={setIsConsumeModalOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Record Site Consumption</SheetTitle>
             <SheetDescription>{consumeMaterial?.name}</SheetDescription>
@@ -1129,7 +1128,7 @@ export default function MaterialsSentTab({
             <Button variant="outline" onClick={() => setIsConsumeModalOpen(false)}>Cancel</Button>
             <Button onClick={handleConfirmConsume} disabled={!consumeQuantity || parseFloat(consumeQuantity) <= 0}>Record</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {projectId && damageSheet && (
@@ -1146,7 +1145,7 @@ export default function MaterialsSentTab({
       )}
 
       <Sheet open={isAddChecklistItemOpen} onOpenChange={setIsAddChecklistItemOpen}>
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Add custom checklist item</SheetTitle>
             <SheetDescription>Adds an item to this project's site checklist only — does not affect the master inventory.</SheetDescription>
@@ -1214,11 +1213,11 @@ export default function MaterialsSentTab({
               Add item
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={isAttachTemplateOpen} onOpenChange={setIsAttachTemplateOpen}>
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Attach site checklist template</SheetTitle>
             <SheetDescription>
@@ -1304,7 +1303,7 @@ export default function MaterialsSentTab({
               Attach
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </div>
   );

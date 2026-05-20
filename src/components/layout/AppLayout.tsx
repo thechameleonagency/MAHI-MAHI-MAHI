@@ -1,4 +1,5 @@
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode, useState, useEffect, useCallback } from "react";
+import { useMobileSidebarSwipe } from "@/hooks/useMobileSidebarSwipe";
 import { useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import TopHeader from "./TopHeader";
@@ -13,6 +14,8 @@ interface AppLayoutProps {
 const AppLayout = ({ children }: AppLayoutProps) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const mobileSwipe = useMobileSidebarSwipe(sidebarOpen, closeSidebar);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -24,12 +27,19 @@ const AppLayout = ({ children }: AppLayoutProps) => {
       {sidebarOpen && (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px] lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px] lg:hidden transition-opacity duration-150"
+          style={{ opacity: mobileSwipe.backdropOpacity }}
           aria-label="Close menu"
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeSidebar}
         />
       )}
-      <Sidebar mobileOpen={sidebarOpen} onMobileClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        mobileOpen={sidebarOpen}
+        onMobileClose={closeSidebar}
+        swipeDragOffset={mobileSwipe.dragOffsetPx}
+        swipeDragging={mobileSwipe.isDragging}
+        swipeTouchHandlers={mobileSwipe.touchHandlers}
+      />
       <div className="flex h-screen min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <RouteAccessGate />
         <PageHeaderStickyProvider>

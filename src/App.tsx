@@ -99,13 +99,14 @@ const App = () => (
                 <Route path="/customers" element={<Page><Customers /></Page>} />
                 <Route path="/customers/:id" element={<Page><CustomerDetail /></Page>} />
                 <Route path="/invoices" element={<Page><Invoices /></Page>} />
+                {/* Legacy alias — not in appRouteRegistry / permission matrix (Md5). */}
                 <Route path="/sale-bills" element={<Navigate to="/invoices" replace />} />
                 {/* /inventory hub removed per audit B11 — `/inventory/materials` is the entry point. */}
                 <Route path="/inventory" element={<InventoryIndexRedirect />} />
                 <Route path="/inventory/materials" element={<Page><Materials /></Page>} />
                 <Route path="/inventory/tools" element={<Page><Tools /></Page>} />
                 <Route path="/templates" element={<Page><TemplatesPage /></Page>} />
-                {/* Legacy /presets and /inventory/presets routes redirect to the unified Templates page. */}
+                {/* Legacy aliases — not in appRouteRegistry / permission matrix (Md5). */}
                 <Route path="/presets" element={<Navigate to="/templates" replace />} />
                 <Route path="/inventory/presets" element={<Navigate to="/templates" replace />} />
                 <Route path="/employees" element={<Page><Employees /></Page>} />

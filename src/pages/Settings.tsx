@@ -8,7 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Select,
@@ -745,7 +746,7 @@ const Settings = () => {
 
       {/* Invite Member Modal */}
       <Sheet open={isInviteModalOpen} onOpenChange={setIsInviteModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Invite Team Member</SheetTitle>
           </SheetHeader>
@@ -785,12 +786,12 @@ const Settings = () => {
               Send Invite
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Role Change Confirmation Modal */}
       <Sheet open={isRoleChangeConfirmOpen} onOpenChange={setIsRoleChangeConfirmOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Confirm Role Change</SheetTitle>
           </SheetHeader>
@@ -809,7 +810,7 @@ const Settings = () => {
               Confirm
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Solar package preset Sheet removed (Task 5). 2-template model lives under Inventory → Templates. */}

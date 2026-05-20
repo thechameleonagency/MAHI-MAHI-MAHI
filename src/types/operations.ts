@@ -43,6 +43,8 @@ export interface ScheduledInstallation {
   employeeIds?: string[];
   status: ScheduledInstallationStatus;
   notes?: string;
+  /** Set when super_admin schedules before today; documents why. */
+  pastDateOverrideReason?: string;
   createdAt: string;
 }
 
@@ -146,7 +148,8 @@ export interface SiteReadinessSnapshot {
   ready: boolean;
   note?: string;
   markedAt: string;
-  markedBy: number;
+  /** Session actor id (e.g. `actor-admin`) — aligns with `Project.siteReadiness.markedBy`. */
+  markedBy: string;
 }
 
 /** Admin-assigned procurement line from Need-to-Get (vendor + acquire state). */

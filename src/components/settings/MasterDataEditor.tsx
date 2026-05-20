@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -179,7 +180,7 @@ export function MasterDataEditor({ categoryId }: MasterDataEditorProps) {
       )}
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>{editingValue ? "Edit master item" : "Add master item"}</SheetTitle>
           </SheetHeader>
@@ -211,7 +212,7 @@ export function MasterDataEditor({ categoryId }: MasterDataEditorProps) {
             </Button>
             <Button onClick={handleSave}>{editingValue ? "Save changes" : "Add item"}</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <AlertDialog

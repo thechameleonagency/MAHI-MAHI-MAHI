@@ -20,3 +20,16 @@ export function routeAccessDeniedToastContent(
     description: `"${path}" isn't available for the ${roleLabel} role. You've been returned to the dashboard.`,
   };
 }
+
+/** Inline copy while `RouteAccessBoundary` redirects denied roles (Md4). */
+export function routeAccessRedirectCopy(
+  deniedPath: string,
+  role: UserRole,
+): { title: string; description: string } {
+  const path = normalizeDeniedPath(deniedPath);
+  const roleLabel = ROLE_LABELS[role] ?? role;
+  return {
+    title: "Redirecting…",
+    description: `"${path}" isn't available for the ${roleLabel} role. Taking you to the dashboard.`,
+  };
+}

@@ -10,7 +10,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1243,7 +1244,7 @@ const EmployeeProfile = () => {
         }
         setIsEditProfileOpen(open);
       }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Edit Profile</SheetTitle>
           </SheetHeader>
@@ -1440,7 +1441,7 @@ const EmployeeProfile = () => {
               setIsEditProfileOpen(false);
             }}>Save Changes</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <DestructiveConfirmDialog

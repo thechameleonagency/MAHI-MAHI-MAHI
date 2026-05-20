@@ -28,7 +28,7 @@ import {
   clearAllAppStorage,
 } from "@/lib/clearAppStorage";
 import { syncPrototypeRepositoriesFromAppState } from "@/infrastructure/repositories/syncPrototypeRepositories";
-import { createId } from "@/lib/idFactory";
+import { createId, createNextCustomerId } from "@/lib/idFactory";
 import { isQuotationConverted } from "@/lib/quotationSelectors";
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
 import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany } from "@/types/finance";
@@ -39,6 +39,7 @@ import {
   applyChangeRequestToProject,
   scaleAgentAccrualsForContractChange,
 } from "@/lib/changeRequestApproval";
+import { validateChangeRequestDraft } from "@/lib/changeRequestValidation";
 import { saveCreateDraft, buildProjectToInvoiceDraft } from "@/lib/createFromContext";
 import {
   buildClientPaymentRecordPaymentRow,
@@ -76,7 +77,10 @@ import {
 } from "@/application/commands/project/registerProjectCommands";
 import { normalizeProject } from "@/lib/projectNormalize";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
+import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
 import { formatINR } from "@/lib/formatCurrency";
+import { validateExpensePaidByRecord } from "@/lib/expensePayerValidation";
+import { validateScheduledInstallationDate } from "@/lib/scheduledInstallationValidation";
 import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
 import {
   MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
@@ -85,6 +89,7 @@ import {
 import type { WarehouseOnlyMovementType } from "@/application/commands/inventory/registerInventoryCommands";
 import type { ProjectIntakePayload } from "@/application/services/ProjectKindService";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { DEMO_DEFAULT_SESSION_ROLE, ROLE_LABELS } from "@/domain/entities/identity";
 import {
   hydrateInvoiceLinkage,
   hydrateProjectLinkage,
@@ -540,7 +545,7 @@ interface AppDataContextType extends AppState {
 
   addProjectChangeRequest: (
     request: Omit<import("@/types/operations").ProjectChangeRequest, "id" | "requestedAt" | "status">,
-  ) => string;
+  ) => { ok: true; id: string } | { ok: false; error: string };
   approveProjectChangeRequest: (id: string) => { ok: boolean; error?: string; generatedInvoiceId?: string };
   rejectProjectChangeRequest: (id: string, reason?: string) => void;
   getChangeRequestsByProject: (projectId: string) => import("@/types/operations").ProjectChangeRequest[];
@@ -561,6 +566,8 @@ interface AppDataContextType extends AppState {
 
   // Utility functions
   generateId: (prefix: string) => string;
+  /** Next sequential customer id (`CUST-0001` …), aware of legacy `C001` seeds. */
+  allocateCustomerId: () => string;
   resetToDefaults: () => void;
   /** Load the built-in sequenced demo dataset into memory (explicit opt-in). */
   loadDemoDataset: () => void;
@@ -573,7 +580,7 @@ const STORAGE_KEY = "mahi_solar_app_data";
 // back to empty boot instead of crashing the app on hydrate.
 const STORAGE_VERSION = 8;
 const STORAGE_VERSION_KEY = "mahi_solar_app_data_version";
-const DEFAULT_ACTOR_ROLE = "admin";
+const DEFAULT_ACTOR_ROLE = DEMO_DEFAULT_SESSION_ROLE;
 const toProjectLifecycleStatus = (lifecycleStatus: Project["lifecycleStatus"]): ProjectLifecycleStatus => {
   switch (lifecycleStatus) {
     case "Draft": return "New";
@@ -606,20 +613,6 @@ function stripProjectInvoiceRef(project: Project, docId: string): Pick<Project, 
     invoiceIds: next.length ? next : undefined,
     invoiceId: next.length ? next[next.length - 1] : undefined,
   };
-}
-
-function deriveProjectBillingMetrics(projects: Project[], invoices: Invoice[], saleBills: Invoice[]): Project[] {
-  const totals = new Map<string, number>();
-  for (const invoice of [...invoices, ...saleBills]) {
-    if (!invoice.projectId) continue;
-    const current = totals.get(invoice.projectId) ?? 0;
-    totals.set(invoice.projectId, current + (invoice.total ?? 0));
-  }
-
-  return projects.map((project) => ({
-    ...project,
-    amountInvoiced: totals.get(project.id) ?? project.amountInvoiced ?? 0,
-  }));
 }
 
 // ============ INITIAL STATE ============
@@ -658,7 +651,7 @@ function applyHydrationPipeline(state: AppState): AppState {
   const saleBills = sanitizeBillingDocuments(
     hydrateInvoiceLinkage(state.saleBills, customers, projects),
   );
-  const reconciledProjects = deriveProjectBillingMetrics(projects, invoices, saleBills);
+  const reconciledProjects = reconcileProjectsAmountInvoiced(projects, invoices, saleBills);
   return {
     ...state,
     projects: reconciledProjects,
@@ -718,13 +711,14 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const { override: roleMatrixOverride } = useRoleMatrix();
   const [state, setState] = useState<AppState>(getInitialState);
   const { permissionService, commandBus, repositories } = useFoundation();
-  const { currentRole, sessionUserId } = useAppSession();
+  const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
   const billingDirectionGuardService = useMemo(() => new BillingDirectionGuardService(), []);
   const voucherPostingService = useMemo(() => new VoucherPostingService(), []);
   const projectInvariantService = useMemo(() => new ProjectInvariantService(), []);
   const actorRole = currentRole ?? DEFAULT_ACTOR_ROLE;
   const actorUserId = sessionUserId;
+  const actorDisplayName = demoUserName.trim() || ROLE_LABELS[actorRole];
 
   const canPerformActionOrWarn = useCallback((action: AppAction): boolean => {
     const allowed = permissionService.canPerformAction(actorRole, action, roleMatrixOverride);
@@ -801,6 +795,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   // Generate unique IDs
   const generateId = useCallback((prefix: string) => createId(prefix), []);
 
+  const allocateCustomerId = useCallback(
+    () => createNextCustomerId(state.customers.map((c) => c.id)),
+    [state.customers],
+  );
+
   const createAuditEntry = useCallback((
     action: AuditLogEntry["action"],
     entityType: string,
@@ -813,7 +812,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     id: generateId("LOG"),
     timestamp: new Date().toISOString(),
     userId: actorUserId,
-    userName: actorRole,
+    userName: actorDisplayName,
     action,
     entityType,
     entityId,
@@ -821,7 +820,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     field,
     oldValue,
     newValue,
-  }), [actorRole, actorUserId, generateId]);
+  }), [actorDisplayName, actorUserId, generateId]);
 
   const createReviewQueueItem = useCallback((
     postingResult: PostingResult,
@@ -1680,22 +1679,23 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     setState(prev => {
-      const updatedCustomers = prev.customers;
-      const updatedProjects = invoice.projectId
+      const nextInvoices = [invoice, ...prev.invoices];
+      const projectsWithRefs = invoice.projectId
         ? prev.projects.map((project) =>
             project.id === invoice.projectId
-              ? {
-                  ...project,
-                  amountInvoiced: (project.amountInvoiced ?? 0) + invoice.total,
-                  ...mergeProjectInvoiceRef(project, invoice.id),
-                }
-              : project
+              ? { ...project, ...mergeProjectInvoiceRef(project, invoice.id) }
+              : project,
           )
         : prev.projects;
+      const updatedProjects = reconcileProjectsAmountInvoiced(
+        projectsWithRefs,
+        nextInvoices,
+        prev.saleBills,
+      );
       return {
         ...prev,
-        invoices: [invoice, ...prev.invoices],
-        customers: updatedCustomers,
+        invoices: nextInvoices,
+        customers: prev.customers,
         projects: updatedProjects,
         accountingVouchers: postingResult.ok ? [postingResult.voucher, ...prev.accountingVouchers] : prev.accountingVouchers,
         accountingReviewQueue: reviewQueueItem ? [reviewQueueItem, ...prev.accountingReviewQueue] : prev.accountingReviewQueue,
@@ -1714,36 +1714,38 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateInvoice = useCallback((id: string, updates: Partial<Invoice>) => {
     setState(prev => {
       const originalInvoice = prev.invoices.find((i) => i.id === id);
-      const updatedInvoice = originalInvoice ? { ...originalInvoice, ...updates } : undefined;
-      const updatedProjects =
-        updatedInvoice && originalInvoice
+      const nextInvoices = prev.invoices.map((i) => (i.id === id ? { ...i, ...updates } : i));
+      const updatedInvoice = nextInvoices.find((i) => i.id === id);
+      const projectsWithRefs =
+        originalInvoice && updatedInvoice
           ? prev.projects.map((project) => {
               const projectMatchesOriginal = project.id === originalInvoice.projectId;
               const projectMatchesUpdated = project.id === updatedInvoice.projectId;
               if (projectMatchesOriginal && projectMatchesUpdated) {
-                const totalDelta = (updatedInvoice.total ?? originalInvoice.total) - originalInvoice.total;
-                return { ...project, amountInvoiced: (project.amountInvoiced ?? 0) + totalDelta };
+                return updatedInvoice.projectId
+                  ? { ...project, ...mergeProjectInvoiceRef(project, id) }
+                  : project;
               }
               if (projectMatchesOriginal && !projectMatchesUpdated) {
-                const next: Project = {
-                  ...project,
-                  amountInvoiced: Math.max(0, (project.amountInvoiced ?? 0) - originalInvoice.total),
-                };
+                const next: Project = { ...project };
                 return originalInvoice.projectId ? { ...next, ...stripProjectInvoiceRef(next, id) } : next;
               }
               if (!projectMatchesOriginal && projectMatchesUpdated) {
-                const next: Project = {
-                  ...project,
-                  amountInvoiced: (project.amountInvoiced ?? 0) + (updatedInvoice.total ?? 0),
-                };
-                return updatedInvoice.projectId ? { ...next, ...mergeProjectInvoiceRef(next, id) } : next;
+                return updatedInvoice.projectId
+                  ? { ...project, ...mergeProjectInvoiceRef(project, id) }
+                  : project;
               }
               return project;
             })
           : prev.projects;
+      const updatedProjects = reconcileProjectsAmountInvoiced(
+        projectsWithRefs,
+        nextInvoices,
+        prev.saleBills,
+      );
       return {
         ...prev,
-        invoices: prev.invoices.map(i => i.id === id ? { ...i, ...updates } : i),
+        invoices: nextInvoices,
         projects: updatedProjects,
       };
     });
@@ -1752,17 +1754,20 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteInvoice = useCallback((id: string) => {
     setState(prev => {
       const removedInvoice = prev.invoices.find((i) => i.id === id);
-      const updatedProjects = removedInvoice
+      const nextInvoices = prev.invoices.filter((i) => i.id !== id);
+      const projectsWithRefs = removedInvoice
         ? prev.projects.map((project) => {
             if (project.id !== removedInvoice.projectId) return project;
-            const next: Project = {
-              ...project,
-              amountInvoiced: Math.max(0, (project.amountInvoiced ?? 0) - removedInvoice.total),
-            };
+            const next: Project = { ...project };
             return removedInvoice.projectId ? { ...next, ...stripProjectInvoiceRef(next, id) } : next;
           })
         : prev.projects;
-      return { ...prev, invoices: prev.invoices.filter(i => i.id !== id), projects: updatedProjects };
+      const updatedProjects = reconcileProjectsAmountInvoiced(
+        projectsWithRefs,
+        nextInvoices,
+        prev.saleBills,
+      );
+      return { ...prev, invoices: nextInvoices, projects: updatedProjects };
     });
   }, []);
   
@@ -1824,22 +1829,23 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     setState((prev) => {
-      const updatedCustomers = prev.customers;
-      const updatedProjects = saleBill.projectId
+      const nextSaleBills = [saleBill, ...prev.saleBills];
+      const projectsWithRefs = saleBill.projectId
         ? prev.projects.map((project) =>
             project.id === saleBill.projectId
-              ? {
-                  ...project,
-                  amountInvoiced: (project.amountInvoiced ?? 0) + saleBill.total,
-                  ...mergeProjectInvoiceRef(project, saleBill.id),
-                }
-              : project
+              ? { ...project, ...mergeProjectInvoiceRef(project, saleBill.id) }
+              : project,
           )
         : prev.projects;
+      const updatedProjects = reconcileProjectsAmountInvoiced(
+        projectsWithRefs,
+        prev.invoices,
+        nextSaleBills,
+      );
       return {
         ...prev,
-        saleBills: [saleBill, ...prev.saleBills],
-        customers: updatedCustomers,
+        saleBills: nextSaleBills,
+        customers: prev.customers,
         projects: updatedProjects,
         accountingVouchers: postingResult.ok ? [postingResult.voucher, ...prev.accountingVouchers] : prev.accountingVouchers,
         accountingReviewQueue: reviewQueueItem ? [reviewQueueItem, ...prev.accountingReviewQueue] : prev.accountingReviewQueue,
@@ -1858,36 +1864,38 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateSaleBill = useCallback((id: string, updates: Partial<Invoice>) => {
     setState(prev => {
       const originalBill = prev.saleBills.find((s) => s.id === id);
-      const updatedBill = originalBill ? { ...originalBill, ...updates } : undefined;
-      const updatedProjects =
-        updatedBill && originalBill
+      const nextSaleBills = prev.saleBills.map((s) => (s.id === id ? { ...s, ...updates } : s));
+      const updatedBill = nextSaleBills.find((s) => s.id === id);
+      const projectsWithRefs =
+        originalBill && updatedBill
           ? prev.projects.map((project) => {
               const projectMatchesOriginal = project.id === originalBill.projectId;
               const projectMatchesUpdated = project.id === updatedBill.projectId;
               if (projectMatchesOriginal && projectMatchesUpdated) {
-                const totalDelta = (updatedBill.total ?? originalBill.total) - originalBill.total;
-                return { ...project, amountInvoiced: (project.amountInvoiced ?? 0) + totalDelta };
+                return updatedBill.projectId
+                  ? { ...project, ...mergeProjectInvoiceRef(project, id) }
+                  : project;
               }
               if (projectMatchesOriginal && !projectMatchesUpdated) {
-                const next: Project = {
-                  ...project,
-                  amountInvoiced: Math.max(0, (project.amountInvoiced ?? 0) - originalBill.total),
-                };
+                const next: Project = { ...project };
                 return originalBill.projectId ? { ...next, ...stripProjectInvoiceRef(next, id) } : next;
               }
               if (!projectMatchesOriginal && projectMatchesUpdated) {
-                const next: Project = {
-                  ...project,
-                  amountInvoiced: (project.amountInvoiced ?? 0) + (updatedBill.total ?? 0),
-                };
-                return updatedBill.projectId ? { ...next, ...mergeProjectInvoiceRef(next, id) } : next;
+                return updatedBill.projectId
+                  ? { ...project, ...mergeProjectInvoiceRef(project, id) }
+                  : project;
               }
               return project;
             })
           : prev.projects;
+      const updatedProjects = reconcileProjectsAmountInvoiced(
+        projectsWithRefs,
+        prev.invoices,
+        nextSaleBills,
+      );
       return {
         ...prev,
-        saleBills: prev.saleBills.map(s => s.id === id ? { ...s, ...updates } : s),
+        saleBills: nextSaleBills,
         projects: updatedProjects,
       };
     });
@@ -1896,17 +1904,20 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteSaleBill = useCallback((id: string) => {
     setState(prev => {
       const removedBill = prev.saleBills.find((s) => s.id === id);
-      const updatedProjects = removedBill
+      const nextSaleBills = prev.saleBills.filter((s) => s.id !== id);
+      const projectsWithRefs = removedBill
         ? prev.projects.map((project) => {
             if (project.id !== removedBill.projectId) return project;
-            const next: Project = {
-              ...project,
-              amountInvoiced: Math.max(0, (project.amountInvoiced ?? 0) - removedBill.total),
-            };
+            const next: Project = { ...project };
             return removedBill.projectId ? { ...next, ...stripProjectInvoiceRef(next, id) } : next;
           })
         : prev.projects;
-      return { ...prev, saleBills: prev.saleBills.filter(s => s.id !== id), projects: updatedProjects };
+      const updatedProjects = reconcileProjectsAmountInvoiced(
+        projectsWithRefs,
+        prev.invoices,
+        nextSaleBills,
+      );
+      return { ...prev, saleBills: nextSaleBills, projects: updatedProjects };
     });
   }, []);
   
@@ -1929,6 +1940,16 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast({
         title: "Expense validation",
         description: validation.errors.join(" "),
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    const payerCheck = validateExpensePaidByRecord(expense.amount, expense.paidBy);
+    if (!payerCheck.ok) {
+      toast({
+        title: "Expense payer invalid",
+        description: payerCheck.errors.join(" "),
         variant: "destructive",
       });
       return false;
@@ -2997,7 +3018,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         let createdCustomer: Customer | null = null;
         if (!matchedCustomerId) {
-          const newCustomerId = generateId("CUST");
+          const newCustomerId = createNextCustomerId(state.customers.map((c) => c.id));
           createdCustomer = {
             id: newCustomerId,
             name: enquiry.customerName,
@@ -4163,9 +4184,28 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   // ---- Scheduled Installations ----
   const addScheduledInstallation = useCallback(
     (input: Omit<import("@/types/operations").ScheduledInstallation, "id" | "createdAt">) => {
+      const dateCheck = validateScheduledInstallationDate({
+        scheduledDate: input.scheduledDate,
+        isSuperAdmin: actorRole === "super_admin",
+        pastOverrideReason: input.pastDateOverrideReason,
+      });
+      if (!dateCheck.ok) {
+        toast({
+          title: "Cannot schedule installation",
+          description: dateCheck.message,
+          variant: "destructive",
+        });
+        return "";
+      }
+
       const id = `SCH-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+      const scheduledDate = input.scheduledDate.trim().slice(0, 10);
       const row: import("@/types/operations").ScheduledInstallation = {
         ...input,
+        scheduledDate,
+        pastDateOverrideReason: dateCheck.pastOverride
+          ? input.pastDateOverrideReason?.trim()
+          : undefined,
         id,
         createdAt: new Date().toISOString(),
       };
@@ -4173,7 +4213,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         "create",
         "ScheduledInstallation",
         id,
-        `${input.projectId} @ ${input.scheduledDate}`,
+        `${input.projectId} @ ${scheduledDate}${row.pastDateOverrideReason ? " (past override)" : ""}`,
       );
       setState((prev) => ({
         ...prev,
@@ -4182,10 +4222,47 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }));
       return id;
     },
-    [createAuditEntry],
+    [createAuditEntry, actorRole],
   );
   const updateScheduledInstallation = useCallback(
     (id: string, updates: Partial<import("@/types/operations").ScheduledInstallation>) => {
+      if (updates.scheduledDate !== undefined) {
+        setState((prev) => {
+          const existing = (prev.scheduledInstallations ?? []).find((s) => s.id === id);
+          const dateCheck = validateScheduledInstallationDate({
+            scheduledDate: updates.scheduledDate!,
+            isSuperAdmin: actorRole === "super_admin",
+            pastOverrideReason:
+              updates.pastDateOverrideReason ?? existing?.pastDateOverrideReason,
+          });
+          if (!dateCheck.ok) {
+            toast({
+              title: "Cannot update installation date",
+              description: dateCheck.message,
+              variant: "destructive",
+            });
+            return prev;
+          }
+          const scheduledDate = updates.scheduledDate!.trim().slice(0, 10);
+          return {
+            ...prev,
+            scheduledInstallations: (prev.scheduledInstallations ?? []).map((s) =>
+              s.id === id
+                ? {
+                    ...s,
+                    ...updates,
+                    scheduledDate,
+                    pastDateOverrideReason: dateCheck.pastOverride
+                      ? (updates.pastDateOverrideReason ?? s.pastDateOverrideReason)?.trim()
+                      : undefined,
+                  }
+                : s,
+            ),
+          };
+        });
+        return;
+      }
+
       setState((prev) => ({
         ...prev,
         scheduledInstallations: (prev.scheduledInstallations ?? []).map((s) =>
@@ -4193,7 +4270,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         ),
       }));
     },
-    [],
+    [actorRole],
   );
   const getSchedulesByProject = useCallback(
     (projectId: string) =>
@@ -4315,7 +4392,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         import("@/types/operations").ProjectChangeRequest,
         "id" | "requestedAt" | "status"
       >,
-    ) => {
+    ): { ok: true; id: string } | { ok: false; error: string } => {
+      const validation = validateChangeRequestDraft(input);
+      if (!validation.ok) {
+        return { ok: false, error: validation.message };
+      }
       const id = `CR-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
       const row: import("@/types/operations").ProjectChangeRequest = {
         ...input,
@@ -4334,7 +4415,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         projectChangeRequests: [row, ...(prev.projectChangeRequests ?? [])],
         auditLogs: [auditEntry, ...prev.auditLogs],
       }));
-      return id;
+      return { ok: true, id };
     },
     [createAuditEntry],
   );
@@ -4343,6 +4424,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       const cr = (state.projectChangeRequests ?? []).find((r) => r.id === id);
       if (!cr) return { ok: false, error: "Change request not found" };
       if (cr.status !== "draft") return { ok: false, error: `Cannot approve from status '${cr.status}'` };
+      const validation = validateChangeRequestDraft(cr);
+      if (!validation.ok) return { ok: false, error: validation.message };
       const project = state.projects.find((p) => p.id === cr.projectId);
       if (!project) return { ok: false, error: "Project not found" };
 
@@ -4858,6 +4941,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // Utilities
     generateId,
+    allocateCustomerId,
     resetToDefaults,
     loadDemoDataset,
     canDo,

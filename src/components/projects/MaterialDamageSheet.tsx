@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -117,7 +111,7 @@ export function MaterialDamageSheet({
   return (
     <>
       <Sheet open={open} onOpenChange={handleOpenChange}>
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Report material damage</SheetTitle>
             <SheetDescription>
@@ -198,7 +192,7 @@ export function MaterialDamageSheet({
               Report damage
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <DestructiveConfirmDialog

@@ -1,10 +1,13 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { Loader2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useRoleMatrixOverride } from "@/contexts/RoleMatrixContext";
 import { isRegisteredAppRoute } from "@/lib/appRouteRegistry";
-import { routeAccessDeniedToastContent } from "@/lib/routeAccessDenied";
+import { routeAccessDeniedToastContent, routeAccessRedirectCopy } from "@/lib/routeAccessDenied";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { UserRole } from "@/domain/entities/identity";
 import { toast } from "@/hooks/use-toast";
 
 function useRouteAccessDecision() {
@@ -46,12 +49,46 @@ const RouteAccessGate = () => {
   return null;
 };
 
-/** Suppresses page content until route access is confirmed (MD3 — no flash). */
+/** Shown while a denied registered route redirects to home (Md4 — avoids blank main canvas). */
+export function RouteAccessRedirectPlaceholder({
+  deniedPath,
+  role,
+}: {
+  deniedPath: string;
+  role: UserRole;
+}) {
+  const copy = routeAccessRedirectCopy(deniedPath, role);
+  return (
+    <div
+      className="ds-page flex min-h-[40vh] flex-col items-center justify-center gap-6 px-4 py-12"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex max-w-md flex-col items-center gap-3 text-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">{copy.title}</p>
+          <p className="text-xs text-muted-foreground">{copy.description}</p>
+        </div>
+      </div>
+      <div className="w-full max-w-lg space-y-3 opacity-50" aria-hidden>
+        <Skeleton className="h-9 w-2/3 rounded-md" />
+        <Skeleton className="h-20 w-full rounded-xl border border-border/40" />
+        <Skeleton className="h-28 w-full rounded-xl border border-border/40" />
+      </div>
+    </div>
+  );
+}
+
+/** Suppresses page content until route access is confirmed; shows redirect UI when denied (Md4). */
 export const RouteAccessBoundary = ({ children }: { children: ReactNode }) => {
-  const { canAccess, isRegistered } = useRouteAccessDecision();
+  const { canAccess, isRegistered, pathname, currentRole } = useRouteAccessDecision();
 
   if (isRegistered && !canAccess) {
-    return null;
+    return (
+      <RouteAccessRedirectPlaceholder deniedPath={pathname} role={currentRole} />
+    );
   }
 
   return <>{children}</>;

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isRegisteredAppRoute, normalizePathname } from "@/lib/appRouteRegistry";
+import {
+  isRegisteredAppRoute,
+  LEGACY_APP_REDIRECT_PATHS,
+  normalizePathname,
+} from "@/lib/appRouteRegistry";
 import { getRoutePermissionExactPaths } from "@/domain/policies/permissionMatrix";
+import { featureForPath } from "@/lib/routeFeatureMap";
 
 describe("appRouteRegistry", () => {
   it("normalizes trailing slashes", () => {
@@ -18,6 +23,13 @@ describe("appRouteRegistry", () => {
   it("registers every permission-matrix exact route (registry vs ACL parity)", () => {
     for (const path of getRoutePermissionExactPaths()) {
       expect(isRegisteredAppRoute(path)).toBe(true);
+    }
+  });
+
+  it("excludes legacy Navigate aliases from the registered set (Md5)", () => {
+    for (const path of LEGACY_APP_REDIRECT_PATHS) {
+      expect(isRegisteredAppRoute(path)).toBe(false);
+      expect(featureForPath(path)).toBeUndefined();
     }
   });
 });

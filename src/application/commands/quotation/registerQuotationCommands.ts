@@ -7,12 +7,17 @@ import type { AppRepositoryContext } from "@/infrastructure/repositories/contrac
 import { canTransitionQuotationStatus, type QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
 import type { AppAction } from "@/domain/policies/permissionMatrix";
 import type { Quotation } from "@/types/project";
-import type { Customer } from "@/types/finance";
 import { applyQuotationPatch } from "@/domain/quotation/applyQuotationPatch";
 import { propagateQuotationDeathToEnquiry } from "@/lib/enquiryQuotationPropagation";
 import { validateQuotationSendOrApprove } from "@/domain/quotation/quotationCommercialAmount";
 import { buildEnquiryQuotationLinkUpdate } from "@/lib/enquiryQuotationHistory";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
+import {
+  buildCustomerFromQuotation,
+  enrichCustomerFromQuotation,
+  validateQuotationClientForApproval,
+} from "@/lib/quotationApproveCustomer";
+import { createNextCustomerId } from "@/lib/idFactory";
 
 type TransitionQuotationPayload = {
   quotationId: string;
@@ -160,25 +165,28 @@ export const registerQuotationCommands = (
       const today = new Date().toISOString().split("T")[0];
 
       if (nextStatus === "approved") {
-        // Only create a new customer if the quotation isn't already linked to one
-        let customerId = (quotation as any).customerId as string | undefined;
-        if (!customerId) {
-          const year = new Date().getFullYear();
-          const randomSuffix =
-            `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
-          customerId = `CUST-${year}-${randomSuffix}`;
-
-          const newCustomer: Customer = {
-            id: customerId,
-            name: quotation.clientName,
-            phone: quotation.clientPhone,
-            email: quotation.clientEmail || "",
-            address: quotation.clientAddress || "",
-            type: (quotation as any).clientType || "individual",
-            itemsBought: [],
-            totalPurchases: 0,
-            createdAt: new Date().toISOString(),
+        const clientCheck = validateQuotationClientForApproval(quotation);
+        if (!clientCheck.ok) {
+          return {
+            ok: false,
+            errorCode: "QUOTATION_APPROVE_VALIDATION_FAILED",
+            message: clientCheck.message,
           };
+        }
+
+        let customerId = quotation.customerId;
+        if (customerId) {
+          const existing = repositories.customerRepository.getById(customerId);
+          if (existing) {
+            repositories.customerRepository.update(
+              customerId,
+              enrichCustomerFromQuotation(existing, quotation),
+            );
+          }
+        } else {
+          const existingIds = repositories.customerRepository.getAll().map((c) => c.id);
+          customerId = createNextCustomerId(existingIds);
+          const newCustomer = buildCustomerFromQuotation(quotation, customerId);
           repositories.customerRepository.add(newCustomer);
         }
 

@@ -1,4 +1,5 @@
 import { normalizeProject } from "@/lib/projectNormalize";
+import { migrateQuotationProjectLink } from "@/lib/quotationProjectLink";
 import type { Customer, Invoice } from "@/types/finance";
 import type { ExecutionLineItem, Project, Quotation } from "@/types/project";
 
@@ -56,10 +57,13 @@ export function hydrateProjectLinkage(projects: Project[], customers: Customer[]
 }
 
 export function hydrateQuotationLinkage(quotations: Quotation[], customers: Customer[]): Quotation[] {
-  return quotations.map((q) => ({
-    ...q,
-    customerId: q.customerId || matchCustomerId(q.clientName, customers),
-  }));
+  return quotations.map((q) => {
+    const linked = migrateQuotationProjectLink({
+      ...q,
+      customerId: q.customerId || matchCustomerId(q.clientName, customers),
+    });
+    return linked;
+  });
 }
 
 /** Ensure invoices carry customerId + projectId defaults for legacy demos. */

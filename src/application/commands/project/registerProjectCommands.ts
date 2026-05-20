@@ -15,7 +15,7 @@ import {
 } from "@/domain/project/ProjectInvariantService";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import type { Project } from "@/types/project";
-import { isQuotationConverted } from "@/lib/quotationSelectors";
+import { buildQuotationProjectLinkPatch, isQuotationConverted } from "@/lib/quotationProjectLink";
 
 type CreateProjectFromQuotationPayload = {
   quotationId: string;
@@ -104,11 +104,7 @@ export const registerProjectCommands = (
         commercialBaseline: p.commercialBaseline ?? baseline,
         executionLineItems: p.executionLineItems?.length ? p.executionLineItems : executionLineItems,
       });
-      repositories.quotationRepository.update(quotation.id, {
-        status: "converted_to_project",
-        linkedProjectId: p.id,
-        convertedAt: new Date().toISOString().split("T")[0],
-      });
+      repositories.quotationRepository.update(quotation.id, buildQuotationProjectLinkPatch(p.id));
       auditService.write(command, {
         action: "create",
         entityType: "Project",
@@ -152,11 +148,7 @@ export const registerProjectCommands = (
       executionLineItems,
     });
 
-    repositories.quotationRepository.update(quotation.id, {
-      status: "converted_to_project",
-      linkedProjectId: projectId,
-      convertedAt: new Date().toISOString().split("T")[0],
-    });
+    repositories.quotationRepository.update(quotation.id, buildQuotationProjectLinkPatch(projectId));
     auditService.write(command, {
       action: "create",
       entityType: "Project",
@@ -241,11 +233,7 @@ export const registerProjectCommands = (
       executionLineItems: project.executionLineItems?.length ? project.executionLineItems : executionLineItems,
     };
     repositories.projectRepository.add(withQuote);
-    repositories.quotationRepository.update(quotation.id, {
-      status: "converted_to_project",
-      linkedProjectId: project.id,
-      convertedAt: new Date().toISOString().split("T")[0],
-    });
+    repositories.quotationRepository.update(quotation.id, buildQuotationProjectLinkPatch(project.id));
     auditService.write(command, {
       action: "create",
       entityType: "Project",

@@ -12,7 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { BarChart3, Download } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
@@ -604,7 +605,7 @@ const Analytics = () => {
 
       {/* Export Modal */}
       <Sheet open={isExportModalOpen} onOpenChange={setIsExportModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Export Report</SheetTitle>
           </SheetHeader>
@@ -716,7 +717,7 @@ const Analytics = () => {
           <div className="flex justify-end pt-4 border-t">
             <Button variant="outline" onClick={() => setIsExportModalOpen(false)}>Close</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

@@ -19,7 +19,8 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { DashboardEmiRow } from "@/components/dashboard/DashboardEmiRow";
 import { DashboardInvoiceRow } from "@/components/dashboard/DashboardInvoiceRow";
 import { DashboardQuotationRow } from "@/components/dashboard/DashboardQuotationRow";
@@ -1154,7 +1155,7 @@ const Dashboard = () => {
 
       {/* Revenue */}
       <Sheet open={activeModal === "revenue"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <IndianRupee className="h-5 w-5 text-primary" aria-hidden />
@@ -1189,12 +1190,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Finance
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Enquiries */}
       <Sheet open={activeModal === "enquiries" || activeModal === "followUps"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-accent-foreground" aria-hidden />
@@ -1224,12 +1225,12 @@ const Dashboard = () => {
               Open enquiries workspace
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Overdue tasks */}
       <Sheet open={activeModal === "tasks"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-warning" aria-hidden />
@@ -1256,12 +1257,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Open timeline
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Active projects */}
       <Sheet open={activeModal === "projects"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Building2 className="h-5 w-5 text-primary" aria-hidden />
@@ -1280,12 +1281,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             All projects
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Active sites */}
       <Sheet open={activeModal === "activeSites"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <MapPin className="h-5 w-5 text-primary" aria-hidden />
@@ -1304,12 +1305,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Active sites
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Pending payments */}
       <Sheet open={activeModal === "pending"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Receipt className="h-5 w-5 text-warning" aria-hidden />
@@ -1328,12 +1329,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Invoices
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Employees */}
       <Sheet open={activeModal === "employees"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Active roster</SheetTitle>
           </SheetHeader>
@@ -1351,12 +1352,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Employees
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Low stock */}
       <Sheet open={activeModal === "stock"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden />
@@ -1386,12 +1387,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Materials
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* EMIs */}
       <Sheet open={activeModal === "emis"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <CreditCard className="h-5 w-5 text-warning" aria-hidden />
@@ -1416,12 +1417,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Loans
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Quotations */}
       <Sheet open={activeModal === "quotations"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-muted-foreground" aria-hidden />
@@ -1440,12 +1441,12 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Quotations
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* On hold */}
       <Sheet open={activeModal === "blockages"} onOpenChange={() => setActiveModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-destructive" aria-hidden />
@@ -1476,7 +1477,7 @@ const Dashboard = () => {
             <ExternalLink className="mr-2 h-4 w-4" />
             Active sites
           </Button>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

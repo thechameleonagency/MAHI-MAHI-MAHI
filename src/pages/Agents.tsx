@@ -11,7 +11,8 @@ import { TablePaginationBar, DEFAULT_TABLE_PAGE_SIZE } from "@/components/data-t
 import { dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -169,7 +170,6 @@ const Agents = () => {
     setAgentPhoto(agent.photo || "");
     setIsEditOpen(true);
   };
-
 
   const filtered = agents.filter(a => {
     const matchSearch = a.name.toLowerCase().includes(searchQuery.toLowerCase()) || a.phone.includes(searchQuery);
@@ -461,26 +461,26 @@ const Agents = () => {
 
       {/* Add Agent Sheet */}
       <Sheet open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader><SheetTitle>Add New Agent</SheetTitle></SheetHeader>
           <AgentFormFields />
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
             <Button onClick={handleAdd}>Add Agent</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Edit Agent Sheet */}
       <Sheet open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader><SheetTitle>Edit Agent</SheetTitle></SheetHeader>
           <AgentFormFields />
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
             <Button onClick={handleEdit}>Save Changes</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <AlertDialog open={!!agentPendingDelete} onOpenChange={(open) => !open && setAgentPendingDelete(null)}>

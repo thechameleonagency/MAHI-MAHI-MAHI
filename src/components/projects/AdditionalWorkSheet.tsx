@@ -1,12 +1,6 @@
 import { useState } from "react";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,7 +82,7 @@ export function AdditionalWorkSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto custom-scrollbar">
+      <AppSheetContent layout="form" size="md">
         <SheetHeader>
           <SheetTitle>Additional work (INC)</SheetTitle>
           <SheetDescription>
@@ -137,7 +131,7 @@ export function AdditionalWorkSheet({
           </Button>
           <Button onClick={handleSubmit}>Add to contract</Button>
         </SheetFooter>
-      </SheetContent>
+      </AppSheetContent>
     </Sheet>
   );
 }

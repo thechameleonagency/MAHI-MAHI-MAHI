@@ -9,6 +9,12 @@ export const USER_ROLES = [
 
 export type UserRole = (typeof USER_ROLES)[number];
 
+/**
+ * Prototype session boot role — lowest-privilege pipeline role so first load
+ * reflects restricted navigation/permissions (Md1).
+ */
+export const DEMO_DEFAULT_SESSION_ROLE: UserRole = "salesperson";
+
 export interface ActorContext {
   actorUserId: string;
   actorRole: UserRole;

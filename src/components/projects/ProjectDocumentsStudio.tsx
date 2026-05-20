@@ -1,12 +1,8 @@
 import { useMemo, useState, useEffect } from "react";
 import { FileText, Plus, Eye, Download, Printer, Info, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
@@ -264,7 +260,7 @@ export function ProjectDocumentsStudio({ project, quotation, updateProject, gene
       </div>
 
       <Sheet open={!!previewDoc} onOpenChange={(o) => !o && setPreviewId(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="pr-8 text-left">{previewDoc?.title}</SheetTitle>
           </SheetHeader>
@@ -286,7 +282,7 @@ export function ProjectDocumentsStudio({ project, quotation, updateProject, gene
               </div>
             </>
           )}
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </>
   );

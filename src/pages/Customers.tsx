@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
@@ -28,6 +29,7 @@ import { useCan } from "@/hooks/useCan";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getCustomerReceivableAging } from "@/lib/agingHelpers";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import { createNextCustomerId } from "@/lib/idFactory";
 
 const Customers = () => {
   const navigate = useNavigate();
@@ -43,7 +45,6 @@ const Customers = () => {
     addCustomer,
     updateCustomer,
     deleteCustomer,
-    generateId,
   } = useAppData();
   
   const [listReady, setListReady] = useState(false);
@@ -145,7 +146,7 @@ const Customers = () => {
     }
 
     const newCustomer: Customer = {
-      id: generateId('C'),
+      id: createNextCustomerId(customers.map((c) => c.id)),
       name: customerName,
       phone: customerPhone,
       email: customerEmail,
@@ -540,7 +541,7 @@ const Customers = () => {
 
       {/* Add Customer Sheet */}
       <Sheet open={isAddCustomerOpen} onOpenChange={setIsAddCustomerOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add New Customer</SheetTitle>
           </SheetHeader>
@@ -584,12 +585,12 @@ const Customers = () => {
               <Button className="flex-1" onClick={handleAddCustomer}>Add Customer</Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Edit Customer Sheet */}
       <Sheet open={isEditCustomerOpen} onOpenChange={setIsEditCustomerOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Edit Customer</SheetTitle>
           </SheetHeader>
@@ -633,7 +634,7 @@ const Customers = () => {
               <Button className="flex-1" onClick={handleEditCustomer}>Save Changes</Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <DestructiveConfirmDialog

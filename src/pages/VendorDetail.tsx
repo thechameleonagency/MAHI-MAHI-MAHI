@@ -10,7 +10,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { Input } from "@/components/ui/input";
@@ -1095,7 +1096,7 @@ const VendorDetail = () => {
 
       {/* FIFO Payment Modal */}
       <Sheet open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Record Payment to Vendor</SheetTitle>
             <SheetDescription>
@@ -1172,12 +1173,12 @@ const VendorDetail = () => {
               Record Payment
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Add Purchase Modal */}
       <Sheet open={isPurchaseModalOpen} onOpenChange={setIsPurchaseModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add Purchase Bill</SheetTitle>
             <SheetDescription>
@@ -1406,12 +1407,12 @@ const VendorDetail = () => {
               Add Purchase
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Bill Preview/Edit Modal */}
       <Sheet open={isBillPreviewOpen} onOpenChange={setIsBillPreviewOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Receipt className="h-5 w-5 text-primary" />
@@ -1674,11 +1675,11 @@ const VendorDetail = () => {
               )
             )}
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={!!acquireTarget} onOpenChange={(o) => !o && setAcquireTarget(null)}>
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Mark as acquired</SheetTitle>
             <SheetDescription>
@@ -1734,11 +1735,11 @@ const VendorDetail = () => {
             ) : null}
             <Button onClick={confirmMarkAcquired}>Save acquired</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={isEditVendorOpen} onOpenChange={setIsEditVendorOpen}>
-        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+        <AppSheetContent layout="form" size="lg">
           <SheetHeader>
             <SheetTitle>Edit vendor</SheetTitle>
             <SheetDescription>Update contact details used on bills and payments.</SheetDescription>
@@ -1787,7 +1788,7 @@ const VendorDetail = () => {
             </Button>
             <Button onClick={saveVendorProfile}>Save</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <AlertDialog open={confirmDeleteVendor} onOpenChange={setConfirmDeleteVendor}>

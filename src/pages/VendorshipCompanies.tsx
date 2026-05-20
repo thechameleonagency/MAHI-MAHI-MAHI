@@ -1,3 +1,4 @@
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -14,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { Plus, Pencil, Trash2, Building2, MapPin, Code } from "lucide-react";
@@ -219,7 +220,7 @@ export default function VendorshipCompanies() {
 
       {/* Add / Edit Sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>{editingId ? "Edit Company" : "Add Vendorship Code Company"}</SheetTitle>
           </SheetHeader>
@@ -253,7 +254,7 @@ export default function VendorshipCompanies() {
             <Button variant="outline" onClick={() => setSheetOpen(false)}>Cancel</Button>
             <Button onClick={handleSave}>{editingId ? "Save Changes" : "Add Company"}</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <DestructiveConfirmDialog

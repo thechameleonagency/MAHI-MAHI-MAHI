@@ -9,8 +9,10 @@ import {
   hydrateInvoiceLinkage,
 } from "@/domain/project/linkageMigration";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
+import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
 import { normalizeTools } from "@/lib/normalizeTools";
 import { reconcileAllEnquiryQuotationHistories } from "@/lib/enquiryQuotationHistory";
+import { migrateQuotationProjectLink } from "@/lib/quotationProjectLink";
 import { DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
 import type { AppState } from "@/contexts/AppDataContext";
 import type { Quotation } from "@/types/project";
@@ -59,19 +61,6 @@ import {
   initialProjectTimelineByProjectId,
 } from "@/data/activeSitesSeed";
 import { procurementNeedLineKey, type ProcurementNeedLine } from "@/types/operations";
-
-function deriveProjectBillingMetrics(projects: Project[], invoices: Invoice[], saleBills: Invoice[]): Project[] {
-  const totals = new Map<string, number>();
-  for (const invoice of [...invoices, ...saleBills]) {
-    if (!invoice.projectId) continue;
-    totals.set(invoice.projectId, (totals.get(invoice.projectId) ?? 0) + (invoice.total ?? 0));
-  }
-  return projects.map((project) => ({
-    ...project,
-    amountInvoiced: totals.get(project.id) ?? project.amountInvoiced ?? 0,
-  }));
-}
-
 
 /** True empty baseline — no business rows. */
 export function buildEmptyAppState(): AppState {
@@ -141,7 +130,7 @@ function ensureRecord<T extends Record<string, unknown>>(value: T | undefined | 
 }
 
 /**
- * Backfill `linkedProjectId` from legacy `convertedToProjectId` on hydrate.
+ * Migrate `convertedToProjectId` → `linkedProjectId` and drop the legacy field on hydrate.
  *
  * Also collapses the legacy `"confirmed"` quotation status back to `"approved"`.
  * The state machine (`quotationStateMachine.ts`) only knows the canonical statuses
@@ -158,12 +147,12 @@ export function normalizeQuotations(quotations: Quotation[]): Quotation[] {
       ? ("approved" as Quotation["status"])
       : q.status;
     const approvedAt = q.approvedAt ?? q.confirmedAt;
-    return {
+    const withStatus = {
       ...q,
       status: collapsedStatus,
       approvedAt,
-      linkedProjectId: q.linkedProjectId ?? q.convertedToProjectId,
     };
+    return migrateQuotationProjectLink(withStatus);
   });
 }
 
@@ -544,12 +533,20 @@ export function buildSequencedAppSeed(): AppState {
   const invoices = sanitizeBillingDocuments(
     hydrateInvoiceLinkage(state.invoices, customers, hydratedProjects),
   );
-  const projectsWithBilling = deriveProjectBillingMetrics(hydratedProjects, invoices, state.saleBills);
+  const saleBills = sanitizeBillingDocuments(
+    hydrateInvoiceLinkage(state.saleBills, customers, hydratedProjects),
+  );
+  const projectsWithBilling = reconcileProjectsAmountInvoiced(
+    hydratedProjects,
+    invoices,
+    saleBills,
+  );
 
   return {
     ...state,
     projects: projectsWithBilling,
     quotations,
     invoices,
+    saleBills,
   };
 }

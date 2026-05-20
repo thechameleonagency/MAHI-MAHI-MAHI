@@ -40,10 +40,20 @@ import { UnifiedFinanceValidationService } from "@/application/services/UnifiedF
 import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
 import { loadCreateDraft, type ExpenseDraftFromProject } from "@/lib/createFromContext";
 import { formatINR } from "@/lib/formatCurrency";
+import {
+  computeInventoryLineTotal,
+  inventoryAmountDiffersFromSuggestion,
+  isExpenseAmountEmpty,
+} from "@/lib/inventoryExpenseAmount";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
 import { useMasters } from "@/contexts/MastersContext";
 import { requireDateNotBefore, requireDateNotInFuture } from "@/lib/dateSanity";
+import {
+  calculateExpenseSplitTotal,
+  validateExpensePayerForm,
+  type ExpensePayerType,
+} from "@/lib/expensePayerValidation";
 
 /** Ledger preview: negative outflow (formatINR is always positive ₹…). */
 function formatInrOutflow(n: number): string {
@@ -170,7 +180,7 @@ export function UnifiedExpenseSheet({
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   
   // Payer state (who actually paid the money)
-  const [payerType, setPayerType] = useState<"company" | "employee" | "owner" | "partner" | "split">("company");
+  const [payerType, setPayerType] = useState<ExpensePayerType>("company");
   const [payerEmployeeId, setPayerEmployeeId] = useState<string | null>(null);
   const [payerPartnerId, setPayerPartnerId] = useState<string>("");
   const [paymentMode, setPaymentMode] = useState("Bank Transfer");
@@ -190,6 +200,8 @@ export function UnifiedExpenseSheet({
   // Inventory
   const [selectedInventoryItemId, setSelectedInventoryItemId] = useState<string | null>(null);
   const [inventoryQuantity, setInventoryQuantity] = useState("");
+  /** When true, inventory qty/item changes must not overwrite a manually entered amount. */
+  const [amountLockedFromUser, setAmountLockedFromUser] = useState(false);
 
   // Vendor
   const [vendorName, setVendorName] = useState("");
@@ -257,6 +269,59 @@ export function UnifiedExpenseSheet({
     return allowed;
   }, [category, subCategory, isPartnershipProject, selectedProject, mainCategory]);
 
+  const skipsPayerStep = category === "employee-reimbursement";
+
+  useEffect(() => {
+    if (!allowedPayers.includes(payerType)) {
+      const fallback = (allowedPayers[0] as ExpensePayerType | undefined) ?? "company";
+      setPayerType(fallback);
+      if (fallback !== "employee") setPayerEmployeeId(null);
+      if (fallback !== "partner") setPayerPartnerId("");
+    }
+  }, [allowedPayers, payerType]);
+
+  const parsedExpenseAmount = useMemo(() => {
+    const a = Number.parseFloat(amount);
+    return Number.isFinite(a) ? a : 0;
+  }, [amount]);
+
+  const payerValidation = useMemo(
+    () =>
+      validateExpensePayerForm({
+        payerType,
+        expenseAmount: parsedExpenseAmount,
+        allowedPayers,
+        payerEmployeeId,
+        payerPartnerId,
+        skipPayerStep: skipsPayerStep,
+        split:
+          payerType === "split"
+            ? {
+                companyAmount: splitCompanyAmount,
+                ownerAmount: splitOwnerAmount,
+                employeeIds: splitEmployeeIds,
+                employeeAmounts: splitEmployeeAmounts,
+                partnerIds: splitPartnerIds,
+                partnerAmounts: splitPartnerAmounts,
+              }
+            : undefined,
+      }),
+    [
+      payerType,
+      parsedExpenseAmount,
+      allowedPayers,
+      payerEmployeeId,
+      payerPartnerId,
+      skipsPayerStep,
+      splitCompanyAmount,
+      splitOwnerAmount,
+      splitEmployeeIds,
+      splitEmployeeAmounts,
+      splitPartnerIds,
+      splitPartnerAmounts,
+    ],
+  );
+
   const availablePartners = useMemo(() => {
     if (selectedProject?.ownerType === "partnership" && selectedProject.partners) {
       return partners.filter(p => selectedProject.partners?.some(pp => pp.partnerId === p.id));
@@ -273,14 +338,39 @@ export function UnifiedExpenseSheet({
 
   const selectedInventoryItem = useMemo(() => inventoryItems.find(i => i.id === selectedInventoryItemId), [selectedInventoryItemId]);
 
-  useEffect(() => {
-    if (selectedInventoryItem && inventoryQuantity) {
-      const qty = parseFloat(inventoryQuantity) || 0;
-      setAmount((qty * selectedInventoryItem.buyPrice).toString());
-      setUnit(selectedInventoryItem.unit);
-      setQuantity(inventoryQuantity);
-    }
+  const suggestedInventoryAmount = useMemo(() => {
+    if (!selectedInventoryItem || !inventoryQuantity.trim()) return null;
+    const qty = Number.parseFloat(inventoryQuantity);
+    if (!Number.isFinite(qty) || qty <= 0) return null;
+    return computeInventoryLineTotal(qty, selectedInventoryItem.buyPrice);
   }, [selectedInventoryItem, inventoryQuantity]);
+
+  useEffect(() => {
+    if (!selectedInventoryItem || !inventoryQuantity.trim()) return;
+    const qty = Number.parseFloat(inventoryQuantity) || 0;
+    setUnit(selectedInventoryItem.unit);
+    setQuantity(inventoryQuantity);
+    if (!amountLockedFromUser) {
+      setAmount(computeInventoryLineTotal(qty, selectedInventoryItem.buyPrice).toString());
+    }
+  }, [selectedInventoryItem, inventoryQuantity, amountLockedFromUser]);
+
+  const showApplyInventoryAmount =
+    isMaterialExpense &&
+    suggestedInventoryAmount != null &&
+    amountLockedFromUser &&
+    inventoryAmountDiffersFromSuggestion(amount, suggestedInventoryAmount);
+
+  const handleApplyInventoryAmount = () => {
+    if (suggestedInventoryAmount == null) return;
+    setAmount(String(suggestedInventoryAmount));
+    setAmountLockedFromUser(false);
+  };
+
+  const handleAmountChange = (value: string) => {
+    setAmount(value);
+    setAmountLockedFromUser(!isExpenseAmountEmpty(value));
+  };
 
   /** L35: sync prefill before paint so the wizard does not flash main-category when project/employee context is known. */
   useLayoutEffect(() => {
@@ -335,6 +425,7 @@ export function UnifiedExpenseSheet({
     setReimbursementAmount("");
     setSelectedInventoryItemId(null);
     setInventoryQuantity("");
+    setAmountLockedFromUser(false);
     setVendorName("");
     setPartnerLevel("company");
   };
@@ -362,21 +453,16 @@ export function UnifiedExpenseSheet({
     if (d.mainCategory != null) setMainCategory(d.mainCategory as MainExpenseCategory | "");
     if (d.category != null) setCategory(d.category);
     if (d.subCategory != null) setSubCategory(d.subCategory);
-    if (d.amount != null) setAmount(d.amount);
+    if (d.amount != null) {
+      setAmount(d.amount);
+      setAmountLockedFromUser(!isExpenseAmountEmpty(d.amount));
+    }
     if (d.date != null) setDate(d.date);
     if (d.selectedProjectId != null) setSelectedProjectId(d.selectedProjectId);
     if (d.selectedEmployeeId !== undefined) setSelectedEmployeeId(d.selectedEmployeeId);
     if (d.notes != null) setNotes(d.notes);
     if (d.payerType) setPayerType(d.payerType);
   }, [isOpen, prefillProjectId, prefillEmployeeId]);
-
-  const calculateSplitTotal = () => {
-    let total = parseFloat(splitCompanyAmount) || 0;
-    total += parseFloat(splitOwnerAmount) || 0;
-    splitEmployeeIds.forEach(id => { total += parseFloat(splitEmployeeAmounts[id] || "0"); });
-    splitPartnerIds.forEach(id => { total += parseFloat(splitPartnerAmounts[id] || "0"); });
-    return total;
-  };
 
   const isStepValid = () => {
     switch (step) {
@@ -407,43 +493,60 @@ export function UnifiedExpenseSheet({
         return true;
       }
       case "payer":
-        if (payerType === "employee" && !payerEmployeeId) return false;
-        if (payerType === "partner" && !payerPartnerId) return false;
-        if (payerType === "split") {
-          if (new Set(splitEmployeeIds).size !== splitEmployeeIds.length) return false;
-          if (new Set(splitPartnerIds).size !== splitPartnerIds.length) return false;
-          const tiny = (n: number) => n > 0 && n < 0.01;
-          if (tiny(parseFloat(splitCompanyAmount) || 0) || tiny(parseFloat(splitOwnerAmount) || 0)) return false;
-          for (const id of splitEmployeeIds) {
-            if (tiny(parseFloat(splitEmployeeAmounts[id] || "0"))) return false;
-          }
-          for (const id of splitPartnerIds) {
-            if (tiny(parseFloat(splitPartnerAmounts[id] || "0"))) return false;
-          }
-          const total = calculateSplitTotal();
-          const target = Number.parseFloat(amount);
-          if (!Number.isFinite(target) || total <= 0 || Math.abs(total - target) > 0.01) return false;
-        }
-        return true;
+        return payerValidation.ok;
       case "confirm": return true;
       default: return true;
     }
   };
 
-  // Skip payer step for reimbursement (employees paid - it's implicit)
   const steps: Step[] = useMemo(() => {
-    if (category === "employee-reimbursement") {
+    if (skipsPayerStep) {
       return ["main-category", "category", "details", "confirm"];
     }
     return ["main-category", "category", "details", "payer", "confirm"];
-  }, [category]);
+  }, [skipsPayerStep]);
+
+  const wizardReadyForSubmit = useMemo(() => {
+    if (!mainCategory || !category) return false;
+    if (needsProject && !selectedProjectId) return false;
+    if (isMultiEmployeeCategory && multiSelectedEmployeeIds.length === 0) return false;
+    if (needsEmployee && !isMultiEmployeeCategory && !selectedEmployeeId) return false;
+    if (mainCategory === "partner") {
+      if (!selectedPartnerId) return false;
+      if (partnerLevel === "site" && !selectedProjectId) return false;
+    } else if (needsPartner && !selectedPartnerId) return false;
+    if (!parsedExpenseAmount || parsedExpenseAmount <= 0) return false;
+    if (requiresInterestPrincipalSplit) {
+      const i = Number.parseFloat(interestPortion);
+      const p = Number.parseFloat(principalPortion);
+      if (!Number.isFinite(i) || i <= 0 || !Number.isFinite(p) || p <= 0) return false;
+    }
+    return payerValidation.ok;
+  }, [
+    mainCategory,
+    category,
+    needsProject,
+    selectedProjectId,
+    isMultiEmployeeCategory,
+    multiSelectedEmployeeIds,
+    needsEmployee,
+    selectedEmployeeId,
+    selectedPartnerId,
+    partnerLevel,
+    needsPartner,
+    parsedExpenseAmount,
+    requiresInterestPrincipalSplit,
+    interestPortion,
+    principalPortion,
+    payerValidation.ok,
+  ]);
   const goNext = () => {
     if (!isStepValid()) {
       const msgs: Record<string, string> = {
         "main-category": "Select an expense category to continue.",
         category: "Fill all required fields for this category.",
         details: "Enter a valid expense amount greater than zero.",
-        payer: "Select who paid, balance the split to the expense total, avoid duplicate people in split, and no amounts under ₹0.01 unless zero.",
+        payer: payerValidation.errors[0] ?? "Complete payer details before continuing.",
       };
       toast({ title: "Required Fields", description: msgs[step] ?? "Complete this step before proceeding.", variant: "destructive" });
       return;
@@ -540,6 +643,14 @@ export function UnifiedExpenseSheet({
   };
 
   const handleSubmit = () => {
+    if (!wizardReadyForSubmit) {
+      toast({
+        title: "Cannot save expense",
+        description: payerValidation.errors[0] ?? "Complete all required fields before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
     const taxonomyResult = financeValidationService.validateExpense(
       (mainCategory === "site" ? "site_project" : mainCategory) as any,
       {
@@ -565,16 +676,32 @@ export function UnifiedExpenseSheet({
       toast({ title: "Invalid Amount", description: "Please enter a valid expense amount", variant: "destructive" });
       return;
     }
-    if (payerType === "split") {
-      const splitTotal = calculateSplitTotal();
-      if (Math.abs(splitTotal - parsedAmount) > 0.01) {
-        toast({
-          title: "Split total mismatch",
-          description: `Split lines total ${formatINR(splitTotal)} but expense is ${formatINR(parsedAmount)}.`,
-          variant: "destructive",
-        });
-        return;
-      }
+    const payerCheck = validateExpensePayerForm({
+      payerType,
+      expenseAmount: parsedAmount,
+      allowedPayers,
+      payerEmployeeId,
+      payerPartnerId,
+      skipPayerStep: skipsPayerStep,
+      split:
+        payerType === "split"
+          ? {
+              companyAmount: splitCompanyAmount,
+              ownerAmount: splitOwnerAmount,
+              employeeIds: splitEmployeeIds,
+              employeeAmounts: splitEmployeeAmounts,
+              partnerIds: splitPartnerIds,
+              partnerAmounts: splitPartnerAmounts,
+            }
+          : undefined,
+    });
+    if (!payerCheck.ok) {
+      toast({
+        title: "Payer details incomplete",
+        description: payerCheck.errors.join(" "),
+        variant: "destructive",
+      });
+      return;
     }
     const futureErr = requireDateNotInFuture("Expense date", date);
     if (futureErr) {
@@ -960,16 +1087,24 @@ export function UnifiedExpenseSheet({
                       <Input type="number" placeholder="Enter qty" value={inventoryQuantity} onChange={(e) => setInventoryQuantity(e.target.value)} />
                     </div>
                   </div>
-                  {selectedInventoryItem && inventoryQuantity && (
-                    <div className="bg-primary/10 rounded-md p-2 text-sm">
-                      <span className="font-medium">{selectedInventoryItem.name}</span>
-                      <span className="text-muted-foreground"> × {inventoryQuantity} {selectedInventoryItem.unit} = </span>
-                      <span className="font-semibold text-primary">
-                        {formatINR(
-                          (Number.isFinite(Number.parseFloat(inventoryQuantity)) ? Number.parseFloat(inventoryQuantity) : 0) *
-                            selectedInventoryItem.buyPrice,
-                        )}
-                      </span>
+                  {selectedInventoryItem && inventoryQuantity && suggestedInventoryAmount != null && (
+                    <div className="bg-primary/10 rounded-md p-2 text-sm space-y-2">
+                      <div>
+                        <span className="font-medium">{selectedInventoryItem.name}</span>
+                        <span className="text-muted-foreground"> × {inventoryQuantity} {selectedInventoryItem.unit} = </span>
+                        <span className="font-semibold text-primary">{formatINR(suggestedInventoryAmount)}</span>
+                      </div>
+                      {showApplyInventoryAmount && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 text-xs"
+                          onClick={handleApplyInventoryAmount}
+                        >
+                          Use inventory total ({formatINR(suggestedInventoryAmount)})
+                        </Button>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -1030,7 +1165,7 @@ export function UnifiedExpenseSheet({
                   step="0.01"
                   placeholder="Enter amount"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => handleAmountChange(e.target.value)}
                   disabled={requiresInterestPrincipalSplit}
                 />
                 {requiresInterestPrincipalSplit && (
@@ -1261,13 +1396,28 @@ export function UnifiedExpenseSheet({
                 <div className="flex justify-between items-center">
                   <Label className="text-sm font-medium">Split Payment Breakdown</Label>
                   <span className={`text-xs font-medium ${
-                    (() => {
-                      const target = Number.parseFloat(amount);
-                      const tot = calculateSplitTotal();
-                      return Number.isFinite(target) && Math.abs(tot - target) <= 1 ? "text-primary" : "text-destructive";
-                    })()
+                    Math.abs(calculateExpenseSplitTotal({
+                      companyAmount: splitCompanyAmount,
+                      ownerAmount: splitOwnerAmount,
+                      employeeIds: splitEmployeeIds,
+                      employeeAmounts: splitEmployeeAmounts,
+                      partnerIds: splitPartnerIds,
+                      partnerAmounts: splitPartnerAmounts,
+                    }) - parsedExpenseAmount) <= 0.01 && parsedExpenseAmount > 0
+                      ? "text-primary"
+                      : "text-destructive"
                   }`}>
-                    {formatINR(calculateSplitTotal())} / {formatINR(Number.isFinite(Number.parseFloat(amount)) ? Number.parseFloat(amount) : 0)}
+                    {formatINR(
+                      calculateExpenseSplitTotal({
+                        companyAmount: splitCompanyAmount,
+                        ownerAmount: splitOwnerAmount,
+                        employeeIds: splitEmployeeIds,
+                        employeeAmounts: splitEmployeeAmounts,
+                        partnerIds: splitPartnerIds,
+                        partnerAmounts: splitPartnerAmounts,
+                      }),
+                    )}{" "}
+                    / {formatINR(parsedExpenseAmount)}
                   </span>
                 </div>
 
@@ -1338,6 +1488,13 @@ export function UnifiedExpenseSheet({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {!payerValidation.ok && (
+              <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
+                <p>{payerValidation.errors[0]}</p>
               </div>
             )}
 
@@ -1561,9 +1718,11 @@ export function UnifiedExpenseSheet({
             {step === "main-category" ? "Cancel" : <><ArrowLeft className="w-4 h-4 mr-2" />Back</>}
           </Button>
           {step === "confirm" ? (
-            <Button onClick={handleSubmit}><Check className="w-4 h-4 mr-2" />Confirm & Save</Button>
+            <Button onClick={handleSubmit} disabled={!wizardReadyForSubmit} title={!wizardReadyForSubmit ? payerValidation.errors[0] : undefined}>
+              <Check className="w-4 h-4 mr-2" />Confirm & Save
+            </Button>
           ) : (
-            <Button onClick={goNext}>Next<ArrowRight className="w-4 h-4 ml-2" /></Button>
+            <Button onClick={goNext} disabled={!isStepValid()}>Next<ArrowRight className="w-4 h-4 ml-2" /></Button>
           )}
         </div>
       </AppSheetContent>

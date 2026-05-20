@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -71,6 +72,16 @@ import {
   QUOTATION_ZERO_AMOUNT_ERROR,
   validateQuotationSendOrApprove,
 } from "@/domain/quotation/quotationCommercialAmount";
+import {
+  buildPaymentTermsSummary,
+  validateQuotationClientForApproval,
+} from "@/lib/quotationApproveCustomer";
+import ProjectConfirmationScreen from "@/components/projects/ProjectConfirmationScreen";
+import {
+  applyTeamAssignmentToProject,
+  buildProjectConfirmationData,
+  type ProjectTeamAssignmentDraft,
+} from "@/lib/projectTeamAssignment";
 
 interface QuotationMaterial {
   id: number;
@@ -143,8 +154,8 @@ const Quotations = () => {
     reviseQuotation,
     withdrawQuotation,
     deleteQuotation,
-    createProjectFromConfirmedQuotation: _createProjectFromConfirmedQuotation,
-    createProjectIntake,
+    createProjectFromConfirmedQuotation,
+    employees,
     generateId,
     partners,
     agents,
@@ -173,6 +184,8 @@ const Quotations = () => {
   const [listPageSize, setListPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
+  const [createProjectStep, setCreateProjectStep] = useState<"form" | "confirm">("form");
+  const [pendingCreateProject, setPendingCreateProject] = useState<Project | null>(null);
   const [selectedQuotationForProject, setSelectedQuotationForProject] = useState<typeof savedQuotations[0] | null>(null);
   const [projectAmountType, _setProjectAmountType] = useState<"temporary" | "final">("final");
   const [projectContractAmount, setProjectContractAmount] = useState(0);
@@ -224,6 +237,11 @@ const Quotations = () => {
   const [clientEmail, setClientEmail] = useState("");
   const [clientCity, setClientCity] = useState("");
   const [clientState, setClientState] = useState("");
+  const [clientAddress, setClientAddress] = useState("");
+  const [clientPincode, setClientPincode] = useState("");
+  const [clientGstin, setClientGstin] = useState("");
+  const [clientPan, setClientPan] = useState("");
+  const [clientType, setClientType] = useState<"company" | "individual">("individual");
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [enquiryId, setEnquiryId] = useState<string | null>(null);
   const [agentId, setAgentId] = useState("");
@@ -400,6 +418,11 @@ const Quotations = () => {
     setClientEmail("");
     setClientCity("");
     setClientState("");
+    setClientAddress("");
+    setClientPincode("");
+    setClientGstin("");
+    setClientPan("");
+    setClientType("individual");
     setSystemCategory("residential");
     setSystemCapacity("3");
     setPanelBrand("Waaree");
@@ -428,9 +451,11 @@ const Quotations = () => {
     setClientName(draft.customerName);
     setClientPhone(draft.customerPhone);
     if (draft.customerEmail) setClientEmail(draft.customerEmail);
-    if (draft.customerAddress) {
-      setSystemConfigNotes(`Address: ${draft.customerAddress}`);
-    }
+    if (draft.customerAddress) setClientAddress(draft.customerAddress);
+    setClientType(draft.customerType);
+    if (draft.customerGstin) setClientGstin(draft.customerGstin);
+    if (draft.customerPan) setClientPan(draft.customerPan);
+    if (draft.customerState) setClientState(draft.customerState);
     setCustomerId(draft.customerId);
   };
 
@@ -438,7 +463,13 @@ const Quotations = () => {
     setClientName(draft.clientName);
     setClientPhone(draft.clientPhone);
     if (draft.clientEmail) setClientEmail(draft.clientEmail);
-    if (draft.clientAddress) setSystemConfigNotes(`Address: ${draft.clientAddress}`);
+    if (draft.clientAddress) setClientAddress(draft.clientAddress);
+    if (draft.clientCity) setClientCity(draft.clientCity);
+    if (draft.clientState) setClientState(draft.clientState);
+    if (draft.clientPincode) setClientPincode(draft.clientPincode);
+    if (draft.clientGstin) setClientGstin(draft.clientGstin);
+    if (draft.clientPan) setClientPan(draft.clientPan);
+    if (draft.clientType) setClientType(draft.clientType);
     if (draft.customerId) setCustomerId(draft.customerId);
     if (draft.agentId) setAgentId(draft.agentId);
     if (draft.enquiryId) setEnquiryId(draft.enquiryId);
@@ -842,6 +873,17 @@ const Quotations = () => {
       clientEmail,
       clientCity,
       clientState,
+      clientAddress: clientAddress || undefined,
+      clientPincode: clientPincode || undefined,
+      clientGstin: clientGstin || undefined,
+      clientPan: clientPan || undefined,
+      clientType,
+      paymentTermsSummary: buildPaymentTermsSummary({
+        booking: bookingAmount,
+        designApproval,
+        beforeDispatch,
+        postInstallation,
+      }),
       systemCategory: systemCategory as "residential" | "commercial" | "industrial",
       // Strip any trailing "kW"/"kWp" so persisted value is the bare number; display helpers re-append the unit.
       systemCapacity: systemCapacity.replace(/\s*k\s*w\s*p?\s*$/i, "").trim(),
@@ -1095,6 +1137,31 @@ const Quotations = () => {
     toast({ title: "Status Updated", description: "Quotation marked as rejected" });
   };
 
+  const resolveQuotationClientForApproval = (quotationId: string) => {
+    if (editingQuotationId === quotationId) {
+      return {
+        clientName,
+        clientPhone,
+        clientEmail,
+        clientAddress,
+        clientCity,
+        clientState,
+        clientPincode,
+        clientGstin,
+        clientPan,
+        clientType,
+        paymentTermsSummary: buildPaymentTermsSummary({
+          booking: bookingAmount,
+          designApproval,
+          beforeDispatch,
+          postInstallation,
+        }),
+      };
+    }
+    const stored = savedQuotations.find((q) => q.id === quotationId);
+    return stored ?? null;
+  };
+
   const handleMarkAsApproved = async (quotationId: string) => {
     setLastConfirm(null);
     const amountError = assertQuotationAmountForTransition(
@@ -1103,6 +1170,16 @@ const Quotations = () => {
     );
     if (amountError) {
       toast({ title: "Cannot approve quotation", description: amountError, variant: "destructive" });
+      return;
+    }
+    const clientSource = resolveQuotationClientForApproval(quotationId);
+    if (!clientSource) {
+      toast({ title: "Cannot approve quotation", description: "Quotation not found", variant: "destructive" });
+      return;
+    }
+    const clientCheck = validateQuotationClientForApproval(clientSource);
+    if (!clientCheck.ok) {
+      toast({ title: "Cannot approve quotation", description: clientCheck.message, variant: "destructive" });
       return;
     }
     const result = await transitionQuotationStatus(quotationId, "approved");
@@ -1209,10 +1286,18 @@ const Quotations = () => {
     setProjectContractAmount(quotation.totalAmount);
     setProjectPaymentType("cash");
     setProjectBankDocAmount(quotation.totalAmount);
+    setCreateProjectStep("form");
+    setPendingCreateProject(null);
     setIsCreateProjectOpen(true);
   };
 
-  const confirmCreateProject = async () => {
+  const resetCreateProjectSheet = () => {
+    setCreateProjectStep("form");
+    setPendingCreateProject(null);
+    setIsCreateProjectOpen(false);
+  };
+
+  const prepareCreateProject = async () => {
     if (!selectedQuotationForProject) return;
     if (selectedQuotationForProject.status !== "approved") {
       toast({
@@ -1389,11 +1474,22 @@ const Quotations = () => {
         : {}),
     };
 
-    const created = await createProjectIntake({
-      project: newProject,
-      intake: intakePayload,
-      quotationId: selectedQuotationForProject.id,
-    });
+    setPendingCreateProject(newProject);
+    setCreateProjectStep("confirm");
+  };
+
+  const finalizeCreateProject = async (team: ProjectTeamAssignmentDraft) => {
+    if (!pendingCreateProject || !selectedQuotationForProject) return;
+    if (team.targetEndDate && team.targetEndDate < pendingCreateProject.startDate) {
+      toast({
+        title: "Invalid end date",
+        description: "Target end date cannot be before the project start date.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const project = applyTeamAssignmentToProject(pendingCreateProject, team);
+    const created = await createProjectFromConfirmedQuotation(project);
     if (!created.ok) {
       toast({
         title: "Project creation failed",
@@ -1402,14 +1498,14 @@ const Quotations = () => {
       });
       return;
     }
-    const navigateId = created.projectId ?? newProjectId;
+    const navigateId = created.projectId ?? project.id;
 
     setLastConfirm(null);
     toast({
       title: "Project Created",
-      description: `Project "${newProject.name}" has been created from quotation${selectedQuotationForProject.paymentType ? ` (${selectedQuotationForProject.paymentType === "loan" ? "Loan" : "Cash"} file)` : ""}`,
+      description: `Project "${project.name}" has been created from quotation${selectedQuotationForProject.paymentType ? ` (${selectedQuotationForProject.paymentType === "loan" ? "Loan" : "Cash"} file)` : ""}`,
     });
-    setIsCreateProjectOpen(false);
+    resetCreateProjectSheet();
     setSelectedQuotationForProject(null);
     setQuotationProjectKind("SOLO_EPC");
     setQPartnerIdForProject("");
@@ -1441,6 +1537,11 @@ const Quotations = () => {
     setClientEmail(quotation.clientEmail);
     setClientCity(quotation.clientCity);
     setClientState(quotation.clientState);
+    setClientAddress(quotation.clientAddress ?? "");
+    setClientPincode(quotation.clientPincode ?? "");
+    setClientGstin(quotation.clientGstin ?? "");
+    setClientPan(quotation.clientPan ?? "");
+    setClientType(quotation.clientType ?? "individual");
     setSystemCategory(quotation.systemCategory);
     setSystemCapacity(quotation.systemCapacity);
     setStatus(quotation.status);
@@ -1766,7 +1867,7 @@ const Quotations = () => {
         </DataTableShell>
 
         <Sheet open={isViewQuotationOpen} onOpenChange={setIsViewQuotationOpen}>
-          <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+          <AppSheetContent layout="scroll" size="xl">
             <SheetHeader>
               <SheetTitle className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -2212,12 +2313,11 @@ const Quotations = () => {
                 </div>
               </div>
             )}
-          </SheetContent>
+          </AppSheetContent>
         </Sheet>
       </div>
     );
   }
-
 
   // Create/Edit Solar Quotation View
   return (
@@ -2277,12 +2377,33 @@ const Quotations = () => {
                     <Input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Enter client name" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Phone</Label>
+                    <Label>Phone *</Label>
                     <Input value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} placeholder="+91 XXXXX XXXXX" />
                   </div>
                   <div className="space-y-2">
                     <Label>Email</Label>
                     <Input value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} placeholder="email@example.com" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Client type</Label>
+                    <Select value={clientType} onValueChange={(v) => setClientType(v as "company" | "individual")}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="individual">Individual</SelectItem>
+                        <SelectItem value="company">Company</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Address</Label>
+                    <Textarea
+                      value={clientAddress}
+                      onChange={(e) => setClientAddress(e.target.value)}
+                      placeholder="Street / locality"
+                      rows={2}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>City</Label>
@@ -2291,6 +2412,28 @@ const Quotations = () => {
                   <div className="space-y-2">
                     <Label>State</Label>
                     <Input value={clientState} onChange={(e) => setClientState(e.target.value)} placeholder="State" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Pincode</Label>
+                    <Input value={clientPincode} onChange={(e) => setClientPincode(e.target.value)} placeholder="302001" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>GSTIN {clientType === "company" ? "(recommended)" : "(optional)"}</Label>
+                    <Input
+                      value={clientGstin}
+                      onChange={(e) => setClientGstin(e.target.value.toUpperCase())}
+                      placeholder="15-character GSTIN"
+                      maxLength={15}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>PAN (optional)</Label>
+                    <Input
+                      value={clientPan}
+                      onChange={(e) => setClientPan(e.target.value.toUpperCase())}
+                      placeholder="ABCDE1234F"
+                      maxLength={10}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Referred By (Agent)</Label>
@@ -3163,7 +3306,7 @@ const Quotations = () => {
 
       {/* Add Material Sheet */}
       <Sheet open={isAddMaterialOpen} onOpenChange={setIsAddMaterialOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add Material Item</SheetTitle>
           </SheetHeader>
@@ -3308,12 +3451,12 @@ const Quotations = () => {
               </div>
             </TabsContent>
           </Tabs>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Save as Template Sheet */}
       <Sheet open={isSaveTemplateOpen} onOpenChange={setIsSaveTemplateOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Save as Template</SheetTitle>
           </SheetHeader>
@@ -3335,12 +3478,12 @@ const Quotations = () => {
             <Button variant="outline" onClick={() => setIsSaveTemplateOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveAsTemplate}>Save Template</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Share to Client Modal */}
       <Sheet open={isShareModalOpen} onOpenChange={setIsShareModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Share2 className="h-5 w-5 text-primary" />
@@ -3483,12 +3626,33 @@ const Quotations = () => {
               )}
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Create Project from Quotation Sheet */}
-      <Sheet open={isCreateProjectOpen} onOpenChange={setIsCreateProjectOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+      <Sheet
+        open={isCreateProjectOpen}
+        onOpenChange={(open) => {
+          if (!open) resetCreateProjectSheet();
+          else setIsCreateProjectOpen(true);
+        }}
+      >
+        <AppSheetContent layout="scroll" size="xl">
+          {createProjectStep === "confirm" && pendingCreateProject && selectedQuotationForProject ? (
+            <div className="py-4">
+              <ProjectConfirmationScreen
+                data={buildProjectConfirmationData(pendingCreateProject, {
+                  quotationNumber: selectedQuotationForProject.quotationNumber,
+                })}
+                employees={employees
+                  .filter((e) => e.status === "Active")
+                  .map((e) => ({ id: e.id, name: e.name }))}
+                onEdit={() => setCreateProjectStep("form")}
+                onConfirm={(team) => { void finalizeCreateProject(team); }}
+              />
+            </div>
+          ) : (
+          <>
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Briefcase className="h-5 w-5 text-primary" />
@@ -3636,18 +3800,20 @@ const Quotations = () => {
           )}
 
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={() => setIsCreateProjectOpen(false)}>Cancel</Button>
-            <Button onClick={confirmCreateProject}>
+            <Button variant="outline" onClick={resetCreateProjectSheet}>Cancel</Button>
+            <Button onClick={() => { void prepareCreateProject(); }}>
               <Briefcase className="h-4 w-4 mr-2" />
-              Create Project
+              Review &amp; Create
             </Button>
           </div>
-        </SheetContent>
+          </>
+          )}
+        </AppSheetContent>
       </Sheet>
 
       {/* Save Visibility Preset Sheet */}
       <Sheet open={isSaveVisibilityPresetOpen} onOpenChange={setIsSaveVisibilityPresetOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Save Visibility Preset</SheetTitle>
           </SheetHeader>
@@ -3708,7 +3874,7 @@ const Quotations = () => {
               setVisibilityPresetName("");
             }}>Save Preset</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <DestructiveConfirmDialog
@@ -3736,7 +3902,7 @@ const Quotations = () => {
 
       {/* Delete with related entities — requires reason + admin queue */}
       <Sheet open={isDeleteConfirmOpen && deleteHasRelations} onOpenChange={setIsDeleteConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] border-l-destructive/30 overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl" className="border-l-destructive/30">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-5 w-5 text-destructive" />
@@ -3794,14 +3960,14 @@ const Quotations = () => {
               Submit Deletion Request
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet
         open={withdrawDialogQuotation != null}
         onOpenChange={(open) => { if (!open) { setWithdrawDialogQuotation(null); setWithdrawReason(""); } }}
       >
-        <SheetContent side="right" className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Withdraw quotation</SheetTitle>
             <SheetDescription>
@@ -3828,7 +3994,7 @@ const Quotations = () => {
               Withdraw quotation
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

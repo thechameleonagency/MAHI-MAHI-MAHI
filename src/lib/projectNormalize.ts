@@ -1,6 +1,7 @@
 import { projectKindConfigs, resolveProjectCapabilities } from "@/domain/projectTypes/config";
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
 import type { Project } from "@/types/project";
+import { normalizeSiteReadinessMarkedBy } from "@/lib/siteReadinessNormalize";
 
 /**
  * Clone snapshot fields from `projectKindConfigs` for persistence (avoids drift vs. inline copies).
@@ -98,6 +99,12 @@ export function normalizeProject(p: Project): Project {
 
   const baseProject: Project = {
     ...p,
+    siteReadiness: p.siteReadiness
+      ? {
+          ...p.siteReadiness,
+          markedBy: normalizeSiteReadinessMarkedBy(p.siteReadiness.markedBy),
+        }
+      : undefined,
     projectKind: kind,
     projectMode,
     vendorshipOwner,

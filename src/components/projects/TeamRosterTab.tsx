@@ -9,9 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
-import type { Project } from "@/types/project";
+import type { Project, ProjectTeamAssignment } from "@/types/project";
 
 interface TeamRosterTabProps {
   project: Project;
@@ -26,6 +27,7 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
   const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
+  const [assignmentToRemove, setAssignmentToRemove] = useState<ProjectTeamAssignment | null>(null);
 
   const resetForm = () => {
     setSelectedTeamId("");
@@ -119,11 +121,7 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                        onClick={() => {
-                          if (confirm("Remove this team from the project roster?")) {
-                            removeTeamFromProject(project.id, assignment.id);
-                          }
-                        }}
+                        onClick={() => setAssignmentToRemove(assignment)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -192,6 +190,40 @@ export function TeamRosterTab({ project }: TeamRosterTabProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DestructiveConfirmDialog
+        open={!!assignmentToRemove}
+        onOpenChange={(open) => {
+          if (!open) setAssignmentToRemove(null);
+        }}
+        title={
+          assignmentToRemove
+            ? `Remove ${assignmentToRemove.teamName} from roster?`
+            : "Remove team from roster?"
+        }
+        description={
+          assignmentToRemove ? (
+            <>
+              This removes <strong>{assignmentToRemove.teamName}</strong> from this project&apos;s roster (
+              {formatUiDate(assignmentToRemove.startDate)} — {formatUiDate(assignmentToRemove.endDate)}).
+              The team itself is not deleted — only this assignment.
+            </>
+          ) : (
+            ""
+          )
+        }
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (assignmentToRemove) {
+            removeTeamFromProject(project.id, assignmentToRemove.id);
+            toast({
+              title: "Team removed",
+              description: `${assignmentToRemove.teamName} removed from project roster.`,
+            });
+          }
+          setAssignmentToRemove(null);
+        }}
+      />
     </div>
   );
 }

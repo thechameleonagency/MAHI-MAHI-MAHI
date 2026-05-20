@@ -4,7 +4,8 @@ import { ArrowLeft, IndianRupee, Pencil, Receipt, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -630,7 +631,7 @@ const PartnerDetail = () => {
       </div>
 
       <Sheet open={isEditPartnerOpen} onOpenChange={setIsEditPartnerOpen}>
-        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+        <AppSheetContent layout="form" size="lg">
           <SheetHeader>
             <SheetTitle>Edit partner</SheetTitle>
           </SheetHeader>
@@ -690,11 +691,11 @@ const PartnerDetail = () => {
               Save
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={!!shareEdit} onOpenChange={(open) => { if (!open) setShareEdit(null); }}>
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Edit profit share</SheetTitle>
           </SheetHeader>
@@ -724,11 +725,11 @@ const PartnerDetail = () => {
               </div>
             </div>
           )}
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={isMovementOpen} onOpenChange={(v) => { if(!v) { resetMovementForm(); setMovementProjectId(linkedProjects[0]?.project.id ?? ""); } setIsMovementOpen(v); }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader className="p-6 bg-primary/5 border-b">
             <SheetTitle>Record Transaction</SheetTitle>
           </SheetHeader>
@@ -787,7 +788,7 @@ const PartnerDetail = () => {
               Save Transaction
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <AlertDialog open={overpayDialogOpen} onOpenChange={setOverpayDialogOpen}>
@@ -817,7 +818,7 @@ const PartnerDetail = () => {
       </AlertDialog>
 
       <Sheet open={isEndPartnershipOpen} onOpenChange={setIsEndPartnershipOpen}>
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>End partnership</SheetTitle>
           </SheetHeader>
@@ -852,7 +853,7 @@ const PartnerDetail = () => {
               End partnership
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

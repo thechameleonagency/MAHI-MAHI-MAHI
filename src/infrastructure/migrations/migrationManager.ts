@@ -1,7 +1,9 @@
 const SCHEMA_VERSION_KEY = "mss.schema.version";
 const APP_VERSION_KEY = "mss.app.version";
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 const CURRENT_APP_VERSION = "phase-4-modular-v2";
+
+import { runQuotationProjectLinkStorageMigration } from "@/infrastructure/migrations/quotationProjectLinkMigration";
 
 type MigrationStep = {
   toVersion: number;
@@ -65,6 +67,12 @@ const migrations: MigrationStep[] = [
       }
       keysToBackup.forEach(key => localStorage.removeItem(key));
       localStorage.removeItem("mss.repo.projectTimelineByProjectId");
+    },
+  },
+  {
+    toVersion: 4,
+    run: () => {
+      runQuotationProjectLinkStorageMigration();
     },
   },
 ];

@@ -10,7 +10,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -769,7 +770,7 @@ const Employees = () => {
 
       {/* Add Employee Sheet */}
       <Sheet open={isAddEmployeeOpen} onOpenChange={setIsAddEmployeeOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Add New Employee</SheetTitle>
           </SheetHeader>
@@ -948,12 +949,12 @@ const Employees = () => {
             <Button variant="outline" onClick={() => setIsAddEmployeeOpen(false)}>Cancel</Button>
             <Button className="bg-primary text-primary-foreground" onClick={handleSaveEmployee} disabled={!newEmpName.trim() || !newEmpRole}>Save Employee</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Employee Saved Confirmation Sheet */}
       <Sheet open={isEmployeeSavedOpen} onOpenChange={setIsEmployeeSavedOpen}>
-        <SheetContent className="max-w-sm text-center overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs" className="text-center">
           <div className="py-6 space-y-4">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
               <User className="w-8 h-8 text-primary" />
@@ -966,12 +967,12 @@ const Employees = () => {
               Done
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Pay Salary Sheet - Scrollable with Month Selection */}
       <Sheet open={isPaySalaryOpen} onOpenChange={setIsPaySalaryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Pay Salary</SheetTitle>
           </SheetHeader>
@@ -1128,12 +1129,12 @@ const Employees = () => {
               Confirm Payment
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Add Expense Sheet - Enhanced with Office as site and cost messaging */}
       <Sheet open={isAddExpenseOpen} onOpenChange={setIsAddExpenseOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Add Expense</SheetTitle>
           </SheetHeader>
@@ -1281,12 +1282,12 @@ const Employees = () => {
             <Button variant="outline" onClick={() => setIsAddExpenseOpen(false)}>Cancel</Button>
             <Button className="bg-primary text-primary-foreground" onClick={handleExpenseSubmit}>Continue</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Expense Confirmation Sheet */}
       <Sheet open={isExpenseConfirmOpen} onOpenChange={setIsExpenseConfirmOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Confirm Expense</SheetTitle>
           </SheetHeader>
@@ -1351,7 +1352,7 @@ const Employees = () => {
               Confirm & Save
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Unified Expense Modal */}

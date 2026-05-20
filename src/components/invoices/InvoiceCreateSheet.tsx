@@ -32,6 +32,16 @@ import { quotationLinkedProjectId } from "@/lib/quotationSelectors";
 import { formatINR } from "@/lib/formatCurrency";
 import { BillingDirectionGuardService } from "@/application/services/BillingDirectionGuardService";
 import { HighValueInvoiceJustificationBlock } from "@/components/invoices/HighValueInvoiceJustificationBlock";
+import { InvoiceSubmitPreviewBanner } from "@/components/invoices/InvoiceSubmitPreviewBanner";
+import {
+  buildInvoiceSubmitPreview,
+  deriveInvoicePaymentOutcome,
+} from "@/lib/invoicePaymentStatus";
+import {
+  findCustomerByIdentity,
+  findProjectForCustomer,
+  findQuotationForCustomer,
+} from "@/lib/customerMatching";
 
 /** Sample service lines for quick pick — not loaded from masters (prototype). */
 const SERVICE_PRESETS = [
@@ -63,6 +73,7 @@ interface InvoiceCreateSheetProps {
     customerGstin?: string;
     customerState?: string;
     customerContact?: string;
+    paymentTerms?: string;
     projectId?: string;
     quotationId?: string;
     items?: InvoiceItem[];
@@ -136,7 +147,7 @@ export function InvoiceCreateSheet({
   prefill,
 }: InvoiceCreateSheetProps) {
   const { getHsnCodes, getSacCodes, getGstRates: _getGstRates, getStateCodes, getBankAccounts } = useMasters();
-  const { generateId, addCustomer, canDo } = useAppData();
+  const { allocateCustomerId, addCustomer, canDo } = useAppData();
 
   const { value: form, setValue: setForm, clearDraft } = useFormDraft(
     INVOICE_CREATE_DRAFT_KEY,
@@ -187,6 +198,7 @@ export function InvoiceCreateSheet({
       ...(prefill.customerGstin ? { buyerGstin: prefill.customerGstin } : {}),
       ...(prefill.customerState ? { buyerState: prefill.customerState } : {}),
       ...(prefill.customerContact ? { buyerContact: prefill.customerContact } : {}),
+      ...(prefill.paymentTerms ? { paymentTerms: prefill.paymentTerms } : {}),
       ...(prefill.projectId ? { selectedProjectId: prefill.projectId } : {}),
       ...(prefill.quotationId ? { selectedQuotationId: prefill.quotationId } : {}),
       ...(prefill.items ? { invoiceItems: prefill.items } : {}),
@@ -249,9 +261,10 @@ export function InvoiceCreateSheet({
         const linkedProject = projects.find((p) => String(p.id) === linkedPid);
         if (linkedProject) next.selectedProjectId = String(linkedProject.id);
       }
-      const matchingCustomer = customers.find(c =>
-        c.name === quotation.clientName || c.phone === quotation.clientPhone,
-      );
+      const matchingCustomer = findCustomerByIdentity(customers, {
+        name: quotation.clientName,
+        phone: quotation.clientPhone,
+      });
       if (matchingCustomer) {
         next.selectedCustomerId = matchingCustomer.id;
         next.buyerGstin = matchingCustomer.gstin || "";
@@ -272,13 +285,9 @@ export function InvoiceCreateSheet({
       next.buyerGstin = customer.gstin || "";
       next.buyerState = customer.state || "";
       next.buyerContact = customer.phone;
-      const customerProject = projects.find(p =>
-        p.customerId === customer.id || p.clientPhone === customer.phone,
-      );
+      const customerProject = findProjectForCustomer(projects, customer);
       if (customerProject) next.selectedProjectId = customerProject.id.toString();
-      const customerQuotation = quotations.find(q =>
-        q.clientName === customer.name || q.clientPhone === customer.phone,
-      );
+      const customerQuotation = findQuotationForCustomer(quotations, customer);
       if (customerQuotation) next.selectedQuotationId = customerQuotation.id;
       return next;
     });
@@ -295,11 +304,14 @@ export function InvoiceCreateSheet({
       next.buyerState = project.state;
       next.buyerContact = project.clientPhone || "";
       if (project.quotationId) next.selectedQuotationId = project.quotationId;
-      const matchingCustomer = customers.find(c =>
-        (project.customerId && c.id === project.customerId) ||
-        c.name === project.client ||
-        c.phone === project.clientPhone,
-      );
+      const matchingCustomer =
+        (project.customerId
+          ? customers.find((c) => c.id === project.customerId)
+          : undefined) ??
+        findCustomerByIdentity(customers, {
+          name: project.client,
+          phone: project.clientPhone,
+        });
       if (matchingCustomer) {
         next.selectedCustomerId = matchingCustomer.id;
         if (matchingCustomer.gstin) next.buyerGstin = matchingCustomer.gstin;
@@ -340,7 +352,7 @@ export function InvoiceCreateSheet({
       return;
     }
     const customer: Customer = {
-      id: generateId("C"),
+      id: allocateCustomerId(),
       name: qaName.trim(),
       phone: qaPhone.trim(),
       email: qaEmail.trim(),
@@ -498,32 +510,12 @@ export function InvoiceCreateSheet({
     // Both invoice and sale-bill now use the same totals calculation
     const totals = calculateTotals();
 
-    const rawReceived = amountReceived.trim();
-    const parsedReceived = rawReceived === "" ? 0 : (Number.isFinite(parseFloat(rawReceived)) ? parseFloat(rawReceived) : 0);
-
-    let received: number;
-    let status: Invoice["status"];
-
-    const dueDateValid = Boolean(dueDate && !Number.isNaN(Date.parse(dueDate)));
-
-    if (isAlreadyPaid) {
-      received = totals.total;
-      status = "paid";
-    } else if (parsedReceived > totals.total + 0.005 && totals.total > 0) {
-      received = parsedReceived;
-      status = "overpaid";
-    } else {
-      received = Math.min(totals.total, Math.max(0, parsedReceived));
-      if (received >= totals.total - 0.005 && totals.total > 0) {
-        status = "paid";
-      } else if (received > 0.005) {
-        status = "partial";
-      } else if (dueDateValid && new Date(dueDate) < new Date()) {
-        status = "overdue";
-      } else {
-        status = "pending";
-      }
-    }
+    const { amountReceived: received, status } = deriveInvoicePaymentOutcome({
+      total: totals.total,
+      amountReceivedRaw: amountReceived,
+      isAlreadyPaid,
+      dueDate,
+    });
 
     const finalReceivedIn = isAlreadyPaid && !receivedIn ? "Cash" : receivedIn;
     const finalReceivedDate = isAlreadyPaid && !receivedDate ? invoiceDate : receivedDate;
@@ -672,6 +664,20 @@ export function InvoiceCreateSheet({
   };
 
   const invoiceTotals = calculateTotals();
+  const paymentPreviewOutcome = useMemo(
+    () =>
+      deriveInvoicePaymentOutcome({
+        total: invoiceTotals.total,
+        amountReceivedRaw: amountReceived,
+        isAlreadyPaid,
+        dueDate,
+      }),
+    [invoiceTotals.total, amountReceived, isAlreadyPaid, dueDate],
+  );
+  const submitPreview = useMemo(
+    () => buildInvoiceSubmitPreview({ outcome: paymentPreviewOutcome, total: invoiceTotals.total }),
+    [paymentPreviewOutcome, invoiceTotals.total],
+  );
   const highValueIssuanceCheck = billingDirectionGuard.validateHighValueIssuance(
     invoiceTotals.total,
     highValueReason,
@@ -680,7 +686,7 @@ export function InvoiceCreateSheet({
 
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) resetForm(); onOpenChange(o); }}>
-      <AppSheetContent layout="form" size="xl" className="w-[100vw] max-w-[100vw] sm:w-[95vw] sm:max-w-5xl">
+      <AppSheetContent layout="form" size="xxl">
         <SheetHeader>
           <SheetTitle>New invoice or sale bill</SheetTitle>
         </SheetHeader>
@@ -1095,12 +1101,9 @@ export function InvoiceCreateSheet({
                 </CardHeader>
                 <CardContent>
                   {isAlreadyPaid ? (
-                    <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 text-center">
-                      <p className="text-sm text-primary font-medium">
-                        ✓ This invoice will be marked as fully paid ({formatINR(calculateTotals().total)})
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">Payment date: {invoiceDate}</p>
-                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Payment date defaults to invoice date ({invoiceDate}) when mode/date are left empty.
+                    </p>
                   ) : (
                     <div className="grid grid-cols-3 gap-4">
                       <div className="space-y-2">
@@ -1162,6 +1165,10 @@ export function InvoiceCreateSheet({
                 reason={highValueReason}
                 onReasonChange={setHighValueReason}
               />
+
+              {submitPreview && invoiceTotals.total > 0 && (
+                <InvoiceSubmitPreviewBanner preview={submitPreview} />
+              )}
             </div>
         </div>
         <div className="flex flex-wrap justify-between gap-3 pt-4 border-t">

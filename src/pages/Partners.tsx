@@ -1,3 +1,4 @@
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { useMemo, useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, Plus, Search, Users, Pencil, Trash2 } from "lucide-react";
@@ -6,7 +7,7 @@ import { ListSkeleton } from "@/components/ui/ListSkeleton";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -356,7 +357,7 @@ const Partners = () => {
       </DataTableShell>
 
       <Sheet open={isAddOpen} onOpenChange={(v) => { if(!v) { resetForm(); setEditingPartnerId(null); } setIsAddOpen(v); }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader className="p-6 bg-primary/5 border-b">
             <SheetTitle className="flex items-center gap-2">
               <Users className="h-5 w-5 text-primary" />
@@ -420,7 +421,7 @@ const Partners = () => {
               {editingPartnerId ? "Update Partner" : "Save Partner"}
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <AlertDialog open={!!partnerToDelete} onOpenChange={(open) => !open && setPartnerToDelete(null)}>

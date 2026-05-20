@@ -143,8 +143,6 @@ const routePermissions: RoutePermissionConfig[] = [
   { exact: "/inventory/materials", roles: ["super_admin", "admin", "ceo", "management", "salesperson", "installation_team"] },
   { exact: "/inventory/tools", roles: ["super_admin", "admin", "ceo", "management", "installation_team"] },
   { exact: "/templates", roles: ["super_admin", "admin", "ceo", "management", "salesperson"] },
-  { exact: "/presets", roles: ["super_admin", "admin", "ceo", "management", "salesperson"] },
-  { exact: "/inventory/presets", roles: ["super_admin", "admin", "ceo", "management", "salesperson"] },
   { exact: "/finance", roles: ["super_admin", "admin", "ceo", "management"] },
   { exact: "/partners", roles: ["super_admin", "admin", "ceo", "management"] },
   { exact: "/vendorship-companies", roles: ["super_admin", "admin", "ceo", "management"] },
@@ -158,11 +156,10 @@ const routePermissions: RoutePermissionConfig[] = [
   { exact: "/analytics", roles: ["super_admin", "admin", "ceo", "management"] },
   { exact: "/audit", roles: ["super_admin", "admin", "ceo", "management"] },
   { exact: "/settings", roles: ["super_admin", "admin", "ceo", "management"] },
-  /** Keep this list aligned with `src/App.tsx` routes; unknown URLs use 404 via `RouteAccessGate` + `isRegisteredAppRoute`. */
+  /** Aligned with `isRegisteredAppRoute` (excludes legacy `<Navigate>` aliases in `App.tsx`). */
   { exact: "/notifications", roles: ["super_admin", "admin", "ceo", "management", "salesperson", "installation_team"] },
   { exact: "/customers", roles: ["super_admin", "admin", "ceo", "management", "salesperson"] },
   { exact: "/invoices", roles: ["super_admin", "admin", "ceo", "management"] },
-  { exact: "/sale-bills", roles: ["super_admin", "admin", "ceo", "management"] },
   { exact: "/vendors", roles: ["super_admin", "admin", "ceo", "management"] },
   { exact: "/loans", roles: ["super_admin", "admin", "ceo", "management"] },
   { exact: "/agents", roles: ["super_admin", "admin", "ceo", "management", "salesperson"] },

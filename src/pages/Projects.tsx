@@ -48,6 +48,7 @@ import {
 } from "@/lib/createFromContext";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import { projectNeedsTeamAssignment } from "@/lib/projectTeamAssignment";
 import {
   getProjectIdleAging,
   isProjectCompleted,
@@ -800,8 +801,13 @@ const Projects = () => {
                   <div className="flex items-center gap-2">
                     {getCategoryIcon(project.projectType)}
                     <div className="min-w-0 flex flex-col gap-0.5">
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
                         <span className="font-medium truncate">{project.name}</span>
+                        {projectNeedsTeamAssignment(project) && (
+                          <Badge variant="outline" className="text-2xs bg-warning/10 text-warning border-warning/20 shrink-0">
+                            Assign team
+                          </Badge>
+                        )}
                         <AgingChip signal={aging} />
                       </div>
                       <span className="text-2xs text-muted-foreground font-mono">{project.id}</span>
@@ -862,6 +868,11 @@ const Projects = () => {
                 <div className="flex flex-wrap gap-1.5 mb-3">
                   <Badge variant="outline" className={`text-2xs ${projectKindTone[kind]}`}>{projectKindLabel[kind]}</Badge>
                   <Badge variant="secondary" className="text-2xs">{project.projectType}</Badge>
+                  {projectNeedsTeamAssignment(project) && (
+                    <Badge variant="outline" className="text-2xs bg-warning/10 text-warning border-warning/20">
+                      Assign team
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -901,7 +912,9 @@ const Projects = () => {
                       <span className="text-2xs text-muted-foreground">+{assigneeCount - 3}</span>
                     )}
                     {assigneeCount === 0 && (
-                      <span className="text-xs text-muted-foreground italic">Unassigned</span>
+                      <Badge variant="outline" className="text-2xs bg-warning/10 text-warning border-warning/20">
+                        Assign team
+                      </Badge>
                     )}
                   </div>
                   <Button

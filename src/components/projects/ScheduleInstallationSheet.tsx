@@ -1,22 +1,22 @@
 import { useMemo, useState } from "react";
 import { Calendar as CalendarIcon, AlertTriangle, Users, User } from "lucide-react";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetFooter,
-} from "@/components/ui/sheet";
+import { Sheet, SheetDescription, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DateInput } from "@/components/ui/DateInput";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { toast } from "@/hooks/use-toast";
+import {
+  todayIsoDate,
+  validateScheduledInstallationDate,
+  MIN_PAST_SCHEDULE_OVERRIDE_REASON_LENGTH,
+} from "@/lib/scheduledInstallationValidation";
 import type { Project } from "@/types/project";
 
 /**
@@ -44,13 +44,28 @@ export function ScheduleInstallationSheet({
     employees,
     projects,
   } = useAppData();
+  const { currentRole } = useAppSession();
+  const isSuperAdmin = currentRole === "super_admin";
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIsoDate();
   const [scheduledDate, setScheduledDate] = useState(today);
+  const [pastDateOverride, setPastDateOverride] = useState(false);
+  const [pastOverrideReason, setPastOverrideReason] = useState("");
   const [assignMode, setAssignMode] = useState<"team" | "employees">("team");
   const [teamId, setTeamId] = useState<string>("");
   const [selectedEmployees, setSelectedEmployees] = useState<number[]>([]);
   const [notes, setNotes] = useState("");
+
+  const dateValidation = useMemo(
+    () =>
+      validateScheduledInstallationDate({
+        scheduledDate,
+        today,
+        isSuperAdmin,
+        pastOverrideReason: pastDateOverride ? pastOverrideReason : undefined,
+      }),
+    [scheduledDate, today, isSuperAdmin, pastDateOverride, pastOverrideReason],
+  );
 
   // Conflict detection: any active schedule on the same date with overlapping
   // team/employee assignment (across any project).
@@ -81,13 +96,33 @@ export function ScheduleInstallationSheet({
 
   const resetForm = () => {
     setScheduledDate(today);
+    setPastDateOverride(false);
+    setPastOverrideReason("");
     setAssignMode("team");
     setTeamId("");
     setSelectedEmployees([]);
     setNotes("");
   };
 
+  const handlePastOverrideToggle = (checked: boolean) => {
+    setPastDateOverride(checked);
+    if (!checked) {
+      setPastOverrideReason("");
+      if (scheduledDate < today) {
+        setScheduledDate(today);
+      }
+    }
+  };
+
   const handleSubmit = () => {
+    if (!dateValidation.ok) {
+      toast({
+        title: "Invalid installation date",
+        description: dateValidation.message,
+        variant: "destructive",
+      });
+      return;
+    }
     if (assignMode === "team" && !teamId) {
       toast({ title: "Select a team", variant: "destructive" });
       return;
@@ -96,14 +131,18 @@ export function ScheduleInstallationSheet({
       toast({ title: "Select at least one employee", variant: "destructive" });
       return;
     }
-    addScheduledInstallation({
+    const id = addScheduledInstallation({
       projectId: project.id,
       scheduledDate,
       teamId: assignMode === "team" ? teamId : undefined,
       employeeIds: assignMode === "employees" ? selectedEmployees : undefined,
       status: "scheduled",
       notes: notes.trim() || undefined,
+      pastDateOverrideReason: dateValidation.pastOverride
+        ? pastOverrideReason.trim()
+        : undefined,
     });
+    if (!id) return;
     toast({
       title: "Installation scheduled",
       description: `Scheduled for ${scheduledDate}${conflicts.teamConflicts.length || conflicts.employeeConflicts.length ? " (with conflict — overrode warning)" : ""}.`,
@@ -114,7 +153,7 @@ export function ScheduleInstallationSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+      <AppSheetContent layout="form" size="lg">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <CalendarIcon className="h-4 w-4" />
@@ -128,13 +167,40 @@ export function ScheduleInstallationSheet({
         <div className="space-y-4 py-4">
           <div className="space-y-2">
             <Label htmlFor="sched-date">Date</Label>
-            <Input
+            <DateInput
               id="sched-date"
-              type="date"
+              min={pastDateOverride && isSuperAdmin ? undefined : today}
               value={scheduledDate}
               onChange={(e) => setScheduledDate(e.target.value)}
             />
+            {!dateValidation.ok && (
+              <p className="text-xs text-destructive">{dateValidation.message}</p>
+            )}
           </div>
+
+          {isSuperAdmin && (
+            <div className="space-y-2 rounded border border-dashed p-3">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <Checkbox
+                  checked={pastDateOverride}
+                  onCheckedChange={(v) => handlePastOverrideToggle(v === true)}
+                />
+                Schedule in the past (requires reason)
+              </label>
+              {pastDateOverride && (
+                <div className="space-y-1">
+                  <Label htmlFor="sched-past-reason">Reason for past date</Label>
+                  <Textarea
+                    id="sched-past-reason"
+                    rows={2}
+                    value={pastOverrideReason}
+                    onChange={(e) => setPastOverrideReason(e.target.value)}
+                    placeholder={`Explain why this visit is backdated (min ${MIN_PAST_SCHEDULE_OVERRIDE_REASON_LENGTH} characters)`}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Assign to</Label>
@@ -240,9 +306,11 @@ export function ScheduleInstallationSheet({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit}>Schedule</Button>
+          <Button onClick={handleSubmit} disabled={!dateValidation.ok}>
+            Schedule
+          </Button>
         </SheetFooter>
-      </SheetContent>
+      </AppSheetContent>
     </Sheet>
   );
 }

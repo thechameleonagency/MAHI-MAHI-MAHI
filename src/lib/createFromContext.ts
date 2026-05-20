@@ -33,6 +33,7 @@ import type {
 } from "@/types/finance";
 import type { VendorBill } from "@/data/inventoryData";
 import { formatPricingLineDescription } from "@/lib/pricingBasis";
+import { formatQuotationClientAddress } from "@/lib/quotationApproveCustomer";
 import {
   loadFormDraft,
   saveFormDraft,
@@ -243,7 +244,7 @@ export function buildQuotationToProjectDraft(
     customerEmail,
     customerAddress: preferAddress(
       { address: customer?.address },
-      { address: quotation.clientAddress },
+      { address: formatQuotationClientAddress(quotation) || quotation.clientAddress },
     ),
     capacityText: quotation.systemCapacity,
     capacityKw: parseKwFromText(quotation.systemCapacity),
@@ -263,6 +264,7 @@ export interface InvoiceDraftFromProject {
   customerPhone?: string;
   customerGstin?: string;
   customerState?: string;
+  paymentTerms?: string;
   projectId: string;
   quotationId?: string;
   openBalanceSuggestion: number;
@@ -284,8 +286,9 @@ export function buildProjectToInvoiceDraft(
       { address: project.location, siteAddress: project.location },
     ),
     customerPhone: customer?.phone,
-    customerGstin: customer?.gstin,
+    customerGstin: customer?.gstin ?? project.clientGstin,
     customerState: customer?.state,
+    paymentTerms: customer?.paymentTerms,
     projectId: project.id,
     quotationId: project.quotationId,
     openBalanceSuggestion:
@@ -432,12 +435,18 @@ export function buildCustomerToProjectDraft(customer: Customer): ProjectDraftFro
 
 export interface QuotationDraftFromCustomer extends ProjectDraftFromCustomer {
   customerType: "individual" | "company";
+  customerGstin?: string;
+  customerPan?: string;
+  customerState?: string;
 }
 
 export function buildCustomerToQuotationDraft(customer: Customer): QuotationDraftFromCustomer {
   return {
     ...buildCustomerToProjectDraft(customer),
     customerType: customer.type,
+    customerGstin: customer.gstin,
+    customerPan: customer.pan,
+    customerState: customer.state,
   };
 }
 
@@ -450,6 +459,13 @@ export interface QuotationCloneDraft {
   clientPhone: string;
   clientEmail?: string;
   clientAddress?: string;
+  clientCity?: string;
+  clientState?: string;
+  clientPincode?: string;
+  clientGstin?: string;
+  clientPan?: string;
+  clientType?: Quotation["clientType"];
+  paymentTermsSummary?: string;
   agentId?: string;
   enquiryId?: string;
   systemCategory?: Quotation["systemCategory"];
@@ -472,6 +488,13 @@ export function buildQuotationCloneDraft(q: Quotation): QuotationCloneDraft {
     clientPhone: q.clientPhone,
     clientEmail: q.clientEmail,
     clientAddress: q.clientAddress,
+    clientCity: q.clientCity,
+    clientState: q.clientState,
+    clientPincode: q.clientPincode,
+    clientGstin: q.clientGstin,
+    clientPan: q.clientPan,
+    clientType: q.clientType,
+    paymentTermsSummary: q.paymentTermsSummary,
     agentId: q.agentId,
     enquiryId: q.enquiryId,
     systemCategory: q.systemCategory,

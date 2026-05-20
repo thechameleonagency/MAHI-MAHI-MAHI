@@ -10,7 +10,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
@@ -652,7 +653,7 @@ const Loans = () => {
 
       {/* Add Loan Sheet */}
       <Sheet open={isAddLoanOpen} onOpenChange={setIsAddLoanOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add New Loan</SheetTitle>
           </SheetHeader>
@@ -795,12 +796,12 @@ const Loans = () => {
               <Button className="flex-1" onClick={handleAddLoan}>Add Loan</Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Record Repayment Sheet */}
       <Sheet open={isRepaymentOpen} onOpenChange={setIsRepaymentOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>
               {selectedLoan?.paymentType === "emi" ? "Record EMI Payment" : "Record Payment"}
@@ -834,7 +835,7 @@ const Loans = () => {
               <Button className="flex-1" onClick={handleRecordRepayment}>Record Payment</Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <AlertDialog open={!!deleteRepaymentId} onOpenChange={(open) => { if (!open) setDeleteRepaymentId(null); }}>
@@ -851,7 +852,7 @@ const Loans = () => {
       </AlertDialog>
 
       <Sheet open={isEditLoanOpen} onOpenChange={(open) => { setIsEditLoanOpen(open); if (!open) setEditingLoanId(null); }}>
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Edit loan</SheetTitle>
           </SheetHeader>
@@ -896,11 +897,11 @@ const Loans = () => {
               Save changes
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={isScheduleOpen} onOpenChange={(open) => { setIsScheduleOpen(open); if (!open) setScheduleLoan(null); }}>
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>EMI schedule</SheetTitle>
           </SheetHeader>
@@ -937,7 +938,7 @@ const Loans = () => {
               </DataTableShell>
             </div>
           )}
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <DestructiveConfirmDialog

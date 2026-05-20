@@ -16,7 +16,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -2091,7 +2092,7 @@ const ProjectDetail = () => {
 
       {/* Edit Project Modal */}
       <Sheet open={isEditProjectOpen} onOpenChange={setIsEditProjectOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Edit Project</SheetTitle>
             <SheetDescription>Update project details</SheetDescription>
@@ -2257,7 +2258,7 @@ const ProjectDetail = () => {
             <Button variant="outline" onClick={() => setIsEditProjectOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveEditProject}>Save Changes</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Outsource Work Modal */}
@@ -2274,7 +2275,7 @@ const ProjectDetail = () => {
           setOtherWorkNotes("");
         }
       }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2"><Briefcase className="w-5 h-5" />Outsource Work</SheetTitle>
             <SheetDescription>Record outsourced labour or other work for {project.name}</SheetDescription>
@@ -2313,7 +2314,7 @@ const ProjectDetail = () => {
             <Button variant="outline" onClick={() => setIsAddOutsourceOpen(false)}>Cancel</Button>
             <Button onClick={handleConfirmOutsource}>Confirm</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Unified Expense Modal */}
@@ -2395,7 +2396,7 @@ const ProjectDetail = () => {
       </Dialog>
 
       <Sheet open={isArchiveProjectOpen} onOpenChange={setIsArchiveProjectOpen}>
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Archive project</SheetTitle>
           </SheetHeader>
@@ -2431,12 +2432,11 @@ const ProjectDetail = () => {
               Archive
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );
 };
 
 export default ProjectDetail;
-
 

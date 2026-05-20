@@ -38,14 +38,14 @@ describe("changeRequestApproval", () => {
       projectId: "P-1",
       type: "addon-work",
       deltaAmount: 25000,
-      materialDelta: [{ itemId: 1, deltaQty: 4 }],
+      materialDelta: [{ itemId: "INV-PANEL-540", deltaQty: 4 }],
       status: "draft",
       requestedAt: "2026-05-10",
     };
     const { projectPatch, reservations, deltaAmount } = applyChangeRequestToProject(
       baseProject,
       cr,
-      [{ id: 1, name: "Panel 540W", unit: "pcs" }],
+      [{ id: "INV-PANEL-540", name: "Panel 540W", unit: "pcs" }],
     );
     expect(deltaAmount).toBe(25000);
     expect(projectPatch.contractAmount).toBe(525000);

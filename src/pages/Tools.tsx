@@ -11,7 +11,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Tool } from "@/types/project";
@@ -444,7 +445,7 @@ const Tools = () => {
 
       {/* Add Tool Modal */}
       <Sheet open={isAddToolOpen} onOpenChange={setIsAddToolOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add New Tool</SheetTitle>
           </SheetHeader>
@@ -504,12 +505,12 @@ const Tools = () => {
             <Button variant="outline" onClick={() => setIsAddToolOpen(false)}>Cancel</Button>
             <Button onClick={handleAddToolSave}>Add Tool</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Add Tool Confirmation */}
       <Sheet open={isAddToolConfirmOpen} onOpenChange={setIsAddToolConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" />
@@ -520,12 +521,12 @@ const Tools = () => {
           <SheetFooter>
             <Button onClick={() => setIsAddToolConfirmOpen(false)}>Done</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Issue Tool Modal */}
       <Sheet open={isIssueToolOpen} onOpenChange={setIsIssueToolOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Issue Tool to Site</SheetTitle>
           </SheetHeader>
@@ -624,12 +625,12 @@ const Tools = () => {
             <Button variant="outline" onClick={() => setIsIssueToolOpen(false)}>Cancel</Button>
             <Button onClick={handleIssueToolSave}>{issueToolAction === "transfer" ? "Transfer Tool" : "Issue Tool"}</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Issue Tool Confirmation */}
       <Sheet open={isIssueToolConfirmOpen} onOpenChange={setIsIssueToolConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" />
@@ -640,12 +641,12 @@ const Tools = () => {
           <SheetFooter>
             <Button onClick={() => { setIsIssueToolConfirmOpen(false); setSelectedToolId(""); }}>Done</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Return Tool Modal */}
       <Sheet open={isReturnToolOpen} onOpenChange={setIsReturnToolOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Return Tool to Warehouse</SheetTitle>
           </SheetHeader>
@@ -692,12 +693,12 @@ const Tools = () => {
             <Button variant="outline" onClick={() => setIsReturnToolOpen(false)}>Cancel</Button>
             <Button onClick={handleReturnToolSave}>Return Tool</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Return Tool Confirmation */}
       <Sheet open={isReturnToolConfirmOpen} onOpenChange={setIsReturnToolConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" />
@@ -708,12 +709,12 @@ const Tools = () => {
           <SheetFooter>
             <Button onClick={() => setIsReturnToolConfirmOpen(false)}>Done</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Tool Movement History Modal */}
       <Sheet open={isToolHistoryOpen} onOpenChange={setIsToolHistoryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
@@ -793,12 +794,12 @@ const Tools = () => {
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsToolHistoryOpen(false)}>Close</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Edit Tool Modal */}
       <Sheet open={isEditToolOpen} onOpenChange={setIsEditToolOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Edit Tool</SheetTitle>
           </SheetHeader>
@@ -887,7 +888,7 @@ const Tools = () => {
               toast({ title: "Tool Updated", description: "Changes saved successfully." });
             }}>Save Changes</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Retire Tool Dialog */}

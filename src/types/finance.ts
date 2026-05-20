@@ -9,7 +9,11 @@ export interface Customer {
   address: string;
   type: "company" | "individual";
   gstin?: string;
+  /** Optional PAN for B2B / invoice identity. */
+  pan?: string;
   state?: string;
+  /** Default payment schedule copied from approved quotation (prototype). */
+  paymentTerms?: string;
   itemsBought: string[];
   totalPurchases: number;
   amountReceived?: number;

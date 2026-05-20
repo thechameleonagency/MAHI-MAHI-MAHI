@@ -10,7 +10,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
@@ -60,6 +61,10 @@ import { AgingChip } from "@/components/ui/AgingChip";
 import { getInvoiceOverdueAging } from "@/lib/agingHelpers";
 import { useCan } from "@/hooks/useCan";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
+import {
+  deriveInvoiceStatusAfterReceipt,
+  formatInvoiceBalanceLabel,
+} from "@/lib/invoicePaymentStatus";
 
 const Invoices = () => {
   const navigate = useNavigate();
@@ -68,6 +73,7 @@ const Invoices = () => {
   const urlProjectId = searchParams.get("project");
   const urlCustomerId = searchParams.get("customer");
   const urlDocType = searchParams.get("type");
+  const urlStatus = searchParams.get("status");
   const {
     invoices,
     saleBills,
@@ -96,6 +102,15 @@ const Invoices = () => {
     const id = window.requestAnimationFrame(() => setListReady(true));
     return () => window.cancelAnimationFrame(id);
   }, []);
+
+  useEffect(() => {
+    if (!urlStatus) return;
+    const allowed = new Set(["draft", "pending", "partial", "paid", "overpaid", "overdue"]);
+    if (allowed.has(urlStatus)) {
+      setStatusFilter(urlStatus);
+      setTablePage(1);
+    }
+  }, [urlStatus]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -143,6 +158,8 @@ const Invoices = () => {
     customerAddress: draft.customerAddress,
     customerContact: "customerPhone" in draft ? draft.customerPhone : undefined,
     customerState: draft.customerState,
+    customerGstin: "customerGstin" in draft ? draft.customerGstin : undefined,
+    paymentTerms: "paymentTerms" in draft ? draft.paymentTerms : undefined,
     projectId: "projectId" in draft ? draft.projectId : undefined,
     quotationId: "quotationId" in draft ? draft.quotationId : undefined,
     total: total && total > 0 ? total : undefined,
@@ -393,14 +410,10 @@ const Invoices = () => {
 
     // Invoice always reflects FULL collected amount (regardless of routing)
     const newReceived = (selectedInvoice.amountReceived || 0) + amount;
-    let newStatus: Invoice["status"];
-    if (newReceived > selectedInvoice.total + 0.01) {
-      newStatus = "overpaid";
-    } else if (newReceived >= selectedInvoice.total - 0.01) {
-      newStatus = "paid";
-    } else {
-      newStatus = "partial";
-    }
+    const newStatus = deriveInvoiceStatusAfterReceipt({
+      total: selectedInvoice.total,
+      amountReceived: newReceived,
+    });
 
     const patch = {
       amountReceived: newReceived,
@@ -619,6 +632,7 @@ const Invoices = () => {
   const totalReceived = allBillingDocuments.reduce((sum, i) => sum + i.amountReceived, 0);
   const pendingAmount = totalInvoiced - totalReceived;
   const pendingCount = allBillingDocuments.filter((i) => i.status !== "paid" && i.status !== "overpaid" && i.status !== "draft").length;
+  const overpaidCount = allBillingDocuments.filter((i) => i.status === "overpaid").length;
 
   return (
     <PageShell className="space-y-3 md:space-y-4">
@@ -689,6 +703,17 @@ const Invoices = () => {
                 { label: "Received", value: formatCurrency(totalReceived) },
                 { label: "Pending", value: formatCurrency(pendingAmount) },
                 { label: "Open", value: pendingCount },
+                {
+                  label: "Overpaid",
+                  value: overpaidCount,
+                  active: statusFilter === "overpaid",
+                  onClick: overpaidCount > 0
+                    ? () => {
+                        setStatusFilter("overpaid");
+                        setTablePage(1);
+                      }
+                    : undefined,
+                },
               ]}
             />
           </>
@@ -779,8 +804,14 @@ const Invoices = () => {
                 </TableCell>
                 <TableCell className="text-right">{formatCurrency(invoice.total)}</TableCell>
                 <TableCell className="text-right text-primary">{formatCurrency(invoice.amountReceived)}</TableCell>
-                <TableCell className={`text-right ${invoice.total - (invoice.amountReceived || 0) < -0.01 ? "text-accent-foreground font-medium" : "text-warning"}`}>
-                  {formatCurrency(invoice.total - (invoice.amountReceived || 0))}
+                <TableCell
+                  className={`text-right ${
+                    invoice.status === "overpaid" || invoice.total - (invoice.amountReceived || 0) < -0.01
+                      ? "font-medium text-violet-700 dark:text-violet-300"
+                      : "text-warning"
+                  }`}
+                >
+                  {formatInvoiceBalanceLabel(invoice.total, invoice.amountReceived || 0, invoice.status)}
                 </TableCell>
                 <TableCell className="text-right text-muted-foreground text-xs">
                   {formatCurrency(invoice.cgst || 0)} / {formatCurrency(invoice.sgst || 0)} / {formatCurrency(invoice.igst || 0)}
@@ -851,7 +882,7 @@ const Invoices = () => {
 
       {/* Invoice Detail Modal */}
       <Sheet open={isInvoiceDetailOpen} onOpenChange={setIsInvoiceDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between">
               <span>Invoice Details</span>
@@ -1032,9 +1063,21 @@ const Invoices = () => {
                     <span>Received:</span>
                     <span>{formatCurrency(selectedInvoice.amountReceived)}</span>
                   </div>
-                  <div className="flex justify-between font-semibold text-warning">
-                    <span>Balance:</span>
-                    <span>{formatCurrency(selectedInvoice.total - selectedInvoice.amountReceived)}</span>
+                  <div
+                    className={`flex justify-between font-semibold ${
+                      selectedInvoice.status === "overpaid"
+                        ? "text-violet-700 dark:text-violet-300"
+                        : "text-warning"
+                    }`}
+                  >
+                    <span>{selectedInvoice.status === "overpaid" ? "Excess received:" : "Balance:"}</span>
+                    <span>
+                      {formatInvoiceBalanceLabel(
+                        selectedInvoice.total,
+                        selectedInvoice.amountReceived,
+                        selectedInvoice.status,
+                      )}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1088,12 +1131,12 @@ const Invoices = () => {
               </Button>
             )}
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Record Payment Sheet */}
       <Sheet open={isRecordPaymentOpen} onOpenChange={setIsRecordPaymentOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Record Payment</SheetTitle>
           </SheetHeader>
@@ -1184,7 +1227,7 @@ const Invoices = () => {
               <Button className="flex-1" onClick={handleRecordPayment}>Record Payment</Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <AlertDialog open={voidConfirmOpen} onOpenChange={setVoidConfirmOpen}>
@@ -1207,7 +1250,7 @@ const Invoices = () => {
       </AlertDialog>
 
       <Sheet open={isEditDraftOpen} onOpenChange={setIsEditDraftOpen}>
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Edit invoice draft</SheetTitle>
           </SheetHeader>
@@ -1246,7 +1289,7 @@ const Invoices = () => {
               Save changes
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

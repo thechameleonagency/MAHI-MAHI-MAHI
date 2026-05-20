@@ -17,7 +17,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar, DEFAULT_TABLE_PAGE_SIZE } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstants";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { ToastAction } from "@/components/ui/toast";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -914,7 +915,7 @@ const formatCapacityInput = (capacity: string) => {
 
       {/* Add Enquiry Modal */}
       <Sheet open={isAddEnquiryOpen} onOpenChange={setIsAddEnquiryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add New Enquiry</SheetTitle>
           </SheetHeader>
@@ -1068,12 +1069,12 @@ const formatCapacityInput = (capacity: string) => {
             <Button variant="outline" onClick={() => setIsAddEnquiryOpen(false)}>Cancel</Button>
             <Button onClick={handleAddEnquiry}>Add Enquiry</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* View Enquiry Modal */}
       <Sheet open={isViewEnquiryOpen} onOpenChange={setIsViewEnquiryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -1514,11 +1515,11 @@ const formatCapacityInput = (capacity: string) => {
               </div>
             </div>
           )}
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={isMarkLostReasonOpen} onOpenChange={setIsMarkLostReasonOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Reason for marking lost</SheetTitle>
             <SheetDescription>
@@ -1545,12 +1546,12 @@ const formatCapacityInput = (capacity: string) => {
               Mark as lost
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Reopen Lost Enquiry */}
       <Sheet open={isReopenEnquiryOpen} onOpenChange={setIsReopenEnquiryOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Reopen enquiry</SheetTitle>
             <SheetDescription>Admin/super-admin only. Provide a reason for reopening this lost lead.</SheetDescription>
@@ -1571,12 +1572,12 @@ const formatCapacityInput = (capacity: string) => {
             <Button variant="outline" onClick={() => setIsReopenEnquiryOpen(false)}>Cancel</Button>
             <Button onClick={() => void handleReopenEnquiry()}>Reopen</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Assign Modal */}
       <Sheet open={isAssignOpen} onOpenChange={setIsAssignOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Assign Enquiry</SheetTitle>
           </SheetHeader>
@@ -1599,12 +1600,12 @@ const formatCapacityInput = (capacity: string) => {
             <Button variant="outline" onClick={() => setIsAssignOpen(false)}>Cancel</Button>
             <Button onClick={handleAssign} disabled={!assignTo}>Assign</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Add Note Modal */}
       <Sheet open={isAddNoteOpen} onOpenChange={setIsAddNoteOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add Follow-up Note</SheetTitle>
           </SheetHeader>
@@ -1637,12 +1638,12 @@ const formatCapacityInput = (capacity: string) => {
             <Button variant="outline" onClick={() => setIsAddNoteOpen(false)}>Cancel</Button>
             <Button onClick={handleAddNote} disabled={!noteText}>Add Note</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Schedule Meeting Modal */}
       <Sheet open={isScheduleMeetingOpen} onOpenChange={setIsScheduleMeetingOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Schedule Meeting</SheetTitle>
           </SheetHeader>
@@ -1669,12 +1670,12 @@ const formatCapacityInput = (capacity: string) => {
             <Button variant="outline" onClick={() => setIsScheduleMeetingOpen(false)}>Cancel</Button>
             <Button onClick={handleScheduleMeeting} disabled={!meetingDate}>Schedule</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Share Modal */}
       <Sheet open={isShareOpen} onOpenChange={setIsShareOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Share Enquiry Details</SheetTitle>
           </SheetHeader>
@@ -1699,12 +1700,12 @@ const formatCapacityInput = (capacity: string) => {
               Share
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Edit Enquiry Modal */}
       <Sheet open={isEditEnquiryOpen} onOpenChange={(open) => { setIsEditEnquiryOpen(open); if (!open) resetEditForm(); }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Edit Enquiry - {selectedEnquiry?.id}</SheetTitle>
           </SheetHeader>
@@ -1858,7 +1859,7 @@ const formatCapacityInput = (capacity: string) => {
             <Button variant="outline" onClick={() => setIsEditEnquiryOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveEdit}>Save Changes</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

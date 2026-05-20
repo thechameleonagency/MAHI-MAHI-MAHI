@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +25,12 @@ import {
   type ProjectDraftFromCustomer,
   type ProjectDraftFromQuotation,
 } from "@/lib/createFromContext";
+import ProjectConfirmationScreen from "@/components/projects/ProjectConfirmationScreen";
+import {
+  applyTeamAssignmentToProject,
+  buildProjectConfirmationData,
+  type ProjectTeamAssignmentDraft,
+} from "@/lib/projectTeamAssignment";
 
 interface CreateProjectSheetProps {
   open: boolean;
@@ -52,9 +59,12 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
     projects,
     getProjectEligibleQuotations,
     createProjectIntake,
+    createProjectFromConfirmedQuotation,
+    employees,
     addCustomer,
     addExpense,
     updateProject,
+    allocateCustomerId,
     generateId,
     convertEnquiryToCustomer,
     loans,
@@ -125,7 +135,16 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
   const [incProjectName, setIncProjectName] = useState("");
   const [incAddress, setIncAddress] = useState("");
 
+  const [sheetStep, setSheetStep] = useState<"form" | "confirm">("form");
+  const [pendingProject, setPendingProject] = useState<Project | null>(null);
+  const [pendingIntake, setPendingIntake] = useState<ProjectIntakePayload | null>(null);
+  const [pendingQuotationId, setPendingQuotationId] = useState<string | undefined>();
+
   const eligibleQuotations = useMemo(() => getProjectEligibleQuotations(), [getProjectEligibleQuotations]);
+  const activeEmployees = useMemo(
+    () => employees.filter((e) => e.status === "Active").map((e) => ({ id: e.id, name: e.name })),
+    [employees],
+  );
 
   const dealBringerPartners = useMemo(
     () => partners.filter(p => p.type === "Profit-Share" || p.type === "Fixed-Rate"),
@@ -184,6 +203,10 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
     setIncFixedAmount("");
     setIncProjectName("");
     setIncAddress("");
+    setSheetStep("form");
+    setPendingProject(null);
+    setPendingIntake(null);
+    setPendingQuotationId(undefined);
   };
 
   const handleQuotationSelect = (qId: string) => {
@@ -260,7 +283,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
           toast({ title: "Customer name required", variant: "destructive" });
           return;
         }
-        const newCustId = generateId("C");
+        const newCustId = allocateCustomerId();
         const added = addCustomer({
           id: newCustId,
           name: newCustomerName,
@@ -374,7 +397,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
       finalProjectName = partnerProjectName || `${partner?.name || "Partner"} – ${partnerCapacity}kW`;
       finalCapacity = partnerCapacity;
       finalContractAmount = parsePositiveAmount(partnerContractAmount);
-      const partnerCustId = generateId("C");
+      const partnerCustId = allocateCustomerId();
       const partnerCustAdded = addCustomer({
         id: partnerCustId,
         name: partnerCustomerName.trim(),
@@ -613,14 +636,33 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
       },
     };
 
-    const res = await createProjectIntake({ project: projectData, intake: intakePayload, quotationId: selectedQuotationId });
+    setPendingProject(projectData);
+    setPendingIntake(intakePayload);
+    setPendingQuotationId(selectedQuotationId);
+    setSheetStep("confirm");
+  };
+
+  const finalizeCreateProject = async (team: ProjectTeamAssignmentDraft) => {
+    if (!pendingProject || !pendingIntake) return;
+    if (team.targetEndDate && team.targetEndDate < pendingProject.startDate) {
+      toast({
+        title: "Invalid end date",
+        description: "Target end date cannot be before the project start date.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const project = applyTeamAssignmentToProject(pendingProject, team);
+    const res = pendingQuotationId
+      ? await createProjectFromConfirmedQuotation(project)
+      : await createProjectIntake({ project, intake: pendingIntake, quotationId: pendingQuotationId });
 
     if (res.ok) {
       clearFormDraft("create-project-modal-v1");
-      toast({ title: "Project Created", description: `${finalProjectName} has been successfully created.` });
+      toast({ title: "Project Created", description: `${project.name} has been successfully created.` });
       onOpenChange(false);
       resetForm();
-      navigate(`/projects/${res.projectId || projectId}`);
+      navigate(`/projects/${res.projectId || project.id}`);
     } else {
       toast({ title: "Error", description: res.error, variant: "destructive" });
     }
@@ -708,7 +750,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
         }
       }}
     >
-      <SheetContent className="w-full sm:max-w-3xl sm:w-[85vw] p-0 overflow-y-auto custom-scrollbar">
+      <AppSheetContent layout="scroll" size="lg">
         <SheetHeader className="p-6 border-b sticky top-0 z-10 bg-background/95 backdrop-blur">
           <SheetTitle className="flex items-center gap-2 text-xl">
             <Briefcase className="h-5 w-5 text-primary" />
@@ -716,6 +758,20 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
           </SheetTitle>
         </SheetHeader>
 
+        {sheetStep === "confirm" && pendingProject ? (
+          <div className="p-6">
+            <ProjectConfirmationScreen
+              data={buildProjectConfirmationData(pendingProject, {
+                quotationNumber: pendingQuotationId
+                  ? eligibleQuotations.find((q) => q.id === pendingQuotationId)?.quotationNumber
+                  : undefined,
+              })}
+              employees={activeEmployees}
+              onEdit={() => setSheetStep("form")}
+              onConfirm={(team) => { void finalizeCreateProject(team); }}
+            />
+          </div>
+        ) : (
         <div className="p-6 space-y-8">
 
           {/* ── Section 1: Origin ── */}
@@ -1518,15 +1574,18 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
             </div>
           )}
         </div>
+        )}
 
+        {sheetStep === "form" && (
         <SheetFooter className="p-6 border-t flex items-center justify-end gap-2 sticky bottom-0 bg-background/95 backdrop-blur">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleCreate} disabled={!leadPath} className="bg-primary hover:bg-primary/90">
             <Check className="w-4 h-4 mr-2" />
-            Create Project
+            Review &amp; Create
           </Button>
         </SheetFooter>
-      </SheetContent>
+        )}
+      </AppSheetContent>
     </Sheet>
   );
 };

@@ -11,7 +11,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -884,7 +885,7 @@ const CustomerDetail = () => {
 
       {/* FIFO Payment Modal */}
       <Sheet open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Record Payment</SheetTitle>
             <SheetDescription>
@@ -986,11 +987,11 @@ const CustomerDetail = () => {
               Record Payment
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={isEditCustomerOpen} onOpenChange={setIsEditCustomerOpen}>
-        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+        <AppSheetContent layout="form" size="lg">
           <SheetHeader>
             <SheetTitle>Edit customer</SheetTitle>
             <SheetDescription>Update contact details and GST information.</SheetDescription>
@@ -1041,7 +1042,7 @@ const CustomerDetail = () => {
             <Button type="button" variant="outline" onClick={() => setIsEditCustomerOpen(false)}>Cancel</Button>
             <Button type="button" onClick={handleSaveCustomerEdits}>Save changes</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

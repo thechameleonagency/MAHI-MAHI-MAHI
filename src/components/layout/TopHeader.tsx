@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -199,6 +200,15 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
             </Link>
           </Button>
         )}
+
+        <Input
+          className="h-8 w-[min(7.5rem,26vw)] text-xs sm:h-9 sm:w-[min(9rem,22vw)] sm:text-sm"
+          placeholder="Demo user"
+          value={demoUserName}
+          onChange={(e) => setDemoUserName(e.target.value)}
+          aria-label="Demo user name"
+          title="Name shown in audit logs (persisted for this browser)"
+        />
 
         <Select
           value={currentRole}

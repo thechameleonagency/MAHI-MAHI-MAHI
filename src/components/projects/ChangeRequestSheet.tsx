@@ -1,13 +1,7 @@
 import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import { resolveChangeRequestDeltaAmount } from "@/lib/changeRequestApproval";
+import { parseMaterialDeltaFromLines } from "@/lib/changeRequestMaterialDelta";
+import {
+  parseChangeRequestFieldsFromForm,
+  validateChangeRequestDraft,
+} from "@/lib/changeRequestValidation";
 import type { Project } from "@/types/project";
 import type { ProjectChangeRequestType } from "@/types/operations";
 
@@ -47,13 +46,16 @@ export function ChangeRequestSheet({
   const [materialLines, setMaterialLines] = useState<MaterialLine[]>([]);
 
   const previewDelta = useMemo(() => {
+    const numericFields = parseChangeRequestFieldsFromForm(type, {
+      deltaKw,
+      deltaPanels,
+      deltaAmount,
+    });
     const draft = {
       id: "preview",
       projectId: project.id,
       type,
-      deltaKw: deltaKw ? Number(deltaKw) : undefined,
-      deltaPanels: deltaPanels ? Number(deltaPanels) : undefined,
-      deltaAmount: deltaAmount ? Number(deltaAmount) : undefined,
+      ...numericFields,
       status: "draft" as const,
       requestedAt: "",
     };
@@ -70,27 +72,33 @@ export function ChangeRequestSheet({
   };
 
   const handleSubmit = () => {
-    const materialDelta = materialLines
-      .map((l) => ({
-        itemId: String(l.itemId),
-        deltaQty: Number.parseFloat(l.deltaQty) || 0,
-      }))
-      .filter((m) => m.itemId > 0 && m.deltaQty > 0);
-
-    if (type === "capacity" && !deltaKw && !deltaAmount) {
-      toast({ title: "Enter kW delta or amount", variant: "destructive" });
+    const materialDelta = parseMaterialDeltaFromLines(materialLines);
+    const numericFields = parseChangeRequestFieldsFromForm(type, {
+      deltaKw,
+      deltaPanels,
+      deltaAmount,
+    });
+    const validation = validateChangeRequestDraft({
+      type,
+      ...numericFields,
+      materialDelta: materialDelta.length ? materialDelta : undefined,
+    });
+    if (!validation.ok) {
+      toast({ title: "Cannot save change request", description: validation.message, variant: "destructive" });
       return;
     }
 
-    addProjectChangeRequest({
+    const result = addProjectChangeRequest({
       projectId: project.id,
       type,
-      deltaKw: deltaKw ? Number(deltaKw) : undefined,
-      deltaPanels: deltaPanels ? Number(deltaPanels) : undefined,
-      deltaAmount: deltaAmount ? Number(deltaAmount) : undefined,
+      ...numericFields,
       materialDelta: materialDelta.length ? materialDelta : undefined,
       notes: notes.trim() || undefined,
     });
+    if (!result.ok) {
+      toast({ title: "Cannot save change request", description: result.error, variant: "destructive" });
+      return;
+    }
 
     toast({
       title: "Change request logged",
@@ -103,7 +111,7 @@ export function ChangeRequestSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg overflow-y-auto custom-scrollbar">
+      <AppSheetContent layout="form" size="lg">
         <SheetHeader>
           <SheetTitle>Project change request</SheetTitle>
           <SheetDescription>
@@ -148,7 +156,7 @@ export function ChangeRequestSheet({
 
           {type === "addon-work" && (
             <div className="space-y-2">
-              <Label>Add-on amount (₹)</Label>
+              <Label>Add-on amount (₹) *</Label>
               <Input type="number" min={0} value={deltaAmount} onChange={(e) => setDeltaAmount(e.target.value)} />
             </div>
           )}
@@ -212,7 +220,7 @@ export function ChangeRequestSheet({
           </Button>
           <Button onClick={handleSubmit}>Save draft request</Button>
         </SheetFooter>
-      </SheetContent>
+      </AppSheetContent>
     </Sheet>
   );
 }

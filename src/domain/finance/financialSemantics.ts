@@ -26,19 +26,25 @@ export function resolveContractAmount(
 export function computeProjectProfit(
   project: Pick<Project, "id" | "contractAmount" | "totalCost" | "amountReceived" | "amountInvoiced">,
   mode: ProfitMode,
-  slices: { invoices: Invoice[]; payments: Payment[]; expenses: Expense[] },
+  slices: {
+    invoices: Invoice[];
+    saleBills?: Invoice[];
+    payments: Payment[];
+    expenses: Expense[];
+  },
 ): number {
   const cost =
     slices.expenses.length > 0
       ? getProjectTotalCost(project.id, slices.expenses)
       : (project.totalCost ?? 0);
+  const billDocs = [...slices.invoices, ...(slices.saleBills ?? [])];
   const revenue =
     mode === "cash"
       ? slices.payments.length > 0
         ? getProjectAmountReceived(project.id, slices.payments)
         : (project.amountReceived ?? 0)
-      : slices.invoices.length > 0
-        ? getProjectAmountInvoiced(project.id, slices.invoices)
+      : billDocs.length > 0
+        ? getProjectAmountInvoiced(project.id, slices.invoices, slices.saleBills ?? [])
         : (project.amountInvoiced ?? project.contractAmount ?? 0);
   return revenue - cost;
 }

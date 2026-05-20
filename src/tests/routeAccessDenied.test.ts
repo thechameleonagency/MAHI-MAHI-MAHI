@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDeniedPath, routeAccessDeniedToastContent } from "@/lib/routeAccessDenied";
+import {
+  normalizeDeniedPath,
+  routeAccessDeniedToastContent,
+  routeAccessRedirectCopy,
+} from "@/lib/routeAccessDenied";
 
 describe("routeAccessDenied (M6)", () => {
   it("strips query and hash from denied paths", () => {
@@ -12,6 +16,14 @@ describe("routeAccessDenied (M6)", () => {
     expect(msg.title).toMatch(/don't have access/i);
     expect(msg.description).toContain("/audit");
     expect(msg.description).toContain("Salesperson");
+    expect(msg.description).toMatch(/dashboard/i);
+  });
+
+  it("redirect placeholder copy matches denial context (Md4)", () => {
+    const msg = routeAccessRedirectCopy("/audit/profit-loss?tab=1", "installation_team");
+    expect(msg.title).toMatch(/redirecting/i);
+    expect(msg.description).toContain("/audit/profit-loss");
+    expect(msg.description).toContain("Installation Team");
     expect(msg.description).toMatch(/dashboard/i);
   });
 });

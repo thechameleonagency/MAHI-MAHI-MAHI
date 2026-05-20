@@ -11,7 +11,8 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Download, TrendingUp, TrendingDown, IndianRupee, ArrowUpRight, ArrowDownLeft, Receipt, X, Printer, Building2, AlertTriangle } from "lucide-react";
@@ -913,7 +914,6 @@ const Finance = () => {
 
       {/* Date filter moved into the header subRow (UI 9) — single-row layout adapts KPIs to filter context. */}
 
-
       {accountingReviewQueue.length > 0 && (
         <Card className="bg-warning/5 border-warning/30">
           <CardHeader className="pb-2">
@@ -1114,7 +1114,7 @@ const Finance = () => {
 
       {canViewIncome && (
       <Sheet open={isOwnerInvestmentOpen} onOpenChange={(o) => { if (!o) resetOwnerInvestmentForm(); setIsOwnerInvestmentOpen(o); }}>
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Owner capital movement</SheetTitle>
           </SheetHeader>
@@ -1171,14 +1171,14 @@ const Finance = () => {
             </Button>
             <Button onClick={handleSaveOwnerInvestment}>Save</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
       )}
 
       {/* Enhanced New Invoice Modal */}
       {canCreateInvoice && (
       <Sheet open={isNewInvoiceOpen} onOpenChange={setIsNewInvoiceOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Create New Invoice</SheetTitle>
           </SheetHeader>
@@ -1626,14 +1626,14 @@ const Finance = () => {
               </Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
       )}
 
       {/* Invoice Detail Modal */}
       {canViewReceivables && (
       <Sheet open={isInvoiceDetailOpen} onOpenChange={setIsInvoiceDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Invoice Details</SheetTitle>
           </SheetHeader>
@@ -1747,13 +1747,13 @@ const Finance = () => {
               </Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
       )}
 
       {/* Export Modal */}
       <Sheet open={isExportModalOpen} onOpenChange={setIsExportModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Export Reports</SheetTitle>
           </SheetHeader>
@@ -1983,12 +1983,12 @@ const Finance = () => {
           <div className="flex justify-end pt-4 border-t">
             <Button variant="outline" onClick={() => setIsExportModalOpen(false)}>Close</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Revenue Detail Modal */}
       <Sheet open={isRevenueDetailOpen} onOpenChange={setIsRevenueDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -2054,12 +2054,12 @@ const Finance = () => {
           <div className="flex justify-end pt-4 border-t">
             <Button variant="outline" onClick={() => setIsRevenueDetailOpen(false)}>Close</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Expense Detail Modal */}
       <Sheet open={isExpenseDetailOpen} onOpenChange={setIsExpenseDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
@@ -2092,12 +2092,12 @@ const Finance = () => {
           <div className="flex justify-end pt-4 border-t">
             <Button variant="outline" onClick={() => setIsExpenseDetailOpen(false)}>Close</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Outstanding Detail Modal */}
       <Sheet open={isOutstandingDetailOpen} onOpenChange={setIsOutstandingDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-warning/10 flex items-center justify-center">
@@ -2147,12 +2147,12 @@ const Finance = () => {
           <div className="flex justify-end pt-4 border-t">
             <Button variant="outline" onClick={() => setIsOutstandingDetailOpen(false)}>Close</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Cash surplus detail modal (payments in − expenses; not audit P&L) */}
       <Sheet open={isProfitDetailOpen} onOpenChange={setIsProfitDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -2205,7 +2205,7 @@ const Finance = () => {
           <div className="flex justify-end pt-4 border-t">
             <Button variant="outline" onClick={() => setIsProfitDetailOpen(false)}>Close</Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
     </PageShell>

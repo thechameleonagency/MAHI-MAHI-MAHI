@@ -1,3 +1,4 @@
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { useState, useMemo } from "react";
 import { RefreshCw, MapPin, AlertTriangle, CheckCircle, Clock, ExternalLink, AlertCircle, User, Users, Circle, CheckCircle2, IndianRupee, FileText, Wrench, Zap, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { format, formatDistanceToNow } from "date-fns";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1144,7 +1145,7 @@ const ActiveSites = () => {
 
       {/* Resolve Blockage Modal */}
       <Sheet open={isResolveModalOpen} onOpenChange={setIsResolveModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Resolve Blockage</SheetTitle>
             <SheetDescription>
@@ -1226,14 +1227,14 @@ const ActiveSites = () => {
               Mark as Resolved
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet
         open={!!linkTaskTarget}
         onOpenChange={(open) => { if (!open) { setLinkTaskTarget(null); setLinkTaskValue(""); } }}
       >
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Link blockage to task</SheetTitle>
             <SheetDescription>Pick a task from this project to associate with the blockage.</SheetDescription>
@@ -1277,7 +1278,7 @@ const ActiveSites = () => {
               Link task
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <NeedToGetSheet

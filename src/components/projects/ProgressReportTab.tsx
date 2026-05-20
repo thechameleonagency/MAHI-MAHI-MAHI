@@ -6,7 +6,8 @@ import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet"
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -3364,7 +3365,7 @@ export function ProgressReportTab({
 
       {/* Cash to Mahi Confirmation Modal */}
       <Sheet open={isConfirmCashModalOpen} onOpenChange={setIsConfirmCashModalOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Confirm Cash to Mahi</SheetTitle>
             <SheetDescription>
@@ -3383,12 +3384,12 @@ export function ProgressReportTab({
               Confirm Payment
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* 2nd Installment Confirmation Modal */}
       <Sheet open={isConfirmInstallmentModalOpen} onOpenChange={setIsConfirmInstallmentModalOpen}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Confirm 2nd Installment</SheetTitle>
             <SheetDescription>
@@ -3407,12 +3408,12 @@ export function ProgressReportTab({
               Confirm Payment
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Resolve Blockage Modal */}
       <Sheet open={isResolveBlockageModalOpen} onOpenChange={setIsResolveBlockageModalOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Resolve Blockage</SheetTitle>
             <SheetDescription>Mark this blockage as resolved</SheetDescription>
@@ -3466,12 +3467,12 @@ export function ProgressReportTab({
               Mark Resolved
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Add Blockage Modal */}
       <Sheet open={isAddBlockageOpen} onOpenChange={setIsAddBlockageOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add Blockage</SheetTitle>
             <SheetDescription>Record why work has stopped on this project</SheetDescription>
@@ -3643,12 +3644,12 @@ export function ProgressReportTab({
             <Button variant="outline" onClick={() => setIsAddBlockageOpen(false)}>Cancel</Button>
             <Button onClick={handleAddBlockage}>Add Blockage</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Create Ticket Modal */}
       <Sheet open={isAddTicketOpen} onOpenChange={setIsAddTicketOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Create Ticket / Task</SheetTitle>
             <SheetDescription>Assign a task to team members</SheetDescription>
@@ -3794,12 +3795,12 @@ export function ProgressReportTab({
             <Button variant="outline" onClick={() => setIsAddTicketOpen(false)}>Cancel</Button>
             <Button onClick={handleAddTicket}>Create Ticket</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Photo Upload Modal */}
       <Sheet open={!!photoUploadModal?.open} onOpenChange={(open) => !open && setPhotoUploadModal(null)}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Upload media</SheetTitle>
             <SheetDescription>
@@ -3917,12 +3918,12 @@ export function ProgressReportTab({
               Submit for approval
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Reject Reason Modal */}
       <Sheet open={!!rejectReasonModal?.open} onOpenChange={(open) => !open && setRejectReasonModal(null)}>
-        <SheetContent className="max-w-sm overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Reject with Reason</SheetTitle>
             <SheetDescription>
@@ -3955,12 +3956,12 @@ export function ProgressReportTab({
               Reject
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
       
       {/* Photo Assignment Modal */}
       <Sheet open={!!photoAssignmentModal?.open} onOpenChange={(open) => !open && setPhotoAssignmentModal(null)}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] h-full overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Photos Required for {photoAssignmentModal?.stageName}</SheetTitle>
             <SheetDescription>
@@ -4044,7 +4045,7 @@ export function ProgressReportTab({
               {uploadPhotosDirectly ? "Upload & Complete" : "Send Request"}
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
       
       {/* Image Viewer Modal */}

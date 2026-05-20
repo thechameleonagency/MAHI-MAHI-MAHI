@@ -10,7 +10,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/ui/DateInput";
 import { Label } from "@/components/ui/label";
@@ -463,7 +464,7 @@ const LoanPersonDetail = () => {
 
       {/* Add Loan Modal */}
       <Sheet open={isAddLoanOpen} onOpenChange={setIsAddLoanOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add New Loan from {displayName}</SheetTitle>
           </SheetHeader>
@@ -549,12 +550,12 @@ const LoanPersonDetail = () => {
               Add Loan
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Add Repayment Modal */}
       <Sheet open={isRepaymentOpen} onOpenChange={setIsRepaymentOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Record Repayment</SheetTitle>
           </SheetHeader>
@@ -626,11 +627,11 @@ const LoanPersonDetail = () => {
               Record Repayment
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={isEditLoanOpen} onOpenChange={(o) => { if (!o) { setEditingLoan(null); } setIsEditLoanOpen(o); }}>
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Edit loan</SheetTitle>
           </SheetHeader>
@@ -663,7 +664,7 @@ const LoanPersonDetail = () => {
               </div>
             </div>
           )}
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

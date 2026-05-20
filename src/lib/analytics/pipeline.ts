@@ -1,5 +1,6 @@
 import type { AnalyticsDateRange, AnalyticsSlices, MetricRow } from "./types";
 import { daysBetween, inAnalyticsRange } from "./dateRange";
+import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationProjectLink";
 
 export interface PipelineMetrics {
   enquiriesCreated: number;
@@ -53,15 +54,13 @@ export function computePipelineMetrics(
   const funnel = {
     sent: quotationsInPeriod.filter((q) => q.status === "sent" || q.sentAt).length,
     approved: quotationsInPeriod.filter((q) => q.status === "approved" || q.approvedAt).length,
-    converted: quotationsInPeriod.filter(
-      (q) => q.status === "converted_to_project" || q.linkedProjectId,
-    ).length,
+    converted: quotationsInPeriod.filter((q) => isQuotationConverted(q)).length,
   };
 
   const approvedOrConverted = quotationsInPeriod.filter(
-    (q) => q.status === "approved" || q.status === "converted_to_project" || q.linkedProjectId,
+    (q) => q.status === "approved" || q.status === "converted_to_project" || isQuotationConverted(q),
   );
-  const linkedProjects = approvedOrConverted.filter((q) => q.linkedProjectId);
+  const linkedProjects = approvedOrConverted.filter((q) => quotationLinkedProjectId(q));
   const quotationToProjectPct =
     approvedOrConverted.length === 0
       ? 0
@@ -69,8 +68,9 @@ export function computePipelineMetrics(
 
   const quoLagDays: number[] = [];
   for (const q of quotationsInPeriod) {
-    if (!q.linkedProjectId) continue;
-    const conv = q.convertedAt ?? q.approvedAt ?? projects.find((p) => p.id === q.linkedProjectId)?.createdAt;
+    const pid = quotationLinkedProjectId(q);
+    if (!pid) continue;
+    const conv = q.convertedAt ?? q.approvedAt ?? projects.find((p) => p.id === pid)?.createdAt;
     if (conv) quoLagDays.push(daysBetween(q.createdAt, conv));
   }
   const avgDaysQuotationToProject =

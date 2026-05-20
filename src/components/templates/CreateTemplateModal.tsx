@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -238,7 +239,7 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+      <AppSheetContent layout="scroll" size="xl">
         <SheetHeader>
           <SheetTitle>
             Add {type === "quotation" ? "Quotation" : "Site Checklist"} Template
@@ -601,7 +602,7 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
             Save Template
           </Button>
         </SheetFooter>
-      </SheetContent>
+      </AppSheetContent>
     </Sheet>
   );
 }

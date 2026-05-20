@@ -69,13 +69,27 @@ export function getCustomerLastPurchase(
   return dates.sort().at(-1);
 }
 
+/** Sum of active (non-draft, non-voided) invoice + sale-bill totals for a project. */
 export function getProjectAmountInvoiced(
   projectId: string,
   invoices: Invoice[],
+  saleBills: Invoice[] = [],
 ): number {
-  return invoices
+  return [...invoices, ...saleBills]
     .filter((i) => i.projectId === projectId && isActiveBill(i))
     .reduce((s, i) => s + i.total, 0);
+}
+
+/** Recompute stored `amountInvoiced` from billing documents (single source of truth). */
+export function reconcileProjectsAmountInvoiced(
+  projects: Project[],
+  invoices: Invoice[],
+  saleBills: Invoice[] = [],
+): Project[] {
+  return projects.map((project) => ({
+    ...project,
+    amountInvoiced: getProjectAmountInvoiced(project.id, invoices, saleBills),
+  }));
 }
 
 export function getProjectAmountReceived(
@@ -152,12 +166,13 @@ export function projectBillingDrift(
   invoices: Invoice[],
   payments: Payment[],
   expenses: Expense[],
+  saleBills: Invoice[] = [],
 ): {
   amountInvoicedDrift: number;
   amountReceivedDrift: number;
   totalCostDrift: number;
 } {
-  const derivedInvoiced = getProjectAmountInvoiced(project.id, invoices);
+  const derivedInvoiced = getProjectAmountInvoiced(project.id, invoices, saleBills);
   const derivedReceived = getProjectAmountReceived(project.id, payments);
   const derivedCost = getProjectTotalCost(project.id, expenses);
   return {

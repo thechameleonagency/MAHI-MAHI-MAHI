@@ -8,7 +8,8 @@ import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -319,7 +320,7 @@ export function ClientPaymentHistory({
 
       {/* Record Payment Modal */}
       <Sheet open={isRecordPaymentOpen} onOpenChange={(v) => { if (!v) { setSplitCompany(""); setSplitPartner(""); } setIsRecordPaymentOpen(v); }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Record Payment</SheetTitle>
           </SheetHeader>
@@ -457,7 +458,7 @@ export function ClientPaymentHistory({
             <Button variant="outline" onClick={() => setIsRecordPaymentOpen(false)}>Cancel</Button>
             <Button onClick={handleRecordPayment}>Record Payment</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </Card>
   );

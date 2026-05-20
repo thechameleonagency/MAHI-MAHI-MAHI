@@ -1,12 +1,13 @@
 import { parseCapacityKw } from "@/domain/agents/agentCommission";
 import { resolvePricingBasis, resolvePricingRate } from "@/lib/pricingBasis";
+import { isApplicableMaterialDelta } from "@/lib/changeRequestMaterialDelta";
 import type {
   ProjectChangeRequest,
   ProjectChangeRequestMaterialDelta,
 } from "@/types/operations";
 import type { ExecutionLineItem, Project, ProjectSiteChecklistItem } from "@/types/project";
 
-export type InventoryLookup = { id: number; name: string; unit?: string };
+export type InventoryLookup = { id: string; name: string; unit?: string };
 
 /** Resolve commercial delta — per-kW projects auto-derive from capacity change when amount omitted. */
 export function resolveChangeRequestDeltaAmount(
@@ -36,7 +37,7 @@ export function applyChangeRequestToProject(
 ): {
   projectPatch: Partial<Project>;
   reservations: Array<{
-    itemId: number;
+    itemId: string;
     qty: number;
     projectId: string;
     reason: string;
@@ -104,7 +105,7 @@ export function applyChangeRequestToProject(
   };
 
   for (const md of cr.materialDelta ?? []) {
-    if (md.deltaQty > 0) applyMaterialDelta(md);
+    if (isApplicableMaterialDelta(md)) applyMaterialDelta(md);
   }
 
   if (exec.length > (project.executionLineItems?.length ?? 0)) {

@@ -22,7 +22,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { formatINR } from "@/lib/formatCurrency";
 import {
   AlertDialog,
@@ -438,7 +439,7 @@ const Vendors = () => {
       )}
 
       <Sheet open={isAddVendorOpen} onOpenChange={(v) => { if (!v) resetForm(); setIsAddVendorOpen(v); }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add vendor</SheetTitle>
           </SheetHeader>
@@ -486,11 +487,11 @@ const Vendors = () => {
               </Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={isEditVendorOpen} onOpenChange={(v) => { if (!v) resetForm(); setIsEditVendorOpen(v); }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Edit vendor</SheetTitle>
           </SheetHeader>
@@ -538,7 +539,7 @@ const Vendors = () => {
               </Button>
             </div>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <AlertDialog open={!!vendorPendingDelete} onOpenChange={(open) => !open && setVendorPendingDelete(null)}>

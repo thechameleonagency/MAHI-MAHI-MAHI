@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -329,7 +330,7 @@ export function TaskAssignmentSheet({
   return (
     <>
       <Sheet open={isOpen} onOpenChange={(open) => { if (!open) { resetForm(); onClose(); } }}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader className="pb-4 border-b">
             <SheetTitle className="text-xl font-semibold flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-primary" />
@@ -529,7 +530,7 @@ export function TaskAssignmentSheet({
               Generate {selectedWorkItems.length > 0 ? selectedWorkItems.length : ""} Tasks
             </Button>
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
       
       {/* Confirmation Sheet */}

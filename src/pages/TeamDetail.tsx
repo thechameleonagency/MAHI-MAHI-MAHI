@@ -13,7 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -300,7 +301,7 @@ const TeamDetail = () => {
       </Card>
 
       <Sheet open={editOpen} onOpenChange={setEditOpen}>
-        <SheetContent>
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Edit team</SheetTitle>
             <SheetDescription>Update team name, lead, and notes.</SheetDescription>
@@ -334,11 +335,11 @@ const TeamDetail = () => {
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
             <Button onClick={saveEdit}>Save</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={membersOpen} onOpenChange={setMembersOpen}>
-        <SheetContent>
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Manage members</SheetTitle>
             <SheetDescription>Select employees on this team.</SheetDescription>
@@ -362,7 +363,7 @@ const TeamDetail = () => {
             <Button variant="outline" onClick={() => setMembersOpen(false)}>Cancel</Button>
             <Button onClick={saveMembers}>Save members</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

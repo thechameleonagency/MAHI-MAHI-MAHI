@@ -1,13 +1,7 @@
 import { useMemo, useState } from "react";
 import { ClipboardList, Plus, Trash2 } from "lucide-react";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -138,7 +132,7 @@ export function SiteVisitSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+      <AppSheetContent layout="form" size="md">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <ClipboardList className="h-4 w-4" />
@@ -276,7 +270,7 @@ export function SiteVisitSheet({
           </Button>
           <Button onClick={handleSubmit}>Save visit</Button>
         </SheetFooter>
-      </SheetContent>
+      </AppSheetContent>
     </Sheet>
   );
 }

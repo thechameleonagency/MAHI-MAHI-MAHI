@@ -451,6 +451,13 @@ export interface Quotation {
   clientCity: string;
   clientState: string;
   clientAddress?: string;
+  clientPincode?: string;
+  clientGstin?: string;
+  clientPan?: string;
+  /** company | individual — drives GSTIN requirement on customer create */
+  clientType?: "company" | "individual";
+  /** Human-readable payment schedule (booking / milestones) for customer + invoice prefill */
+  paymentTermsSummary?: string;
   agentId?: string; // Links to Agent table when source is "referral"
   
   // System details (Solar quotations only)
@@ -518,8 +525,12 @@ export interface Quotation {
   /** @deprecated derive from `status === "converted_to_project"` */
   /** @deprecated Derive from `status === "converted_to_project"` or `linkedProjectId`. */
   isConverted?: boolean;
-  /** @deprecated use `linkedProjectId` */
+  /**
+   * @deprecated Legacy project link — migrated to `linkedProjectId` on hydrate (v4) and stripped from persisted state.
+   * Do not write this field; use `buildQuotationProjectLinkPatch` at convert time.
+   */
   convertedToProjectId?: string;
+  /** Canonical project id after quotation → project conversion. */
   linkedProjectId?: string;
   convertedToInvoiceId?: string;
   rejectionReason?: string;

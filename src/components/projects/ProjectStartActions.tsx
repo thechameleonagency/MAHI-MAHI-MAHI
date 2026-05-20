@@ -38,7 +38,7 @@ import { ScheduleInstallationSheet } from "./ScheduleInstallationSheet";
 
 export function ProjectStartActions({ project }: { project: Project }) {
   const { updateProject, markAccrualPayable, agentCommissionAccruals } = useAppData();
-  const { currentRole } = useAppSession();
+  const { currentRole, sessionUserId } = useAppSession();
 
   const ready = project.siteReadiness?.ready === true;
   const lifecycleKey = normalizeLifecycleForTransition(project.lifecycleStatus);
@@ -55,7 +55,7 @@ export function ProjectStartActions({ project }: { project: Project }) {
         ready: nextReady,
         note: readinessNote.trim() || undefined,
         markedAt: new Date().toISOString(),
-        markedBy: 0,
+        markedBy: sessionUserId,
       },
     });
     toast({

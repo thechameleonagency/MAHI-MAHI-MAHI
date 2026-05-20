@@ -14,7 +14,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -338,7 +339,6 @@ const Materials = () => {
 
   const damageItemName = (itemId: string) =>
     inventoryItems.find((i) => i.id === itemId)?.name ?? `Item #${itemId}`;
-
 
   // Handlers
   const handleItemSelectForIssue = (itemId: string, checked: boolean) => {
@@ -1163,7 +1163,7 @@ const Materials = () => {
 
       {/* Item Detail View Modal */}
       <Sheet open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>{selectedItemForDetail && getDisplayName(selectedItemForDetail)}</SheetTitle>
           </SheetHeader>
@@ -1305,12 +1305,12 @@ const Materials = () => {
               </div>
             </div>
           )}
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Add Material Modal */}
       <Sheet open={isAddItemOpen} onOpenChange={setIsAddItemOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Add New Material</SheetTitle>
           </SheetHeader>
@@ -1430,12 +1430,12 @@ const Materials = () => {
             <Button variant="outline" onClick={() => setIsAddItemOpen(false)}>Cancel</Button>
             <Button onClick={handleAddItemSave}>Add Item</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Add Item Confirmation */}
       <Sheet open={isAddItemConfirmOpen} onOpenChange={setIsAddItemConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" />
@@ -1446,12 +1446,12 @@ const Materials = () => {
           <SheetFooter>
             <Button onClick={() => setIsAddItemConfirmOpen(false)}>Done</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Edit Item Modal */}
       <Sheet open={isEditItemOpen} onOpenChange={setIsEditItemOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Edit: {selectedItemForEdit && getDisplayName(selectedItemForEdit)}</SheetTitle>
           </SheetHeader>
@@ -1617,12 +1617,12 @@ const Materials = () => {
             <Button variant="outline" onClick={() => setIsEditItemOpen(false)}>Cancel</Button>
             <Button onClick={handleEditItemSave}>Save Changes</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Edit Item Confirmation */}
       <Sheet open={isEditItemConfirmOpen} onOpenChange={setIsEditItemConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" /> Changes Saved
@@ -1630,7 +1630,7 @@ const Materials = () => {
           </SheetHeader>
           <p className="text-muted-foreground">Item details have been updated successfully.</p>
           <SheetFooter><Button onClick={() => setIsEditItemConfirmOpen(false)}>Done</Button></SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <DestructiveConfirmDialog
@@ -1657,7 +1657,7 @@ const Materials = () => {
 
       {/* Item History Modal */}
       <Sheet open={isItemHistoryOpen} onOpenChange={setIsItemHistoryOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Movement History: {selectedItemForHistory && getDisplayName(selectedItemForHistory)}</SheetTitle>
           </SheetHeader>
@@ -1712,12 +1712,12 @@ const Materials = () => {
               );
             })}
           </div>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Issue to Site Modal - with expense & task options */}
       <Sheet open={isIssueToSiteOpen} onOpenChange={setIsIssueToSiteOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Truck className="w-5 h-5 text-primary" /> Issue Items to Site
@@ -1847,12 +1847,12 @@ const Materials = () => {
               <CheckCircle2 className="w-4 h-4 mr-2" /> Issue Items
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Issue Confirmation */}
       <Sheet open={isIssueConfirmOpen} onOpenChange={setIsIssueConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" /> Items Issued Successfully
@@ -1864,12 +1864,12 @@ const Materials = () => {
           <SheetFooter>
             <Button onClick={() => { setIsIssueConfirmOpen(false); setSelectedItemsToIssue({}); setSelectedSiteForIssue(""); }}>Done</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Return from Site Modal */}
       <Sheet open={isReturnFromSiteOpen} onOpenChange={setIsReturnFromSiteOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Return Items from Site</SheetTitle>
           </SheetHeader>
@@ -1911,12 +1911,12 @@ const Materials = () => {
               Confirm Return
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Return Confirmation */}
       <Sheet open={isReturnConfirmOpen} onOpenChange={setIsReturnConfirmOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-primary" /> Items Returned Successfully
@@ -1926,12 +1926,12 @@ const Materials = () => {
           <SheetFooter>
             <Button onClick={() => { setIsReturnConfirmOpen(false); setReturnQuantities({}); setSelectedSiteForReturn(""); }}>Done</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* Add to Scrap Modal */}
       <Sheet open={isAddToScrapOpen} onOpenChange={setIsAddToScrapOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Recycle className="w-5 h-5 text-primary" /> Add to Scrap
@@ -1969,12 +1969,12 @@ const Materials = () => {
               <Recycle className="w-4 h-4 mr-2" /> Convert to Scrap
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       {/* View Scrap Modal */}
       <Sheet open={isViewScrapOpen} onOpenChange={setIsViewScrapOpen}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Eye className="w-5 h-5 text-primary" /> Scrap Inventory
@@ -2023,7 +2023,7 @@ const Materials = () => {
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsViewScrapOpen(false)}>Close</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <NeedToGetSheet open={needToGetOpen} onOpenChange={setNeedToGetOpen} />
@@ -2046,7 +2046,7 @@ const Materials = () => {
         open={!!reverseMovementTarget}
         onOpenChange={(open) => { if (!open) { setReverseMovementTarget(null); setReverseMovementReason(""); } }}
       >
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Reverse inventory movement</SheetTitle>
           </SheetHeader>
@@ -2090,7 +2090,7 @@ const Materials = () => {
               Reverse movement
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );

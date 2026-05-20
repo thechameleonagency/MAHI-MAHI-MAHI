@@ -1,4 +1,5 @@
 import type { Feature } from "@/domain/policies/featurePermissions";
+import { LEGACY_APP_REDIRECT_PATHS, normalizePathname } from "@/lib/appRouteRegistry";
 
 /**
  * Maps app route prefixes to a primary feature for `view` permission.
@@ -12,7 +13,6 @@ export const ROUTE_VIEW_FEATURE: { prefix: string; feature: Feature }[] = [
   { prefix: "/customers", feature: "customer" },
   { prefix: "/agents", feature: "agent" },
   { prefix: "/invoices", feature: "invoice" },
-  { prefix: "/sale-bills", feature: "saleBill" },
   { prefix: "/finance", feature: "financeHub" },
   { prefix: "/partners", feature: "partner" },
   { prefix: "/vendorship-companies", feature: "partner" },
@@ -24,8 +24,6 @@ export const ROUTE_VIEW_FEATURE: { prefix: string; feature: Feature }[] = [
   { prefix: "/inventory/materials", feature: "inventoryItem" },
   { prefix: "/inventory/tools", feature: "tool" },
   { prefix: "/templates", feature: "template" },
-  { prefix: "/presets", feature: "template" },
-  { prefix: "/inventory/presets", feature: "template" },
   { prefix: "/inventory", feature: "inventoryItem" },
   { prefix: "/employees", feature: "employee" },
   { prefix: "/teams", feature: "team" },
@@ -39,7 +37,10 @@ export const ROUTE_VIEW_FEATURE: { prefix: string; feature: Feature }[] = [
 ];
 
 export function featureForPath(pathname: string): Feature | undefined {
-  const path = pathname.split("?")[0].split("#")[0];
+  const path = normalizePathname(pathname.split("?")[0].split("#")[0]);
+  if ((LEGACY_APP_REDIRECT_PATHS as readonly string[]).includes(path)) {
+    return undefined;
+  }
   if (path === "/") return "dashboard";
   let best: { prefix: string; feature: Feature } | undefined;
   for (const entry of ROUTE_VIEW_FEATURE) {

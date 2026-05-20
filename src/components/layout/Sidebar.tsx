@@ -35,6 +35,7 @@ import {
   HardHat,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MOBILE_SIDEBAR_WIDTH_PX } from "@/lib/mobileSidebarSwipe";
 import { Badge } from "@/components/ui/badge";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
@@ -158,6 +159,15 @@ const Sidebar = ({ mobileOpen, onMobileClose }: SidebarProps) => {
   const { currentRole } = useAppSession();
 
   const refreshPins = useCallback(() => setPinnedPaths(readPinnedPaths()), []);
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const sync = () => setIsMobileLayout(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
@@ -255,12 +265,28 @@ const Sidebar = ({ mobileOpen, onMobileClose }: SidebarProps) => {
     .filter((item) => permissionService.canAccessPath(currentRole, item.path));
   const seenPinned = new Set(pinnedItemsOrdered.map((i) => i.path));
 
+  const useSwipeTransform =
+    isMobileLayout &&
+    (swipeDragging || (mobileOpen && swipeDragOffset !== 0));
+
   return (
     <aside
+      {...swipeTouchHandlers}
       className={cn(
-        "fixed inset-y-0 left-0 z-50 flex h-screen max-h-screen w-64 min-w-[256px] flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-transform duration-200 ease-out lg:static lg:z-0 lg:translate-x-0",
-        mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        "fixed inset-y-0 left-0 z-50 flex h-screen max-h-screen w-64 min-w-[256px] flex-col overflow-hidden border-r border-sidebar-border bg-sidebar lg:static lg:z-0 lg:translate-x-0",
+        swipeDragging ? "transition-none" : "transition-transform duration-200 ease-out",
+        !useSwipeTransform && (mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"),
+        swipeDragging && "touch-none",
       )}
+      style={
+        useSwipeTransform
+          ? {
+              transform: `translateX(${
+                mobileOpen ? swipeDragOffset : -MOBILE_SIDEBAR_WIDTH_PX
+              }px)`,
+            }
+          : undefined
+      }
     >
       <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border bg-sidebar px-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm">

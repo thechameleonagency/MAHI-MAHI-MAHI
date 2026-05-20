@@ -12,7 +12,8 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -835,7 +836,7 @@ const AgentDetail = () => {
 
       {/* Record Payment Modal */}
       <Sheet open={showPaymentModal} onOpenChange={setShowPaymentModal}>
-        <SheetContent className="w-full sm:max-w-4xl sm:w-[90vw] p-0 overflow-hidden overflow-y-auto custom-scrollbar">
+        <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Record Commission Payment</SheetTitle>
           </SheetHeader>
@@ -896,11 +897,11 @@ const AgentDetail = () => {
             <Button variant="outline" onClick={() => setShowPaymentModal(false)}>Cancel</Button>
             <Button onClick={handleRecordPayment}>Record Payment</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <Sheet open={isEditAgentOpen} onOpenChange={setIsEditAgentOpen}>
-        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+        <AppSheetContent layout="form" size="lg">
           <SheetHeader>
             <SheetTitle>Edit agent</SheetTitle>
           </SheetHeader>
@@ -963,7 +964,7 @@ const AgentDetail = () => {
             </Button>
             <Button onClick={saveAgentProfile}>Save</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
 
       <DestructiveConfirmDialog
@@ -983,7 +984,7 @@ const AgentDetail = () => {
         open={!!editPayTarget}
         onOpenChange={(o) => { if (!o) { setEditPayTarget(null); setEditPayNewAmount(""); } }}
       >
-        <SheetContent className="w-full sm:max-w-md">
+        <AppSheetContent layout="form" size="md">
           <SheetHeader>
             <SheetTitle>Edit commission payment</SheetTitle>
           </SheetHeader>
@@ -1011,7 +1012,7 @@ const AgentDetail = () => {
             </Button>
             <Button onClick={handleSaveEditPay}>Save</Button>
           </SheetFooter>
-        </SheetContent>
+        </AppSheetContent>
       </Sheet>
     </PageShell>
   );
