@@ -104,7 +104,7 @@ describe("canFeature — salesperson scope", () => {
     expect(canFeature("salesperson", "invoice", "view")).toBe(false);
     expect(canFeature("salesperson", "payment", "create")).toBe(false);
     expect(canFeature("salesperson", "projectCommercial", "view")).toBe(false);
-    expect(canFeature("salesperson", "auditPage", "view")).toBe(false);
+    expect(canFeature("salesperson", "auditProfitLoss", "view")).toBe(false);
     expect(canFeature("salesperson", "analytics", "view")).toBe(false);
     expect(canFeature("salesperson", "settingsMasters", "view")).toBe(false);
   });
@@ -136,7 +136,7 @@ describe("canFeature — installation_team scope", () => {
     expect(canFeature("installation_team", "vendor", "view")).toBe(false);
     expect(canFeature("installation_team", "partner", "view")).toBe(false);
     expect(canFeature("installation_team", "loan", "view")).toBe(false);
-    expect(canFeature("installation_team", "auditPage", "view")).toBe(false);
+    expect(canFeature("installation_team", "auditCashBank", "view")).toBe(false);
     expect(canFeature("installation_team", "analytics", "view")).toBe(false);
     expect(canFeature("installation_team", "settingsMasters", "view")).toBe(false);
   });
@@ -165,7 +165,8 @@ describe("canFeature — CEO read-only-plus-Analytics", () => {
   it("can view operations + finance + audit + analytics", () => {
     expect(canFeature("ceo", "project", "view")).toBe(true);
     expect(canFeature("ceo", "invoice", "view")).toBe(true);
-    expect(canFeature("ceo", "auditPage", "view")).toBe(true);
+    expect(canFeature("ceo", "auditProfitLoss", "view")).toBe(true);
+    expect(canFeature("ceo", "auditCashBank", "view")).toBe(true);
     expect(canFeature("ceo", "analytics", "view")).toBe(true);
   });
 

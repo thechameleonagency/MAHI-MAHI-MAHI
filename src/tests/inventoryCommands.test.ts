@@ -52,7 +52,7 @@ describe("Material movement at project", () => {
       endDate: null,
       createdAt: "2026-01-01",
       customerId: "C-1",
-      lifecycleStatus: "Active",
+      lifecycleStatus: "In Progress",
       executionPhase: "execution",
     };
     const item1 = { ...dummyInventoryItems[0] };
@@ -106,7 +106,7 @@ describe("Material movement at project", () => {
       endDate: null,
       createdAt: "2026-01-01",
       customerId: "C-1",
-      lifecycleStatus: "Active",
+      lifecycleStatus: "In Progress",
       executionPhase: "execution",
     };
     const repositories = makeCtx(project, [item1]);

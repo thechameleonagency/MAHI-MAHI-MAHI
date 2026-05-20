@@ -32,6 +32,7 @@ import {
   type ProjectTeamAssignmentDraft,
 } from "@/lib/projectTeamAssignment";
 import { filterActiveCustomers } from "@/lib/customerListFilters";
+import { resolveContractAmount } from "@/domain/quotation/quotationCommercialAmount";
 
 interface CreateProjectSheetProps {
   open: boolean;
@@ -224,7 +225,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
     setSelectedQuotationId(q.id);
     setProjectName(`${q.clientName} – ${q.systemCapacity}kW`);
     setCapacity(q.systemCapacity || "");
-    setContractAmount(String(q.clientAgreedAmount || q.totalAmount || ""));
+    setContractAmount(String(resolveContractAmount(q) || ""));
     if (q.paymentType) setPaymentTypeMss(q.paymentType);
     if (q.customerId) {
       setCustomerMode("select");
@@ -1022,7 +1023,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                       >
                         <div>
                           <p className="text-sm font-medium">{q.clientName}</p>
-                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{(q.clientAgreedAmount || q.totalAmount)?.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{resolveContractAmount(q).toLocaleString()}</p>
                         </div>
                         {selectedQuotationId === q.id
                           ? <Check className="h-4 w-4 text-primary" />
@@ -1301,7 +1302,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                       >
                         <div>
                           <p className="text-sm font-medium">{q.clientName}</p>
-                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{(q.clientAgreedAmount || q.totalAmount)?.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{resolveContractAmount(q).toLocaleString()}</p>
                         </div>
                         {selectedQuotationId === q.id ? <Check className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                       </div>
@@ -1491,7 +1492,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                       >
                         <div>
                           <p className="text-sm font-medium">{q.clientName}</p>
-                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{(q.clientAgreedAmount || q.totalAmount)?.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{resolveContractAmount(q).toLocaleString()}</p>
                         </div>
                         {selectedQuotationId === q.id ? <Check className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                       </div>

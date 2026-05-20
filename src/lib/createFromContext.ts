@@ -18,6 +18,7 @@
  *  - Inventory items: invoice duplicate carries items but NOT customer/projectId/dates.
  */
 
+import { resolveContractAmount } from "@/domain/quotation/quotationCommercialAmount";
 import type {
   Enquiry,
   Project,
@@ -248,7 +249,7 @@ export function buildQuotationToProjectDraft(
     ),
     capacityText: quotation.systemCapacity,
     capacityKw: parseKwFromText(quotation.systemCapacity),
-    contractAmount: quotation.clientAgreedAmount ?? quotation.totalAmount ?? 0,
+    contractAmount: resolveContractAmount(quotation),
     agentId: quotation.agentId,
     quotationId: quotation.id,
     paymentType: quotation.paymentType,
@@ -468,6 +469,7 @@ export interface QuotationCloneDraft {
   paymentTermsSummary?: string;
   agentId?: string;
   enquiryId?: string;
+  withoutEnquiryReason?: string;
   systemCategory?: Quotation["systemCategory"];
   systemCapacity?: string;
   systemConfigNotes?: string;
@@ -497,6 +499,7 @@ export function buildQuotationCloneDraft(q: Quotation): QuotationCloneDraft {
     paymentTermsSummary: q.paymentTermsSummary,
     agentId: q.agentId,
     enquiryId: q.enquiryId,
+    withoutEnquiryReason: q.withoutEnquiryReason,
     systemCategory: q.systemCategory,
     systemCapacity: q.systemCapacity,
     systemConfigNotes: q.systemConfigNotes,

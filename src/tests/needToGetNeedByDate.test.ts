@@ -53,7 +53,7 @@ describe("NeedToGetService need-by dates", () => {
         endDate: null,
         createdAt: "2026-01-01",
         customerId: "C-1",
-        lifecycleStatus: "Active",
+        lifecycleStatus: "In Progress",
         executionPhase: "execution",
         status: "Ongoing",
         executionLineItems: [
@@ -120,7 +120,7 @@ describe("NeedToGetService need-by dates", () => {
         endDate: null,
         createdAt: "2026-01-01",
         customerId: "C-1",
-        lifecycleStatus: "Active",
+        lifecycleStatus: "In Progress",
         executionPhase: "execution",
         status: "Ongoing",
         executionLineItems: [

@@ -35,7 +35,7 @@ export function filterActiveSiteProjects(projects: Project[]): Project[] {
     if (p.status === "Completed" || p.status === "Closed") return false;
     return (
       p.status === "Ongoing" ||
-      p.lifecycleStatus === "Active" ||
+      p.lifecycleStatus === "In Progress" ||
       p.lifecycleStatus === "In Progress" ||
       p.lifecycleStatus === "On Hold"
     );

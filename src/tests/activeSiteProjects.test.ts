@@ -9,7 +9,7 @@ const base = {
   capacity: "5 kW",
   contractAmount: 100000,
   status: "Ongoing",
-  lifecycleStatus: "Active",
+  lifecycleStatus: "In Progress",
 } as Project;
 
 describe("isActiveSiteProject", () => {

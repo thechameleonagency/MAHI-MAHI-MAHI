@@ -21,6 +21,11 @@ const baseTransitions: Record<EnquiryStatus, EnquiryStatus[]> = {
   lost: [],
 };
 
+/** Lost → new reopen is restricted to admin / super_admin (UI should gate before opening the sheet). */
+export function canReopenLostEnquiry(actorRole: UserRole): boolean {
+  return actorRole === "super_admin" || actorRole === "admin";
+}
+
 export const canTransitionEnquiryStatus = (
   from: EnquiryStatus,
   to: EnquiryStatus,
@@ -29,7 +34,7 @@ export const canTransitionEnquiryStatus = (
 ): boolean => {
   if (enquiryTransitionRequiresTerminalReason(from, to)) {
     if (from === "lost" && to === "new") {
-      return ["super_admin", "admin"].includes(actorRole) && isEnquiryTerminalReasonValid(reason);
+      return canReopenLostEnquiry(actorRole) && isEnquiryTerminalReasonValid(reason);
     }
     return isEnquiryTerminalReasonValid(reason);
   }

@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { FeaturePermissionMatrix } from "@/domain/policies/featurePermissions";
-import { DEFAULT_FEATURE_PERMISSIONS } from "@/domain/policies/featurePermissions";
+import {
+  buildFeaturePermissionMatrixDraft,
+  DEFAULT_FEATURE_PERMISSIONS,
+  migrateRoleMatrixOverride,
+} from "@/domain/policies/featurePermissions";
 
 const STORAGE_KEY = "mss.roleMatrix.v1";
 const STORAGE_VERSION = 1;
@@ -33,7 +37,7 @@ function loadFromStorage(): Partial<FeaturePermissionMatrix> | undefined {
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as StoredOverride;
     if (parsed?.version !== STORAGE_VERSION) return undefined;
-    return parsed.overrides ?? undefined;
+    return migrateRoleMatrixOverride(parsed.overrides ?? undefined);
   } catch {
     return undefined;
   }
@@ -73,8 +77,9 @@ export function RoleMatrixProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const saveOverride = useCallback((next: Partial<FeaturePermissionMatrix> | undefined) => {
-    persistToStorage(next);
-    setOverride(next);
+    const normalized = migrateRoleMatrixOverride(next);
+    persistToStorage(normalized);
+    setOverride(normalized);
   }, []);
 
   const resetToDefaults = useCallback(() => {
@@ -82,17 +87,10 @@ export function RoleMatrixProvider({ children }: { children: ReactNode }) {
     setOverride(undefined);
   }, []);
 
-  const effectiveMatrix: FeaturePermissionMatrix = useMemo(() => {
-    if (!override) return DEFAULT_FEATURE_PERMISSIONS;
-    const merged = { ...DEFAULT_FEATURE_PERMISSIONS };
-    for (const key of Object.keys(override) as (keyof FeaturePermissionMatrix)[]) {
-      const overrideRow = override[key];
-      if (overrideRow) {
-        merged[key] = overrideRow;
-      }
-    }
-    return merged;
-  }, [override]);
+  const effectiveMatrix: FeaturePermissionMatrix = useMemo(
+    () => buildFeaturePermissionMatrixDraft(override),
+    [override],
+  );
 
   const value: RoleMatrixContextValue = {
     override,

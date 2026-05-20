@@ -12,16 +12,13 @@ import {
 import { calculateProjectProfit as derivePartnerProfit } from "@/domain/partners/derivePartnerEconomics";
 import type { Expense, Invoice, Payment } from "@/types/finance";
 import type { VendorBill } from "@/types/inventory";
-import type { Project, Quotation } from "@/types/project";
+import type { Project } from "@/types/project";
+import { resolveContractAmount } from "@/domain/quotation/quotationCommercialAmount";
 
 export type ProfitMode = "cash" | "accrual";
 
-/** Agreed commercial value at quotation conversion (GST-inclusive total unless clientAgreedAmount set). */
-export function resolveContractAmount(
-  quotation: Pick<Quotation, "clientAgreedAmount" | "totalAmount">,
-): number {
-  return quotation.clientAgreedAmount ?? quotation.totalAmount ?? 0;
-}
+/** @see resolveContractAmount in quotationCommercialAmount */
+export { resolveContractAmount };
 
 export function computeProjectProfit(
   project: Pick<Project, "id" | "contractAmount" | "totalCost" | "amountReceived" | "amountInvoiced">,

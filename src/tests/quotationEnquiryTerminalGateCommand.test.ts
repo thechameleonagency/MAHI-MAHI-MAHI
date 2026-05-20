@@ -81,7 +81,8 @@ describe("CREATE_QUOTATION terminal enquiry gate", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.errorCode).toBe("ENQUIRY_TERMINAL_FOR_QUOTATION");
+      expect(result.errorCode).toBe("QUOTATION_CREATE_SOURCE_INVALID");
+      expect(result.message).toMatch(/lost/i);
     }
     expect(repositories.quotationRepository.getAll()).toHaveLength(0);
     expect(repositories.enquiryRepository.getById("ENQ-L")?.status).toBe("lost");

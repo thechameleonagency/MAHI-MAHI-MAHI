@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Package, Check, AlertTriangle, ArrowUp, ArrowDown, Plus, Send, Truck, Calendar, CheckCircle2, Wrench, ChevronDown, ChevronRight, User, RotateCcw, ShieldAlert } from "lucide-react";
+import { Package, Check, AlertTriangle, ArrowUp, ArrowDown, Plus, Send, Truck, Calendar, CheckCircle2, Wrench, ChevronDown, ChevronRight, User, RotateCcw, ShieldAlert, MoreHorizontal } from "lucide-react";
 import { MaterialDamageSheet } from "@/components/projects/MaterialDamageSheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,13 @@ import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { formatUiDate } from "@/lib/formatUiDate";
@@ -785,26 +792,81 @@ export default function MaterialsSentTab({
                                   </div>
                                 </div>
                                 
-                                {/* Actions Row */}
-                                <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                                  <div className="flex gap-2">
+                                {/* Actions Row — primary inline; secondary in More menu below md (O12) */}
+                                <div className="flex items-center justify-between mt-3 pt-3 border-t gap-2 flex-wrap">
+                                  <div className="flex flex-wrap gap-2 items-center min-w-0">
                                     <Button variant="outline" size="sm" onClick={() => handleOpenSendMore(material)}>
                                       <Plus className="w-3 h-3 mr-1" /> Send More
                                     </Button>
-                                    <Button variant="outline" size="sm" onClick={() => handleOpenReturn(material)}>
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" size="sm" className="md:hidden shrink-0">
+                                          <MoreHorizontal className="w-3.5 h-3.5 mr-1" />
+                                          More
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="start" className="w-52">
+                                        <DropdownMenuItem onClick={() => handleOpenReturn(material)}>
+                                          <RotateCcw className="w-3.5 h-3.5 mr-2" />
+                                          Return unused
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleOpenConsume(material)}>
+                                          <Check className="w-3.5 h-3.5 mr-2" />
+                                          Consume
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleOpenScrap(material)}>
+                                          <AlertTriangle className="w-3.5 h-3.5 mr-2" />
+                                          Scrap
+                                        </DropdownMenuItem>
+                                        {projectId ? (
+                                          <DropdownMenuItem
+                                            onClick={() =>
+                                              setDamageSheet({
+                                                itemId: material.id,
+                                                itemName: material.name,
+                                                unitPrice: material.unitPrice,
+                                              })
+                                            }
+                                          >
+                                            <ShieldAlert className="w-3.5 h-3.5 mr-2" />
+                                            Report damage
+                                          </DropdownMenuItem>
+                                        ) : null}
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem onClick={() => handleSelectItem(material.id, !isSelected)}>
+                                          {isSelected ? "Remove from issue list" : "Add to issue list"}
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="hidden md:inline-flex"
+                                      onClick={() => handleOpenReturn(material)}
+                                    >
                                       <RotateCcw className="w-3 h-3 mr-1" /> Return Unused
                                     </Button>
-                                    <Button variant="outline" size="sm" onClick={() => handleOpenConsume(material)}>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="hidden md:inline-flex"
+                                      onClick={() => handleOpenConsume(material)}
+                                    >
                                       <Check className="w-3 h-3 mr-1" /> Consume
                                     </Button>
-                                    <Button variant="outline" size="sm" onClick={() => handleOpenScrap(material)}>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="hidden md:inline-flex"
+                                      onClick={() => handleOpenScrap(material)}
+                                    >
                                       <AlertTriangle className="w-3 h-3 mr-1" /> Scrap
                                     </Button>
                                     {projectId && (
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        className="border-accent/30 text-accent-foreground"
+                                        className="hidden md:inline-flex border-accent/30 text-accent-foreground"
                                         onClick={() =>
                                           setDamageSheet({
                                             itemId: material.id,
@@ -816,7 +878,12 @@ export default function MaterialsSentTab({
                                         <ShieldAlert className="w-3 h-3 mr-1" /> Report damage
                                       </Button>
                                     )}
-                                    <Button variant="ghost" size="sm" onClick={() => handleSelectItem(material.id, !isSelected)}>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="hidden md:inline-flex"
+                                      onClick={() => handleSelectItem(material.id, !isSelected)}
+                                    >
                                       {isSelected ? "Remove from Issue List" : "Add to Issue List"}
                                     </Button>
                                   </div>

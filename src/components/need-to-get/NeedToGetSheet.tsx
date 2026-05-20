@@ -21,6 +21,7 @@ import {
   countActiveSitesByProjectId,
   formatNeedToGetMergeSummary,
   NEED_TO_GET_GROUP_LABELS,
+  NEED_TO_GET_GROUP_MODES,
   NEED_TO_GET_MERGE_HINT,
   needToGetLocationLabel as needToGetLocationLabelFn,
   summarizeNeedToGetMerge,
@@ -796,7 +797,7 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
                 <PopoverContent className="w-72 p-0" align="start">
                   <div className="border-b px-3 py-2 text-xs font-medium">Group / sort view</div>
                   <div className="flex flex-col gap-0.5 p-2">
-                    {(Object.keys(NEED_TO_GET_GROUP_LABELS) as NeedToGetGroupMode[]).map((mode) => (
+                    {NEED_TO_GET_GROUP_MODES.map((mode) => (
                       <Button
                         key={mode}
                         type="button"

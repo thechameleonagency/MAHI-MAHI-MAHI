@@ -41,8 +41,8 @@ describe("State machine rules", () => {
     expect(canTransitionProjectStatus("Completed", "In Progress", "super_admin", "Rework needed")).toBe(true);
   });
 
-  it("maps Active lifecycle to In Progress transitions without throwing", () => {
-    expect(canTransitionProjectStatus("Active", "On Hold", "admin")).toBe(true);
-    expect(canTransitionProjectStatus("Active", "Completed", "admin")).toBe(true);
+  it("allows In Progress to On Hold and Completed", () => {
+    expect(canTransitionProjectStatus("In Progress", "On Hold", "admin")).toBe(true);
+    expect(canTransitionProjectStatus("In Progress", "Completed", "admin")).toBe(true);
   });
 });

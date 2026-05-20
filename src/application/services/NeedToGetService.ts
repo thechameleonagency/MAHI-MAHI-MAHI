@@ -33,7 +33,17 @@ function checklistNonMaterialRowId(siteId: string, lineId: string): string {
 }
 
 /** How the Need-to-Get table groups and merges lines (see `aggregateNeedToGetRows`). */
-export type NeedToGetGroupMode = "flat" | "project" | "site" | "material" | "needBy";
+export type NeedToGetGroupMode = "flat" | "project" | "material";
+
+/** Prototype group modes exposed in the UI (site / need-by removed — use flat + filters). */
+export const NEED_TO_GET_GROUP_MODES: readonly NeedToGetGroupMode[] = ["flat", "project", "material"];
+
+/** Map removed legacy modes from bookmarks or old builds to a supported mode. */
+export function normalizeNeedToGetGroupMode(value: string | null | undefined): NeedToGetGroupMode {
+  if (value === "project" || value === "material") return value;
+  if (value === "site" || value === "needBy") return value === "needBy" ? "material" : "flat";
+  return "flat";
+}
 
 /** Row after merge: `displayWhere` is what to show instead of raw per-site labels when lines are combined. */
 export type NeedToGetViewRow = NeedToGetRow & {
@@ -48,12 +58,8 @@ function mergeBucketKey(mode: NeedToGetGroupMode, r: NeedToGetRow): string {
       return `${r.projectId}|${r.siteId}|${r.materialId}|${r.needByDate}`;
     case "project":
       return `${r.projectId}|${r.materialId}|${r.needByDate}`;
-    case "site":
-      return `${r.siteId}|${r.materialId}|${r.needByDate}`;
     case "material":
       return String(r.materialId);
-    case "needBy":
-      return `${r.materialId}|${r.needByDate}`;
   }
 }
 
@@ -88,9 +94,7 @@ function weightedAvgRate(members: NeedToGetRow[]): number {
  * Merges shortfall lines according to the current group mode so the table matches user intent:
  * - **flat** — one row per (project, site, material, need-by); duplicates collapse.
  * - **project** — combine sites within the same project when material + need-by match.
- * - **site** — combine only duplicate keys within a site.
  * - **material** — single total per material in the filter (earliest need-by when dates differ).
- * - **needBy** — combine across locations when material + need-by date match.
  */
 export function aggregateNeedToGetRows(
   rows: NeedToGetRow[],
@@ -163,16 +167,7 @@ export function aggregateNeedToGetRows(
         a.materialName.localeCompare(b.materialName)
       );
     }
-    if (mode === "site") {
-      return a.siteName.localeCompare(b.siteName) || a.materialName.localeCompare(b.materialName);
-    }
-    if (mode === "material") {
-      return a.materialName.localeCompare(b.materialName);
-    }
-    if (mode === "needBy") {
-      return a.needByDate.localeCompare(b.needByDate) || a.materialName.localeCompare(b.materialName);
-    }
-    return 0;
+    return a.materialName.localeCompare(b.materialName);
   });
 
   return sorted;
@@ -182,23 +177,17 @@ export function aggregateNeedToGetRows(
 export const NEED_TO_GET_GROUP_LABELS: Record<NeedToGetGroupMode, string> = {
   flat: "Flat list",
   project: "By project",
-  site: "By site",
   material: "By material",
-  needBy: "By need-by date",
 };
 
 /** How rows merge for each mode — shown in tooltips and the group-mode picker. */
 export const NEED_TO_GET_MERGE_HINT: Record<NeedToGetGroupMode, string> = {
   flat:
-    "One row per site, material, and need-by date. Duplicate checklist lines at the same site collapse into one quantity.",
+    "One row per site, material, and need-by date. Use project/site filters to narrow; multi-site projects show the site in Where.",
   project:
     "Combines rows inside each project when material and need-by date match (multiple sites roll into one line per project).",
-  site:
-    "Combines duplicate keys within the same site only (same material + same need-by date).",
   material:
     "Totals each material across the current filter. Need-by shows the earliest date among merged lines.",
-  needBy:
-    "Combines the same material on the same need-by date across projects and sites.",
 };
 
 export type NeedToGetMergeStats = {

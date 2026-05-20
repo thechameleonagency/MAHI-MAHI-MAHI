@@ -80,7 +80,7 @@ describe("continuity pipeline order", () => {
       client: enquiry.customerName,
       customerId: "C-100",
       quotationId: "Q-100",
-      lifecycleStatus: "Active",
+      lifecycleStatus: "In Progress",
       projectType: "Residential",
       projectCategory: "solar",
       capacity: "8",

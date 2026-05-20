@@ -19,6 +19,7 @@ import { AlertCircle, Download, RotateCcw } from "lucide-react";
 import { downloadCSV } from "@/lib/csvExport";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { AUDIT_FEATURE_LABELS, AUDIT_VIEW_FEATURES } from "@/lib/auditRouteFeatures";
 
 const CRUDS: Crud[] = ["view", "create", "edit", "delete"];
 
@@ -76,10 +77,14 @@ const DOMAIN_GROUPS: { id: string; label: string; features: Feature[] }[] = [
     features: ["employee", "team", "attendance", "holiday", "payroll", "employeeWallet"],
   },
   {
+    id: "audit",
+    label: "Audit & Books (per page)",
+    features: [...AUDIT_VIEW_FEATURES],
+  },
+  {
     id: "system",
     label: "System & Pages",
     features: [
-      "auditPage",
       "analytics",
       "calendar",
       "timeline",
@@ -141,7 +146,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   holiday: "Holiday",
   payroll: "Payroll",
   employeeWallet: "Employee wallet (advances)",
-  auditPage: "Audit pages",
+  ...AUDIT_FEATURE_LABELS,
   analytics: "Analytics",
   calendar: "Calendar",
   timeline: "Timeline",
@@ -249,8 +254,9 @@ export function RoleMatrixTab() {
             <p className="font-medium text-foreground">Effective permissions</p>
             <p className="text-xs">
               Saved matrix changes apply to <code className="text-xs">useCan</code>-gated buttons and to route access
-              (sidebar, pins, deep links) via each page&apos;s <strong>View</strong> column. Action verbs (Create / Edit /
-              Delete) gate commands and forms.
+              (sidebar, pins, deep links) via each page&apos;s <strong>View</strong> column. Audit &amp; Books has one row
+              per <code className="text-xs">/audit/*</code> route — e.g. Profit &amp; loss vs Cash &amp; bank are independent.
+              Action verbs (Create / Edit / Delete) gate commands and forms.
             </p>
           </div>
         </div>

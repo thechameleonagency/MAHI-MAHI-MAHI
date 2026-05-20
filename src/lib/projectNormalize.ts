@@ -3,6 +3,10 @@ import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/typ
 import { inferProjectKindFromTaxonomy } from "@/lib/projectTaxonomyDisplay";
 import { withResolvedExecutionLineItems } from "@/domain/project/executionLineItems";
 import { normalizeProjectPaymentType } from "@/domain/project/projectPaymentType";
+import {
+  canonicalizeProjectLifecycleStatus,
+  legacyStatusFromLifecycle,
+} from "@/domain/stateMachines/projectStateMachine";
 import type { Project } from "@/types/project";
 import { normalizeSiteReadinessMarkedBy } from "@/lib/siteReadinessNormalize";
 
@@ -68,34 +72,26 @@ export function normalizeProject(p: Project): Project {
     kind = "SOLO_EPC";
   }
 
-  // Enforce coherent synchronization between lifecycleStatus and legacy status/progressStage
-  let lifecycleStatus = p.lifecycleStatus;
-  // Unstarted intake rows → canonical "New" (C7); in-flight legacy Active rows stay until startedAt is set
+  // Canonical lifecycle once at hydrate (O9); legacy status is derived for list badges.
+  let lifecycleStatus = canonicalizeProjectLifecycleStatus(
+    p.lifecycleStatus ??
+      (p.status === "Completed" || p.status === "Closed"
+        ? p.status
+        : p.status === "On Hold"
+          ? "On Hold"
+          : p.status === "Ongoing"
+            ? "In Progress"
+            : undefined),
+  );
   const isIntakeUnstarted =
     !p.startedAt &&
     (p.progressStage === "new" ||
       p.executionPhase === "Intake" ||
-      lifecycleStatus === "Draft");
-  if ((lifecycleStatus === "Active" || lifecycleStatus === "Draft") && isIntakeUnstarted) {
+      p.executionPhase === "intake");
+  if (isIntakeUnstarted) {
     lifecycleStatus = "New";
   }
-  let status = p.status;
-  if (lifecycleStatus && !status) {
-    status = lifecycleStatus === "Completed" ? "Completed" : lifecycleStatus === "On Hold" ? "On Hold" : "Ongoing";
-  } else if (status && !lifecycleStatus) {
-    lifecycleStatus = status === "Completed" ? "Completed" : status === "On Hold" ? "On Hold" : status === "Ongoing" ? "Active" : "Draft";
-  } else if (lifecycleStatus && status) {
-    if (lifecycleStatus === "Completed" || status === "Completed") {
-      lifecycleStatus = "Completed";
-      status = "Completed";
-    } else if (lifecycleStatus === "On Hold" || status === "On Hold") {
-      lifecycleStatus = "On Hold";
-      status = "On Hold";
-    }
-  } else if (!lifecycleStatus && !status) {
-    lifecycleStatus = "New";
-    status = "Ongoing";
-  }
+  const status = legacyStatusFromLifecycle(lifecycleStatus);
 
   // Migrate legacy projectKind → new attribute fields. If the new fields are already set,
   // prefer them; only backfill the absent ones.

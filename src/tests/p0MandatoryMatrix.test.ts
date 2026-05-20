@@ -43,7 +43,7 @@ const makeProject = (overrides: Partial<Project> = {}): Project => ({
   endDate: null,
   createdAt: "2026-01-01",
   customerId: "C-1",
-  lifecycleStatus: "Active",
+  lifecycleStatus: "In Progress",
   executionPhase: "execution",
   ...overrides,
 });

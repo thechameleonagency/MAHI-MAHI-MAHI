@@ -1,4 +1,5 @@
 import { resolveProjectExecutionLineItems } from "@/domain/project/executionLineItems";
+import { canonicalizeProjectLifecycleStatus } from "@/domain/stateMachines/projectStateMachine";
 import { normalizeProject } from "@/lib/projectNormalize";
 import { migrateQuotationProjectLink } from "@/lib/quotationProjectLink";
 import type { Customer, Invoice } from "@/types/finance";
@@ -16,23 +17,10 @@ function matchCustomerId(name: string | undefined, customers: Customer[]): strin
   return partial?.id ?? customers[0]?.id ?? LEGACY_FALLBACK;
 }
 
-const legacyStatusToLifecycle = (status: string | undefined): Project["lifecycleStatus"] => {
-  if (status === "Completed") return "Completed";
-  if (status === "On Hold") return "On Hold";
-  if (status === "Ongoing") return "Active";
-  return "Draft"; // default for legacy
-};
-
-const _lifecycleToLegacyStatus = (lifecycle: Project["lifecycleStatus"] | undefined): string => {
-  if (lifecycle === "Completed") return "Completed";
-  if (lifecycle === "On Hold") return "On Hold";
-  if (lifecycle === "Active") return "Ongoing";
-  return "Ongoing"; // default
-};
-
 function normalizeLegacyProjectFields(project: Project): Project {
-  // Ensure lifecycleStatus is set, defaulting from any legacy status
-  const lifecycleStatus = project.lifecycleStatus ?? legacyStatusToLifecycle((project as any).status);
+  const lifecycleStatus =
+    project.lifecycleStatus ??
+    canonicalizeProjectLifecycleStatus((project as { status?: string }).status);
   return normalizeProject({ ...project, lifecycleStatus });
 }
 

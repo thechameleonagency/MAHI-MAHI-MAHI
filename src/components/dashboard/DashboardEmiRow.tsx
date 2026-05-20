@@ -2,38 +2,35 @@ import { Link } from "react-router-dom";
 import { CreditCard, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { Loan } from "@/types/finance";
-import { format } from "date-fns";
+import type { Loan, LoanRepayment } from "@/types/finance";
+import { formatINR } from "@/lib/formatCurrency";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getLoanDashboardAging } from "@/lib/agingHelpers";
 
 export function DashboardEmiRow({
   loan,
-  dueDate,
-  tone,
+  loanRepayments = [],
 }: {
   loan: Loan;
-  dueDate: Date | null;
-  tone: "overdue" | "due";
+  loanRepayments?: Pick<LoanRepayment, "loanId" | "date">[];
 }) {
   const borrower = loan.personName?.trim() || loan.source || "Borrower";
+  const aging = getLoanDashboardAging(loan, loanRepayments);
   return (
     <div className="rounded-xl border border-border/60 bg-card px-3 py-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <p className="font-medium leading-tight">{borrower}</p>
           <p className="text-xs text-muted-foreground">
-            {dueDate ? `Due ${format(dueDate, "d MMM yyyy")}` : "Due date unknown"}
-            {" · "}₹{(loan.emiAmount || 0).toLocaleString("en-IN")}
+            Outstanding {formatINR(loan.outstanding || 0)}
+            {loan.emiAmount ? ` · EMI ${formatINR(loan.emiAmount)}` : ""}
           </p>
-          <Badge
-            variant="outline"
-            className={
-              tone === "overdue"
-                ? "text-2xs border-destructive/40 text-destructive"
-                : "text-2xs border-warning/40 text-warning"
-            }
-          >
-            {tone === "overdue" ? "Overdue EMI" : "Due soon"}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline" className="text-2xs capitalize">
+              {loan.paymentType.replace(/-/g, " ")}
+            </Badge>
+            <AgingChip signal={aging} />
+          </div>
         </div>
         <Button size="sm" variant="ghost" className="shrink-0 h-8" asChild>
           <Link to="/loans">

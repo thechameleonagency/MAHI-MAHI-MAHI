@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
 import { ExternalLink, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getLowStockAging } from "@/lib/agingHelpers";
 
 export interface DashboardLowStockRowProps {
   item: {
@@ -30,6 +32,7 @@ export function DashboardLowStockRow({ item }: DashboardLowStockRowProps) {
               </>
             )}
           </p>
+          <AgingChip signal={aging} />
         </div>
         <Button size="sm" variant="ghost" className="shrink-0 h-8" asChild>
           <Link to="/inventory/materials">

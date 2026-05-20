@@ -5,11 +5,14 @@ import { Button } from "@/components/ui/button";
 import type { Project } from "@/types/project";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { useAppData } from "@/contexts/AppDataContext";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getProjectIdleAging } from "@/lib/agingHelpers";
 
 export function DashboardProjectRow({ project }: { project: Project }) {
   const { customers } = useAppData();
   const customerId = project.customerId ?? customers.find((c) => c.name === project.client)?.id;
   const statusLabel = project.status ?? project.lifecycleStatus ?? "Active";
+  const aging = getProjectIdleAging(project);
   return (
     <div className="rounded-xl border border-border/60 bg-card px-3 py-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -39,6 +42,7 @@ export function DashboardProjectRow({ project }: { project: Project }) {
                 {project.progressStage}
               </Badge>
             )}
+            <AgingChip signal={aging} />
           </div>
         </div>
         <Button size="sm" variant="ghost" className="shrink-0 h-8" asChild>

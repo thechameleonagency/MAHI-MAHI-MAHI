@@ -7,7 +7,6 @@ export function isActiveSiteProject(project: Project): boolean {
   if (!project.startedAt) return false;
   return (
     project.status === "Ongoing" ||
-    project.lifecycleStatus === "Active" ||
     project.lifecycleStatus === "In Progress" ||
     project.lifecycleStatus === "On Hold"
   );

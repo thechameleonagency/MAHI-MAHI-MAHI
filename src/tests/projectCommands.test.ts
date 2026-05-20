@@ -171,7 +171,7 @@ describe("Project commands", () => {
       endDate: null,
       createdAt: "2026-01-01",
       customerId: "C-1",
-      lifecycleStatus: "Active",
+      lifecycleStatus: "In Progress",
       executionPhase: "execution",
       quotationId: "Q-RICH",
     };
@@ -241,7 +241,7 @@ describe("Project commands", () => {
       endDate: null,
       createdAt: "2026-01-01",
       customerId: "C-1",
-      lifecycleStatus: "Active",
+      lifecycleStatus: "In Progress",
       executionPhase: "execution",
     };
 
@@ -297,7 +297,7 @@ describe("Project commands", () => {
       endDate: null,
       createdAt: "2026-01-01",
       customerId: "C-1",
-      lifecycleStatus: "Active",
+      lifecycleStatus: "In Progress",
       executionPhase: "execution",
     };
 

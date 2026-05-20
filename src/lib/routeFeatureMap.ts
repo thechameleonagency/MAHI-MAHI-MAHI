@@ -1,4 +1,5 @@
 import type { Feature } from "@/domain/policies/featurePermissions";
+import { auditRouteFeatureEntries } from "@/lib/auditRouteFeatures";
 import { LEGACY_APP_REDIRECT_PATHS, normalizePathname } from "@/lib/appRouteRegistry";
 
 /**
@@ -28,7 +29,7 @@ export const ROUTE_VIEW_FEATURE: { prefix: string; feature: Feature }[] = [
   { prefix: "/employees", feature: "employee" },
   { prefix: "/teams", feature: "team" },
   { prefix: "/attendance", feature: "attendance" },
-  { prefix: "/audit", feature: "auditPage" },
+  ...auditRouteFeatureEntries(),
   { prefix: "/analytics", feature: "analytics" },
   { prefix: "/calendar", feature: "calendar" },
   { prefix: "/timeline", feature: "timeline" },

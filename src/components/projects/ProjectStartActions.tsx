@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
-import { canStartProject, normalizeLifecycleForTransition } from "@/domain/stateMachines/projectStateMachine";
+import { canStartProject } from "@/domain/stateMachines/projectStateMachine";
 import { toast } from "@/hooks/use-toast";
 import type { Project } from "@/types/project";
 import { ScheduleInstallationSheet } from "./ScheduleInstallationSheet";
@@ -41,7 +41,7 @@ export function ProjectStartActions({ project }: { project: Project }) {
   const { currentRole, sessionUserId } = useAppSession();
 
   const ready = project.siteReadiness?.ready === true;
-  const lifecycleKey = normalizeLifecycleForTransition(project.lifecycleStatus);
+  const lifecycleKey = project.lifecycleStatus;
   const isNew = lifecycleKey === "New";
   const isStarted = Boolean(project.startedAt);
 

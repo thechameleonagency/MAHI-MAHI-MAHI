@@ -17,8 +17,12 @@ import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
+import { LifecycleTermHint } from "@/components/ui/LifecycleTermHint";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { lifecycleTermSummary } from "@/lib/lifecycleTerminology";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { QuotationStaticSectionsBlock } from "@/components/quotations/QuotationStaticSectionsBlock";
+import { QuotationCreateSourceGate } from "@/components/quotations/QuotationCreateSourceGate";
 import {
   buildCustomerToQuotationDraft,
   buildEnquiryToQuotationDraft,
@@ -41,6 +45,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
+import { validateQuotationCreateSource } from "@/lib/quotationCreateSource";
 import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
 import type { QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
 import {
@@ -73,9 +78,13 @@ import { useCanAction } from "@/hooks/useCanAction";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
+import { QuotationCommercialAmountDisplay } from "@/components/quotations/QuotationCommercialAmountDisplay";
 import {
+  hasDistinctClientAgreedAmount,
   hasPositiveQuotationAmount,
+  persistQuotationAmountFields,
   QUOTATION_ZERO_AMOUNT_ERROR,
+  resolveContractAmount,
   validateQuotationSendOrApprove,
 } from "@/domain/quotation/quotationCommercialAmount";
 import {
@@ -85,8 +94,10 @@ import {
 import { isProjectPaymentType } from "@/domain/project/projectPaymentType";
 import {
   buildPaymentTermsSummary,
-  validateQuotationClientForApproval,
+  buildQuotationApprovalCustomerPreview,
+  type QuotationApprovalCustomerPreview,
 } from "@/lib/quotationApproveCustomer";
+import { QuotationApproveCustomerDialog } from "@/components/quotations/QuotationApproveCustomerDialog";
 import ProjectConfirmationScreen from "@/components/projects/ProjectConfirmationScreen";
 import {
   applyTeamAssignmentToProject,
@@ -256,6 +267,9 @@ const Quotations = () => {
   const [clientType, setClientType] = useState<"company" | "individual">("individual");
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [enquiryId, setEnquiryId] = useState<string | null>(null);
+  const [withoutEnquiryReason, setWithoutEnquiryReason] = useState<string | null>(null);
+  /** True once create flow has enquiry link or documented exception (O1). */
+  const [createSourceResolved, setCreateSourceResolved] = useState(false);
   const [agentId, setAgentId] = useState("");
   
   // System configuration
@@ -330,6 +344,8 @@ const Quotations = () => {
   const [discountPercent, setDiscountPercent] = useState(0);
   const [gstPercent, setGstPercent] = useState(13.8);
   const [govtSubsidy, setGovtSubsidy] = useState(78000);
+  /** Empty = client agreed matches quoted total; otherwise negotiated contract amount. */
+  const [clientAgreedAmountOverride, setClientAgreedAmountOverride] = useState("");
   
   // Temporary vs Final Quotation amounts
   const [bankDocumentationAmount, setBankDocumentationAmount] = useState<number | null>(null);
@@ -414,6 +430,23 @@ const Quotations = () => {
   const netPrice = afterDiscount + gstAmount;
   const effectivePrice = netPrice - govtSubsidy;
 
+  const parsedClientAgreedOverride = useMemo(() => {
+    const trimmed = clientAgreedAmountOverride.trim();
+    if (!trimmed) return null;
+    const n = parseFloat(trimmed);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [clientAgreedAmountOverride]);
+
+  const persistedQuotationAmounts = useMemo(
+    () => persistQuotationAmountFields(effectivePrice, parsedClientAgreedOverride),
+    [effectivePrice, parsedClientAgreedOverride],
+  );
+
+  const clientAgreedOverrideError =
+    clientAgreedAmountOverride.trim() !== "" && parsedClientAgreedOverride == null
+      ? "Enter a valid agreed amount or leave blank to match quoted total"
+      : "";
+
   // Validation errors
   const discountError = discountAmount > systemCost ? "Discount cannot be higher than total cost" : "";
   const totalError = effectivePrice < 0 ? "Total cost cannot be negative" : "";
@@ -423,7 +456,11 @@ const Quotations = () => {
     ? ""
     : QUOTATION_PAYMENT_TYPE_REQUIRED_MESSAGE;
   const blocksSendApproveActions =
-    !!discountError || !!totalError || !!zeroAmountError || !!paymentTypeError;
+    !!discountError ||
+    !!totalError ||
+    !!zeroAmountError ||
+    !!paymentTypeError ||
+    !!clientAgreedOverrideError;
 
   // Reset form
   const resetForm = () => {
@@ -452,6 +489,7 @@ const Quotations = () => {
     setDiscountPercent(0);
     setGstPercent(13.8);
     setGovtSubsidy(78000);
+    setClientAgreedAmountOverride("");
     setStatus("draft");
     setActiveTab("create");
     setQuotationNumber(`Q-2024-${String(savedQuotations.length + 1).padStart(3, '0')}`);
@@ -459,6 +497,22 @@ const Quotations = () => {
     setPaymentType("");
     setBankDocumentationAmount(null);
     setEnquiryId(null);
+    setWithoutEnquiryReason(null);
+    setCreateSourceResolved(false);
+  };
+
+  const beginNewQuotationCreate = () => {
+    resetForm();
+    setEditingQuotationId(null);
+    setCurrentView("create");
+    setCreateSourceResolved(false);
+  };
+
+  const markCreateSourceResolvedFromDraft = (draft: {
+    enquiryId?: string;
+    withoutEnquiryReason?: string;
+  }) => {
+    setCreateSourceResolved(!!(draft.enquiryId?.trim() || draft.withoutEnquiryReason?.trim()));
   };
 
   const applyCustomerQuotationDraft = (draft: QuotationDraftFromCustomer) => {
@@ -487,10 +541,18 @@ const Quotations = () => {
     if (draft.customerId) setCustomerId(draft.customerId);
     if (draft.agentId) setAgentId(draft.agentId);
     if (draft.enquiryId) setEnquiryId(draft.enquiryId);
+    if (draft.withoutEnquiryReason) setWithoutEnquiryReason(draft.withoutEnquiryReason);
     if (draft.systemCategory) setSystemCategory(draft.systemCategory);
     if (draft.systemCapacity) setSystemCapacity(draft.systemCapacity);
     if (draft.systemConfigNotes) setSystemConfigNotes(draft.systemConfigNotes);
     if (draft.paymentType) setPaymentType(draft.paymentType);
+    if (
+      draft.totalAmount != null &&
+      draft.clientAgreedAmount != null &&
+      draft.clientAgreedAmount !== draft.totalAmount
+    ) {
+      setClientAgreedAmountOverride(String(draft.clientAgreedAmount));
+    }
     setStatus("draft");
   };
 
@@ -500,6 +562,7 @@ const Quotations = () => {
     const draft = buildQuotationCloneDraft(quotation);
     saveCreateDraft("quotation-create-draft", draft);
     applyQuotationCloneDraft(draft);
+    markCreateSourceResolvedFromDraft(draft);
     setCurrentView("create");
     setIsViewQuotationOpen(false);
     setLastConfirm({ variant: "success", title: "Quotation cloned", description: draft.banner });
@@ -530,6 +593,12 @@ const Quotations = () => {
 
   const [withdrawDialogQuotation, setWithdrawDialogQuotation] = useState<Quotation | null>(null);
   const [withdrawReason, setWithdrawReason] = useState("");
+  const [approveConfirm, setApproveConfirm] = useState<{
+    quotationId: string;
+    quotationNumber: string;
+    preview: QuotationApprovalCustomerPreview;
+    closeViewSheetOnDone: boolean;
+  } | null>(null);
 
   const handleWithdrawQuotation = async () => {
     if (!withdrawDialogQuotation) return;
@@ -588,6 +657,7 @@ const Quotations = () => {
       resetForm();
       setEditingQuotationId(null);
       setCurrentView("create");
+      setCreateSourceResolved(false);
       if (stored?.customerId === createFrom.id) {
         applyCustomerQuotationDraft(stored);
       } else if (cust) {
@@ -625,6 +695,7 @@ const Quotations = () => {
       resetForm();
       setEditingQuotationId(null);
       setCurrentView("create");
+      setCreateSourceResolved(true);
       if (stored?.sourceEnquiryId === createFrom.id) {
         applyEnquiryQuotationDraft(stored);
       } else if (enquiry) {
@@ -641,6 +712,7 @@ const Quotations = () => {
     resetForm();
     setEditingQuotationId(null);
     setCurrentView("create");
+    setCreateSourceResolved(false);
 
     if (params.get("from") === "enquiry") {
       const client = params.get("client");
@@ -661,7 +733,10 @@ const Quotations = () => {
       const cid = params.get("customerId");
       if (cid) setCustomerId(cid);
       const eid = params.get("enquiryId");
-      if (eid) setEnquiryId(eid);
+      if (eid) {
+        setEnquiryId(eid);
+        setCreateSourceResolved(true);
+      }
       const email = params.get("email");
       if (email) setClientEmail(decodeURIComponent(email));
     }
@@ -889,6 +964,29 @@ const Quotations = () => {
       return;
     }
 
+    let resolvedEnquiryId: string | undefined = enquiryId || undefined;
+    let resolvedWithoutEnquiryReason: string | undefined = withoutEnquiryReason || undefined;
+
+    if (!editingQuotationId) {
+      const linkedEnquiry = enquiryId ? enquiries.find((e) => e.id === enquiryId) : undefined;
+      const sourceCheck = validateQuotationCreateSource(
+        { enquiryId, withoutEnquiryReason },
+        linkedEnquiry,
+        currentRole,
+      );
+      if (!sourceCheck.ok) {
+        toast({ title: "Cannot save quotation", description: sourceCheck.message, variant: "destructive" });
+        return;
+      }
+      if (sourceCheck.mode === "enquiry") {
+        resolvedEnquiryId = sourceCheck.enquiryId;
+        resolvedWithoutEnquiryReason = undefined;
+      } else {
+        resolvedEnquiryId = undefined;
+        resolvedWithoutEnquiryReason = sourceCheck.withoutEnquiryReason;
+      }
+    }
+
     const fieldPatch: Partial<Quotation> = {
       quotationNumber,
       quotationType: "solar", // Default to solar for existing flow
@@ -912,13 +1010,16 @@ const Quotations = () => {
       // Strip any trailing "kW"/"kWp" so persisted value is the bare number; display helpers re-append the unit.
       systemCapacity: systemCapacity.replace(/\s*k\s*w\s*p?\s*$/i, "").trim(),
       paymentType: isProjectPaymentType(paymentType) ? paymentType : undefined,
-      clientAgreedAmount: effectivePrice,
-      bankDocumentationAmount: paymentType === "loan" ? (bankDocumentationAmount || effectivePrice) : undefined,
-      temporaryAmount: effectivePrice,
-      finalAmount: effectivePrice,
-      totalAmount: effectivePrice,
+      ...persistedQuotationAmounts,
+      bankDocumentationAmount:
+        paymentType === "loan"
+          ? bankDocumentationAmount || persistedQuotationAmounts.clientAgreedAmount
+          : undefined,
+      temporaryAmount: persistedQuotationAmounts.clientAgreedAmount,
+      finalAmount: persistedQuotationAmounts.clientAgreedAmount,
       customerId: customerId || undefined,
-      enquiryId: enquiryId || undefined,
+      enquiryId: resolvedEnquiryId,
+      withoutEnquiryReason: resolvedWithoutEnquiryReason,
       agentId: agentId || undefined,
       createdAt: new Date().toISOString().split("T")[0],
     };
@@ -1118,10 +1219,9 @@ const Quotations = () => {
       if (isProjectPaymentType(paymentType)) {
         const sync = await updateQuotation(quotationId, {
           paymentType,
-          clientAgreedAmount: effectivePrice,
-          totalAmount: effectivePrice,
-          finalAmount: effectivePrice,
-          temporaryAmount: effectivePrice,
+          ...persistedQuotationAmounts,
+          finalAmount: persistedQuotationAmounts.clientAgreedAmount,
+          temporaryAmount: persistedQuotationAmounts.clientAgreedAmount,
         });
         if (!sync.ok) {
           toast({
@@ -1190,10 +1290,9 @@ const Quotations = () => {
     if (editingQuotationId === quotationId && isProjectPaymentType(paymentType)) {
       const sync = await updateQuotation(quotationId, {
         paymentType,
-        clientAgreedAmount: effectivePrice,
-        totalAmount: effectivePrice,
-        finalAmount: effectivePrice,
-        temporaryAmount: effectivePrice,
+        ...persistedQuotationAmounts,
+        finalAmount: persistedQuotationAmounts.clientAgreedAmount,
+        temporaryAmount: persistedQuotationAmounts.clientAgreedAmount,
       });
       if (!sync.ok) {
         toast({
@@ -1250,7 +1349,10 @@ const Quotations = () => {
     return stored ?? null;
   };
 
-  const handleMarkAsApproved = async (quotationId: string) => {
+  const requestApproveQuotation = async (
+    quotationId: string,
+    options?: { closeViewSheetOnDone?: boolean },
+  ) => {
     setLastConfirm(null);
     const amountError = assertQuotationAmountForTransition(
       quotationId,
@@ -1271,10 +1373,9 @@ const Quotations = () => {
     if (editingQuotationId === quotationId && isProjectPaymentType(paymentType)) {
       const sync = await updateQuotation(quotationId, {
         paymentType,
-        clientAgreedAmount: effectivePrice,
-        totalAmount: effectivePrice,
-        finalAmount: effectivePrice,
-        temporaryAmount: effectivePrice,
+        ...persistedQuotationAmounts,
+        finalAmount: persistedQuotationAmounts.clientAgreedAmount,
+        temporaryAmount: persistedQuotationAmounts.clientAgreedAmount,
       });
       if (!sync.ok) {
         toast({
@@ -1290,10 +1391,66 @@ const Quotations = () => {
       toast({ title: "Cannot approve quotation", description: "Quotation not found", variant: "destructive" });
       return;
     }
-    const clientCheck = validateQuotationClientForApproval(clientSource);
-    if (!clientCheck.ok) {
-      toast({ title: "Cannot approve quotation", description: clientCheck.message, variant: "destructive" });
+    const stored = savedQuotations.find((q) => q.id === quotationId);
+    const linkedCustomerId =
+      editingQuotationId === quotationId ? customerId ?? stored?.customerId : stored?.customerId;
+    const previewResult = buildQuotationApprovalCustomerPreview(
+      { ...clientSource, customerId: linkedCustomerId ?? undefined },
+      {
+        existingCustomer: linkedCustomerId
+          ? _customers.find((c) => c.id === linkedCustomerId)
+          : undefined,
+        existingCustomerIds: _customers.map((c) => c.id),
+      },
+    );
+    if (!previewResult.ok) {
+      toast({ title: "Cannot approve quotation", description: previewResult.message, variant: "destructive" });
       return;
+    }
+    setApproveConfirm({
+      quotationId,
+      quotationNumber: stored?.quotationNumber ?? quotationNumber,
+      preview: previewResult.preview,
+      closeViewSheetOnDone: options?.closeViewSheetOnDone ?? false,
+    });
+  };
+
+  const handleMarkAsApproved = async (
+    quotationId: string,
+    approvalPreview?: QuotationApprovalCustomerPreview,
+  ) => {
+    setLastConfirm(null);
+    const amountError = assertQuotationAmountForTransition(
+      quotationId,
+      editingQuotationId === quotationId ? effectivePrice : undefined,
+    );
+    if (amountError) {
+      toast({ title: "Cannot approve quotation", description: amountError, variant: "destructive" });
+      return;
+    }
+    const paymentError = assertQuotationPaymentTypeForTransition(
+      quotationId,
+      editingQuotationId === quotationId ? paymentType : undefined,
+    );
+    if (paymentError) {
+      toast({ title: "Cannot approve quotation", description: paymentError, variant: "destructive" });
+      return;
+    }
+    if (editingQuotationId === quotationId && isProjectPaymentType(paymentType)) {
+      const sync = await updateQuotation(quotationId, {
+        paymentType,
+        ...persistedQuotationAmounts,
+        finalAmount: persistedQuotationAmounts.clientAgreedAmount,
+        temporaryAmount: persistedQuotationAmounts.clientAgreedAmount,
+      });
+      if (!sync.ok) {
+        toast({
+          title: "Cannot approve quotation",
+          description: sync.error ?? "Could not save payment type before approval",
+          variant: "destructive",
+        });
+        return;
+      }
     }
     const result = await transitionQuotationStatus(quotationId, "approved");
     if (!result.ok) {
@@ -1304,6 +1461,12 @@ const Quotations = () => {
       setStatus("approved");
     }
     const quotation = savedQuotations.find((q) => q.id === quotationId);
+    const approvedCustomerId = approvalPreview?.customerId ?? quotation?.customerId;
+    const customerOutcome = approvalPreview
+      ? approvalPreview.mode === "create"
+        ? ` Customer ${approvedCustomerId} was created.`
+        : ` Linked to customer ${approvedCustomerId}.`
+      : "";
     const canCreateProject =
       quotation && !quotationLinkedProjectId(quotation);
     if (canCreateProject) {
@@ -1314,7 +1477,7 @@ const Quotations = () => {
       saveCreateDraft("project-create-draft", draft);
       toast({
         title: "Quotation approved",
-        description: "Create a project when you are ready.",
+        description: `Create a project when you are ready.${customerOutcome}`,
         action: (
           <ToastAction
             altText="Create project now"
@@ -1326,8 +1489,36 @@ const Quotations = () => {
       });
       return;
     }
-    toast({ title: "Status Updated", description: "Quotation marked as approved" });
+    toast({
+      title: "Quotation approved",
+      description: `Quotation marked as approved.${customerOutcome}`,
+    });
   };
+
+  const confirmApproveQuotation = async () => {
+    if (!approveConfirm) return;
+    const { quotationId, closeViewSheetOnDone, preview } = approveConfirm;
+    setApproveConfirm(null);
+    await handleMarkAsApproved(quotationId, preview);
+    if (closeViewSheetOnDone) {
+      setIsViewQuotationOpen(false);
+    }
+  };
+
+  const renderApproveCustomerDialog = () =>
+    approveConfirm ? (
+      <QuotationApproveCustomerDialog
+        open
+        onOpenChange={(open) => {
+          if (!open) setApproveConfirm(null);
+        }}
+        quotationNumber={approveConfirm.quotationNumber}
+        preview={approveConfirm.preview}
+        onConfirm={() => {
+          void confirmApproveQuotation();
+        }}
+      />
+    ) : null;
 
   const handleDeleteQuotation = (quotation: Quotation) => {
     // Check for related entities
@@ -1396,9 +1587,9 @@ const Quotations = () => {
   // Create Project from Quotation
   const handleCreateProject = (quotation: Quotation) => {
     setSelectedQuotationForProject(quotation);
-    setProjectContractAmount(quotation.totalAmount);
+    setProjectContractAmount(resolveContractAmount(quotation));
     setProjectPaymentType("cash");
-    setProjectBankDocAmount(quotation.totalAmount);
+    setProjectBankDocAmount(resolveContractAmount(quotation));
     setCreateProjectStep("form");
     setPendingCreateProject(null);
     setIsCreateProjectOpen(true);
@@ -1448,8 +1639,8 @@ const Quotations = () => {
       return;
     }
 
-    // Use clientAgreedAmount if available, otherwise fall back to legacy amount handling
-    const amount = projectContractAmount || selectedQuotationForProject.totalAmount;
+    const amount =
+      projectContractAmount || resolveContractAmount(selectedQuotationForProject);
     const pPaymentType = projectPaymentType;
 
     const pRow = qPartnerIdForProject ? partners.find((p) => p.id === qPartnerIdForProject) : undefined;
@@ -1657,20 +1848,41 @@ const Quotations = () => {
     setClientGstin(quotation.clientGstin ?? "");
     setClientPan(quotation.clientPan ?? "");
     setClientType(quotation.clientType ?? "individual");
+    setCustomerId(quotation.customerId ?? null);
+    setEnquiryId(quotation.enquiryId ?? null);
+    setWithoutEnquiryReason(quotation.withoutEnquiryReason ?? null);
+    setCreateSourceResolved(true);
     setSystemCategory(quotation.systemCategory);
     setSystemCapacity(quotation.systemCapacity);
     setStatus(quotation.status);
     setPaymentType(isProjectPaymentType(quotation.paymentType) ? quotation.paymentType : "");
     setProjectPaymentType(isProjectPaymentType(quotation.paymentType) ? quotation.paymentType : "cash");
+    setClientAgreedAmountOverride(
+      hasDistinctClientAgreedAmount(quotation)
+        ? String(quotation.clientAgreedAmount ?? "")
+        : "",
+    );
     handlePresetChange(quotation.systemCategory, quotation.systemCapacity);
     setCurrentView("edit");
     setActiveTab("create");
   };
 
   const _handleCreateNew = () => {
-    resetForm();
-    setEditingQuotationId(null);
-    setCurrentView("create");
+    beginNewQuotationCreate();
+  };
+
+  const handleConfirmCreateFromEnquiry = (enquiry: (typeof enquiries)[number]) => {
+    const built = buildEnquiryToQuotationDraft(enquiry);
+    saveCreateDraft("quotation-create-draft", built);
+    applyEnquiryQuotationDraft(built);
+    setWithoutEnquiryReason(null);
+    setCreateSourceResolved(true);
+  };
+
+  const handleConfirmCreateException = (reason: string) => {
+    setEnquiryId(null);
+    setWithoutEnquiryReason(reason);
+    setCreateSourceResolved(true);
   };
 
   const getStatusColor = quotationStatusBadgeClass;
@@ -1816,11 +2028,7 @@ const Quotations = () => {
           <Button
             size="sm"
             className="bg-primary text-primary-foreground"
-            onClick={() => {
-              resetForm();
-              setEditingQuotationId(null);
-              setCurrentView("create");
-            }}
+            onClick={beginNewQuotationCreate}
             disabled={!canCreateQuotation}
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -1886,11 +2094,7 @@ const Quotations = () => {
                         : "Create a quotation to start tracking proposals for customers."
                     }
                     actionLabel={canCreateQuotation ? "New quotation" : undefined}
-                    onAction={canCreateQuotation ? () => {
-                      resetForm();
-                      setEditingQuotationId(null);
-                      setCurrentView("create");
-                    } : undefined}
+                    onAction={canCreateQuotation ? beginNewQuotationCreate : undefined}
                   />
                 </TableCell>
               </TableRow>
@@ -1933,7 +2137,12 @@ const Quotations = () => {
                 )}
                 {quoteListColVis.amount && (
                 <TableCell className="font-medium text-primary">
-                  {formatINR(quotation.totalAmount)}
+                  <span className="tabular-nums">{formatINR(resolveContractAmount(quotation))}</span>
+                  {hasDistinctClientAgreedAmount(quotation) ? (
+                    <span className="block text-2xs font-normal text-muted-foreground tabular-nums">
+                      Quoted {formatINR(quotation.totalAmount)}
+                    </span>
+                  ) : null}
                 </TableCell>
                 )}
                 {quoteListColVis.date && (
@@ -2000,8 +2209,8 @@ const Quotations = () => {
                   title={`Quotation ${selectedQuotation.status}`}
                   description={
                     selectedQuotation.status === "withdrawn"
-                      ? "This quotation has been withdrawn. It cannot be revised — clone it to start a new draft for re-quoting."
-                      : "Customer rejected this quotation. Clone it to revise pricing and re-quote."
+                      ? `${lifecycleTermSummary("quotationWithdraw")} It cannot be revised — clone it to start a new draft for re-quoting.`
+                      : `${lifecycleTermSummary("quotationReject")} Clone it to revise pricing and re-quote.`
                   }
                   primaryActionLabel="Clone & re-quote"
                   onPrimaryAction={() => handleCloneQuotation(selectedQuotation)}
@@ -2033,10 +2242,7 @@ const Quotations = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-2xs text-muted-foreground mb-1 uppercase tracking-tighter">Effective Amount</p>
-                      <p className="text-lg font-bold text-primary">{formatINR(selectedQuotation.totalAmount)}</p>
-                    </div>
+                    <QuotationCommercialAmountDisplay quotation={selectedQuotation} className="text-right" />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2318,7 +2524,10 @@ const Quotations = () => {
                             onClick={() => { setWithdrawReason(""); setWithdrawDialogQuotation(selectedQuotation); }}
                           >
                             <X className="h-4 w-4 mr-2" />
-                            Withdraw
+                            <span className="inline-flex items-center gap-1">
+                              Withdraw
+                              <LifecycleTermHint term="quotationWithdraw" side="bottom" />
+                            </span>
                           </Button>
                         )}
                       {canDeleteQuotation && !quotationLinkedProjectId(selectedQuotation) && (
@@ -2363,8 +2572,11 @@ const Quotations = () => {
                           onClick={() => { handleMarkAsRejected(selectedQuotation.id); setIsViewQuotationOpen(false); }}
                           className="bg-destructive/5 text-destructive hover:bg-destructive hover:text-white border-destructive/20"
                         >
-                          <X className="h-4 w-4 mr-2" />
-                          Reject
+                          <span className="inline-flex items-center gap-1">
+                            <X className="h-4 w-4" />
+                            Reject
+                            <LifecycleTermHint term="quotationReject" side="bottom" />
+                          </span>
                         </PermissionGatedButton>
                       )}
 
@@ -2377,7 +2589,9 @@ const Quotations = () => {
                           size="sm"
                           className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
                           disabled={!hasPositiveQuotationAmount(selectedQuotation)}
-                          onClick={() => { void handleMarkAsApproved(selectedQuotation.id); setIsViewQuotationOpen(false); }}
+                          onClick={() => {
+                            void requestApproveQuotation(selectedQuotation.id, { closeViewSheetOnDone: true });
+                          }}
                         >
                           <CheckCircle className="h-4 w-4 mr-2" />
                           Approve Quotation
@@ -2420,11 +2634,42 @@ const Quotations = () => {
             )}
           </AppSheetContent>
         </Sheet>
+        {renderApproveCustomerDialog()}
       </div>
     );
   }
 
   // Create/Edit Solar Quotation View
+  if (currentView === "create" && !editingQuotationId && !createSourceResolved) {
+    return (
+      <PageShell className="min-h-[calc(100vh-140px)] space-y-6">
+        <StickyPageHeader
+          breadcrumbs={[
+            { label: "Home", to: "/" },
+            { label: "Pipeline" },
+            { label: "Quotations" },
+            { label: "New" },
+          ]}
+          title="New quotation"
+        />
+        <QuotationCreateSourceGate
+          enquiries={enquiries}
+          actorRole={currentRole}
+          onConfirmEnquiry={handleConfirmCreateFromEnquiry}
+          onConfirmException={handleConfirmCreateException}
+          onCancel={() => {
+            setCurrentView("list");
+            resetForm();
+          }}
+        />
+      </PageShell>
+    );
+  }
+
+  const linkedEnquiryForBanner = enquiryId
+    ? enquiries.find((e) => e.id === enquiryId)
+    : undefined;
+
   return (
     <PageShell className="min-h-[calc(100vh-140px)] space-y-6">
       {lastConfirm && (
@@ -2436,14 +2681,26 @@ const Quotations = () => {
         />
       )}
 
+      {currentView === "create" && !editingQuotationId && (enquiryId || withoutEnquiryReason) && (
+        <InlineConfirmBanner
+          variant="success"
+          title={enquiryId ? "Linked to enquiry" : "Exception — no enquiry"}
+          description={
+            enquiryId
+              ? `${enquiryId}${linkedEnquiryForBanner ? ` · ${linkedEnquiryForBanner.customerName}` : ""}. Pipeline: enquiry → quotation → project.`
+              : withoutEnquiryReason ?? ""
+          }
+        />
+      )}
+
       {(status === "withdrawn" || status === "rejected") && (
         <LifecycleTerminalBanner
           variant={status === "withdrawn" ? "withdrawn" : "rejected"}
           title={`Quotation ${formatQuotationStatus(status)}`}
           description={
             status === "withdrawn"
-              ? "This quotation is withdrawn and locked. Clone it to start a new draft for re-quoting."
-              : "This quotation is rejected and locked. Revise or clone from the list to create a new draft."
+              ? `${lifecycleTermSummary("quotationWithdraw")} Clone it to start a new draft for re-quoting.`
+              : `${lifecycleTermSummary("quotationReject")} Revise or clone from the list to create a new draft.`
           }
         />
       )}
@@ -2889,16 +3146,50 @@ const Quotations = () => {
                     />
                   </div>
                   <Separator />
-                  <div className={`flex justify-between text-xl font-bold ${totalError ? 'text-destructive' : 'text-primary'}`}>
-                    <span>Effective Price</span>
-                    <span>{formatINR(effectivePrice)}</span>
+                  <div className={`flex justify-between text-lg font-semibold ${totalError ? "text-destructive" : ""}`}>
+                    <span className="inline-flex items-center gap-1 text-muted-foreground">
+                      Quoted total
+                      <LifecycleTermHint term="quotationQuotedTotal" side="right" />
+                    </span>
+                    <span className="tabular-nums">{formatINR(effectivePrice)}</span>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Saved as <strong>totalAmount</strong> on the quotation document (GST-inclusive, after subsidy).
+                  </p>
                   {totalError && (
                     <p className="text-xs text-destructive">{totalError}</p>
                   )}
                   {zeroAmountError && (
                     <p className="text-xs text-destructive">{zeroAmountError}</p>
                   )}
+                  <div className="space-y-1.5 pt-1">
+                    <Label htmlFor="client-agreed-amount" className="inline-flex items-center gap-1 text-sm font-medium">
+                      Client agreed amount
+                      <LifecycleTermHint term="quotationClientAgreedAmount" side="right" />
+                    </Label>
+                    <Input
+                      id="client-agreed-amount"
+                      type="number"
+                      className={`h-9 text-right tabular-nums ${clientAgreedOverrideError ? "border-destructive" : ""}`}
+                      placeholder={`Same as quoted (${effectivePrice})`}
+                      value={clientAgreedAmountOverride}
+                      onChange={(e) => setClientAgreedAmountOverride(e.target.value)}
+                      disabled={formLocked}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Leave blank to match quoted total. Project contract uses this when negotiated.
+                    </p>
+                    {clientAgreedOverrideError ? (
+                      <p className="text-xs text-destructive">{clientAgreedOverrideError}</p>
+                    ) : null}
+                    {parsedClientAgreedOverride != null &&
+                    parsedClientAgreedOverride !== effectivePrice ? (
+                      <p className="text-xs text-primary">
+                        Contract value {formatINR(parsedClientAgreedOverride)} (quoted{" "}
+                        {formatINR(effectivePrice)})
+                      </p>
+                    ) : null}
+                  </div>
                   <Separator />
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">
@@ -3146,7 +3437,9 @@ const Quotations = () => {
                         variant="outline"
                         className="w-full border-primary text-primary hover:bg-primary/10"
                         disabled={blocksSendApproveActions}
-                        onClick={() => { void handleMarkAsApproved(editingQuotationId); }}
+                        onClick={() => {
+                          if (editingQuotationId) void requestApproveQuotation(editingQuotationId);
+                        }}
                       >
                         <CheckCircle className="w-4 h-4 mr-2" />
                         Approve Quotation
@@ -3194,8 +3487,11 @@ const Quotations = () => {
                           setStatus("rejected");
                         }}
                       >
-                        <X className="w-4 h-4 mr-2" />
-                        Mark as Rejected
+                        <span className="inline-flex items-center justify-center gap-1">
+                          <X className="w-4 h-4" />
+                          Mark as Rejected
+                          <LifecycleTermHint term="quotationReject" side="top" />
+                        </span>
                       </PermissionGatedButton>
                     )}
                   </div>
@@ -3856,12 +4152,26 @@ const Quotations = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Final Contract Amount (₹)</Label>
+                  <Label className="inline-flex items-center gap-1">
+                    Contract amount (₹)
+                    <LifecycleTermHint term="quotationClientAgreedAmount" side="top" />
+                  </Label>
                   <Input 
                     type="number" 
                     value={projectContractAmount} 
                     onChange={(e) => setProjectContractAmount(parseFloat(e.target.value) || 0)} 
                   />
+                  {selectedQuotationForProject &&
+                  hasDistinctClientAgreedAmount(selectedQuotationForProject) ? (
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      Quoted {formatINR(selectedQuotationForProject.totalAmount)} → agreed{" "}
+                      {formatINR(selectedQuotationForProject.clientAgreedAmount!)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Defaults to client agreed amount, else quoted total from the quotation.
+                    </p>
+                  )}
                 </div>
                 {projectPaymentType === "loan" && (
                   <div className="space-y-2">
@@ -4109,19 +4419,30 @@ const Quotations = () => {
         </AppSheetContent>
       </Sheet>
 
+      {renderApproveCustomerDialog()}
+
       <Sheet
         open={withdrawDialogQuotation != null}
         onOpenChange={(open) => { if (!open) { setWithdrawDialogQuotation(null); setWithdrawReason(""); } }}
       >
         <AppSheetContent layout="form" size="md">
           <SheetHeader>
-            <SheetTitle>Withdraw quotation</SheetTitle>
+            <SheetTitle className="flex items-center gap-2">
+              Withdraw quotation
+              <LifecycleTermHint term="quotationWithdraw" side="bottom" />
+            </SheetTitle>
             <SheetDescription>
-              Mark <strong>{withdrawDialogQuotation?.quotationNumber}</strong> as withdrawn. The quotation will be locked
-              from further changes and the client-facing offer is retracted. Reason is optional but recommended for the
-              audit trail.
+              Mark <strong>{withdrawDialogQuotation?.quotationNumber}</strong> as withdrawn.{" "}
+              {lifecycleTermSummary("quotationWithdraw")} Reason is optional but recommended for the audit trail.
             </SheetDescription>
           </SheetHeader>
+          <Alert className="mx-0">
+            <AlertDescription className="text-xs">
+              <span className="font-medium text-foreground">Not the same as Reject: </span>
+              {lifecycleTermSummary("quotationWithdrawVsReject")}{" "}
+              <LifecycleTermHint term="quotationWithdrawVsReject" className="align-middle" side="bottom" />
+            </AlertDescription>
+          </Alert>
           <div className="space-y-2 py-4">
             <Label htmlFor="withdraw-reason">Reason (optional)</Label>
             <Textarea

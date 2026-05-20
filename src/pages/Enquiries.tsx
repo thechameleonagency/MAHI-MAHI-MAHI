@@ -47,6 +47,7 @@ import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { getEnquiryFollowUpAging } from "@/lib/agingHelpers";
+import { canReopenLostEnquiry } from "@/domain/stateMachines/enquiryStateMachine";
 import { useCan } from "@/hooks/useCan";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
@@ -120,7 +121,8 @@ const Enquiries = () => {
   const canEditEnquiry = useCan("enquiry", "edit");
   const canUpdateEnquiry = useCan("enquiry", "create");
   const canCreateQuotation = useCan("quotation", "create");
-  
+  const canReopenLost = canReopenLostEnquiry(currentRole);
+
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
   // Default to open pipeline so converted/lost enquiries don't clutter the list (audit B12).
   const [statusFilter, setStatusFilter] = useState(
@@ -1161,16 +1163,24 @@ const formatCapacityInput = (capacity: string) => {
                 description={
                   selectedEnquiry.archivedAt
                     ? "This enquiry is archived and hidden from the default pipeline. Unarchive to resume follow-up or create a quotation."
-                    : "This lead is closed as lost. Reopen it to continue follow-up, or archive it to remove from active lists."
+                    : canReopenLost
+                      ? "This lead is closed as lost. Reopen it to continue follow-up, or archive it to remove from active lists."
+                      : "This lead is closed as lost. Only admin can reopen it; you can archive it to remove from active lists."
                 }
-                primaryActionLabel={selectedEnquiry.archivedAt ? "Unarchive" : selectedEnquiry.status === "lost" ? "Reopen" : undefined}
+                primaryActionLabel={
+                  selectedEnquiry.archivedAt
+                    ? "Unarchive"
+                    : selectedEnquiry.status === "lost" && canReopenLost
+                      ? "Reopen"
+                      : undefined
+                }
                 onPrimaryAction={
                   selectedEnquiry.archivedAt
                     ? () => {
                         updateEnquiry(selectedEnquiry.id, { archivedAt: null });
                         toast({ title: "Enquiry restored" });
                       }
-                    : selectedEnquiry.status === "lost"
+                    : selectedEnquiry.status === "lost" && canReopenLost
                       ? () => { setReopenReasonText(""); setIsReopenEnquiryOpen(true); }
                       : undefined
                 }
@@ -1468,13 +1478,15 @@ const formatCapacityInput = (capacity: string) => {
                       </Button>
                     )}
                     {selectedEnquiry.status === "lost" && (
-                      <Button
+                      <PermissionGatedButton
+                        allowed={canReopenLost}
+                        deniedHint={PERMISSION_DENIED_HINTS.enquiryReopenLost}
                         variant="outline"
                         size="sm"
                         onClick={() => { setReopenReasonText(""); setIsReopenEnquiryOpen(true); }}
                       >
                         Reopen
-                      </Button>
+                      </PermissionGatedButton>
                     )}
                     {selectedEnquiry.archivedAt ? (
                       <Button

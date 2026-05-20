@@ -15,7 +15,6 @@ import {
   Package,
   LayoutGrid,
   ArrowUpRight,
-  ShieldAlert,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,6 +56,8 @@ import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardEnquiryRow } from "@/components/dashboard/DashboardEnquiryRow";
+import { DashboardTodaysSiteActivity } from "@/components/dashboard/DashboardTodaysSiteActivity";
+import { buildTodaysSiteActivitySnapshot } from "@/lib/todaysSiteActivity";
 import { buildEnquiryToQuotationDraft, quickCreatePath, saveCreateDraft } from "@/lib/createFromContext";
 import {
   FIELD_OPS_METRICS,
@@ -66,7 +67,15 @@ import {
 import { DashboardOnboardingHero } from "@/components/dashboard/DashboardOnboardingHero";
 import { useCan } from "@/hooks/useCan";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
-import { getEnquiryFollowUpAging, getInvoiceOverdueAging, getTaskOverdueAging } from "@/lib/agingHelpers";
+import {
+  getEnquiryFollowUpAging,
+  getInvoiceOverdueAging,
+  getLoanDashboardAging,
+  getProjectIdleAging,
+  getQuotationInFlightAging,
+  getTaskOverdueAging,
+} from "@/lib/agingHelpers";
+import { AgingChip } from "@/components/ui/AgingChip";
 import { formatINR } from "@/lib/formatCurrency";
 import { toast } from "@/hooks/use-toast";
 import { routeAccessDeniedToastContent } from "@/lib/routeAccessDenied";
@@ -125,6 +134,7 @@ const Dashboard = () => {
     convertEnquiryToCustomer,
     materialReservations,
     materialDamageRecords,
+    projectTimelineByProjectId,
   } = useAppData();
   const { currentRole } = useAppSession();
   const { permissionService } = useFoundation();
@@ -500,7 +510,14 @@ const Dashboard = () => {
             ...card,
             details: sortedEmiLoans.slice(0, 3).map(({ loan, due }) => ({
               id: loan.id,
-              text: `${loan.personName ?? loan.source} · ${format(due, "d MMM")} · ${formatINR(loan.emiAmount || 0)}`,
+              content: (
+                <span className="inline-flex flex-wrap items-center gap-1">
+                  <span>
+                    {loan.personName ?? loan.source} · {format(due, "d MMM")} · {formatINR(loan.emiAmount || 0)}
+                  </span>
+                  <AgingChip signal={getLoanDashboardAging(loan, loanRepayments ?? [])} />
+                </span>
+              ),
             })),
           };
         case "enquiries":
@@ -539,6 +556,7 @@ const Dashboard = () => {
                       <span>{q.clientName}</span>
                     )}
                     <span>· {q.quotationNumber}</span>
+                    <AgingChip signal={getQuotationInFlightAging(q)} />
                   </span>
                 ),
               };
@@ -570,6 +588,7 @@ const Dashboard = () => {
                     ) : (
                       <span>{p.client}</span>
                     )}
+                    <AgingChip signal={getProjectIdleAging(p)} />
                   </span>
                 ),
               };
@@ -675,6 +694,8 @@ const Dashboard = () => {
     lowStockItems,
     activeOpsBlockages,
     customers,
+    loanRepayments,
+    projects,
   ]);
 
   const kpiCardsToShow = useMemo(
@@ -800,6 +821,18 @@ const Dashboard = () => {
 
   const todayLabel = format(new Date(), "EEEE, d MMMM yyyy");
   const todayIso = format(new Date(), "yyyy-MM-dd");
+
+  const todaysSiteActivity = useMemo(
+    () =>
+      buildTodaysSiteActivitySnapshot({
+        projects,
+        blockages: blockages ?? [],
+        tasks,
+        todayIso,
+        projectTimelineByProjectId,
+      }),
+    [projects, blockages, tasks, todayIso, projectTimelineByProjectId],
+  );
 
   const todaySchedule = useMemo(() => {
     const events = buildCalendarEvents({
@@ -1032,23 +1065,8 @@ const Dashboard = () => {
         {/* Attention + pipeline */}
         <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
           <div className="space-y-6 lg:col-span-7">
-            {stats.openOpsBlockagesCount > 0 && permissionService.canAccessPath(currentRole, "/active-sites") && (
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/25 bg-warning/[0.06] px-4 py-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning dark:text-warning">
-                    <ShieldAlert className="h-5 w-5" aria-hidden />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-foreground">Operational blockages</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {stats.openOpsBlockagesCount} open on timeline — resolve from Active sites
-                    </p>
-                  </div>
-                </div>
-                <Button size="sm" variant="outline" className="shrink-0 border-warning/40" onClick={() => navigate("/active-sites")}>
-                  Open
-                </Button>
-              </div>
+            {canAccessActiveSites && (
+              <DashboardTodaysSiteActivity snapshot={todaysSiteActivity} todayLabel={todayLabel} />
             )}
 
             {permissionService.canAccessPath(currentRole, "/inventory/materials") && (
@@ -1339,15 +1357,7 @@ const Dashboard = () => {
           </SheetHeader>
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
             {overdueTasksList.slice(0, 12).map((t) => (
-              <div key={t.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="font-medium truncate">{t.siteName ?? t.projectId}</p>
-                  <p className="text-xs text-muted-foreground">Due {t.workDate}</p>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => navigateToPage("/timeline")}>
-                  Open
-                </Button>
-              </div>
+              <DashboardTaskRow key={t.id} task={t} />
             ))}
             {overdueTasksList.length === 0 && (
               <p className="py-6 text-center text-sm text-muted-foreground">No overdue tasks</p>
@@ -1394,9 +1404,18 @@ const Dashboard = () => {
             </SheetTitle>
           </SheetHeader>
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
-            {sitesOnOngoingProjects.slice(0, 12).map((s) => (
-              <DashboardActiveSiteRow key={s.id} site={s} />
-            ))}
+            {sitesOnOngoingProjects.slice(0, 12).map((s) => {
+              const linkedProject = s.projectId
+                ? projects.find((p) => p.id === s.projectId)
+                : undefined;
+              return (
+                <DashboardActiveSiteRow
+                  key={s.id}
+                  site={s}
+                  projectAging={linkedProject ? getProjectIdleAging(linkedProject) : null}
+                />
+              );
+            })}
             {sitesOnOngoingProjects.length === 0 && (
               <p className="py-6 text-center text-muted-foreground">No sites linked to ongoing projects</p>
             )}
@@ -1501,7 +1520,7 @@ const Dashboard = () => {
           </SheetHeader>
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
             {stats.activeLoans.slice(0, 12).map((loan) => (
-              <DashboardEmiRow key={loan.id} loan={loan} />
+              <DashboardEmiRow key={loan.id} loan={loan} loanRepayments={loanRepayments ?? []} />
             ))}
             {stats.activeLoans.length === 0 && (
               <ListEmptyState

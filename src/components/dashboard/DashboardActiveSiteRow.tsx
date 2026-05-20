@@ -3,6 +3,8 @@ import { ExternalLink, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import { AgingChip } from "@/components/ui/AgingChip";
+import type { AgingSignal } from "@/lib/agingHelpers";
 
 export interface DashboardActiveSiteRowProps {
   site: {
@@ -12,9 +14,11 @@ export interface DashboardActiveSiteRowProps {
     projectName?: string;
     address?: string;
   };
+  /** Typically project idle aging for the linked ongoing project. */
+  projectAging?: AgingSignal | null;
 }
 
-export function DashboardActiveSiteRow({ site }: DashboardActiveSiteRowProps) {
+export function DashboardActiveSiteRow({ site, projectAging }: DashboardActiveSiteRowProps) {
   return (
     <div className="rounded-xl border border-border/60 bg-card px-3 py-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -36,6 +40,7 @@ export function DashboardActiveSiteRow({ site }: DashboardActiveSiteRowProps) {
               {site.projectName}
             </Badge>
           )}
+          <AgingChip signal={projectAging} />
         </div>
         {site.projectId && (
           <Button size="sm" variant="ghost" className="shrink-0 h-8" asChild>

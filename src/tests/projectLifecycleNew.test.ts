@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canStartProject, normalizeLifecycleForTransition } from "@/domain/stateMachines/projectStateMachine";
+import { canStartProject } from "@/domain/stateMachines/projectStateMachine";
 import { normalizeProject } from "@/lib/projectNormalize";
 import type { Project } from "@/types/project";
 
@@ -18,27 +18,27 @@ const intakeProject = (overrides: Partial<Project> = {}): Project =>
     contractAmount: 1,
     createdAt: "2026-01-01",
     ...overrides,
-  }) as Project;
+  }) as unknown as Project;
 
 describe("project lifecycle New (C7)", () => {
-  it("normalizeProject migrates unstarted intake Active to New", () => {
+  it("normalizeProject migrates unstarted intake legacy Active to New", () => {
     const normalized = normalizeProject(intakeProject());
     expect(normalized.lifecycleStatus).toBe("New");
   });
 
-  it("does not migrate in-flight Active execution rows without startedAt", () => {
+  it("does not migrate in-flight execution rows without startedAt", () => {
     const normalized = normalizeProject(
       intakeProject({
+        lifecycleStatus: "In Progress",
         executionPhase: "execution",
         progressStage: "Procurement",
       }),
     );
-    expect(normalized.lifecycleStatus).toBe("Active");
+    expect(normalized.lifecycleStatus).toBe("In Progress");
   });
 
   it("canStartProject accepts canonical New when site is ready", () => {
     expect(canStartProject("New", true, "admin").ok).toBe(true);
-    expect(normalizeLifecycleForTransition("New")).toBe("New");
   });
 
   it("canStartProject rejects In Progress", () => {

@@ -30,7 +30,7 @@ const baseProject = (over: Partial<Project>): Project =>
     endDate: null,
     projectKind: "SOLO_EPC",
     createdAt: "2026-01-01",
-    lifecycleStatus: "Active",
+    lifecycleStatus: "In Progress",
     executionPhase: "execution",
     ...over,
   });

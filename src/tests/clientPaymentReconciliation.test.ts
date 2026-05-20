@@ -6,7 +6,9 @@ import {
   clientPaymentRecordPaymentId,
   clientPaymentRemainingDue,
   fifoApplyClientPaymentToInvoices,
+  formatClientPaymentLedgerReconcileDevMessage,
   reconcileClientPaymentLedger,
+  summarizeClientPaymentLedgerReconcile,
   validateClientPaymentRecord,
 } from "@/lib/clientPaymentReconciliation";
 
@@ -101,6 +103,45 @@ describe("clientPaymentReconciliation", () => {
     expect(second.payments).toHaveLength(1);
     expect(second.invoices[0].amountReceived).toBe(25000);
     expect(second.projects[0].amountReceived).toBe(25000);
+  });
+
+  it("summarizeClientPaymentLedgerReconcile reports boot diff for DEV toast", () => {
+    const record: ClientPaymentRecord = {
+      id: "CPR-2",
+      projectId: "P1",
+      amount: 10000,
+      date: "2026-04-01",
+      paymentMode: "cash",
+      recordedAt: "2026-04-01T10:00:00Z",
+    };
+    const before = {
+      payments: [] as Payment[],
+      invoices: [
+        {
+          id: "INV-1",
+          projectId: "P1",
+          total: 50000,
+          amountReceived: 0,
+          invoiceDate: "2026-01-01",
+        } as Invoice,
+      ],
+      projects: [baseProject("P1")],
+    };
+    const after = reconcileClientPaymentLedger({
+      clientPaymentRecords: [record],
+      ...before,
+    });
+    const summary = summarizeClientPaymentLedgerReconcile(before, after, 1);
+    expect(summary.changed).toBe(true);
+    expect(summary.paymentsAdded).toBe(1);
+    expect(summary.invoicesAllocationAdjusted).toBe(1);
+    expect(summary.projectsAmountReceivedSynced).toBe(1);
+    const message = formatClientPaymentLedgerReconcileDevMessage(summary);
+    expect(message).toMatch(/Payment row/);
+    expect(message).toMatch(/client payment record/);
+
+    const noop = summarizeClientPaymentLedgerReconcile(after, after, 1);
+    expect(noop.changed).toBe(false);
   });
 
   it("validateClientPaymentRecord rejects non-positive and over-contract amounts (Mn18)", () => {

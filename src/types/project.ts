@@ -1,4 +1,5 @@
 // Project types including Solo, Partnership, and Outsourced projects
+import type { ProjectLifecycleStatus } from "@/domain/stateMachines/projectStateMachine";
 import type { ServicePreset, ServicePresetService } from "@/types/finance";
 
 export type ProjectPartnerType = "profit" | "fixed" | "vendorship";
@@ -244,8 +245,8 @@ export interface Project {
   scope?: ProjectScopeConfig;
   
   // Status tracking (Unified)
-  /** Canonical machine label is `"New"`; legacy rows may still use `"Draft"` / `"Active"`. */
-  lifecycleStatus: "New" | "Draft" | "Active" | "In Progress" | "On Hold" | "Completed";
+  /** Canonical lifecycle — legacy Draft/Active/Ongoing normalized on load via {@link normalizeProject}. */
+  lifecycleStatus: ProjectLifecycleStatus;
   executionPhase?: string; // Replaces progressStage for specific phases
   /** Free-form field notes from the Execution tab (prototype). */
   executionNotes?: string;
@@ -440,7 +441,9 @@ export interface Quotation {
   status: "draft" | "sent" | "approved" | "rejected" | "withdrawn" | "converted_to_project";
   quotationType: "solar" | "other";
   enquiryId?: string;
-  
+  /** Set when quotation is created without linking an enquiry (documented exception — O1). */
+  withoutEnquiryReason?: string;
+
   // Reference field - auto-filled from existing project/client if applicable
   referenceClientName?: string;
   

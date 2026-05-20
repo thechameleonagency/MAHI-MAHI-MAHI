@@ -2,21 +2,31 @@ import type { UserRole } from "@/domain/entities/identity";
 
 export type ProjectLifecycleStatus = "New" | "In Progress" | "On Hold" | "Completed" | "Closed";
 
-/** Map persisted / seed lifecycle labels to state-machine keys. */
-export function normalizeLifecycleForTransition(
-  status: string | undefined,
+const CANONICAL_LIFECYCLE: readonly ProjectLifecycleStatus[] = [
+  "New",
+  "In Progress",
+  "On Hold",
+  "Completed",
+  "Closed",
+];
+
+export function isCanonicalProjectLifecycleStatus(
+  value: string | undefined,
+): value is ProjectLifecycleStatus {
+  return CANONICAL_LIFECYCLE.includes(value as ProjectLifecycleStatus);
+}
+
+/**
+ * One-time normalization for persisted / seed labels → five canonical lifecycle states.
+ * Call from {@link normalizeProject} on hydrate; state-machine callers assume canonical input.
+ */
+export function canonicalizeProjectLifecycleStatus(
+  raw: string | undefined,
 ): ProjectLifecycleStatus {
-  if (status === "Active" || status === "Ongoing" || status === "In Progress") return "In Progress";
-  if (status === "Draft" || status === "New") return "New";
-  if (
-    status === "New" ||
-    status === "In Progress" ||
-    status === "On Hold" ||
-    status === "Completed" ||
-    status === "Closed"
-  ) {
-    return status;
-  }
+  if (!raw?.trim()) return "New";
+  if (isCanonicalProjectLifecycleStatus(raw)) return raw;
+  if (raw === "Active" || raw === "Ongoing") return "In Progress";
+  if (raw === "Draft") return "New";
   return "New";
 }
 
@@ -42,8 +52,7 @@ export const canTransitionProjectStatus = (
     return actorRole === "super_admin" && Boolean(overrideReason?.trim());
   }
 
-  const fromKey = normalizeLifecycleForTransition(from);
-  return transitions[fromKey]?.includes(to) ?? false;
+  return transitions[from]?.includes(to) ?? false;
 };
 
 /**
@@ -72,3 +81,13 @@ export const canStartProject = (
   }
   return { ok: true };
 };
+
+/** Legacy `status` field kept in sync with canonical lifecycle for list badges. */
+export function legacyStatusFromLifecycle(
+  lifecycle: ProjectLifecycleStatus,
+): "Ongoing" | "Completed" | "On Hold" | "Closed" {
+  if (lifecycle === "Completed") return "Completed";
+  if (lifecycle === "Closed") return "Closed";
+  if (lifecycle === "On Hold") return "On Hold";
+  return "Ongoing";
+}

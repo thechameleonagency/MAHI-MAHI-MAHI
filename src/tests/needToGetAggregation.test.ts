@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateNeedToGetRows,
   formatNeedToGetMergeSummary,
+  NEED_TO_GET_GROUP_MODES,
+  normalizeNeedToGetGroupMode,
   summarizeNeedToGetMerge,
   type NeedToGetRow,
 } from "@/application/services/NeedToGetService";
@@ -22,6 +24,13 @@ const baseRow = (overrides: Partial<NeedToGetRow>): NeedToGetRow => ({
 const locationLabel = (r: NeedToGetRow) => `${r.projectName} · ${r.siteName}`;
 
 describe("NeedToGet aggregation", () => {
+  it("exposes three prototype group modes only", () => {
+    expect(NEED_TO_GET_GROUP_MODES).toEqual(["flat", "project", "material"]);
+    expect(normalizeNeedToGetGroupMode("site")).toBe("flat");
+    expect(normalizeNeedToGetGroupMode("needBy")).toBe("material");
+    expect(normalizeNeedToGetGroupMode("bogus")).toBe("flat");
+  });
+
   it("merges duplicate material across sites within a project", () => {
     const rows = [
       baseRow({ siteId: "S1", siteName: "Site A", qtyShort: 2 }),

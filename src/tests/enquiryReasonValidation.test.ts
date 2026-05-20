@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { canTransitionEnquiryStatus } from "@/domain/stateMachines/enquiryStateMachine";
+import {
+  canReopenLostEnquiry,
+  canTransitionEnquiryStatus,
+} from "@/domain/stateMachines/enquiryStateMachine";
 import {
   enquiryTerminalReasonRequiredMessage,
   enquiryTransitionRequiresTerminalReason,
@@ -39,6 +42,14 @@ describe("enquiry state machine terminal/reopen reasons", () => {
   it("rejects reopen with too-short reason", () => {
     expect(canTransitionEnquiryStatus("lost", "new", "admin", "short")).toBe(false);
     expect(canTransitionEnquiryStatus("lost", "new", "admin", validReason)).toBe(true);
+  });
+
+  it("canReopenLostEnquiry is admin-only (O11 UI gate)", () => {
+    expect(canReopenLostEnquiry("admin")).toBe(true);
+    expect(canReopenLostEnquiry("super_admin")).toBe(true);
+    expect(canReopenLostEnquiry("salesperson")).toBe(false);
+    expect(canReopenLostEnquiry("ceo")).toBe(false);
+    expect(canTransitionEnquiryStatus("lost", "new", "salesperson", validReason)).toBe(false);
   });
 
   it("rejects mark-lost after quotation with too-short reason", () => {

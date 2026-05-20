@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   computeQuotationLineItemsTotal,
+  hasDistinctClientAgreedAmount,
   hasPositiveQuotationAmount,
+  persistQuotationAmountFields,
+  resolveContractAmount,
   resolveQuotationCommercialAmount,
   validateQuotationSendOrApprove,
 } from "@/domain/quotation/quotationCommercialAmount";
@@ -42,6 +45,24 @@ describe("quotationCommercialAmount", () => {
   it("rejects zero commercial value for send/approve", () => {
     expect(validateQuotationSendOrApprove(baseQuotation()).ok).toBe(false);
     expect(hasPositiveQuotationAmount(baseQuotation({ totalAmount: 1 }))).toBe(true);
+  });
+
+  it("resolveContractAmount prefers clientAgreedAmount over totalAmount", () => {
+    expect(resolveContractAmount({ totalAmount: 780000, clientAgreedAmount: 750000 })).toBe(750000);
+    expect(resolveContractAmount({ totalAmount: 500000 })).toBe(500000);
+  });
+
+  it("persistQuotationAmountFields keeps quoted and agreed in sync", () => {
+    expect(persistQuotationAmountFields(780000)).toEqual({
+      totalAmount: 780000,
+      clientAgreedAmount: 780000,
+    });
+    expect(persistQuotationAmountFields(780000, 750000)).toEqual({
+      totalAmount: 780000,
+      clientAgreedAmount: 750000,
+    });
+    expect(hasDistinctClientAgreedAmount({ totalAmount: 780000, clientAgreedAmount: 750000 })).toBe(true);
+    expect(hasDistinctClientAgreedAmount({ totalAmount: 500000, clientAgreedAmount: 500000 })).toBe(false);
   });
 
   it("sums custom item amount and preset lines", () => {

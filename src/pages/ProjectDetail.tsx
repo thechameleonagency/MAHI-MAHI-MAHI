@@ -45,7 +45,6 @@ import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 import {
   canTransitionProjectStatus,
-  normalizeLifecycleForTransition,
   type ProjectLifecycleStatus,
 } from "@/domain/stateMachines/projectStateMachine";
 import { toast } from "@/hooks/use-toast";
@@ -367,7 +366,7 @@ const ProjectDetail = () => {
     project?.externalVendorshipEntity || project?.loanReceiptHandling || project?.cashHandling ||
     project?.incScope || project?.vendorNetworkCommissionType || project?.commercialBaseline?.capturedAt,
   );
-  const currentLifecycle = normalizeLifecycleForTransition(project?.lifecycleStatus);
+  const currentLifecycle = project?.lifecycleStatus ?? "New";
   const lifecycleTransitions: ProjectLifecycleStatus[] = (["New", "In Progress", "On Hold", "Completed", "Closed"] as ProjectLifecycleStatus[]).filter(
     (to) => canTransitionProjectStatus(currentLifecycle, to, currentRole ?? "admin"),
   );
@@ -861,17 +860,19 @@ const ProjectDetail = () => {
                             return;
                           }
                         }
-                        // Project.lifecycleStatus is "Draft" | "Active" | "On Hold" | "Completed".
-                        // The state machine has "New" | "In Progress" | "On Hold" | "Completed" | "Closed".
-                        // Map state-machine values to the Project enum (per audit A19, Closed → Completed).
-                        const lifecycleNext: "Draft" | "Active" | "On Hold" | "Completed" =
-                          to === "New" ? "Draft"
-                            : to === "In Progress" ? "Active"
-                              : to === "Closed" ? "Completed"
-                                : to;
                         updateProject(project.id, {
-                          lifecycleStatus: lifecycleNext,
-                          ...(lifecycleNext === "Completed" ? { endDate: new Date().toISOString().slice(0, 10) } : {}),
+                          lifecycleStatus: to,
+                          status:
+                            to === "Completed" || to === "Closed"
+                              ? to === "Closed"
+                                ? "Closed"
+                                : "Completed"
+                              : to === "On Hold"
+                                ? "On Hold"
+                                : "Ongoing",
+                          ...(to === "Completed" || to === "Closed"
+                            ? { endDate: new Date().toISOString().slice(0, 10) }
+                            : {}),
                         });
                       }}
                     >

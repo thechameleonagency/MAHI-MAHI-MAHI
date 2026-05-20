@@ -38,7 +38,7 @@ type TopHeaderProps = {
 };
 
 const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
-  const { currentRole, setCurrentRole } = useAppSession();
+  const { currentRole, setCurrentRole, demoUserName, setDemoUserName } = useAppSession();
   const { permissionService } = useFoundation();
   const navigate = useNavigate();
   const location = useLocation();

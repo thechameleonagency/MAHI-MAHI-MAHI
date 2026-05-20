@@ -23,7 +23,7 @@ const emptyRepos = (): AppRepositoryContext => ({
   auditRepository: new LocalStorageJsonRepository<AuditLogEntry>("mss.test.quotecmd.audit", []),
 });
 
-const draftQuotation = (id: string): Quotation => ({
+const draftQuotation = (id: string, extra?: Partial<Quotation>): Quotation => ({
   id,
   quotationNumber: "Q-NEW",
   status: "draft",
@@ -38,6 +38,8 @@ const draftQuotation = (id: string): Quotation => ({
   totalAmount: 1000,
   isConverted: false,
   createdAt: "2026-01-01",
+  withoutEnquiryReason: "Unit test create without enquiry link",
+  ...extra,
 });
 
 describe("CreateQuotation command", () => {
@@ -69,6 +71,69 @@ describe("CreateQuotation command", () => {
       payload: { quotation: q },
     });
     expect(r2.ok).toBe(false);
+  });
+
+  it("rejects create with neither enquiry nor exception reason", async () => {
+    const repositories = emptyRepos();
+    const bus = new CommandBus();
+    registerQuotationCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+    const q = draftQuotation("Q-BARE", { withoutEnquiryReason: undefined });
+    const r = await bus.execute({
+      type: CREATE_QUOTATION_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { quotation: q },
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errorCode).toBe("QUOTATION_CREATE_SOURCE_INVALID");
+  });
+
+  it("creates with linked enquiry and advances enquiry status", async () => {
+    const repositories = emptyRepos();
+    repositories.enquiryRepository.add({
+      id: "ENQ-O1",
+      customerName: "Test",
+      customerPhone: "99",
+      customerEmail: "t@test.com",
+      customerAddress: "Addr",
+      customerType: "individual",
+      source: "walk-in",
+      systemCapacity: "3",
+      estimatedBudget: 100000,
+      requirements: "Solar",
+      status: "new",
+      priority: "medium",
+      assignedTo: "E001",
+      createdAt: "2026-01-01",
+      updatedAt: "2026-01-01",
+    });
+    const bus = new CommandBus();
+    registerQuotationCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+    const q = draftQuotation("Q-ENQ", {
+      enquiryId: "ENQ-O1",
+      withoutEnquiryReason: undefined,
+    });
+    const r = await bus.execute({
+      type: CREATE_QUOTATION_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { quotation: q },
+    });
+    expect(r.ok).toBe(true);
+    const stored = repositories.quotationRepository.getById("Q-ENQ");
+    expect(stored?.enquiryId).toBe("ENQ-O1");
+    expect(stored?.withoutEnquiryReason).toBeUndefined();
+    expect(repositories.enquiryRepository.getById("ENQ-O1")?.status).toBe("quotation_sent");
   });
 });
 

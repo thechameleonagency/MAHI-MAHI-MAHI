@@ -1,4 +1,5 @@
 import type { ProjectIntakePayload } from "@/application/services/ProjectTypeService";
+import { resolveContractAmount } from "@/domain/quotation/quotationCommercialAmount";
 import { resolveProjectKindFromIntake } from "@/domain/project/intakePayload";
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
 import { formatCapacityKW } from "@/lib/formatCurrency";
@@ -83,9 +84,7 @@ export function buildProjectShellFromQuotation(params: {
   const location = formatProjectLocationFromQuotation(quotation);
   const contractAmount =
     Number(intake.commercial?.contractAmount) ||
-    quotation.clientAgreedAmount ||
-    quotation.totalAmount ||
-    0;
+    resolveContractAmount(quotation);
   const paymentType = resolveProjectPaymentTypeFromSources({
     intakePayment: intake.commercial?.paymentType,
     quotationPayment: quotation.paymentType,

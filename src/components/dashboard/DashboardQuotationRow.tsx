@@ -6,9 +6,12 @@ import type { Quotation } from "@/types/project";
 import { formatINR } from "@/lib/formatCurrency";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { resolveQuotationCustomerId } from "@/lib/selectors";
+import { AgingChip } from "@/components/ui/AgingChip";
+import { getQuotationInFlightAging } from "@/lib/agingHelpers";
 
 export function DashboardQuotationRow({ quotation }: { quotation: Quotation }) {
   const customerId = resolveQuotationCustomerId(quotation);
+  const aging = getQuotationInFlightAging(quotation);
   return (
     <div className="rounded-xl border border-border/60 bg-card px-3 py-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -27,9 +30,12 @@ export function DashboardQuotationRow({ quotation }: { quotation: Quotation }) {
           <p className="text-xs text-muted-foreground">
             {quotation.quotationNumber} · {formatINR(quotation.totalAmount || 0)}
           </p>
-          <Badge variant="secondary" className="capitalize text-2xs">
-            {quotation.status.replace(/_/g, " ")}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="secondary" className="capitalize text-2xs">
+              {quotation.status.replace(/_/g, " ")}
+            </Badge>
+            <AgingChip signal={aging} />
+          </div>
         </div>
         <Button size="sm" variant="ghost" className="shrink-0 h-8" asChild>
           <Link to="/quotations" state={{ focusQuotationId: quotation.id }}>

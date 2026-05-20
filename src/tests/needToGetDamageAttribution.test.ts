@@ -98,7 +98,7 @@ describe("NeedToGetService damage chip data", () => {
         endDate: null,
         createdAt: "2026-01-01",
         customerId: "C1",
-        lifecycleStatus: "Active",
+        lifecycleStatus: "In Progress",
         executionPhase: "execution",
         status: "Ongoing",
       },

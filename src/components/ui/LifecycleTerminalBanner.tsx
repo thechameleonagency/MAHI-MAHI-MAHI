@@ -3,7 +3,14 @@ import { AlertTriangle, Archive, Ban, Undo2, CheckCircle2, XCircle, UserMinus } 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type TerminalVariant = "archived" | "voided" | "withdrawn" | "completed" | "terminated" | "rejected";
+type TerminalVariant =
+  | "archived"
+  | "voided"
+  | "withdrawn"
+  | "completed"
+  | "terminated"
+  | "rejected"
+  | "exception";
 
 interface LifecycleTerminalBannerProps {
   variant: TerminalVariant;

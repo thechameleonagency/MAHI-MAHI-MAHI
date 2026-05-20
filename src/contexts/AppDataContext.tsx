@@ -45,7 +45,9 @@ import {
   buildClientPaymentRecordPaymentRow,
   clientPaymentRecordPaymentId,
   fifoApplyClientPaymentToInvoices,
+  formatClientPaymentLedgerReconcileDevMessage,
   reconcileClientPaymentLedger,
+  summarizeClientPaymentLedgerReconcile,
   validateClientPaymentRecord,
 } from "@/lib/clientPaymentReconciliation";
 import type { VendorBill, VendorPayment } from "@/data/inventoryData";
@@ -593,15 +595,8 @@ const STORAGE_KEY = "mahi_solar_app_data";
 const STORAGE_VERSION = 8;
 const STORAGE_VERSION_KEY = "mahi_solar_app_data_version";
 const DEFAULT_ACTOR_ROLE = DEMO_DEFAULT_SESSION_ROLE;
-const toProjectLifecycleStatus = (lifecycleStatus: Project["lifecycleStatus"]): ProjectLifecycleStatus => {
-  switch (lifecycleStatus) {
-    case "Draft": return "New";
-    case "Active": return "In Progress";
-    case "On Hold": return "On Hold";
-    case "Completed": return "Completed";
-    default: return "In Progress";
-  }
-};
+const toProjectLifecycleStatus = (lifecycleStatus: Project["lifecycleStatus"]): ProjectLifecycleStatus =>
+  lifecycleStatus;
 
 /** Append invoice/sale-bill id to project linkage; `invoiceId` mirrors latest document for legacy readers. */
 function mergeProjectInvoiceRef(project: Project, docId: string): Pick<Project, "invoiceIds" | "invoiceId"> {
@@ -787,6 +782,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
    * Boot replay is idempotent: missing Payment rows, FIFO invoice allocation, project.amountReceived sync.
    */
   useEffect(() => {
+    let devToastMessage: string | null = null;
+    let devInSyncCount: number | null = null;
+
     setState((prev) => {
       if (prev.clientPaymentRecords.length === 0) return prev;
       const next = reconcileClientPaymentLedger({
@@ -795,14 +793,38 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         invoices: prev.invoices,
         projects: prev.projects,
       });
-      const paymentsUnchanged =
-        next.payments.length === prev.payments.length &&
-        next.payments.every((p, i) => p === prev.payments[i]);
-      const invoicesUnchanged = next.invoices.every((inv, i) => inv === prev.invoices[i]);
-      const projectsUnchanged = next.projects.every((p, i) => p === prev.projects[i]);
-      if (paymentsUnchanged && invoicesUnchanged && projectsUnchanged) return prev;
+      const summary = summarizeClientPaymentLedgerReconcile(
+        {
+          payments: prev.payments,
+          invoices: prev.invoices,
+          projects: prev.projects,
+        },
+        next,
+        prev.clientPaymentRecords.length,
+      );
+      if (!summary.changed) {
+        devInSyncCount = summary.clientPaymentRecordCount;
+        return prev;
+      }
+      if (import.meta.env.DEV) {
+        devToastMessage = formatClientPaymentLedgerReconcileDevMessage(summary);
+      }
       return { ...prev, ...next };
     });
+
+    if (import.meta.env.DEV) {
+      if (devToastMessage) {
+        console.info(`[MSS] C3 boot reconcile: ${devToastMessage}`);
+        toast({
+          title: "DEV: C3 payment ledger sync",
+          description: devToastMessage,
+        });
+      } else if (devInSyncCount != null) {
+        console.debug(
+          `[MSS] C3 boot reconcile: already in sync (${devInSyncCount} client payment record(s)).`,
+        );
+      }
+    }
     // Run exactly once on mount.
   }, []);
   

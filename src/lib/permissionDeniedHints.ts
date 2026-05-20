@@ -2,9 +2,11 @@
 export const PERMISSION_DENIED_HINTS = {
   quotationApprove: "Only admin, management, or CEO can approve quotations.",
   quotationSend: "Your role cannot send quotations.",
-  quotationReject: "Your role cannot reject or withdraw quotations.",
+  quotationReject: "Your role cannot reject quotations (client declined / deal lost).",
+  quotationWithdraw: "Your role cannot withdraw quotations (retract offer without a client decline).",
   projectFromQuote: "Only admin, management, or CEO can create a project from an approved quotation.",
   enquiryUpdate: "Your role cannot update enquiries.",
+  enquiryReopenLost: "Only admin or super-admin can reopen a lost enquiry.",
   enquiryCreateQuotation: "Your role cannot create quotations.",
   invoiceCreate: "Your role cannot create invoices.",
   changeRequestApprove: "Only admin, management, or CEO can approve commercial change requests.",

@@ -64,6 +64,107 @@ export function getQuotationNoResponseAging(q: Quotation): AgingSignal | null {
   };
 }
 
+/** Fresh sent quotations awaiting internal approval (before no-response aging kicks in). */
+export function getQuotationAwaitingApprovalAging(q: Quotation): AgingSignal | null {
+  if (q.status !== "sent") return null;
+  const sent = safeParse(q.sentAt ?? q.updatedAt ?? q.createdAt);
+  if (!sent) return null;
+  const days = daysSince(sent);
+  if (days >= 2) return null;
+  return {
+    label: days === 0 ? "Awaiting approval" : `Awaiting approval ${days}d`,
+    tone: "warning",
+  };
+}
+
+/** Stale draft quotations on dashboard / pipeline lists. */
+export function getQuotationDraftStaleAging(q: Quotation): AgingSignal | null {
+  if (q.status !== "draft") return null;
+  const at = safeParse(q.updatedAt ?? q.createdAt);
+  if (!at) return null;
+  const days = daysSince(at);
+  if (days < 7) return null;
+  return {
+    label: `Draft ${days}d`,
+    tone: days >= 30 ? "danger" : "warning",
+  };
+}
+
+/** Draft (stale) or sent (awaiting approval / no response) quotations in flight. */
+export function getQuotationInFlightAging(q: Quotation): AgingSignal | null {
+  if (q.status === "sent") {
+    return getQuotationNoResponseAging(q) ?? getQuotationAwaitingApprovalAging(q);
+  }
+  if (q.status === "draft") {
+    return getQuotationDraftStaleAging(q);
+  }
+  return null;
+}
+
+export function getProjectOnHoldAging(
+  project: Pick<Project, "status" | "createdAt" | "startDate"> & { updatedAt?: string },
+): AgingSignal | null {
+  if (project.status !== "On Hold") return null;
+  const at = safeParse(project.updatedAt ?? project.startDate ?? project.createdAt);
+  if (!at) return null;
+  const days = daysSince(at);
+  if (days < 1) return { label: "On hold", tone: "warning" };
+  return {
+    label: `On hold ${days}d`,
+    tone: days >= 14 ? "danger" : "warning",
+  };
+}
+
+export function getLowStockAging(stock: number, min: number): AgingSignal | null {
+  if (min <= 0) return null;
+  const shortBy = min - stock;
+  if (shortBy <= 0) return null;
+  if (stock <= 0) {
+    return { label: "Out of stock", tone: "danger" };
+  }
+  const ratio = shortBy / min;
+  return {
+    label: `Short by ${shortBy}`,
+    tone: ratio >= 0.5 ? "danger" : "warning",
+  };
+}
+
+export function getLoanDueSoonAging(
+  loan: Pick<Loan, "id" | "status" | "paymentType" | "dueDate" | "startDate" | "outstanding" | "reminderDate">,
+  repayments: Pick<LoanRepayment, "loanId" | "date">[],
+): AgingSignal | null {
+  if (loan.status !== "Active") return null;
+  if (getLoanOverdueAging(loan, repayments)) return null;
+
+  const todayIso = new Date().toISOString().split("T")[0];
+  let dueIso: string | null = null;
+
+  if (loan.paymentType === "one-time" && loan.dueDate && loan.outstanding > 0.01) {
+    dueIso = loan.dueDate;
+  } else if (loan.paymentType === "emi" && loan.startDate && loan.outstanding > 0.01) {
+    const paidCount = repayments.filter((r) => r.loanId === loan.id).length;
+    dueIso = format(addMonths(parseISO(loan.startDate), paidCount + 1), "yyyy-MM-dd");
+  } else if (loan.paymentType === "reminder-only" && loan.reminderDate) {
+    dueIso = loan.reminderDate;
+  }
+
+  if (!dueIso || dueIso < todayIso) return null;
+  const daysUntil = differenceInCalendarDays(parseISO(dueIso), parseISO(todayIso));
+  if (daysUntil > 7) return null;
+  return {
+    label: daysUntil === 0 ? "Due today" : `Due in ${daysUntil}d`,
+    tone: daysUntil <= 2 ? "warning" : "neutral",
+  };
+}
+
+/** Loan row on dashboard: overdue first, else due soon. */
+export function getLoanDashboardAging(
+  loan: Pick<Loan, "id" | "status" | "paymentType" | "dueDate" | "startDate" | "outstanding" | "reminderDate" | "emiAmount">,
+  repayments: Pick<LoanRepayment, "loanId" | "date">[],
+): AgingSignal | null {
+  return getLoanOverdueAging(loan, repayments) ?? getLoanDueSoonAging(loan, repayments);
+}
+
 export function getInvoiceOverdueAging(inv: Invoice | null | undefined): AgingSignal | null {
   if (!inv?.status) return null;
   if (inv.status === "paid" || inv.status === "draft" || inv.status === "voided") return null;

@@ -11,7 +11,7 @@ const makeProject = (overrides: Partial<Project> = {}): Project => ({
   ownerType: "solo",
   status: "Ongoing",
   progressStage: "work-in-progress",
-  lifecycleStatus: "Active",
+  lifecycleStatus: "In Progress",
   executionPhase: "execution",
   client: "Client A",
   customerId: "C-1",

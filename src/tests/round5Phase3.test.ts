@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   getProjectIdleAging,
   getQuotationNoResponseAging,
+  getQuotationInFlightAging,
   getInvoiceOverdueAging,
   getEnquiryFollowUpAging,
   isProjectCompleted,
@@ -24,7 +25,7 @@ describe("round5 Phase 3 — aging helpers", () => {
 
   it("classifies completed vs open projects", () => {
     expect(isProjectCompleted({ lifecycleStatus: "Completed" } as Project)).toBe(true);
-    expect(isProjectOpen({ lifecycleStatus: "Active", status: "Ongoing" } as Project)).toBe(true);
+    expect(isProjectOpen({ lifecycleStatus: "In Progress", status: "Ongoing" } as Project)).toBe(true);
   });
 
   it("flags idle projects after 3+ days", () => {
@@ -42,6 +43,12 @@ describe("round5 Phase 3 — aging helpers", () => {
       createdAt: sent.toISOString(),
     } as Quotation;
     expect(getQuotationNoResponseAging(q)?.label).toMatch(/No response 5d/);
+    const draft = {
+      status: "draft",
+      createdAt: "2026-04-01",
+      updatedAt: "2026-04-01",
+    } as Quotation;
+    expect(getQuotationInFlightAging(draft)?.label).toMatch(/Draft/);
   });
 
   it("flags overdue invoices", () => {

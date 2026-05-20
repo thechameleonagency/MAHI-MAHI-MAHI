@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { PermissionService } from "@/application/services/PermissionService";
 import type { FeaturePermissionMatrix } from "@/domain/policies/featurePermissions";
-import { DEFAULT_FEATURE_PERMISSIONS } from "@/domain/policies/featurePermissions";
+import {
+  DEFAULT_FEATURE_PERMISSIONS,
+  migrateRoleMatrixOverride,
+} from "@/domain/policies/featurePermissions";
 
 describe("PermissionService", () => {
   const permissionService = new PermissionService();
@@ -138,10 +141,21 @@ describe("PermissionService", () => {
       expect(permissionService.canAccessPath("admin", "/enquiries", override)).toBe(true);
     });
 
-    it("honours override on audit sub-routes via auditPage view feature", () => {
+    it("honours per-page audit overrides on matching routes only", () => {
       const override: Partial<FeaturePermissionMatrix> = {
-        auditPage: { ...DEFAULT_FEATURE_PERMISSIONS.auditPage, view: ["ceo"] },
+        auditProfitLoss: { ...DEFAULT_FEATURE_PERMISSIONS.auditProfitLoss, view: ["ceo"] },
+        auditCashBank: { ...DEFAULT_FEATURE_PERMISSIONS.auditCashBank, view: ["management"] },
       };
+      expect(permissionService.canAccessPath("ceo", "/audit/profit-loss", override)).toBe(true);
+      expect(permissionService.canAccessPath("ceo", "/audit/cash-bank", override)).toBe(false);
+      expect(permissionService.canAccessPath("management", "/audit/cash-bank", override)).toBe(true);
+      expect(permissionService.canAccessPath("management", "/audit/profit-loss", override)).toBe(false);
+    });
+
+    it("migrates legacy auditPage override for route access", () => {
+      const override = migrateRoleMatrixOverride({
+        auditPage: { ...DEFAULT_FEATURE_PERMISSIONS.auditDashboard, view: ["ceo"] },
+      });
       expect(permissionService.canAccessPath("management", "/audit/profit-loss", override)).toBe(false);
       expect(permissionService.canAccessPath("ceo", "/audit/logs", override)).toBe(true);
     });

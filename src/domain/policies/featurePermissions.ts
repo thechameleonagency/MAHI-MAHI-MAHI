@@ -10,6 +10,7 @@
  * `super_admin` always returns true regardless of matrix contents.
  */
 import type { UserRole } from "@/domain/entities/identity";
+import { AUDIT_VIEW_FEATURES, type AuditViewFeature } from "@/lib/auditRouteFeatures";
 
 export type Feature =
   // Pipeline
@@ -28,8 +29,12 @@ export type Feature =
   | "loan" | "loanRepayment"
   // People
   | "employee" | "team" | "attendance" | "holiday" | "payroll" | "employeeWallet"
+  // Audit & Books — one feature per `/audit/*` page (Role Matrix row controls route access)
+  | "auditDashboard" | "auditChartOfAccounts" | "auditProfitLoss" | "auditInventory"
+  | "auditDebtorsCreditors" | "auditGst" | "auditCashBank" | "auditExpenses" | "auditAssets"
+  | "auditLogs" | "auditReports" | "auditDataFlow"
   // System / read-mostly pages
-  | "auditPage" | "analytics" | "calendar" | "timeline" | "dashboard" | "notifications"
+  | "analytics" | "calendar" | "timeline" | "dashboard" | "notifications"
   // Settings sub-areas
   | "settingsProfile" | "settingsCompany" | "settingsTheme" | "settingsSecurity"
   | "settingsTeam" | "settingsData" | "settingsMasters" | "settingsRoleMatrix"
@@ -50,6 +55,9 @@ export const FEATURE_MATRIX_ROW_NOTES: Partial<Record<Feature, string>> = {
     "Stock ledger (issue, return, receive). Separate from inventoryItem; movement reversal is super_admin-only in AppDataContext.",
   employeeWallet:
     "Formal advance/recovery ledger on Employee Profile. Admin/management create; CEO view-only. Employee salary advances in attendance come from expense records (expense feature), not auto-synced here.",
+  auditProfitLoss:
+    "Controls /audit/profit-loss only. Independent from Cash & bank and other audit sub-pages.",
+  auditCashBank: "Controls /audit/cash-bank only. Independent from Profit & loss and other audit sub-pages.",
 };
 
 /** Compact helper to build a row: `r("view,create", ["admin", "management"])`. */
@@ -219,8 +227,19 @@ export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
   /** Aligns with who can post employee advance expenses; distinct from `expense` (see FEATURE_MATRIX_ROW_NOTES). */
   employeeWallet: r(ADMIN_MGMT_CEO_VIEW, ADMIN_MGMT, ADMIN_MGMT, ADMIN_ONLY),
 
-  // ============ AUDIT + ANALYTICS + SYSTEM PAGES ============
-  auditPage: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  // ============ AUDIT (per page) + ANALYTICS + SYSTEM PAGES ============
+  auditDashboard: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditChartOfAccounts: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditProfitLoss: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditInventory: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditDebtorsCreditors: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditGst: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditCashBank: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditExpenses: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditAssets: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditLogs: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditReports: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditDataFlow: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
   analytics: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
   calendar: r(ALL_NON_SUPER, ADMIN_MGMT, ADMIN_MGMT, ADMIN_MGMT),
   timeline: r(
@@ -296,14 +315,47 @@ export function cloneFeaturePermissionMatrix(
   return deepClonePermissionData(source);
 }
 
+/** @deprecated Pre-O5 single row for all `/audit/*` routes — migrated on load/save. */
+const LEGACY_AUDIT_PAGE_KEY = "auditPage" as const;
+
+type LegacyAuditPageRow = Record<Crud, UserRole[]>;
+
+/**
+ * Expands saved overrides that still use `auditPage` into per-route audit features (O5).
+ */
+export function migrateRoleMatrixOverride(
+  override?: Partial<FeaturePermissionMatrix> & { [LEGACY_AUDIT_PAGE_KEY]?: LegacyAuditPageRow },
+): Partial<FeaturePermissionMatrix> | undefined {
+  if (!override) return undefined;
+  const legacy = override[LEGACY_AUDIT_PAGE_KEY];
+  if (!legacy) return override as Partial<FeaturePermissionMatrix>;
+
+  const { [LEGACY_AUDIT_PAGE_KEY]: _removed, ...rest } = override;
+  const migrated: Partial<FeaturePermissionMatrix> = { ...(rest as Partial<FeaturePermissionMatrix>) };
+  const viewRoles = legacy.view ?? DEFAULT_FEATURE_PERMISSIONS.auditDashboard.view;
+
+  for (const feature of AUDIT_VIEW_FEATURES) {
+    if (!migrated[feature]) {
+      migrated[feature] = {
+        ...DEFAULT_FEATURE_PERMISSIONS[feature as AuditViewFeature],
+        view: [...viewRoles],
+      };
+    }
+  }
+  return migrated;
+}
+
 /** Editable Role Matrix draft: cloned defaults with optional override rows cloned on top. */
 export function buildFeaturePermissionMatrixDraft(
   override?: Partial<FeaturePermissionMatrix>,
 ): FeaturePermissionMatrix {
+  const normalized = migrateRoleMatrixOverride(
+    override as Partial<FeaturePermissionMatrix> & { auditPage?: LegacyAuditPageRow },
+  );
   const merged = cloneFeaturePermissionMatrix(DEFAULT_FEATURE_PERMISSIONS);
-  if (!override) return merged;
-  for (const key of Object.keys(override) as Feature[]) {
-    const row = override[key];
+  if (!normalized) return merged;
+  for (const key of Object.keys(normalized) as Feature[]) {
+    const row = normalized[key];
     if (row) merged[key] = deepClonePermissionData(row);
   }
   return merged;

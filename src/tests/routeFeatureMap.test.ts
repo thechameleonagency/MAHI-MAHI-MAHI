@@ -14,10 +14,11 @@ describe("routeFeatureMap", () => {
     expect(featureForPath("/agents/A001")).toBe("agent");
   });
 
-  it("maps all audit sub-routes to auditPage", () => {
-    expect(featureForPath("/audit")).toBe("auditPage");
-    expect(featureForPath("/audit/profit-loss")).toBe("auditPage");
-    expect(featureForPath("/audit/chart-of-accounts")).toBe("auditPage");
+  it("maps audit sub-routes to distinct per-page features", () => {
+    expect(featureForPath("/audit")).toBe("auditDashboard");
+    expect(featureForPath("/audit/profit-loss")).toBe("auditProfitLoss");
+    expect(featureForPath("/audit/cash-bank")).toBe("auditCashBank");
+    expect(featureForPath("/audit/chart-of-accounts")).toBe("auditChartOfAccounts");
   });
 
   it("maps /finance to financeHub (not expense)", () => {

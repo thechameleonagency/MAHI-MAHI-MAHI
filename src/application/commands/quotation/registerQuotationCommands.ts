@@ -13,6 +13,7 @@ import { validateQuotationSendOrApprove } from "@/domain/quotation/quotationComm
 import { validateQuotationPaymentTypeForSend } from "@/domain/quotation/quotationPaymentType";
 import { buildEnquiryQuotationLinkUpdate } from "@/lib/enquiryQuotationHistory";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
+import { validateQuotationCreateSource } from "@/lib/quotationCreateSource";
 import {
   buildCustomerFromQuotation,
   enrichCustomerFromQuotation,
@@ -55,6 +56,37 @@ export const registerQuotationCommands = (
       };
     }
 
+    const sourceCheck = validateQuotationCreateSource(
+      {
+        enquiryId: quotation.enquiryId,
+        withoutEnquiryReason: quotation.withoutEnquiryReason,
+      },
+      quotation.enquiryId
+        ? repositories.enquiryRepository.getById(quotation.enquiryId) ?? null
+        : null,
+      command.actorRole,
+    );
+    if (!sourceCheck.ok) {
+      return {
+        ok: false,
+        errorCode: "QUOTATION_CREATE_SOURCE_INVALID",
+        message: sourceCheck.message,
+      };
+    }
+
+    const quotationToPersist: Quotation =
+      sourceCheck.mode === "enquiry"
+        ? {
+            ...quotation,
+            enquiryId: sourceCheck.enquiryId,
+            withoutEnquiryReason: undefined,
+          }
+        : {
+            ...quotation,
+            enquiryId: undefined,
+            withoutEnquiryReason: sourceCheck.withoutEnquiryReason,
+          };
+
     let enquiryLink:
       | {
           enquiryId: string;
@@ -63,10 +95,14 @@ export const registerQuotationCommands = (
         }
       | undefined;
 
-    if (quotation.enquiryId) {
-      const enquiry = repositories.enquiryRepository.getById(quotation.enquiryId);
+    if (quotationToPersist.enquiryId) {
+      const enquiry = repositories.enquiryRepository.getById(quotationToPersist.enquiryId);
       if (!enquiry) {
-        return { ok: false, errorCode: "ENQUIRY_NOT_FOUND", message: `Enquiry ${quotation.enquiryId} not found` };
+        return {
+          ok: false,
+          errorCode: "ENQUIRY_NOT_FOUND",
+          message: `Enquiry ${quotationToPersist.enquiryId} not found`,
+        };
       }
       const gate = assertCanLinkNewQuotationToEnquiry(enquiry, command.actorRole);
       if (!gate.ok) {
@@ -76,14 +112,18 @@ export const registerQuotationCommands = (
           message: gate.message,
         };
       }
-      enquiryLink = { enquiryId: quotation.enquiryId, enquiry, nextStatus: gate.nextStatus };
+      enquiryLink = {
+        enquiryId: quotationToPersist.enquiryId,
+        enquiry,
+        nextStatus: gate.nextStatus,
+      };
     }
 
-    repositories.quotationRepository.add(quotation);
+    repositories.quotationRepository.add(quotationToPersist);
 
     if (enquiryLink) {
       repositories.enquiryRepository.update(enquiryLink.enquiryId, {
-        ...buildEnquiryQuotationLinkUpdate(enquiryLink.enquiry, quotation.id),
+        ...buildEnquiryQuotationLinkUpdate(enquiryLink.enquiry, quotationToPersist.id),
         status: enquiryLink.nextStatus,
         updatedAt: new Date().toISOString(),
       });
@@ -92,13 +132,13 @@ export const registerQuotationCommands = (
     auditService.write(command, {
       action: "create",
       entityType: "Quotation",
-      entityId: quotation.id,
-      entityName: quotation.quotationNumber,
-      newValue: quotation.status,
+      entityId: quotationToPersist.id,
+      entityName: quotationToPersist.quotationNumber,
+      newValue: quotationToPersist.status,
     });
     return {
       ok: true,
-      result: { quotationId: quotation.id },
+      result: { quotationId: quotationToPersist.id },
       domainEvents: ["QuotationCreated"],
     };
   });

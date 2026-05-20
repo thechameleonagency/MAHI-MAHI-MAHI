@@ -1,6 +1,7 @@
 import type { Customer } from "@/types/finance";
 import type { Quotation } from "@/types/project";
 import { validateGstin } from "@/lib/formCategories";
+import { createNextCustomerId } from "@/lib/idFactory";
 import { validateContactPhone } from "@/lib/phoneValidators";
 
 export type QuotationClientFields = Pick<
@@ -108,6 +109,99 @@ export function buildCustomerFromQuotation(
     totalPurchases: 0,
     customerKind: "project",
     createdAt: new Date().toISOString().split("T")[0],
+  };
+}
+
+export type QuotationApprovalCustomerPreview = {
+  mode: "create" | "link_existing";
+  customerId: string;
+  displayName: string;
+  phone: string;
+  email: string;
+  address: string;
+  type: Customer["type"];
+  gstin?: string;
+  pan?: string;
+  paymentTerms?: string;
+  /** Human labels for fields backfilled from the quotation on an existing customer. */
+  enrichments: string[];
+};
+
+function listCustomerEnrichments(before: Customer, after: Customer): string[] {
+  const labels: string[] = [];
+  if (!before.name?.trim() && after.name?.trim()) labels.push("Name");
+  if (!before.phone?.trim() && after.phone?.trim()) labels.push("Phone");
+  if (!before.email?.trim() && after.email?.trim()) labels.push("Email");
+  if (!before.address?.trim() && after.address?.trim()) labels.push("Address");
+  if (!before.gstin?.trim() && after.gstin?.trim()) labels.push("GSTIN");
+  if (!before.pan?.trim() && after.pan?.trim()) labels.push("PAN");
+  if (!before.state?.trim() && after.state?.trim()) labels.push("State");
+  if (!before.paymentTerms?.trim() && after.paymentTerms?.trim()) labels.push("Payment terms");
+  if (before.type !== "company" && after.type === "company") labels.push("Customer type → company");
+  return labels;
+}
+
+/**
+ * Describes the customer record that approval will create or update (O2 trust loop).
+ * Mirrors `CREATE` / `TRANSITION` approval logic in `registerQuotationCommands`.
+ */
+export function buildQuotationApprovalCustomerPreview(
+  q: QuotationClientFields & { customerId?: string },
+  options: {
+    existingCustomer: Customer | null | undefined;
+    existingCustomerIds: string[];
+  },
+): { ok: true; preview: QuotationApprovalCustomerPreview } | { ok: false; message: string } {
+  const clientCheck = validateQuotationClientForApproval(q);
+  if (!clientCheck.ok) {
+    return clientCheck;
+  }
+
+  const linkedId = q.customerId?.trim();
+  if (linkedId && options.existingCustomer) {
+    const enriched = enrichCustomerFromQuotation(options.existingCustomer, q);
+    return {
+      ok: true,
+      preview: {
+        mode: "link_existing",
+        customerId: linkedId,
+        displayName: enriched.name,
+        phone: enriched.phone,
+        email: enriched.email,
+        address: enriched.address,
+        type: enriched.type,
+        gstin: enriched.gstin,
+        pan: enriched.pan,
+        paymentTerms: enriched.paymentTerms,
+        enrichments: listCustomerEnrichments(options.existingCustomer, enriched),
+      },
+    };
+  }
+
+  if (linkedId && !options.existingCustomer) {
+    return {
+      ok: false,
+      message: `Customer ${linkedId} is linked on this quotation but was not found. Fix the customer link before approving.`,
+    };
+  }
+
+  const proposedId = createNextCustomerId(options.existingCustomerIds);
+  const created = buildCustomerFromQuotation(q, proposedId);
+  return {
+    ok: true,
+    preview: {
+      mode: "create",
+      customerId: proposedId,
+      displayName: created.name,
+      phone: created.phone,
+      email: created.email,
+      address: created.address,
+      type: created.type,
+      gstin: created.gstin,
+      pan: created.pan,
+      paymentTerms: created.paymentTerms,
+      enrichments: [],
+    },
   };
 }
 

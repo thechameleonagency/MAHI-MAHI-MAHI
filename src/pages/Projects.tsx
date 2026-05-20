@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { 
   Plus, Search, Calendar, User, 
  Building2, IndianRupee, 
-  LayoutGrid, List as ListIcon, Eye
+  LayoutGrid, List as ListIcon, Eye, MapPin
 } from "lucide-react";
 import {
   Dialog,
@@ -62,6 +62,9 @@ import {
   isProjectOpen,
 } from "@/lib/agingHelpers";
 import { buttonRoles } from "@/lib/buttonRoles";
+import { isActiveSiteProject } from "@/lib/activeSiteProjects";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { useFoundation } from "@/app/providers/FoundationProvider";
 
 function customerOptionalForDirectExceptionKind(k: ProjectKind): boolean {
   return k === "INC_GIVEN" || k === "VENDORSHIP_ONLY" || k === "VENDOR_NETWORK";
@@ -70,6 +73,8 @@ function customerOptionalForDirectExceptionKind(k: ProjectKind): boolean {
 const Projects = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { currentRole } = useAppSession();
+  const { permissionService } = useFoundation();
   const {
     projects,
     quotations,
@@ -241,6 +246,12 @@ const Projects = () => {
       default: return <Building2 className="h-4 w-4" />;
     }
   };
+
+  const activeSiteCount = useMemo(
+    () => projects.filter(isActiveSiteProject).length,
+    [projects],
+  );
+  const canAccessActiveSites = permissionService.canAccessPath(currentRole, "/active-sites");
 
   const stats = {
     total: projects.length,
@@ -438,6 +449,12 @@ const Projects = () => {
               <LayoutGrid className="h-4 w-4" />
             </Button>
           </div>
+          {canAccessActiveSites && activeSiteCount > 0 && (
+            <Button size="sm" variant="outline" onClick={() => navigate("/active-sites")}>
+              <MapPin className="h-4 w-4 mr-2" />
+              Site execution ({activeSiteCount})
+            </Button>
+          )}
           <Button size="sm" onClick={() => setIsCreateProjectOpen(true)} disabled={!canDo("project:create_from_quote")}>
             <Plus className="h-4 w-4 mr-2" />
             New Project

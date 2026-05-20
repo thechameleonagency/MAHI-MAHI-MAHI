@@ -12,6 +12,7 @@ import {
   type Feature,
   type FeaturePermissionMatrix,
 } from "@/domain/policies/featurePermissions";
+import { AUDIT_ROUTE_FEATURE_DEFS } from "@/lib/auditRouteFeatures";
 
 const CRUDS: Crud[] = ["view", "create", "edit", "delete"];
 const CRUD_LETTERS: Record<Crud, string> = { view: "V", create: "C", edit: "E", delete: "D" };
@@ -89,9 +90,15 @@ const FEATURE_DOMAINS: { domain: string; features: { key: Feature; label: string
     ],
   },
   {
-    domain: "Audit, Analytics & System",
+    domain: "Audit & Books (per route)",
+    features: AUDIT_ROUTE_FEATURE_DEFS.map((d) => ({
+      key: d.feature,
+      label: `${d.label} (${d.path})`,
+    })),
+  },
+  {
+    domain: "Analytics & System",
     features: [
-      { key: "auditPage", label: "Audit & Books pages" },
       { key: "analytics", label: "Analytics" },
       { key: "calendar", label: "Calendar" },
       { key: "timeline", label: "Timeline" },

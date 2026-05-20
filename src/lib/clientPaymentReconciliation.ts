@@ -170,6 +170,92 @@ export function reconcileClientPaymentLedger(input: {
   return { payments, invoices, projects };
 }
 
+export type ClientPaymentLedgerReconcileSummary = {
+  changed: boolean;
+  clientPaymentRecordCount: number;
+  paymentsAdded: number;
+  invoicesAllocationAdjusted: number;
+  projectsAmountReceivedSynced: number;
+};
+
+/** Diff before/after boot reconcile for DEV toast and console tracing (O10). */
+export function summarizeClientPaymentLedgerReconcile(
+  before: {
+    payments: Payment[];
+    invoices: Invoice[];
+    projects: Project[];
+  },
+  after: {
+    payments: Payment[];
+    invoices: Invoice[];
+    projects: Project[];
+  },
+  clientPaymentRecordCount: number,
+): ClientPaymentLedgerReconcileSummary {
+  const beforePaymentIds = new Set(before.payments.map((p) => p.id));
+  const paymentsAdded = after.payments.filter((p) => !beforePaymentIds.has(p.id)).length;
+
+  const invoiceBefore = new Map(before.invoices.map((inv) => [inv.id, inv]));
+  let invoicesAllocationAdjusted = 0;
+  for (const inv of after.invoices) {
+    const prev = invoiceBefore.get(inv.id);
+    if (!prev) continue;
+    if (
+      (prev.amountReceived ?? 0) !== (inv.amountReceived ?? 0) ||
+      prev.status !== inv.status
+    ) {
+      invoicesAllocationAdjusted += 1;
+    }
+  }
+
+  const projectBefore = new Map(before.projects.map((p) => [p.id, p]));
+  let projectsAmountReceivedSynced = 0;
+  for (const proj of after.projects) {
+    const prev = projectBefore.get(proj.id);
+    if (!prev) continue;
+    if ((prev.amountReceived ?? 0) !== (proj.amountReceived ?? 0)) {
+      projectsAmountReceivedSynced += 1;
+    }
+  }
+
+  const changed =
+    paymentsAdded > 0 ||
+    invoicesAllocationAdjusted > 0 ||
+    projectsAmountReceivedSynced > 0;
+
+  return {
+    changed,
+    clientPaymentRecordCount,
+    paymentsAdded,
+    invoicesAllocationAdjusted,
+    projectsAmountReceivedSynced,
+  };
+}
+
+/** One-line copy for DEV toast after C3 boot reconciler runs. */
+export function formatClientPaymentLedgerReconcileDevMessage(
+  summary: ClientPaymentLedgerReconcileSummary,
+): string {
+  const parts: string[] = [];
+  if (summary.paymentsAdded > 0) {
+    parts.push(
+      `${summary.paymentsAdded} Payment row${summary.paymentsAdded === 1 ? "" : "s"} emitted (cpr:*)`,
+    );
+  }
+  if (summary.invoicesAllocationAdjusted > 0) {
+    parts.push(
+      `${summary.invoicesAllocationAdjusted} invoice${summary.invoicesAllocationAdjusted === 1 ? "" : "s"} FIFO-updated`,
+    );
+  }
+  if (summary.projectsAmountReceivedSynced > 0) {
+    parts.push(
+      `${summary.projectsAmountReceivedSynced} project${summary.projectsAmountReceivedSynced === 1 ? "" : "s"} amountReceived synced`,
+    );
+  }
+  const detail = parts.length ? parts.join(" · ") : "Ledger replay applied";
+  return `${detail} (${summary.clientPaymentRecordCount} client payment record${summary.clientPaymentRecordCount === 1 ? "" : "s"} on boot).`;
+}
+
 export type ClientPaymentValidationResult =
   | { ok: true; remainingDue: number }
   | { ok: false; reason: string };

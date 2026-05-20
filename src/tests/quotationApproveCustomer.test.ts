@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildCustomerFromQuotation,
   buildPaymentTermsSummary,
+  buildQuotationApprovalCustomerPreview,
   enrichCustomerFromQuotation,
   formatQuotationClientAddress,
   validateQuotationClientForApproval,
@@ -73,6 +74,51 @@ describe("quotationApproveCustomer", () => {
     expect(formatQuotationClientAddress(richQuotation)).toBe(
       "12 MG Road, Jaipur, Rajasthan, PIN 302001",
     );
+  });
+
+  it("preview describes new customer on approve when no link", () => {
+    const result = buildQuotationApprovalCustomerPreview(richQuotation, {
+      existingCustomer: undefined,
+      existingCustomerIds: ["C018"],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview.mode).toBe("create");
+      expect(result.preview.customerId).toBe("CUST-0019");
+      expect(result.preview.displayName).toBe("Solar Client Pvt Ltd");
+    }
+  });
+
+  it("preview describes link + enrichments for existing customer", () => {
+    const thin: Customer = {
+      id: "C010",
+      name: "Legacy",
+      phone: "9000000010",
+      email: "",
+      address: "",
+      type: "individual",
+      itemsBought: [],
+      totalPurchases: 0,
+      createdAt: "2026-01-01",
+    };
+    const result = buildQuotationApprovalCustomerPreview(
+      { ...richQuotation, customerId: "C010" },
+      { existingCustomer: thin, existingCustomerIds: ["C010"] },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview.mode).toBe("link_existing");
+      expect(result.preview.enrichments.length).toBeGreaterThan(0);
+      expect(result.preview.gstin).toBe("08AABCU9603R1ZM");
+    }
+  });
+
+  it("preview rejects missing linked customer", () => {
+    const result = buildQuotationApprovalCustomerPreview(
+      { ...richQuotation, customerId: "C-MISSING" },
+      { existingCustomer: undefined, existingCustomerIds: [] },
+    );
+    expect(result.ok).toBe(false);
   });
 
   it("builds payment terms summary from milestone fields", () => {
