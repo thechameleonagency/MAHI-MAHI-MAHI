@@ -7,7 +7,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAppData } from "@/contexts/AppDataContext";
 import { Upload, FileText, CheckCircle2, AlertTriangle, Copy, Landmark, X, Search, Download } from "lucide-react";
@@ -505,7 +504,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <AppSheetContent layout="document" size="wide" className="gap-4">
+      <AppSheetContent layout="document" size="wide" mobileFullScreen className="gap-4">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2 text-foreground">
             <Landmark className="w-5 h-5 text-primary" />
@@ -513,7 +512,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
           </SheetTitle>
         </SheetHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <TabsList className="grid grid-cols-2 w-full max-w-sm">
             <TabsTrigger value="upload">Upload Statements</TabsTrigger>
             <TabsTrigger value="results" disabled={statements.length === 0}>
@@ -619,7 +618,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
             </Card>
           </TabsContent>
 
-          <TabsContent value="results" className="flex-1 flex flex-col overflow-hidden mt-4 space-y-4">
+          <TabsContent value="results" className="mt-4 flex min-h-0 flex-1 flex-col space-y-4 overflow-hidden">
             {/* Summary KPIs */}
             <div className="grid grid-cols-5 gap-2">
               {[
@@ -655,17 +654,22 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
               </Button>
             </div>
 
-            {/* Results Table */}
-            <ScrollArea className="flex-1 border rounded-lg">
-              <Table>
+            {/* Results Table — horizontal + vertical scroll on narrow viewports (MR4) */}
+            <div
+              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border"
+              role="region"
+              aria-label="Reconciliation results table"
+            >
+              <div className="min-h-0 flex-1 overflow-auto">
+                <Table noViewport className="min-w-[52rem] w-full">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[100px]">Date</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right w-[90px]">Debit</TableHead>
-                    <TableHead className="text-right w-[90px]">Credit</TableHead>
+                    <TableHead className="min-w-[12rem]">Description</TableHead>
+                    <TableHead className="w-[90px] text-right">Debit</TableHead>
+                    <TableHead className="w-[90px] text-right">Credit</TableHead>
                     <TableHead className="w-[120px]">Flag</TableHead>
-                    <TableHead>Matched Ledger Entry</TableHead>
+                    <TableHead className="min-w-[14rem]">Matched Ledger Entry</TableHead>
                     <TableHead className="w-[140px]">Source</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -709,7 +713,8 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
                   ))}
                 </TableBody>
               </Table>
-            </ScrollArea>
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
 

@@ -587,7 +587,7 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
           </p>
           <p
             className={cn(
-              "text-xs print:hidden rounded-md border px-2.5 py-1.5 transition-colors",
+              "hidden rounded-md border px-2.5 py-1.5 text-xs transition-colors md:block print:hidden",
               mergeModeFlash && mergeStats.linesMergedAway > 0
                 ? "border-amber-300/80 bg-amber-50 text-amber-950 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-100"
                 : "border-transparent text-muted-foreground",
@@ -789,13 +789,19 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
                     </Button>
                   </PopoverTrigger>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-sm text-left">
+                <TooltipContent side="bottom" className="max-w-sm text-left hidden md:block">
                   <p className="font-medium">{NEED_TO_GET_GROUP_LABELS[groupMode]}</p>
                   <p className="mt-1 text-muted-foreground">{NEED_TO_GET_MERGE_HINT[groupMode]}</p>
                   <p className="mt-2 border-t border-border/60 pt-2 text-foreground/90">{mergeSummary}</p>
                 </TooltipContent>
-                <PopoverContent className="w-72 p-0" align="start">
-                  <div className="border-b px-3 py-2 text-xs font-medium">Group / sort view</div>
+                <PopoverContent className="w-[min(18rem,calc(100vw-2rem))] p-0" align="start">
+                  <div className="space-y-1 border-b px-3 py-2">
+                    <p className="text-xs font-medium">Group / sort view</p>
+                    <p className="text-2xs leading-snug text-muted-foreground md:hidden">
+                      {NEED_TO_GET_MERGE_HINT[groupMode]}
+                    </p>
+                    <p className="text-2xs text-foreground/90 md:hidden">{mergeSummary}</p>
+                  </div>
                   <div className="flex flex-col gap-0.5 p-2">
                     {NEED_TO_GET_GROUP_MODES.map((mode) => (
                       <Button
@@ -820,7 +826,7 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
               <Badge
                 variant="outline"
                 className={cn(
-                  "h-9 shrink-0 tabular-nums print:hidden",
+                  "hidden h-9 shrink-0 tabular-nums md:inline-flex print:hidden",
                   mergeModeFlash &&
                     "border-amber-400 bg-amber-100 text-amber-950 animate-pulse dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100",
                 )}
@@ -828,6 +834,40 @@ export function NeedToGetSheet({ open, onOpenChange, initialProjectId }: NeedToG
                 {mergeStats.rawLineCount} → {mergeStats.mergedRowCount} rows
               </Badge>
             ) : null}
+          </div>
+
+          {/* MR5: merge rules + live summary stay visible above mobile results (not buried under filter wrap) */}
+          <div
+            className={cn(
+              "sticky top-0 z-10 space-y-1.5 border-b border-border/80 bg-card/95 py-2 backdrop-blur supports-[backdrop-filter]:bg-card/90 md:hidden print:hidden",
+              mergeModeFlash &&
+                mergeStats.linesMergedAway > 0 &&
+                "border-amber-300/70 bg-amber-50/95 dark:border-amber-700/50 dark:bg-amber-950/90",
+            )}
+            aria-live="polite"
+            role="status"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="min-w-0 flex-1 text-xs font-medium text-foreground">
+                {NEED_TO_GET_GROUP_LABELS[groupMode]}
+              </p>
+              {mergeStats.linesMergedAway > 0 ? (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "h-7 shrink-0 tabular-nums text-2xs",
+                    mergeModeFlash &&
+                      "border-amber-400 bg-amber-100 text-amber-950 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100",
+                  )}
+                >
+                  {mergeStats.rawLineCount} → {mergeStats.mergedRowCount} rows
+                </Badge>
+              ) : null}
+            </div>
+            <p className="text-2xs leading-snug text-muted-foreground">{NEED_TO_GET_MERGE_HINT[groupMode]}</p>
+            <p className="text-2xs text-foreground/90">
+              <span className="font-medium">Row merge:</span> {mergeSummary}
+            </p>
           </div>
 
           <div className="space-y-2 md:hidden print:hidden">

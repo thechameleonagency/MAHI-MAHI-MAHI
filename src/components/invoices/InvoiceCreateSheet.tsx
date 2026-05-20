@@ -756,8 +756,8 @@ export function InvoiceCreateSheet({
             onDismiss={() => setLastConfirm(null)}
           />
         )}
-        <div className="space-y-6 py-4">
-            <div className="space-y-6">
+        <div className="min-w-0 space-y-6 py-4">
+            <div className="min-w-0 space-y-6">
               <Card className="border-primary/20 bg-primary/5">
                 <CardContent className="pt-4 space-y-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -816,7 +816,7 @@ export function InvoiceCreateSheet({
               </Card>
 
               {/* Header Section */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div className="space-y-2">
                   <Label>Invoice Date</Label>
                   <Input type="date" value={invoiceDate} onChange={(e) => setForm((prev) => ({ ...prev, invoiceDate: e.target.value }))} />
@@ -839,7 +839,7 @@ export function InvoiceCreateSheet({
               </div>
 
               {/* Two Column Layout: Left = Linking, Right = Client Details */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
                 {/* Left Column - Linking Fields */}
                 <div className="space-y-4">
                   <Card className="bg-muted/30">
@@ -919,7 +919,7 @@ export function InvoiceCreateSheet({
                 </div>
 
                 {/* Right Column - Client Details */}
-                <div className="col-span-2">
+                <div className="lg:col-span-2">
                   <Card className="bg-muted/30">
                     <CardHeader className="py-3 flex flex-row items-center justify-between">
                       <CardTitle className="text-sm font-medium">Client Details</CardTitle>
@@ -929,7 +929,7 @@ export function InvoiceCreateSheet({
                       </Button>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <div className="space-y-2">
                           <Label>Client Name *</Label>
                           <div className="flex gap-2">
@@ -946,7 +946,7 @@ export function InvoiceCreateSheet({
                           <Input value={buyerContact} onChange={(e) => setForm((prev) => ({ ...prev, buyerContact: e.target.value }))} placeholder="+91 98765 43210" />
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <div className="space-y-2">
                           <Label>Address</Label>
                           <Input value={buyerAddress} onChange={(e) => setForm((prev) => ({ ...prev, buyerAddress: e.target.value }))} placeholder="Enter address" />
@@ -963,11 +963,11 @@ export function InvoiceCreateSheet({
 
               {/* Services Section */}
               <Card className="bg-muted/30">
-                <CardHeader className="py-3 flex flex-row items-center justify-between">
+                <CardHeader className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <CardTitle className="text-sm font-medium">Services</CardTitle>
-                  <div className="flex gap-2">
+                  <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                     <Select onValueChange={addServiceFromPreset}>
-                      <SelectTrigger className="w-[180px] h-8 text-xs">
+                      <SelectTrigger className="h-8 w-full min-w-0 text-xs sm:w-[180px]">
                         <Zap className="h-3 w-3 mr-1" />
                         <SelectValue placeholder="Quick Add Preset" />
                       </SelectTrigger>
@@ -991,8 +991,9 @@ export function InvoiceCreateSheet({
                   ) : (
                     <div className="space-y-3">
                       {invoiceServices.map((service, idx) => (
-                        <div key={idx} className="space-y-2 p-3 border rounded-lg bg-background/50">
-                          <div className="grid grid-cols-12 gap-2 items-end">
+                        <div key={idx} className="space-y-2 rounded-lg border bg-background/50 p-3">
+                          <div className="-mx-1 overflow-x-auto px-1 sm:mx-0 sm:overflow-visible sm:px-0">
+                          <div className="grid min-w-[36rem] grid-cols-12 gap-2 items-end sm:min-w-0">
                             <div className="col-span-4">
                               <Label className="text-xs">Description</Label>
                               <Input value={service.description} onChange={(e) => updateService(idx, 'description', e.target.value)} placeholder="Service description" />
@@ -1038,6 +1039,7 @@ export function InvoiceCreateSheet({
                               </Button>
                             </div>
                           </div>
+                          </div>
                           {/* Per-service notes */}
                           <div className="col-span-12">
                             <Input 
@@ -1056,9 +1058,9 @@ export function InvoiceCreateSheet({
 
               {/* Items Section */}
               <Card className="bg-muted/30">
-                <CardHeader className="py-3 flex flex-row items-center justify-between">
+                <CardHeader className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <CardTitle className="text-sm font-medium">Items</CardTitle>
-                  <div className="flex gap-2">
+                  <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                     <Select onValueChange={(v) => {
                       const item = inventoryItems.find(i => i.id.toString() === v);
                       if (item) {
@@ -1074,7 +1076,7 @@ export function InvoiceCreateSheet({
                         }));
                       }
                     }}>
-                      <SelectTrigger className="w-[180px] h-8 text-xs">
+                      <SelectTrigger className="h-8 w-full min-w-0 text-xs sm:w-[180px]">
                         <SelectValue placeholder="Select from Inventory" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1097,8 +1099,9 @@ export function InvoiceCreateSheet({
                   ) : (
                     <div className="space-y-3">
                       {invoiceItems.map((item, idx) => (
-                        <div key={idx} className="space-y-2 p-3 border rounded-lg bg-background/50">
-                          <div className="grid grid-cols-12 gap-2 items-end">
+                        <div key={idx} className="space-y-2 rounded-lg border bg-background/50 p-3">
+                          <div className="-mx-1 overflow-x-auto px-1 sm:mx-0 sm:overflow-visible sm:px-0">
+                          <div className="grid min-w-[40rem] grid-cols-12 gap-2 items-end sm:min-w-0">
                             <div className="col-span-3">
                               <Label className="text-xs">Description</Label>
                               <Input value={item.description} onChange={(e) => updateItem(idx, 'description', e.target.value)} placeholder="Item description" />
@@ -1147,6 +1150,7 @@ export function InvoiceCreateSheet({
                                 <X className="h-4 w-4 text-destructive" />
                               </Button>
                             </div>
+                          </div>
                           </div>
                           {/* Per-item notes/description */}
                           <div className="col-span-12">
@@ -1220,7 +1224,7 @@ export function InvoiceCreateSheet({
                       Payment date defaults to invoice date ({invoiceDate}) when mode/date are left empty.
                     </p>
                   ) : (
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                       <div className="space-y-2">
                         <Label>Amount Received (₹)</Label>
                         <Input
@@ -1253,7 +1257,7 @@ export function InvoiceCreateSheet({
               </Card>
 
               {/* Additional Details */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Payment Terms</Label>
                   <Input value={paymentTerms} onChange={(e) => setForm((prev) => ({ ...prev, paymentTerms: e.target.value }))} placeholder="e.g., 50% advance, 50% on completion" />

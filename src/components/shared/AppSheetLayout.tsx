@@ -28,6 +28,13 @@ export type AppSheetSize = keyof typeof APP_DIALOG_SIZE_CLASS;
 
 export type AppSheetLayoutMode = "document" | "form" | "scroll" | "bare";
 
+/**
+ * Below `md`, expand sheet to full viewport (bank reconciliation, project confirmation, etc.).
+ * Desktop/tablet keeps semantic `size` widths from `APP_DIALOG_SIZE_CLASS`.
+ */
+export const APP_SHEET_MOBILE_FULLSCREEN_CLASS =
+  "max-md:inset-x-0 max-md:left-0 max-md:right-0 max-md:top-0 max-md:bottom-0 max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:w-full max-md:max-w-none max-md:rounded-none max-md:border-0";
+
 const APP_SHEET_LAYOUT_CLASS: Record<AppSheetLayoutMode, string> = {
   /** Long single-column forms — consistent horizontal padding and in-sheet scroll. */
   form: "flex h-full flex-col gap-4 overflow-y-auto overflow-x-hidden p-0 px-4 pb-6 pt-12 sm:px-6 sm:pb-6 sm:pt-12 custom-scrollbar",
@@ -42,6 +49,8 @@ const APP_SHEET_LAYOUT_CLASS: Record<AppSheetLayoutMode, string> = {
 type AppSheetContentProps = React.ComponentPropsWithoutRef<typeof SheetContent> & {
   size?: AppSheetSize;
   layout?: AppSheetLayoutMode;
+  /** Use full viewport height/width below `md` (MR7). */
+  mobileFullScreen?: boolean;
 };
 
 /**
@@ -51,12 +60,13 @@ type AppSheetContentProps = React.ComponentPropsWithoutRef<typeof SheetContent> 
 export const AppSheetContent = React.forwardRef<
   React.ElementRef<typeof SheetContent>,
   AppSheetContentProps
->(({ size = "md", layout = "form", className, children, ...props }, ref) => (
+>(({ size = "md", layout = "form", mobileFullScreen = false, className, children, ...props }, ref) => (
   <SheetContent
     ref={ref}
     className={cn(
       "gap-0 p-0",
       APP_DIALOG_SIZE_CLASS[size],
+      mobileFullScreen && APP_SHEET_MOBILE_FULLSCREEN_CLASS,
       APP_SHEET_LAYOUT_CLASS[layout],
       className,
     )}

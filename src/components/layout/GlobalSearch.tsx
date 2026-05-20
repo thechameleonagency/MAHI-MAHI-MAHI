@@ -22,7 +22,6 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useNavigate } from "react-router-dom";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useFoundation } from "@/app/providers/FoundationProvider";
@@ -107,9 +106,13 @@ const typeConfig = {
 
 type GlobalSearchProps = {
   onNavigate?: () => void;
+  /**
+   * Mobile top sheet: in-flow panel + sticky input (MR6 — avoids absolute popover scroll-trap with keyboard).
+   */
+  embedded?: boolean;
 };
 
-const GlobalSearch = ({ onNavigate }: GlobalSearchProps) => {
+const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -508,10 +511,29 @@ const GlobalSearch = ({ onNavigate }: GlobalSearchProps) => {
     onNavigate?.();
   };
 
+  const showResultsPanel = isOpen && results.length > 0;
+  const showEmptyPanel = isOpen && query.length > 0 && results.length === 0;
+
+  const dropdownShellClass = cn(
+    "z-50 flex max-h-[50vh] min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-popover shadow-lg",
+    embedded ? "relative mt-2 w-full" : "absolute left-0 right-0 top-full mt-1",
+  );
+
+  const dropdownScrollClass =
+    "min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]";
+
   return (
-    <div ref={containerRef} className="relative w-full">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+    <div
+      ref={containerRef}
+      className={cn("w-full", embedded ? "flex min-h-0 flex-col" : "relative")}
+    >
+      <div
+        className={cn(
+          "relative shrink-0",
+          embedded && "sticky top-0 z-10 bg-background pb-2",
+        )}
+      >
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           ref={inputRef}
           type="text"
@@ -524,7 +546,7 @@ const GlobalSearch = ({ onNavigate }: GlobalSearchProps) => {
           }}
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
-          className="pl-9 pr-8 h-8 bg-sidebar-accent/50 border-sidebar-border text-sm"
+          className="h-8 border-sidebar-border bg-sidebar-accent/50 pl-9 pr-8 text-sm"
         />
         {query && (
           <button
@@ -541,47 +563,59 @@ const GlobalSearch = ({ onNavigate }: GlobalSearchProps) => {
         )}
       </div>
 
-      {isOpen && results.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
-          <ScrollArea className="max-h-[300px]">
-            <div className="p-1">
-              {results.map((result, index) => {
-                const config = typeConfig[result.type];
-                const Icon = config.icon;
-                return (
-                  <button
-                    key={`${result.type}-${result.id}`}
-                    onClick={() => handleSelect(result)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors",
-                      index === selectedIndex
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-accent/50"
+      {showResultsPanel && (
+        <div className={dropdownShellClass} role="listbox" aria-label="Search results">
+          <div className={cn(dropdownScrollClass, "p-1")}>
+            {results.map((result, index) => {
+              const config = typeConfig[result.type];
+              const Icon = config.icon;
+              return (
+                <button
+                  key={`${result.type}-${result.id}`}
+                  type="button"
+                  role="option"
+                  aria-selected={index === selectedIndex}
+                  onClick={() => handleSelect(result)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors",
+                    index === selectedIndex
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-accent/50",
+                  )}
+                >
+                  <div className={cn("rounded p-1.5", config.color)}>
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{result.name}</p>
+                    {result.subtitle && (
+                      <p className="truncate text-xs text-muted-foreground">{result.subtitle}</p>
                     )}
-                  >
-                    <div className={cn("p-1.5 rounded", config.color)}>
-                      <Icon className="h-3.5 w-3.5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{result.name}</p>
-                      {result.subtitle && (
-                        <p className="text-xs text-muted-foreground truncate">{result.subtitle}</p>
-                      )}
-                    </div>
-                    <Badge variant="outline" className="text-2xs shrink-0">
-                      {config.label}
-                    </Badge>
-                  </button>
-                );
-              })}
-            </div>
-          </ScrollArea>
+                  </div>
+                  <Badge variant="outline" className="shrink-0 text-2xs">
+                    {config.label}
+                  </Badge>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {isOpen && query && results.length === 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg z-50 p-4 text-center text-sm text-muted-foreground">
-          No results found for "{query}"
+      {showEmptyPanel && (
+        <div
+          className={dropdownShellClass}
+          role="status"
+          aria-live="polite"
+        >
+          <div
+            className={cn(
+              dropdownScrollClass,
+              "p-4 text-center text-sm text-muted-foreground",
+            )}
+          >
+            No results found for &ldquo;{query}&rdquo;
+          </div>
         </div>
       )}
     </div>

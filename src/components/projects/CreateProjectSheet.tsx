@@ -760,7 +760,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
         }
       }}
     >
-      <AppSheetContent layout="scroll" size="lg">
+      <AppSheetContent layout="scroll" size="lg" mobileFullScreen>
         <SheetHeader className="p-6 border-b sticky top-0 z-10 bg-background/95 backdrop-blur">
           <SheetTitle className="flex items-center gap-2 text-xl">
             <Briefcase className="h-5 w-5 text-primary" />

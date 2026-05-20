@@ -4079,7 +4079,7 @@ const Quotations = () => {
           else setIsCreateProjectOpen(true);
         }}
       >
-        <AppSheetContent layout="scroll" size="xl">
+        <AppSheetContent layout="scroll" size="xl" mobileFullScreen>
           {createProjectStep === "confirm" && pendingCreateProject && selectedQuotationForProject ? (
             <div className="py-4">
               <ProjectConfirmationScreen

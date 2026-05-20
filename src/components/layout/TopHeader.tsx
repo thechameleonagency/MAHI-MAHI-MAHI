@@ -1,4 +1,4 @@
-import { Menu, Settings, Plus, Pin, PinOff, Search, CircleHelp } from "lucide-react";
+import { Menu, Settings, Plus, Pin, PinOff, Search, CircleHelp, MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -32,6 +32,7 @@ import { NotificationBellLink } from "./NotificationBellLink";
 import { usePageHeaderSticky } from "@/contexts/PageHeaderStickyContext";
 import { useDerivedAlertCount } from "@/hooks/useDerivedAlertCount";
 import { useRoleMatrixOverride } from "@/contexts/RoleMatrixContext";
+import { mobilePageTitleFromBreadcrumbs } from "@/lib/pageHeaderMobileTitle";
 
 type TopHeaderProps = {
   onOpenSidebar: () => void;
@@ -52,6 +53,10 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
     usePageHeaderSticky();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
+  const visibleBreadcrumbs = breadcrumbs.filter((b) => b.label?.trim());
+  const mobilePageTitle = mobilePageTitleFromBreadcrumbs(breadcrumbs);
+  const canAccessSettings = permissionService.canAccessPath(currentRole, "/settings", roleMatrixOverride);
+
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-stretch justify-between border-b border-border/80 bg-card/90 shadow-sm supports-[backdrop-filter]:backdrop-blur-md w-full">
       
@@ -68,20 +73,30 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           <Menu className="h-5 w-5" />
         </Button>
         
-        {breadcrumbs && breadcrumbs.filter((b) => b.label?.trim()).length > 0 && (
+        {mobilePageTitle && (
+          <p
+            className="min-w-0 flex-1 truncate text-sm font-medium text-foreground sm:hidden"
+            aria-current="page"
+            title={mobilePageTitle}
+          >
+            {mobilePageTitle}
+          </p>
+        )}
+
+        {visibleBreadcrumbs.length > 0 && (
           <nav
-            className="text-sm text-muted-foreground flex min-w-0 flex-1 flex-wrap items-center gap-1 mr-4"
+            className="mr-4 hidden min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-muted-foreground sm:flex"
             aria-label="Breadcrumb"
           >
-            {breadcrumbs.filter((b) => b.label?.trim()).map((b, i) => (
+            {visibleBreadcrumbs.map((b, i) => (
               <span key={`${b.label}-${i}`} className="inline-flex items-center gap-1.5 whitespace-nowrap">
                 {i > 0 && <span className="text-muted-foreground/40">/</span>}
                 {b.to ? (
-                  <Link to={b.to} className="hover:text-foreground transition-colors">
+                  <Link to={b.to} className="transition-colors hover:text-foreground">
                     {b.label}
                   </Link>
                 ) : (
-                  <span className="text-foreground font-medium">{b.label}</span>
+                  <span className="font-medium text-foreground">{b.label}</span>
                 )}
               </span>
             ))}
@@ -105,7 +120,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           <Search className="h-4 w-4" />
         </Button>
         {hasPinnablePageHeader && (
-          <div className="flex items-center gap-0.5">
+          <div className="hidden items-center gap-0.5 md:flex">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -150,6 +165,52 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
       <div className="hidden h-7 w-px shrink-0 bg-border/50 md:block" aria-hidden />
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-1.5 pr-1">
+        {(hasPinnablePageHeader || canAccessSettings) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 shrink-0 md:hidden"
+                aria-label="More header actions"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Page</DropdownMenuLabel>
+              {hasPinnablePageHeader && (
+                <DropdownMenuItem onSelect={() => setStickyPageHeader(!stickyPageHeader)}>
+                  {stickyPageHeader ? (
+                    <>
+                      <PinOff className="mr-2 h-4 w-4" />
+                      {pageHeaderPinTooltip(true)}
+                    </>
+                  ) : (
+                    <>
+                      <Pin className="mr-2 h-4 w-4" />
+                      {pageHeaderPinTooltip(false)}
+                    </>
+                  )}
+                </DropdownMenuItem>
+              )}
+              {hasPinnablePageHeader && (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">{PAGE_HEADER_PIN_HELP}</p>
+              )}
+              {canAccessSettings && (
+                <>
+                  {hasPinnablePageHeader && <DropdownMenuSeparator />}
+                  <DropdownMenuItem onSelect={() => navigate("/settings")}>
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -205,12 +266,12 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           <NotificationBellLink count={notificationCount} />
         )}
 
-        {permissionService.canAccessPath(currentRole, "/settings", roleMatrixOverride) && (
+        {canAccessSettings && (
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="hidden h-8 w-8 sm:inline-flex sm:h-9 sm:w-9"
+            className="hidden h-8 w-8 md:inline-flex md:h-9 md:w-9"
             asChild
           >
             <Link to="/settings" aria-label="Settings">
@@ -267,12 +328,12 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
       </div>
 
       <Sheet open={mobileSearchOpen} onOpenChange={setMobileSearchOpen}>
-        <SheetContent side="top" className="pt-12">
-          <SheetHeader>
+        <SheetContent side="top" className="flex max-h-[min(92dvh,100%)] flex-col overflow-hidden pt-12">
+          <SheetHeader className="shrink-0">
             <SheetTitle>Search</SheetTitle>
           </SheetHeader>
-          <div className="mt-4">
-            <GlobalSearch onNavigate={() => setMobileSearchOpen(false)} />
+          <div className="mt-4 min-h-0 flex-1 overflow-hidden">
+            <GlobalSearch embedded onNavigate={() => setMobileSearchOpen(false)} />
           </div>
         </SheetContent>
       </Sheet>
