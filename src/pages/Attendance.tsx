@@ -25,6 +25,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { DateInput } from "@/components/ui/DateInput";
 import { toast } from "@/hooks/use-toast";
+import { showPermissionDeniedToastForAction } from "@/lib/permissionFeedback";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { PayrollPolicyService } from "@/application/services/PayrollPolicyService";
 import { formatINR } from "@/lib/formatCurrency";
@@ -283,7 +284,7 @@ const Attendance = () => {
 
   const postPayrollSummaryAsExpense = (emp: (typeof employeesWithAttendance)[0]) => {
     if (!canCreateExpense) {
-      toast({ title: "Not permitted", description: "Your role cannot record expenses.", variant: "destructive" });
+      showPermissionDeniedToastForAction("finance:record_expense_income");
       return;
     }
     const monthStr = format(selectedDate, "yyyy-MM");

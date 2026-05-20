@@ -1,4 +1,5 @@
-import { DEMO_DEFAULT_SESSION_ROLE, USER_ROLES, type UserRole } from "@/domain/entities/identity";
+import { DEMO_DEFAULT_SESSION_ROLE, ROLE_LABELS, USER_ROLES, type UserRole } from "@/domain/entities/identity";
+import { normalizeSiteReadinessMarkedBy } from "@/lib/siteReadinessNormalize";
 
 export const SESSION_ROLE_STORAGE_KEY = "mahi_demo_session_role";
 export const SESSION_USER_NAME_STORAGE_KEY = "mahi_demo_session_user_name";
@@ -42,6 +43,25 @@ export function persistSessionRole(role: UserRole): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Human label for `sessionUserId` / `siteReadiness.markedBy` in UI and toasts. */
+export function formatSessionActorLabel(actorId: string): string {
+  const id = normalizeSiteReadinessMarkedBy(actorId);
+  if (id === "unknown") return "Unknown user";
+  if (id.startsWith("actor-")) {
+    const role = id.slice("actor-".length) as UserRole;
+    return ROLE_LABELS[role] ?? role;
+  }
+  if (id.startsWith("user-")) {
+    return id
+      .slice("user-".length)
+      .split("-")
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+  return id;
 }
 
 export function persistDemoUserName(name: string): void {

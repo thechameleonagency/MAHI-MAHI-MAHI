@@ -7,6 +7,7 @@ import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { useAppData } from "@/contexts/AppDataContext";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getProjectIdleAging } from "@/lib/agingHelpers";
+import { isDirectExceptionProject, projectDirectExceptionReason } from "@/lib/projectDirectException";
 
 export function DashboardProjectRow({ project }: { project: Project }) {
   const { customers } = useAppData();
@@ -42,8 +43,23 @@ export function DashboardProjectRow({ project }: { project: Project }) {
                 {project.progressStage}
               </Badge>
             )}
+            {isDirectExceptionProject(project) && (
+              <Badge
+                variant="outline"
+                className="text-2xs bg-warning/10 text-warning border-warning/20"
+                title={projectDirectExceptionReason(project) ?? undefined}
+              >
+                Direct exception
+              </Badge>
+            )}
             <AgingChip signal={aging} />
           </div>
+          {isDirectExceptionProject(project) && projectDirectExceptionReason(project) && (
+            <p className="text-2xs text-muted-foreground line-clamp-2">
+              <span className="font-medium text-foreground">Exception:</span>{" "}
+              {projectDirectExceptionReason(project)}
+            </p>
+          )}
         </div>
         <Button size="sm" variant="ghost" className="shrink-0 h-8" asChild>
           <Link to={`/projects/${project.id}`}>

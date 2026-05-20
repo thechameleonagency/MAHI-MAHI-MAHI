@@ -20,6 +20,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useMasters } from "@/contexts/MastersContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
+import {
+  PERMISSION_DENIED_TOAST_TITLE,
+  permissionDeniedDescriptionForAction,
+} from "@/lib/permissionFeedback";
 import { ClientSelectionSheet } from "./ClientSelectionSheet";
 import type { Invoice, InvoiceItem, InvoiceService, Customer } from "@/types/finance";
 import { PAYMENT_MODES } from "@/types/finance";
@@ -733,8 +737,13 @@ export function InvoiceCreateSheet({
     [invoiceTotals.total, amountReceived, isAlreadyPaid, dueDate],
   );
   const submitPreview = useMemo(
-    () => buildInvoiceSubmitPreview({ outcome: paymentPreviewOutcome, total: invoiceTotals.total }),
-    [paymentPreviewOutcome, invoiceTotals.total],
+    () =>
+      buildInvoiceSubmitPreview({
+        outcome: paymentPreviewOutcome,
+        total: invoiceTotals.total,
+        isAlreadyPaid,
+      }),
+    [paymentPreviewOutcome, invoiceTotals.total, isAlreadyPaid],
   );
   const highValueIssuanceCheck = billingDirectionGuard.validateHighValueIssuance(
     invoiceTotals.total,
@@ -1242,7 +1251,7 @@ export function InvoiceCreateSheet({
                           <SelectTrigger><SelectValue placeholder="Payment mode" /></SelectTrigger>
                           <SelectContent>
                             {PAYMENT_MODES.map(m => (
-                              <SelectItem key={m} value={m}>{m}</SelectItem>
+                              <SelectItem key={m} value={m}>{m}>{m}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -1251,6 +1260,16 @@ export function InvoiceCreateSheet({
                         <Label>Date Received</Label>
                         <Input type="date" value={receivedDate} onChange={(e) => setForm((prev) => ({ ...prev, receivedDate: e.target.value }))} />
                       </div>
+                    </div>
+                  )}
+                  {isAlreadyPaid && invoiceTotals.total <= 0 && (
+                    <p className="mt-3 text-xs text-muted-foreground rounded-md border border-dashed px-3 py-2">
+                      Add line items with a non-zero total to preview the paid status before you create.
+                    </p>
+                  )}
+                  {submitPreview && invoiceTotals.total > 0 && (
+                    <div className="mt-3">
+                      <InvoiceSubmitPreviewBanner preview={submitPreview} />
                     </div>
                   )}
                 </CardContent>
@@ -1284,10 +1303,6 @@ export function InvoiceCreateSheet({
                 reason={highValueReason}
                 onReasonChange={setHighValueReason}
               />
-
-              {submitPreview && invoiceTotals.total > 0 && (
-                <InvoiceSubmitPreviewBanner preview={submitPreview} />
-              )}
             </div>
         </div>
         <div className="flex flex-wrap justify-between gap-3 pt-4 border-t">
@@ -1317,9 +1332,9 @@ export function InvoiceCreateSheet({
           setIsClientModalOpen(false);
           if (!canDo("customer:create")) {
             setLastConfirm({
-              variant: "error",
-              title: "Action not permitted",
-              description: "Your role cannot add new customers.",
+              variant: "warning",
+              title: PERMISSION_DENIED_TOAST_TITLE,
+              description: permissionDeniedDescriptionForAction("customer:create"),
             });
             return;
           }

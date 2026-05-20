@@ -1,3 +1,4 @@
+import { getEnquiryFollowUpAging } from "@/lib/agingHelpers";
 import type { Enquiry } from "@/types/project";
 
 /** Default list view: active pipeline only (excludes converted + lost). */
@@ -8,7 +9,13 @@ export type EnquiryListFilterInput = {
   statusFilter?: string;
   priorityFilter?: string;
   assigneeFilter?: string;
+  /** When `overdue`, only enquiries with a past-due follow-up date (dashboard KPI). */
+  followUpFilter?: "all" | "overdue";
 };
+
+export function matchesEnquiryFollowUpOverdue(enquiry: Enquiry): boolean {
+  return getEnquiryFollowUpAging(enquiry) != null;
+}
 
 export function matchesEnquiryStatusFilter(enquiry: Enquiry, statusFilter: string): boolean {
   if (statusFilter === "all") {
@@ -33,6 +40,7 @@ export function filterEnquiriesForList(
   const statusFilter = input.statusFilter ?? DEFAULT_ENQUIRY_STATUS_FILTER;
   const priorityFilter = input.priorityFilter ?? "all";
   const assigneeFilter = input.assigneeFilter ?? "all";
+  const followUpFilter = input.followUpFilter ?? "all";
   const search = searchQuery.toLowerCase();
 
   return enquiries.filter((e) => {
@@ -48,7 +56,16 @@ export function filterEnquiriesForList(
       e.assignedTo === assigneeFilter ||
       (assigneeFilter === "unassigned" && !e.assignedTo);
     const hideArchived = statusFilter === "all" ? !e.archivedAt : true;
-    return matchesSearch && matchesStatus && matchesPriority && matchesAssignee && hideArchived;
+    const matchesFollowUp =
+      followUpFilter !== "overdue" || matchesEnquiryFollowUpOverdue(e);
+    return (
+      matchesSearch &&
+      matchesStatus &&
+      matchesPriority &&
+      matchesAssignee &&
+      hideArchived &&
+      matchesFollowUp
+    );
   });
 }
 

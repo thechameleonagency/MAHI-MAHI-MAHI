@@ -3,6 +3,7 @@ import {
   buildCustomerFromQuotation,
   buildPaymentTermsSummary,
   buildQuotationApprovalCustomerPreview,
+  buildQuotationApprovalSuccessFeedback,
   enrichCustomerFromQuotation,
   formatQuotationClientAddress,
   validateQuotationClientForApproval,
@@ -74,6 +75,45 @@ describe("quotationApproveCustomer", () => {
     expect(formatQuotationClientAddress(richQuotation)).toBe(
       "12 MG Road, Jaipur, Rajasthan, PIN 302001",
     );
+  });
+
+  it("success feedback highlights customer create (T6)", () => {
+    const previewResult = buildQuotationApprovalCustomerPreview(richQuotation, {
+      existingCustomer: undefined,
+      existingCustomerIds: ["C018"],
+    });
+    expect(previewResult.ok).toBe(true);
+    if (!previewResult.ok) return;
+    const feedback = buildQuotationApprovalSuccessFeedback(previewResult.preview, {
+      quotationNumber: "Q-2026-042",
+    });
+    expect(feedback.title).toMatch(/customer created/i);
+    expect(feedback.description).toMatch(/Q-2026-042/);
+    expect(feedback.description).toMatch(/CUST-0019/);
+    expect(feedback.description).toMatch(/Solar Client/);
+  });
+
+  it("success feedback describes link and enrichments", () => {
+    const thin: Customer = {
+      id: "C010",
+      name: "Legacy",
+      phone: "9000000010",
+      email: "",
+      address: "",
+      type: "individual",
+      itemsBought: [],
+      totalPurchases: 0,
+      createdAt: "2026-01-01",
+    };
+    const previewResult = buildQuotationApprovalCustomerPreview(
+      { ...richQuotation, customerId: "C010" },
+      { existingCustomer: thin, existingCustomerIds: ["C010"] },
+    );
+    expect(previewResult.ok).toBe(true);
+    if (!previewResult.ok) return;
+    const feedback = buildQuotationApprovalSuccessFeedback(previewResult.preview);
+    expect(feedback.title).toMatch(/customer linked/i);
+    expect(feedback.description).toMatch(/backfilled/i);
   });
 
   it("preview describes new customer on approve when no link", () => {

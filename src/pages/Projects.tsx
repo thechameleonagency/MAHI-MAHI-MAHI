@@ -56,6 +56,7 @@ import {
 import { AgingChip } from "@/components/ui/AgingChip";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { projectNeedsTeamAssignment } from "@/lib/projectTeamAssignment";
+import { isDirectExceptionProject, projectDirectExceptionReason } from "@/lib/projectDirectException";
 import {
   getProjectIdleAging,
   isProjectCompleted,
@@ -119,7 +120,14 @@ const Projects = () => {
   const _eligibleQuotations = useMemo(() => getProjectEligibleQuotations(), [getProjectEligibleQuotations, projects]);
   
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "all");
+
+  useEffect(() => {
+    const urlStatus = searchParams.get("status");
+    if (!urlStatus) return;
+    setStatusFilter(urlStatus);
+    setTablePage(1);
+  }, [searchParams]);
   const [typeFilter, setTypeFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("all");
   const [hideCompleted, setHideCompleted] = useState(false);
@@ -405,10 +413,14 @@ const Projects = () => {
       intake,
     });
     if (res.ok && res.projectId) {
-      toast({ title: "Project created", description: "Direct exception project is active." });
+      const reason = dexReason.trim();
+      toast({
+        title: "Direct exception project created",
+        description: reason.length > 120 ? `${reason.slice(0, 117)}…` : reason,
+      });
       setDirectExOpen(false);
       resetDirectExForm();
-      navigate(`/projects/${res.projectId}`);
+      navigate(`/projects/${res.projectId}`, { state: { directExceptionReason: reason } });
     } else {
       toast({ title: "Could not create project", description: res.error ?? "Unknown error", variant: "destructive" });
     }
@@ -812,8 +824,23 @@ const Projects = () => {
                             Assign team
                           </Badge>
                         )}
+                        {isDirectExceptionProject(project) && (
+                          <Badge
+                            variant="outline"
+                            className="text-2xs bg-warning/10 text-warning border-warning/20 shrink-0"
+                            title={projectDirectExceptionReason(project) ?? undefined}
+                          >
+                            Direct exception
+                          </Badge>
+                        )}
                         <AgingChip signal={aging} />
                       </div>
+                      {isDirectExceptionProject(project) && projectDirectExceptionReason(project) && (
+                        <p className="text-2xs text-muted-foreground line-clamp-2">
+                          <span className="font-medium text-foreground">Exception:</span>{" "}
+                          {projectDirectExceptionReason(project)}
+                        </p>
+                      )}
                       <span className="text-2xs text-muted-foreground font-mono">{project.id}</span>
                     </div>
                   </div>
@@ -877,9 +904,24 @@ const Projects = () => {
                       Assign team
                     </Badge>
                   )}
+                  {isDirectExceptionProject(project) && (
+                    <Badge
+                      variant="outline"
+                      className="text-2xs bg-warning/10 text-warning border-warning/20"
+                      title={projectDirectExceptionReason(project) ?? undefined}
+                    >
+                      Direct exception
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="space-y-3">
+                  {isDirectExceptionProject(project) && projectDirectExceptionReason(project) && (
+                    <p className="text-xs text-muted-foreground line-clamp-2">
+                      <span className="font-medium text-foreground">Exception:</span>{" "}
+                      {projectDirectExceptionReason(project)}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 text-sm" onClick={(e) => e.stopPropagation()}>
                     <User className="h-4 w-4 text-muted-foreground" />
                     {project.customerId ? (

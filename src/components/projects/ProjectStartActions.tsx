@@ -14,6 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { buildSiteReadinessUpdate } from "@/lib/siteReadinessNormalize";
+import { formatSessionActorLabel } from "@/lib/sessionActorStorage";
 import { canStartProject } from "@/domain/stateMachines/projectStateMachine";
 import { toast } from "@/hooks/use-toast";
 import type { Project } from "@/types/project";
@@ -50,20 +52,30 @@ export function ProjectStartActions({ project }: { project: Project }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const handleSetReadiness = (nextReady: boolean) => {
-    updateProject(project.id, {
-      siteReadiness: {
-        ready: nextReady,
-        note: readinessNote.trim() || undefined,
-        markedAt: new Date().toISOString(),
-        markedBy: sessionUserId,
-      },
+    const snapshot = buildSiteReadinessUpdate({
+      ready: nextReady,
+      note: readinessNote,
+      markedBy: sessionUserId,
     });
+    updateProject(project.id, { siteReadiness: snapshot });
     toast({
       title: nextReady ? "Site marked as ready" : "Site marked as not ready",
-      description: readinessNote.trim() ? readinessNote.trim() : undefined,
+      description: [
+        `Recorded by ${formatSessionActorLabel(snapshot.markedBy)}`,
+        readinessNote.trim() ? readinessNote.trim() : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
     });
     setReadinessOpen(false);
   };
+
+  const readinessAttribution =
+    project.siteReadiness?.markedAt && project.siteReadiness.markedBy
+      ? `${formatSessionActorLabel(project.siteReadiness.markedBy)} · ${new Date(
+          project.siteReadiness.markedAt,
+        ).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`
+      : null;
 
   const handleStart = () => {
     const guard = canStartProject(lifecycleKey, ready, currentRole);
@@ -153,6 +165,11 @@ export function ProjectStartActions({ project }: { project: Project }) {
               placeholder="e.g. Awaiting roof clearance / cabling pending / ready for installation tomorrow"
               rows={3}
             />
+            {readinessAttribution ? (
+              <p className="text-xs text-muted-foreground">
+                Last update: {readinessAttribution}
+              </p>
+            ) : null}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => handleSetReadiness(false)}>

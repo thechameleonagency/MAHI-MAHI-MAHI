@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-describe("BankReconciliationSheet mobile table scroll (MR4)", () => {
+describe("BankReconciliationSheet mobile table scroll (MR4 / T5)", () => {
   const source = readFileSync(
     resolve(process.cwd(), "src/components/audit/BankReconciliationSheet.tsx"),
     "utf8",
@@ -18,5 +18,13 @@ describe("BankReconciliationSheet mobile table scroll (MR4)", () => {
   it("does not use vertical-only ScrollArea for the results grid", () => {
     expect(source).not.toMatch(/<ScrollArea[^>]*>[\s\S]*<Table/);
     expect(source).not.toContain('from "@/components/ui/scroll-area"');
+  });
+
+  it("hides matched ledger column on mobile and adds expand-row for match details (T5)", () => {
+    expect(source).toContain("hidden md:table-cell");
+    expect(source).toContain("toggleRowExpanded");
+    expect(source).toContain("buildReconciliationMatchDetailLines");
+    expect(source).toContain("md:hidden");
+    expect(source).toMatch(/aria-label=\{[\s\S]*Show matched ledger entry/);
   });
 });

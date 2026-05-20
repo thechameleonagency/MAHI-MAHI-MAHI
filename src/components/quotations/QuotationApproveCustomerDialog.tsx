@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { QuotationApprovalCustomerPreview } from "@/lib/quotationApproveCustomer";
+import { formatCustomerIdDisplay } from "@/lib/idFactory";
 
 function PreviewRow({ label, value }: { label: string; value: string }) {
   if (!value.trim()) return null;
@@ -64,7 +65,7 @@ export function QuotationApproveCustomerDialog({
         </AlertDialogHeader>
 
         <dl className="rounded-lg border bg-muted/30 p-3 space-y-2">
-          <PreviewRow label="Customer ID" value={preview.customerId} />
+          <PreviewRow label="Customer ref." value={formatCustomerIdDisplay(preview.customerId)} />
           <PreviewRow label="Name" value={preview.displayName} />
           <PreviewRow label="Phone" value={preview.phone} />
           <PreviewRow label="Email" value={preview.email} />

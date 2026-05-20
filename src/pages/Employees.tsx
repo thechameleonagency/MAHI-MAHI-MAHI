@@ -21,6 +21,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { format, addDays, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameDay } from "date-fns";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
+import { showPermissionDeniedToastForAction } from "@/lib/permissionFeedback";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import type { Employee } from "@/types/project";
 import type { EmployeePayrollRecord } from "@/types/finance";
@@ -335,7 +336,7 @@ const Employees = () => {
 
   const handlePaySalary = (emp: typeof employees[0]) => {
     if (!canCreatePayroll) {
-      toast({ title: "Not allowed", description: "You do not have permission to record payroll.", variant: "destructive" });
+      showPermissionDeniedToastForAction("hr:release_payroll");
       return;
     }
     setSelectedEmployeeForPayment(emp);

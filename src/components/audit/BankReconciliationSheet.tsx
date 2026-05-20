@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { Fragment, useState, useMemo, useCallback, useEffect } from "react";
 import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,12 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAppData } from "@/contexts/AppDataContext";
-import { Upload, FileText, CheckCircle2, AlertTriangle, Copy, Landmark, X, Search, Download } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertTriangle, Copy, Landmark, X, Search, Download, ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  buildReconciliationMatchDetailLines,
+  reconciliationResultRowKey,
+} from "@/lib/bankReconciliationDisplay";
 import { format, parseISO, isValid } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { fileExceedsLimit, MAX_UPLOAD_BYTES } from "@/lib/fileLimits";
@@ -149,6 +154,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
   const [statements, setStatements] = useState<UploadedStatement[]>(() => (bankReconciliationStatements ?? []) as UploadedStatement[]);
   const [activeTab, setActiveTab] = useState("upload");
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedRowKeys, setExpandedRowKeys] = useState<Set<string>>(() => new Set());
 
   // Hydrate from context whenever the modal re-opens so prior uploads survive close/reopen (B13).
   useEffect(() => {
@@ -475,6 +481,15 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
 
   const bankMoney = (v: number) => (v ? formatINR(v) : "-");
 
+  const toggleRowExpanded = useCallback((rowKey: string) => {
+    setExpandedRowKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowKey)) next.delete(rowKey);
+      else next.add(rowKey);
+      return next;
+    });
+  }, []);
+
   const exportResults = () => {
     if (reconciliationResults.length === 0) return;
     const csvLines = [
@@ -661,15 +676,15 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
               aria-label="Reconciliation results table"
             >
               <div className="min-h-0 flex-1 overflow-auto">
-                <Table noViewport className="min-w-[52rem] w-full">
+                <Table noViewport className="min-w-[40rem] md:min-w-[52rem] w-full">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[100px]">Date</TableHead>
                     <TableHead className="min-w-[12rem]">Description</TableHead>
                     <TableHead className="w-[90px] text-right">Debit</TableHead>
                     <TableHead className="w-[90px] text-right">Credit</TableHead>
-                    <TableHead className="w-[120px]">Flag</TableHead>
-                    <TableHead className="min-w-[14rem]">Matched Ledger Entry</TableHead>
+                    <TableHead className="w-[120px] md:min-w-[120px]">Flag</TableHead>
+                    <TableHead className="min-w-[14rem] hidden md:table-cell">Matched Ledger Entry</TableHead>
                     <TableHead className="w-[140px]">Source</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -681,36 +696,81 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
                       </TableCell>
                     </TableRow>
                   )}
-                  {filteredResults.map((r, i) => (
-                    <TableRow key={i} className={
+                  {filteredResults.map((r, i) => {
+                    const rowKey = reconciliationResultRowKey(r.statementId, i);
+                    const isExpanded = expandedRowKeys.has(rowKey);
+                    const matchLines = buildReconciliationMatchDetailLines(r);
+                    const rowTone =
                       r.flag === "unmatched" ? "bg-destructive/5" :
                       r.flag === "duplicate" ? "bg-warning/5" :
                       r.flag === "bank-charge" ? "bg-primary/5" :
                       r.flag === "possible-match" ? "bg-accent/30" :
-                      ""
-                    }>
-                      <TableCell className="font-mono">{r.bankTransaction.date}</TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={r.bankTransaction.description}>
-                        {r.bankTransaction.description}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">{bankMoney(r.bankTransaction.debit)}</TableCell>
-                      <TableCell className="text-right font-mono">{bankMoney(r.bankTransaction.credit)}</TableCell>
-                      <TableCell>{getFlagBadge(r.flag)}</TableCell>
-                      <TableCell >
-                        {r.matchedLedgerEntry ? (
-                          <div>
-                            <span className="font-medium text-foreground">{r.matchedLedgerEntry.type}</span>
-                            <span className="text-muted-foreground"> — {r.matchedLedgerEntry.description.slice(0, 40)}</span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground italic">{r.notes || "-"}</span>
+                      "";
+                    return (
+                      <Fragment key={rowKey}>
+                        <TableRow className={rowTone}>
+                          <TableCell className="font-mono">{r.bankTransaction.date}</TableCell>
+                          <TableCell className="max-w-[200px] truncate" title={r.bankTransaction.description}>
+                            {r.bankTransaction.description}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">{bankMoney(r.bankTransaction.debit)}</TableCell>
+                          <TableCell className="text-right font-mono">{bankMoney(r.bankTransaction.credit)}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              {getFlagBadge(r.flag)}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 md:hidden"
+                                aria-expanded={isExpanded}
+                                aria-label={
+                                  isExpanded
+                                    ? "Hide match details"
+                                    : r.matchedLedgerEntry
+                                      ? "Show matched ledger entry"
+                                      : "Show reconciliation note"
+                                }
+                                onClick={() => toggleRowExpanded(rowKey)}
+                              >
+                                <ChevronDown
+                                  className={cn("h-4 w-4 transition-transform", isExpanded && "rotate-180")}
+                                  aria-hidden
+                                />
+                              </Button>
+                            </div>
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            {r.matchedLedgerEntry ? (
+                              <div title={`${r.matchedLedgerEntry.type}: ${r.matchedLedgerEntry.description}`}>
+                                <span className="font-medium text-foreground">{r.matchedLedgerEntry.type}</span>
+                                <span className="text-muted-foreground"> — {r.matchedLedgerEntry.description.slice(0, 40)}</span>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground italic">{r.notes || "-"}</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground truncate" title={r.statementName}>
+                            {r.statementName}
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow className={cn("md:hidden", rowTone)}>
+                            <TableCell colSpan={7} className="border-t border-border/60 bg-muted/20 py-3">
+                              <dl className="grid grid-cols-[minmax(5.5rem,auto)_1fr] gap-x-3 gap-y-1.5 text-xs">
+                                {matchLines.map((line) => (
+                                  <Fragment key={`${rowKey}-${line.label}`}>
+                                    <dt className="text-muted-foreground">{line.label}</dt>
+                                    <dd className="text-foreground break-words">{line.value}</dd>
+                                  </Fragment>
+                                ))}
+                              </dl>
+                            </TableCell>
+                          </TableRow>
                         )}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground truncate" title={r.statementName}>
-                        {r.statementName}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
               </div>

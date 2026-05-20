@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft, AlertTriangle, Briefcase, Calendar, Camera, CheckCircle2, ClipboardList, Edit,
   FileText, Handshake, IndianRupee, MapPin,
@@ -30,7 +30,8 @@ import { PageShell } from "@/components/layout/PageShell";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
-import { isDirectExceptionProject, projectDirectExceptionReason } from "@/lib/projectDirectException";
+import { DirectExceptionProjectBanner } from "@/components/projects/DirectExceptionProjectBanner";
+import { projectDirectExceptionReason } from "@/lib/projectDirectException";
 import {
   projectCompletionInvoiceBlockReason,
   projectRequiresClientInvoiceForCompletion,
@@ -142,9 +143,16 @@ function expenseToOutsourcedWorkRow(e: Expense) {
   return { id: e.id, date: dateLabel, description: e.description ?? e.notes ?? "Outsourced work", employees: 0, days: 0, ratePerDay: 0, total: e.amount };
 }
 
+type ProjectDetailLocationState = {
+  directExceptionReason?: string;
+};
+
 const ProjectDetail = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
+  const directExceptionFlash = (location.state as ProjectDetailLocationState | null)
+    ?.directExceptionReason;
   const { currentRole } = useAppSession();
   const {
     attendanceRecords,
@@ -200,6 +208,13 @@ const ProjectDetail = () => {
 
   const project = id ? getProjectById(id) : undefined;
   const quotation = project?.quotationId ? getQuotationById(project.quotationId) : undefined;
+
+  // Drop one-shot navigation flash once persisted `directCreationReason` is on the project (T7).
+  useEffect(() => {
+    if (!project || !directExceptionFlash?.trim()) return;
+    if (!projectDirectExceptionReason(project)) return;
+    navigate(location.pathname, { replace: true, state: null });
+  }, [directExceptionFlash, location.pathname, navigate, project]);
 
   const photoGalleryRef = useRef(project?.photoGallery);
   useEffect(() => {
@@ -923,34 +938,10 @@ const ProjectDetail = () => {
         />
       )}
 
-      {isDirectExceptionProject(project) && (
-        <LifecycleTerminalBanner
-          variant="exception"
-          title="Direct exception project"
-          description={
-            <span>
-              Created without an approved quotation — management exception only.{" "}
-              {!project.quotationId ? (
-                <span className="text-foreground/90">
-                  No quotation is linked to this project.
-                </span>
-              ) : (
-                <span className="text-foreground/90">
-                  A quotation id is on file, but this record was opened via the exception path.
-                </span>
-              )}{" "}
-              <span className="font-medium text-foreground">Audit reason:</span>{" "}
-              {projectDirectExceptionReason(project)}
-            </span>
-          }
-          primaryActionLabel={project.quotationId ? "View quotation" : "Open projects list"}
-          onPrimaryAction={() =>
-            project.quotationId
-              ? navigate("/quotations", { state: { focusQuotationId: project.quotationId } })
-              : navigate("/projects")
-          }
-          secondaryActionLabel="Audit logs"
-          onSecondaryAction={() => navigate("/audit/audit-logs")}
+      {(projectDirectExceptionReason(project) || directExceptionFlash?.trim()) && (
+        <DirectExceptionProjectBanner
+          project={project}
+          reasonOverride={directExceptionFlash}
         />
       )}
 

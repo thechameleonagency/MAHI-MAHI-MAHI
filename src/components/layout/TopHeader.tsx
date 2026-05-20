@@ -23,8 +23,7 @@ import {
 import { ROLE_LABELS, USER_ROLES, type UserRole } from "@/domain/entities/identity";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useFoundation } from "@/app/providers/FoundationProvider";
-import { toast } from "@/hooks/use-toast";
-import { routeAccessDeniedToastContent } from "@/lib/routeAccessDenied";
+import { showRouteAccessDeniedToast } from "@/lib/permissionFeedback";
 import { markRoleSwitchRouteDenied } from "@/lib/roleSwitchToast";
 import { quickCreatePath } from "@/lib/createFromContext";
 import GlobalSearch from "./GlobalSearch";
@@ -305,12 +304,7 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
                 replace: true,
                 state: { routeAccessDeniedPath: location.pathname },
               });
-              const deniedCopy = routeAccessDeniedToastContent(location.pathname, next);
-              toast({
-                title: deniedCopy.title,
-                description: deniedCopy.description,
-                variant: "destructive",
-              });
+              showRouteAccessDeniedToast(location.pathname, next);
             }
           }}
         >

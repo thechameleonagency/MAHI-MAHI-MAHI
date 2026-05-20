@@ -10,6 +10,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { useMasters } from "@/contexts/MastersContext";
 import { useCan } from "@/hooks/useCan";
 import { toast } from "@/hooks/use-toast";
+import { showPermissionDeniedToast } from "@/lib/permissionFeedback";
 import type {
   SiteChecklistTemplate,
   SiteChecklistTemplateBomLine,
@@ -126,11 +127,7 @@ export function CreateTemplateModal({ open, onOpenChange, type }: CreateTemplate
 
   const handleSave = () => {
     if (!canCreateTemplate) {
-      toast({
-        title: "Action not permitted",
-        description: "Your role cannot create templates.",
-        variant: "destructive",
-      });
+      showPermissionDeniedToast("Your role cannot create templates.");
       return;
     }
     if (!name) {

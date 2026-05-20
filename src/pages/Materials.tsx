@@ -105,6 +105,9 @@ const Materials = () => {
 
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get("category") ?? "all");
+  const [stockFilter, setStockFilter] = useState<"all" | "low">(() =>
+    searchParams.get("stock") === "low" ? "low" : "all",
+  );
 
   useEffect(() => {
     setSearchParams(
@@ -115,13 +118,15 @@ const Materials = () => {
         else next.delete("q");
         if (categoryFilter !== "all") next.set("category", categoryFilter);
         else next.delete("category");
+        if (stockFilter === "low") next.set("stock", "low");
+        else next.delete("stock");
         if (pageView !== "stock") next.set("view", pageView);
         else next.delete("view");
         return next;
       },
       { replace: true },
     );
-  }, [searchQuery, categoryFilter, pageView, setSearchParams]);
+  }, [searchQuery, categoryFilter, stockFilter, pageView, setSearchParams]);
 
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -218,9 +223,11 @@ const Materials = () => {
       const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.size || "").toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = categoryFilter === "all" || item.category === categoryFilter;
-      return matchesSearch && matchesCategory;
+      const matchesStock =
+        stockFilter !== "low" || item.stock <= (item.minStock || 0);
+      return matchesSearch && matchesCategory && matchesStock;
     });
-  }, [inventoryItems, searchQuery, categoryFilter]);
+  }, [inventoryItems, searchQuery, categoryFilter, stockFilter]);
 
   const tableSortedItems = useMemo(() => {
     return [...filteredItems].sort((a, b) => {
@@ -235,7 +242,7 @@ const Materials = () => {
 
   useEffect(() => {
     setTablePage(1);
-  }, [searchQuery, categoryFilter]);
+  }, [searchQuery, categoryFilter, stockFilter]);
   const pagedTableItems = tableSortedItems.slice(
     (safeTablePage - 1) * tablePageSize,
     safeTablePage * tablePageSize,

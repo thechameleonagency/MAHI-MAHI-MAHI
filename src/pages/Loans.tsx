@@ -18,6 +18,7 @@ import { toast } from "@/hooks/use-toast";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import type { Loan, LoanRepayment } from "@/types/finance";
 import { emiComponents } from "@/lib/emiCalc";
+import { isLoanEmiDueWithinDays, isLoanEmiOverdue } from "@/lib/loanEmiDue";
 import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
@@ -51,6 +52,10 @@ const Loans = () => {
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "all");
   const [typeFilter, setTypeFilter] = useState(() => searchParams.get("type") ?? "all");
+  const [emiFilter, setEmiFilter] = useState<"all" | "due7d" | "overdue">(() => {
+    const emi = searchParams.get("emi");
+    return emi === "due7d" || emi === "overdue" ? emi : "all";
+  });
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
@@ -71,11 +76,13 @@ const Loans = () => {
         else next.delete("status");
         if (typeFilter !== "all") next.set("type", typeFilter);
         else next.delete("type");
+        if (emiFilter !== "all") next.set("emi", emiFilter);
+        else next.delete("emi");
         return next;
       },
       { replace: true },
     );
-  }, [searchQuery, statusFilter, typeFilter, setSearchParams]);
+  }, [searchQuery, statusFilter, typeFilter, emiFilter, setSearchParams]);
   
   // Modal state
   const [isAddLoanOpen, setIsAddLoanOpen] = useState(false);
@@ -296,9 +303,16 @@ const Loans = () => {
         const matchesSearch = l.source.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesStatus = statusFilter === "all" || l.status === statusFilter;
         const matchesType = typeFilter === "all" || l.paymentType === typeFilter;
-        return matchesSearch && matchesStatus && matchesType;
+        const matchesEmi =
+          emiFilter === "all" ||
+          (l.paymentType === "emi" &&
+            l.status === "Active" &&
+            (emiFilter === "due7d"
+              ? isLoanEmiDueWithinDays(l, 7)
+              : isLoanEmiOverdue(l)));
+        return matchesSearch && matchesStatus && matchesType && matchesEmi;
       }),
-    [loans, searchQuery, statusFilter, typeFilter],
+    [loans, searchQuery, statusFilter, typeFilter, emiFilter],
   );
 
   const { pagedItems: pagedLoans, safePage } = usePagedSlice(filteredLoans, tablePage, tablePageSize);

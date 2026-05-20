@@ -96,6 +96,24 @@ describe("buildInvoiceSubmitPreview", () => {
     expect(preview?.description).toMatch(/excess/i);
     expect(preview?.tone).toBe("warning");
   });
+
+  it("calls out Already Paid in Full before create (T4)", () => {
+    const outcome = deriveInvoicePaymentOutcome({
+      total: 118_000,
+      amountReceivedRaw: "",
+      isAlreadyPaid: true,
+      dueDate: "2026-08-01",
+    });
+    const preview = buildInvoiceSubmitPreview({
+      outcome,
+      total: 118_000,
+      isAlreadyPaid: true,
+    });
+    expect(preview?.title).toContain("PAID");
+    expect(preview?.description).toMatch(/Already Paid in Full/i);
+    expect(preview?.description).toMatch(/not left pending/i);
+    expect(preview?.tone).toBe("success");
+  });
 });
 
 describe("formatInvoiceBalanceLabel", () => {

@@ -104,8 +104,9 @@ export function formatInvoiceBalanceLabel(total: number, amountReceived: number,
 export function buildInvoiceSubmitPreview(input: {
   outcome: InvoicePaymentOutcome;
   total: number;
+  isAlreadyPaid?: boolean;
 }): InvoiceSubmitPreview | null {
-  const { outcome, total } = input;
+  const { outcome, total, isAlreadyPaid } = input;
   if (total <= 0) return null;
 
   const label = formatInvoiceStatusLabel(outcome.status).toUpperCase();
@@ -114,6 +115,13 @@ export function buildInvoiceSubmitPreview(input: {
 
   switch (outcome.status) {
     case "paid":
+      if (isAlreadyPaid) {
+        return {
+          title: `This invoice will be saved as: ${label}`,
+          description: `Already Paid in Full — ${totalFmt} will be recorded as received when you create this invoice (not left pending). Payment mode/date default to Cash and the invoice date if left empty.`,
+          tone: "success",
+        };
+      }
       return {
         title: `This invoice will be saved as: ${label}`,
         description: `${received} received of ${totalFmt} total.`,

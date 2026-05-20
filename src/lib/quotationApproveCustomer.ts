@@ -1,7 +1,7 @@
 import type { Customer } from "@/types/finance";
 import type { Quotation } from "@/types/project";
 import { validateGstin } from "@/lib/formCategories";
-import { createNextCustomerId } from "@/lib/idFactory";
+import { createNextCustomerId, formatCustomerIdDisplay } from "@/lib/idFactory";
 import { validateContactPhone } from "@/lib/phoneValidators";
 
 export type QuotationClientFields = Pick<
@@ -145,6 +145,49 @@ function listCustomerEnrichments(before: Customer, after: Customer): string[] {
  * Describes the customer record that approval will create or update (O2 trust loop).
  * Mirrors `CREATE` / `TRANSITION` approval logic in `registerQuotationCommands`.
  */
+export type QuotationApprovalSuccessFeedback = {
+  variant: "success";
+  title: string;
+  description: string;
+};
+
+/** Inline banner + toast copy after approve when a customer is created or updated (O2 / T6). */
+export function buildQuotationApprovalSuccessFeedback(
+  preview: QuotationApprovalCustomerPreview | undefined,
+  options?: { quotationNumber?: string },
+): QuotationApprovalSuccessFeedback {
+  const qn = options?.quotationNumber?.trim();
+  const qLabel = qn ? `${qn} ` : "This quotation ";
+
+  if (!preview) {
+    return {
+      variant: "success",
+      title: "Quotation approved",
+      description: qn ? `${qn} is now approved.` : "Quotation marked as approved.",
+    };
+  }
+
+  const ref = formatCustomerIdDisplay(preview.customerId);
+
+  if (preview.mode === "create") {
+    return {
+      variant: "success",
+      title: "Quotation approved — customer created",
+      description: `${qLabel}is approved. Customer ${ref} (${preview.displayName}) was created from the quotation billing details and linked automatically.`,
+    };
+  }
+
+  const enrich =
+    preview.enrichments.length > 0
+      ? ` Missing fields were backfilled: ${preview.enrichments.join(", ")}.`
+      : " Customer record already had the billing fields from this quotation.";
+  return {
+    variant: "success",
+    title: "Quotation approved — customer linked",
+    description: `${qLabel}is approved and linked to ${ref} (${preview.displayName}).${enrich}`,
+  };
+}
+
 export function buildQuotationApprovalCustomerPreview(
   q: QuotationClientFields & { customerId?: string },
   options: {

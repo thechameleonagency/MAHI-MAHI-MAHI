@@ -5,10 +5,10 @@ import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useRoleMatrixOverride } from "@/contexts/RoleMatrixContext";
 import { isRegisteredAppRoute } from "@/lib/appRouteRegistry";
-import { routeAccessDeniedToastContent, routeAccessRedirectCopy } from "@/lib/routeAccessDenied";
+import { routeAccessRedirectCopy } from "@/lib/routeAccessDenied";
+import { showRouteAccessDeniedToast } from "@/lib/permissionFeedback";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { UserRole } from "@/domain/entities/identity";
-import { toast } from "@/hooks/use-toast";
 
 function useRouteAccessDecision() {
   const location = useLocation();
@@ -39,8 +39,7 @@ const RouteAccessGate = () => {
     const denialKey = `${pathname}:${currentRole}`;
     if (lastDenialNotified.current !== denialKey) {
       lastDenialNotified.current = denialKey;
-      const { title, description } = routeAccessDeniedToastContent(pathname, currentRole);
-      toast({ title, description, variant: "destructive" });
+      showRouteAccessDeniedToast(pathname, currentRole);
     }
 
     navigate("/", { replace: true, state: { routeAccessDeniedPath: pathname } });

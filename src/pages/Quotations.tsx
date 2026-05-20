@@ -38,7 +38,8 @@ import {
   type QuotationDraftFromEnquiry,
 } from "@/lib/createFromContext";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { isQuotationInFlight } from "@/lib/quotationListFilters";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -95,6 +96,7 @@ import { isProjectPaymentType } from "@/domain/project/projectPaymentType";
 import {
   buildPaymentTermsSummary,
   buildQuotationApprovalCustomerPreview,
+  buildQuotationApprovalSuccessFeedback,
   type QuotationApprovalCustomerPreview,
 } from "@/lib/quotationApproveCustomer";
 import { QuotationApproveCustomerDialog } from "@/components/quotations/QuotationApproveCustomerDialog";
@@ -164,6 +166,7 @@ const Quotations = () => {
   const { currentRole } = useAppSession();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const quotationRef = useRef<HTMLDivElement>(null);
   const { 
     quotations: savedQuotations, 
@@ -198,7 +201,13 @@ const Quotations = () => {
   
   // View state: list, create, edit (solar-only quotations)
   const [currentView, setCurrentView] = useState<"list" | "create" | "edit">("list");
-  const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
+  const [lastConfirm, setLastConfirm] = useState<{
+    variant: "success" | "warning" | "error";
+    title: string;
+    description?: string;
+    customerId?: string;
+    projectCreateQuotationId?: string;
+  } | null>(null);
   const [activeTab, setActiveTab] = useState("create");
   const [editingQuotationId, setEditingQuotationId] = useState<string | null>(null);
   
@@ -286,7 +295,22 @@ const Quotations = () => {
   
   // Status filter for list view
   const [statusFilter, setStatusFilter] = useState<"all" | QuotationStatus>("all");
+  const [pipelineFilter, setPipelineFilter] = useState<"all" | "inflight">(() =>
+    searchParams.get("pipeline") === "inflight" ? "inflight" : "all",
+  );
   const [listSearchQuery, setListSearchQuery] = useState("");
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (pipelineFilter === "inflight") next.set("pipeline", "inflight");
+        else next.delete("pipeline");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [pipelineFilter, setSearchParams]);
 
   const QUOTE_LIST_COL_LS = "mss.quotations.listColumns.v1";
   type QuoteListColKey = "number" | "client" | "phone" | "system" | "amount" | "date" | "status";
@@ -335,7 +359,7 @@ const Quotations = () => {
     });
   };
 
-  useEffect(() => { setListPage(1); }, [statusFilter, listSearchQuery]);
+  useEffect(() => { setListPage(1); }, [statusFilter, pipelineFilter, listSearchQuery]);
 
   // Materials — will be populated from dynamicPresetMaterials once available
   const [materials, setMaterials] = useState<QuotationMaterial[]>(presetMaterials["residential-3"]);
@@ -830,6 +854,7 @@ const Quotations = () => {
         return false;
       }
     }
+    if (pipelineFilter === "inflight" && !isQuotationInFlight(q)) return false;
     if (statusFilter === "all") return true;
     if (statusFilter === "converted") return isQuotationConverted(q);
     return q.status === statusFilter;
@@ -1415,11 +1440,34 @@ const Quotations = () => {
     });
   };
 
+  const renderLastConfirmBanner = () =>
+    lastConfirm ? (
+      <InlineConfirmBanner
+        variant={lastConfirm.variant}
+        title={lastConfirm.title}
+        description={lastConfirm.description}
+        actionLabel={
+          lastConfirm.customerId
+            ? "View customer"
+            : lastConfirm.projectCreateQuotationId
+              ? "Create project now"
+              : undefined
+        }
+        onAction={
+          lastConfirm.customerId
+            ? () => navigate(`/customers/${lastConfirm.customerId}`)
+            : lastConfirm.projectCreateQuotationId
+              ? () => navigate(`/projects?createFrom=quo:${lastConfirm.projectCreateQuotationId}`)
+              : undefined
+        }
+        onDismiss={() => setLastConfirm(null)}
+      />
+    ) : null;
+
   const handleMarkAsApproved = async (
     quotationId: string,
     approvalPreview?: QuotationApprovalCustomerPreview,
   ) => {
-    setLastConfirm(null);
     const amountError = assertQuotationAmountForTransition(
       quotationId,
       editingQuotationId === quotationId ? effectivePrice : undefined,
@@ -1461,14 +1509,16 @@ const Quotations = () => {
       setStatus("approved");
     }
     const quotation = savedQuotations.find((q) => q.id === quotationId);
-    const approvedCustomerId = approvalPreview?.customerId ?? quotation?.customerId;
-    const customerOutcome = approvalPreview
-      ? approvalPreview.mode === "create"
-        ? ` Customer ${approvedCustomerId} was created.`
-        : ` Linked to customer ${approvedCustomerId}.`
-      : "";
+    const feedback = buildQuotationApprovalSuccessFeedback(approvalPreview, {
+      quotationNumber: quotation?.quotationNumber,
+    });
     const canCreateProject =
       quotation && !quotationLinkedProjectId(quotation);
+    setLastConfirm({
+      ...feedback,
+      customerId: approvalPreview?.customerId,
+      projectCreateQuotationId: canCreateProject ? quotationId : undefined,
+    });
     if (canCreateProject) {
       const customer = quotation.customerId
         ? _customers.find((c) => c.id === quotation.customerId)
@@ -1476,8 +1526,8 @@ const Quotations = () => {
       const draft = buildQuotationToProjectDraft(quotation, customer);
       saveCreateDraft("project-create-draft", draft);
       toast({
-        title: "Quotation approved",
-        description: `Create a project when you are ready.${customerOutcome}`,
+        title: feedback.title,
+        description: "Create a project when you are ready — use the banner or the button below.",
         action: (
           <ToastAction
             altText="Create project now"
@@ -1489,10 +1539,9 @@ const Quotations = () => {
       });
       return;
     }
-    toast({
-      title: "Quotation approved",
-      description: `Quotation marked as approved.${customerOutcome}`,
-    });
+    if (!approvalPreview) {
+      toast({ title: feedback.title, description: feedback.description });
+    }
   };
 
   const confirmApproveQuotation = async () => {
@@ -2036,14 +2085,7 @@ const Quotations = () => {
           </Button>
         </StickyPageHeader>
 
-        {lastConfirm && (
-          <InlineConfirmBanner
-            variant={lastConfirm.variant}
-            title={lastConfirm.title}
-            description={lastConfirm.description}
-            onDismiss={() => setLastConfirm(null)}
-          />
-        )}
+        {renderLastConfirmBanner()}
 
         <DataTableShell
           maxHeight={listTableViewportMaxHeight(listPageSize)}
@@ -2672,14 +2714,7 @@ const Quotations = () => {
 
   return (
     <PageShell className="min-h-[calc(100vh-140px)] space-y-6">
-      {lastConfirm && (
-        <InlineConfirmBanner
-          variant={lastConfirm.variant}
-          title={lastConfirm.title}
-          description={lastConfirm.description}
-          onDismiss={() => setLastConfirm(null)}
-        />
-      )}
+      {renderLastConfirmBanner()}
 
       {currentView === "create" && !editingQuotationId && (enquiryId || withoutEnquiryReason) && (
         <InlineConfirmBanner

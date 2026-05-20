@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   IndianRupee,
   Users,
@@ -81,6 +81,16 @@ import { toast } from "@/hooks/use-toast";
 import { routeAccessDeniedToastContent } from "@/lib/routeAccessDenied";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { resolveQuotationCustomerId } from "@/lib/selectors";
+import {
+  getDashboardKpiListLabel,
+  getDashboardKpiListPath,
+} from "@/lib/dashboardKpiNavigation";
+import {
+  getLoanEmiDueDate,
+  isLoanEmiDueWithinDays,
+  isLoanEmiOverdue,
+  startOfLocalDay,
+} from "@/lib/loanEmiDue";
 
 type StatCardDetailLine = {
   id: string;
@@ -225,24 +235,7 @@ const Dashboard = () => {
     [contextLowStockItems],
   );
 
-  const startOfToday = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
-
-  const endNext7Days = useMemo(() => {
-    const d = new Date(startOfToday);
-    d.setDate(d.getDate() + 7);
-    d.setHours(23, 59, 59, 999);
-    return d;
-  }, [startOfToday]);
-
-  const parseLoanEmiDue = useCallback((loan: (typeof loans)[0]) => {
-    const raw = (loan as { nextEmiDate?: string }).nextEmiDate ?? loan.dueDate;
-    if (!raw || isNaN(Date.parse(raw))) return null;
-    return new Date(raw);
-  }, []);
+  const startOfToday = useMemo(() => startOfLocalDay(), []);
 
   const activeEmiLoans = useMemo(
     () => loans.filter((l) => l.status === "Active" && l.paymentType === "emi"),
@@ -250,21 +243,13 @@ const Dashboard = () => {
   );
 
   const emiDueWithin7Days = useMemo(
-    () =>
-      activeEmiLoans.filter((l) => {
-        const d = parseLoanEmiDue(l);
-        return d != null && d >= startOfToday && d <= endNext7Days;
-      }),
-    [activeEmiLoans, startOfToday, endNext7Days, parseLoanEmiDue],
+    () => activeEmiLoans.filter((l) => isLoanEmiDueWithinDays(l, 7, startOfToday)),
+    [activeEmiLoans, startOfToday],
   );
 
   const emiOverdue = useMemo(
-    () =>
-      activeEmiLoans.filter((l) => {
-        const d = parseLoanEmiDue(l);
-        return d != null && d < startOfToday;
-      }),
-    [activeEmiLoans, startOfToday, parseLoanEmiDue],
+    () => activeEmiLoans.filter((l) => isLoanEmiOverdue(l, startOfToday)),
+    [activeEmiLoans, startOfToday],
   );
 
   const groupedLowStockItems = lowStockItems.reduce(
@@ -496,10 +481,10 @@ const Dashboard = () => {
   const sortedEmiLoans = useMemo(
     () =>
       [...activeEmiLoans]
-        .map((loan) => ({ loan, due: parseLoanEmiDue(loan) }))
+        .map((loan) => ({ loan, due: getLoanEmiDueDate(loan) }))
         .filter((x): x is { loan: (typeof activeEmiLoans)[0]; due: Date } => x.due != null)
         .sort((a, b) => a.due.getTime() - b.due.getTime()),
-    [activeEmiLoans, parseLoanEmiDue],
+    [activeEmiLoans],
   );
 
   const statsCardsWithDetails = useMemo(() => {
@@ -754,6 +739,11 @@ const Dashboard = () => {
     navigate(path);
   };
 
+  const navigateToKpiList = (cardId: string) => {
+    const path = getDashboardKpiListPath(cardId);
+    if (path) navigateToPage(path);
+  };
+
   const hintClass: Record<StatCardDef["hintTone"], string> = {
     positive: "text-success/90 dark:text-success/90",
     negative: "text-warning dark:text-warning/90",
@@ -902,7 +892,7 @@ const Dashboard = () => {
               </h2>
             </div>
             <p className="max-w-xl text-sm text-muted-foreground sm:text-right md:max-w-md">
-              Filtered for your role. Tap a tile for detail.
+              Filtered for your role. Tap a tile for a quick preview, or open the full filtered list.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -942,48 +932,61 @@ const Dashboard = () => {
                   )}
                   {kpiCardsToShow.map((card) => {
                   const Icon = card.icon;
+                  const listPath = getDashboardKpiListPath(card.id);
                   return (
-                    <button
+                    <div
                       key={card.id}
-                      type="button"
-                      onClick={() => handleCardClick(card.id)}
-                      className="group relative flex flex-col rounded-xl border border-border/70 bg-card p-4 text-left shadow-sm transition-all hover:border-primary/35 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="group relative flex flex-col rounded-xl border border-border/70 bg-card shadow-sm transition-all hover:border-primary/35 hover:bg-muted/20"
                     >
-                      <div className="flex w-full items-start justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 flex-col gap-1">
-                          <span className="truncate text-xs2 font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                            {card.title}
-                          </span>
-                          <div className="flex items-baseline gap-2">
-                            <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{card.value}</p>
-                            <p className={cn("rounded-full bg-muted/50 px-1.5 py-0.5 text-2xs font-medium", hintClass[card.hintTone])}>
-                              {card.hint}
-                            </p>
-                          </div>
-                          {card.details && card.details.length > 0 && (
-                            <ul className="mt-2 space-y-0.5 border-t border-border/40 pt-2">
-                              {card.details.map((line) => (
-                                <li key={line.id} className="truncate text-2xs text-muted-foreground">
-                                  {line.content ?? line.text}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                        <div className="flex flex-col items-end gap-2">
-                          <span
-                            className={cn(
-                              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition group-hover:scale-[1.05]",
-                              card.iconClass,
+                      <button
+                        type="button"
+                        onClick={() => handleCardClick(card.id)}
+                        className="flex flex-1 flex-col p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl"
+                      >
+                        <div className="flex w-full items-start justify-between gap-3">
+                          <div className="flex min-w-0 flex-1 flex-col gap-1">
+                            <span className="truncate text-xs2 font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                              {card.title}
+                            </span>
+                            <div className="flex items-baseline gap-2">
+                              <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{card.value}</p>
+                              <p className={cn("rounded-full bg-muted/50 px-1.5 py-0.5 text-2xs font-medium", hintClass[card.hintTone])}>
+                                {card.hint}
+                              </p>
+                            </div>
+                            {card.details && card.details.length > 0 && (
+                              <ul className="mt-2 space-y-0.5 border-t border-border/40 pt-2">
+                                {card.details.map((line) => (
+                                  <li key={line.id} className="truncate text-2xs text-muted-foreground">
+                                    {line.content ?? line.text}
+                                  </li>
+                                ))}
+                              </ul>
                             )}
-                          >
-                            <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
-                          </span>
+                          </div>
+                          <div className="flex flex-col items-end gap-2">
+                            <span
+                              className={cn(
+                                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition group-hover:scale-[1.05]",
+                                card.iconClass,
+                              )}
+                            >
+                              <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
+                            </span>
+                          </div>
                         </div>
-                      </div>
-
-                      <ArrowUpRight className="absolute right-3 top-4 h-4 w-4 text-muted-foreground/0 transition group-hover:text-muted-foreground/40" />
-                    </button>
+                        <ArrowUpRight className="absolute right-3 top-4 h-4 w-4 text-muted-foreground/0 transition group-hover:text-muted-foreground/40" />
+                      </button>
+                      {listPath ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(listPath)}
+                          className="border-t border-border/50 px-4 py-2 text-left text-2xs font-medium text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-b-xl"
+                        >
+                          {getDashboardKpiListLabel(card.id)} →
+                        </button>
+                      ) : null}
+                    </div>
                   );
                   })}
                 </>
@@ -1217,7 +1220,7 @@ const Dashboard = () => {
                       <p className="text-xs font-semibold uppercase tracking-wide text-destructive">Overdue</p>
                       <ul className="space-y-2">
                         {emiOverdue.map((l) => {
-                          const due = parseLoanEmiDue(l);
+                          const due = getLoanEmiDueDate(l);
                           const borrower = l.personName ?? l.source;
                           return (
                             <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -1239,7 +1242,7 @@ const Dashboard = () => {
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due within 7 days</p>
                       <ul className="space-y-2">
                         {emiDueWithin7Days.map((l) => {
-                          const due = parseLoanEmiDue(l);
+                          const due = getLoanEmiDueDate(l);
                           const borrower = l.personName ?? l.source;
                           return (
                             <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -1304,9 +1307,9 @@ const Dashboard = () => {
               <span className="font-bold text-primary tabular-nums">{formatINR(stats.totalRevenue || 0)}</span>
             </div>
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/finance")}>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("revenue")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Finance
+            {getDashboardKpiListLabel("revenue")}
           </Button>
         </AppSheetContent>
       </Sheet>
@@ -1338,9 +1341,14 @@ const Dashboard = () => {
                 <p className="py-6 text-center text-sm text-muted-foreground">Nothing in this queue</p>
               )}
             </div>
-            <Button className="w-full rounded-lg mt-4" onClick={() => navigateToPage("/enquiries")}>
+            <Button
+              className="w-full rounded-lg mt-4"
+              onClick={() =>
+                navigateToKpiList(activeModal === "followUps" ? "followUps" : "enquiries")
+              }
+            >
               <ExternalLink className="mr-2 h-4 w-4" />
-              Open enquiries workspace
+              {getDashboardKpiListLabel(activeModal === "followUps" ? "followUps" : "enquiries")}
             </Button>
           </div>
         </AppSheetContent>
@@ -1363,9 +1371,9 @@ const Dashboard = () => {
               <p className="py-6 text-center text-sm text-muted-foreground">No overdue tasks</p>
             )}
           </div>
-          <Button className="w-full rounded-lg mt-4" onClick={() => navigateToPage("/timeline")}>
+          <Button className="w-full rounded-lg mt-4" onClick={() => navigateToKpiList("tasks")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Open timeline
+            {getDashboardKpiListLabel("tasks")}
           </Button>
         </AppSheetContent>
       </Sheet>
@@ -1387,9 +1395,9 @@ const Dashboard = () => {
               <p className="py-6 text-center text-muted-foreground">No active projects</p>
             )}
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/projects")}>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("projects")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            All projects
+            {getDashboardKpiListLabel("projects")}
           </Button>
         </AppSheetContent>
       </Sheet>
@@ -1420,9 +1428,9 @@ const Dashboard = () => {
               <p className="py-6 text-center text-muted-foreground">No sites linked to ongoing projects</p>
             )}
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/active-sites")}>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("activeSites")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Active sites
+            {getDashboardKpiListLabel("activeSites")}
           </Button>
         </AppSheetContent>
       </Sheet>
@@ -1444,9 +1452,9 @@ const Dashboard = () => {
               <p className="py-6 text-center text-muted-foreground">No pending receivables</p>
             )}
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/invoices")}>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("pending")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Invoices
+            {getDashboardKpiListLabel("pending")}
           </Button>
         </AppSheetContent>
       </Sheet>
@@ -1467,9 +1475,9 @@ const Dashboard = () => {
               <DashboardEmployeeCard key={emp.id} emp={emp} onSelect={handleEmployeeClick} />
             ))}
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/employees")}>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("employees")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Employees
+            {getDashboardKpiListLabel("employees")}
           </Button>
         </AppSheetContent>
       </Sheet>
@@ -1498,13 +1506,13 @@ const Dashboard = () => {
                 title="All SKUs above threshold"
                 description="No materials currently below their minimum stock level."
                 actionLabel="Open materials"
-                onAction={() => navigateToPage("/inventory/materials")}
+                onAction={() => navigateToKpiList("stock")}
               />
             )}
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/inventory/materials")}>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("stock")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Materials
+            {getDashboardKpiListLabel("stock")}
           </Button>
         </AppSheetContent>
       </Sheet>
@@ -1528,13 +1536,13 @@ const Dashboard = () => {
                 title="No active loans"
                 description="No EMI loans or borrowings to track right now."
                 actionLabel="Open loans"
-                onAction={() => navigateToPage("/loans")}
+                onAction={() => navigateToKpiList("emis")}
               />
             )}
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/loans")}>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("emis")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Loans
+            {getDashboardKpiListLabel("emis")}
           </Button>
         </AppSheetContent>
       </Sheet>
@@ -1556,9 +1564,9 @@ const Dashboard = () => {
               <p className="py-6 text-center text-muted-foreground">No draft or sent quotations</p>
             )}
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/quotations")}>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("quotations")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Quotations
+            {getDashboardKpiListLabel("quotations")}
           </Button>
         </AppSheetContent>
       </Sheet>
@@ -1592,9 +1600,9 @@ const Dashboard = () => {
               </div>
             )}
           </div>
-          <Button className="w-full rounded-lg" onClick={() => navigateToPage("/active-sites")}>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("blockages")}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Active sites
+            {getDashboardKpiListLabel("blockages")}
           </Button>
         </AppSheetContent>
       </Sheet>

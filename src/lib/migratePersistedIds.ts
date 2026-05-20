@@ -1,6 +1,7 @@
 /**
  * One-time localStorage migration: numeric entity IDs → prefixed strings.
  */
+import { normalizeSiteReadinessMarkedBy } from "@/lib/siteReadinessNormalize";
 const STORAGE_VERSION_KEY = "mss_storage_version";
 export const CURRENT_STORAGE_VERSION = 2;
 
@@ -55,11 +56,14 @@ function walk(obj: unknown): unknown {
       else out[key] = val;
       continue;
     }
+    if (key === "markedBy") {
+      out[key] = normalizeSiteReadinessMarkedBy(val);
+      continue;
+    }
     if (
       key === "employeeId" ||
       key === "leadId" ||
       key === "visitedBy" ||
-      key === "markedBy" ||
       key === "addedByEmployeeId"
     ) {
       out[key] = mapId(val, "emp");

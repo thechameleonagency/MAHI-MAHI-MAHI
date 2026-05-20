@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from "react";
 import type {
   Project,
   Employee,
@@ -20,15 +20,20 @@ import type {
   SettingsTeamMember,
 } from "@/types/project";
 import { DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
-import { buildEmptyAppState, buildSequencedAppSeed, normalizeAppState } from "@/data/appSeedBuilder";
-import { migratePersistedState } from "@/lib/migratePersistedIds";
+import { buildEmptyAppState, buildSequencedAppSeed } from "@/data/appSeedBuilder";
+import { APP_DATA_RESET_EPOCH_KEY, clearAllAppStorage } from "@/lib/clearAppStorage";
 import {
-  APP_DATA_RESET_EPOCH,
-  APP_DATA_RESET_EPOCH_KEY,
-  clearAllAppStorage,
-} from "@/lib/clearAppStorage";
+  APP_DATA_STORAGE_KEY,
+  APP_DATA_STORAGE_VERSION,
+  APP_DATA_STORAGE_VERSION_KEY,
+  applyAppStateHydrationPipeline,
+  isAppDataStorageSyncKey,
+  persistFreshAppStateSeed,
+  readPersistedAppState,
+  serializeAppState,
+} from "@/lib/appDataStorage";
 import { syncPrototypeRepositoriesFromAppState } from "@/infrastructure/repositories/syncPrototypeRepositories";
-import { createId, createNextCustomerId } from "@/lib/idFactory";
+import { createId, createNextCustomerId, ensureSequentialCustomerId } from "@/lib/idFactory";
 import { isQuotationConverted } from "@/lib/quotationSelectors";
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
 import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany } from "@/types/finance";
@@ -61,6 +66,7 @@ import { BillingDirectionGuardService } from "@/application/services/BillingDire
 import { VoucherPostingService, type AccountingEventType, type PostingResult } from "@/application/services/VoucherPostingService";
 import type { MovementType } from "@/application/services/InventoryMovementService";
 import { toast } from "@/hooks/use-toast";
+import { showPermissionDeniedToast, showPermissionDeniedToastForAction } from "@/lib/permissionFeedback";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useRoleMatrix } from "@/contexts/RoleMatrixContext";
 import { canFeature } from "@/domain/policies/featurePermissions";
@@ -83,7 +89,6 @@ import {
   prepareBillingDocumentForStorage,
   stripVolatileDocumentTypeFields,
 } from "@/lib/invoiceDocumentType";
-import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
 import { formatINR } from "@/lib/formatCurrency";
 import { validateExpensePaidByRecord } from "@/lib/expensePayerValidation";
@@ -103,11 +108,6 @@ import type { WarehouseOnlyMovementType } from "@/application/commands/inventory
 import type { ProjectIntakePayload } from "@/application/services/ProjectKindService";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { DEMO_DEFAULT_SESSION_ROLE, ROLE_LABELS } from "@/domain/entities/identity";
-import {
-  hydrateInvoiceLinkage,
-  hydrateProjectLinkage,
-  hydrateQuotationLinkage,
-} from "@/domain/project/linkageMigration";
 import { ProjectInvariantService } from "@/domain/project/ProjectInvariantService";
 import { evaluateAutoArchive, applyAutoArchive } from "@/domain/customer/customerArchive";
 import { mergeExpenseUpdateWithReimbursementRules } from "@/lib/expenseReimbursement";
@@ -589,11 +589,9 @@ interface AppDataContextType extends AppState {
   canDo: (action: AppAction) => boolean;
 }
 
-const STORAGE_KEY = "mahi_solar_app_data";
-// Bump this whenever a stored shape gains a new required collection. Older payloads will fall
-// back to empty boot instead of crashing the app on hydrate.
-const STORAGE_VERSION = 8;
-const STORAGE_VERSION_KEY = "mahi_solar_app_data_version";
+const STORAGE_KEY = APP_DATA_STORAGE_KEY;
+const STORAGE_VERSION = APP_DATA_STORAGE_VERSION;
+const STORAGE_VERSION_KEY = APP_DATA_STORAGE_VERSION_KEY;
 const DEFAULT_ACTOR_ROLE = DEMO_DEFAULT_SESSION_ROLE;
 const toProjectLifecycleStatus = (lifecycleStatus: Project["lifecycleStatus"]): ProjectLifecycleStatus =>
   lifecycleStatus;
@@ -628,89 +626,7 @@ function buildDefaultBootState(): AppState {
   return buildEmptyAppState();
 }
 
-// ============ PERSISTENCE HELPERS ============
-const serializeState = (s: AppState): string => {
-  return JSON.stringify(s, (key, value) => {
-    if (value instanceof Date) return { __date__: value.toISOString() };
-    return value;
-  });
-};
-
-const deserializeState = (json: string): AppState | null => {
-  try {
-    return JSON.parse(json, (key, value) => {
-      if (value && typeof value === "object" && value.__date__) return new Date(value.__date__);
-      return value;
-    });
-  } catch {
-    return null;
-  }
-};
-
-/** Hydrate FK links and billing metrics on a full state snapshot (no seed merge). */
-function applyHydrationPipeline(state: AppState): AppState {
-  const customers = state.customers;
-  const projects = hydrateProjectLinkage(state.projects, customers);
-  const quotations = hydrateQuotationLinkage(state.quotations, customers);
-  const invoices = sanitizeBillingDocuments(
-    hydrateInvoiceLinkage(state.invoices, customers, projects),
-    "invoices",
-  );
-  const saleBills = sanitizeBillingDocuments(
-    hydrateInvoiceLinkage(state.saleBills, customers, projects),
-    "saleBills",
-  );
-  const reconciledProjects = reconcileProjectsAmountInvoiced(projects, invoices, saleBills);
-  return {
-    ...state,
-    projects: reconciledProjects,
-    quotations,
-    invoices,
-    saleBills,
-  };
-}
-
-function persistFreshSeed(baseSeed: AppState): void {
-  localStorage.setItem(APP_DATA_RESET_EPOCH_KEY, APP_DATA_RESET_EPOCH);
-  localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
-  localStorage.setItem(STORAGE_KEY, serializeState(baseSeed));
-}
-
-const getInitialState = (): AppState => {
-  const emptyBoot = buildDefaultBootState();
-  try {
-    const storedEpoch = localStorage.getItem(APP_DATA_RESET_EPOCH_KEY);
-    const storedVersion = Number(localStorage.getItem(STORAGE_VERSION_KEY) ?? "0");
-    const needsFullReset =
-      storedEpoch !== APP_DATA_RESET_EPOCH || storedVersion !== STORAGE_VERSION;
-
-    if (needsFullReset) {
-      clearAllAppStorage();
-      persistFreshSeed(emptyBoot);
-      if (import.meta.env.DEV) {
-        console.info("[MSS] Full storage wipe — empty boot (masters reload from code).");
-      }
-      return emptyBoot;
-    }
-
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      let parsed = deserializeState(stored);
-      if (parsed) {
-        if (storedVersion < STORAGE_VERSION) {
-          parsed = migratePersistedState(parsed);
-        }
-        return applyHydrationPipeline(normalizeAppState(parsed));
-      }
-    }
-  } catch (e) {
-    if (import.meta.env.DEV) {
-      console.warn("Failed to load persisted state:", e);
-    }
-  }
-  persistFreshSeed(emptyBoot);
-  return emptyBoot;
-};
+const getInitialState = (): AppState => readPersistedAppState({ persistOnBootstrap: true });
 
 // ============ CONTEXT CREATION ============
 const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
@@ -719,6 +635,7 @@ const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
 export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { override: roleMatrixOverride } = useRoleMatrix();
   const [state, setState] = useState<AppState>(getInitialState);
+  const lastPersistedSnapshotRef = useRef<string | null>(null);
   const { permissionService, commandBus, repositories } = useFoundation();
   const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
@@ -732,11 +649,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const canPerformActionOrWarn = useCallback((action: AppAction): boolean => {
     const allowed = permissionService.canPerformAction(actorRole, action, roleMatrixOverride);
     if (!allowed) {
-      toast({
-        title: "Action not permitted",
-        description: `Your role (${actorRole}) does not have permission for: ${action}`,
-        variant: "destructive",
-      });
+      showPermissionDeniedToastForAction(action, actorRole);
     }
     return allowed;
   }, [actorRole, permissionService, roleMatrixOverride]);
@@ -753,11 +666,29 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     [commandBus, roleMatrixOverride],
   );
 
+  // ============ CROSS-TAB SYNC (storage events from other windows) ============
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (!isAppDataStorageSyncKey(e.key)) return;
+      const loaded = readPersistedAppState();
+      const serialized = serializeAppState(loaded);
+      if (lastPersistedSnapshotRef.current === serialized) return;
+      lastPersistedSnapshotRef.current = serialized;
+      setState(loaded);
+      syncPrototypeRepositoriesFromAppState(loaded, repositories);
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [repositories]);
+
   // ============ PERSIST STATE TO LOCALSTORAGE (debounced) + sync mss.repo.* mirrors ============
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, serializeState(state));
+        const serialized = serializeAppState(state);
+        if (lastPersistedSnapshotRef.current === serialized) return;
+        lastPersistedSnapshotRef.current = serialized;
+        localStorage.setItem(STORAGE_KEY, serialized);
         localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
         syncPrototypeRepositoriesFromAppState(state, repositories);
       } catch (e) {
@@ -878,33 +809,31 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   // Reset — wipes ALL browser app data and reloads empty boot (super_admin / resetPrototype only)
   const resetToDefaults = useCallback(() => {
     if (!canFeature(actorRole, "resetPrototype", "create", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: `Your role (${actorRole}) cannot reset prototype data.`,
-        variant: "destructive",
-      });
+      showPermissionDeniedToast(
+        `The ${ROLE_LABELS[actorRole] ?? actorRole} role cannot reset prototype data.`,
+      );
       return;
     }
     clearAllAppStorage();
     const fresh = buildDefaultBootState();
-    persistFreshSeed(fresh);
+    persistFreshAppStateSeed(fresh);
     window.location.reload();
   }, [actorRole, roleMatrixOverride]);
 
   const loadDemoDataset = useCallback(() => {
     if (!canFeature(actorRole, "resetPrototype", "create", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: `Your role (${actorRole}) cannot load the demo dataset.`,
-        variant: "destructive",
-      });
+      showPermissionDeniedToast(
+        `The ${ROLE_LABELS[actorRole] ?? actorRole} role cannot load the demo dataset.`,
+      );
       return;
     }
-    const demo = applyHydrationPipeline(buildSequencedAppSeed());
+    const demo = applyAppStateHydrationPipeline(buildSequencedAppSeed());
     setState(demo);
     syncPrototypeRepositoriesFromAppState(demo, repositories);
     try {
-      persistFreshSeed(demo);
+      const serialized = serializeAppState(demo);
+      lastPersistedSnapshotRef.current = serialized;
+      persistFreshAppStateSeed(demo);
     } catch (e) {
       if (import.meta.env.DEV) {
         console.warn("Failed to persist demo dataset:", e);
@@ -1063,11 +992,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           const nextLifecycle = toProjectLifecycleStatus(nextLifecycleStatus);
           const canTransition = canTransitionProjectStatus(currentLifecycle, nextLifecycle, actorRole);
           if (!canTransition) {
-            toast({
-              title: "Status transition not allowed",
-              description: `Cannot move project from "${project.lifecycleStatus}" to "${nextLifecycleStatus}" with your current role.`,
-              variant: "destructive",
-            });
+            showPermissionDeniedToast(
+              `Cannot move this project to "${nextLifecycleStatus}" with your current role.`,
+            );
             return project;
           }
           if (nextLifecycleStatus === "Completed") {
@@ -1600,7 +1527,13 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addCustomer = useCallback(
     (customer: Customer) => {
       if (!canPerformActionOrWarn("customer:create")) return false;
-      setState((prev) => ({ ...prev, customers: [customer, ...prev.customers] }));
+      setState((prev) => {
+        const id = ensureSequentialCustomerId(
+          customer.id,
+          prev.customers.map((c) => c.id),
+        );
+        return { ...prev, customers: [{ ...customer, id }, ...prev.customers] };
+      });
       return true;
     },
     [canPerformActionOrWarn],
@@ -1630,11 +1563,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   
   const deleteCustomer = useCallback((id: string) => {
     if (!canFeature(actorRole, "customer", "delete", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: "Your role cannot delete customers.",
-        variant: "destructive",
-      });
+      showPermissionDeniedToast("Your role cannot delete customers.");
       return;
     }
     setState((prev) => {
@@ -2054,11 +1983,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       canApproveReimbursement,
     );
     if (!reimbMerge.ok) {
-      toast({
-        title: "Reimbursement not allowed",
-        description: reimbMerge.message,
-        variant: "destructive",
-      });
+      showPermissionDeniedToast(reimbMerge.message);
       return;
     }
     const mergedUpdates = reimbMerge.merged;
@@ -2768,7 +2693,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteVendor = useCallback((id: string): { ok: boolean; error?: string } => {
     if (!canFeature(actorRole, "vendor", "delete", roleMatrixOverride)) {
       const error = "Your role cannot delete vendors.";
-      toast({ title: "Action not permitted", description: error, variant: "destructive" });
+      showPermissionDeniedToast(error);
       return { ok: false, error };
     }
     const billCount = state.vendorBills.filter((b) => String(b.vendorId) === String(id)).length;
@@ -3183,11 +3108,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const addQuotationTemplate = useCallback((template: QuotationTemplate) => {
     if (!canFeature(actorRole, "template", "create", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: "Your role cannot create templates.",
-        variant: "destructive",
-      });
+      showPermissionDeniedToast("Your role cannot create templates.");
       return;
     }
     setState(prev => ({ ...prev, quotationTemplates: [template, ...prev.quotationTemplates] }));
@@ -3195,11 +3116,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const updateQuotationTemplate = useCallback((id: string, updates: Partial<QuotationTemplate>) => {
     if (!canFeature(actorRole, "template", "edit", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: "Your role cannot edit templates.",
-        variant: "destructive",
-      });
+      showPermissionDeniedToast("Your role cannot edit templates.");
       return;
     }
     setState(prev => ({
@@ -3210,11 +3127,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const deleteQuotationTemplate = useCallback((id: string) => {
     if (!canFeature(actorRole, "template", "delete", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: "Your role cannot delete templates.",
-        variant: "destructive",
-      });
+      showPermissionDeniedToast("Your role cannot delete templates.");
       return;
     }
     setState(prev => ({
@@ -3225,11 +3138,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const addSiteChecklistTemplate = useCallback((template: SiteChecklistTemplate) => {
     if (!canFeature(actorRole, "template", "create", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: "Your role cannot create templates.",
-        variant: "destructive",
-      });
+      showPermissionDeniedToast("Your role cannot create templates.");
       return;
     }
     setState(prev => ({
@@ -3240,11 +3149,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const updateSiteChecklistTemplate = useCallback((id: string, updates: Partial<SiteChecklistTemplate>) => {
     if (!canFeature(actorRole, "template", "edit", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: "Your role cannot edit templates.",
-        variant: "destructive",
-      });
+      showPermissionDeniedToast("Your role cannot edit templates.");
       return;
     }
     setState(prev => ({
@@ -3255,11 +3160,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const deleteSiteChecklistTemplate = useCallback((id: string) => {
     if (!canFeature(actorRole, "template", "delete", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: "Your role cannot delete templates.",
-        variant: "destructive",
-      });
+      showPermissionDeniedToast("Your role cannot delete templates.");
       return;
     }
     setState(prev => ({
@@ -3689,11 +3590,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   
   const deleteVendorBill = useCallback((id: string) => {
     if (!canFeature(actorRole, "vendorBill", "delete", roleMatrixOverride)) {
-      toast({
-        title: "Action not permitted",
-        description: "Your role cannot delete vendor bills.",
-        variant: "destructive",
-      });
+      showPermissionDeniedToast("Your role cannot delete vendor bills.");
       return;
     }
     setState((prev) => ({

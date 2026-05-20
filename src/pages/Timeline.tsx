@@ -26,6 +26,7 @@ import {
   Users,
   Sparkles,
 } from "lucide-react";
+import { getTaskOverdueAging } from "@/lib/agingHelpers";
 import {
   format,
   startOfWeek,
@@ -450,13 +451,13 @@ const Timeline = () => {
   const cutoffSites = startOfDay(subDays(new Date(), sitesDaysBack));
 
   const filteredTasksForSites = useMemo(() => {
-    return tasks.filter((task) => {
+    return timelineTasks.filter((task) => {
       const day = parseDay(task.workDate);
       if (isBefore(day, cutoffSites)) return false;
       if (sitesProjectId !== "all" && task.siteId !== sitesProjectId) return false;
       return true;
     });
-  }, [tasks, cutoffSites, sitesProjectId]);
+  }, [timelineTasks, cutoffSites, sitesProjectId]);
 
   const tasksByDateForProjects = useMemo(() => {
     const acc: Record<
@@ -486,15 +487,15 @@ const Timeline = () => {
   }, [filteredTasksForSites, expenses, cutoffSites, sitesProjectId]);
 
   const groupedTasksByDate = useMemo(() => {
-    const acc: Record<string, typeof tasks> = {};
-    tasks.forEach((task) => {
+    const acc: Record<string, typeof timelineTasks> = {};
+    timelineTasks.forEach((task) => {
       const day = parseDay(task.workDate);
       if (isBefore(day, cutoffSites)) return;
       if (!acc[task.workDate]) acc[task.workDate] = [];
       acc[task.workDate].push(task);
     });
     return acc;
-  }, [tasks, cutoffSites]);
+  }, [timelineTasks, cutoffSites]);
 
   const officeFiltered = useMemo(
     () =>
@@ -511,16 +512,19 @@ const Timeline = () => {
   const kpiStrip = useMemo(() => {
     const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
     const weekEnd = addDays(weekStart, 7);
-    const tasksThisWeek = tasks.filter((t) => {
+    const tasksThisWeek = timelineTasks.filter((t) => {
       const d = parseDay(t.workDate);
       return !isBefore(d, weekStart) && isBefore(d, weekEnd);
     }).length;
     return [
-      { label: "Work logs (all time)", value: tasks.length },
+      {
+        label: tasksOverdueOnly ? "Overdue tasks" : "Work logs (all time)",
+        value: timelineTasks.length,
+      },
       { label: "This week", value: tasksThisWeek },
       { label: "Open projects", value: projects.filter((p) => p.status === "Ongoing").length },
     ];
-  }, [tasks, projects]);
+  }, [timelineTasks, tasksOverdueOnly, projects]);
 
   const mainTabs: {
     id: TimelineMainTab;

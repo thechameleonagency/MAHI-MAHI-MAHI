@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getInvoiceOverdueAging } from "@/lib/agingHelpers";
+import { matchesOpenReceivable } from "@/lib/billingListFilters";
 import { useCan } from "@/hooks/useCan";
 import { sanitizeMergedBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import {
@@ -74,9 +75,11 @@ const Invoices = () => {
   const urlCustomerId = searchParams.get("customer");
   const urlDocType = searchParams.get("type");
   const urlStatus = searchParams.get("status");
+  const urlReceivable = searchParams.get("receivable");
   const {
     invoices,
     saleBills,
+    payments,
     customers,
     projects,
     quotations,
@@ -114,6 +117,17 @@ const Invoices = () => {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [receivableFilter, setReceivableFilter] = useState<"all" | "open">(() =>
+    urlReceivable === "open" ? "open" : "all",
+  );
+
+  useEffect(() => {
+    if (urlReceivable === "open") {
+      setReceivableFilter("open");
+      setStatusFilter("all");
+      setTablePage(1);
+    }
+  }, [urlReceivable]);
   const [docTypeFilter, setDocTypeFilter] = useState<"all" | "invoice" | "sale-bill">("all");
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -582,6 +596,8 @@ const Invoices = () => {
           i.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
           i.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesStatus = statusFilter === "all" || i.status === statusFilter;
+        const matchesReceivable =
+          receivableFilter !== "open" || matchesOpenReceivable(i, payments);
         const t = i.type ?? "invoice";
         const matchesDoc =
           docTypeFilter === "all" ||
@@ -589,9 +605,16 @@ const Invoices = () => {
           (docTypeFilter === "sale-bill" && t === "sale-bill");
         const matchesProject = !urlProjectId || i.projectId === urlProjectId;
         const matchesCustomer = !urlCustomerId || i.customerId === urlCustomerId;
-        return matchesSearch && matchesStatus && matchesDoc && matchesProject && matchesCustomer;
+        return (
+          matchesSearch &&
+          matchesStatus &&
+          matchesReceivable &&
+          matchesDoc &&
+          matchesProject &&
+          matchesCustomer
+        );
       }),
-    [allBillingDocuments, searchQuery, statusFilter, docTypeFilter, urlProjectId, urlCustomerId],
+    [allBillingDocuments, searchQuery, statusFilter, receivableFilter, docTypeFilter, urlProjectId, urlCustomerId, payments],
   );
 
   const { pagedItems: pagedInvoices, safePage } = usePagedSlice(filteredInvoices, tablePage, tablePageSize);

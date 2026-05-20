@@ -130,6 +130,9 @@ const Enquiries = () => {
   );
   const [priorityFilter, setPriorityFilter] = useState(() => searchParams.get("priority") ?? "all");
   const [assigneeFilter, setAssigneeFilter] = useState(() => searchParams.get("assignee") ?? "all");
+  const [followUpFilter, setFollowUpFilter] = useState<"all" | "overdue">(() =>
+    searchParams.get("followUp") === "overdue" ? "overdue" : "all",
+  );
 
   useEffect(() => {
     setSearchParams(
@@ -144,11 +147,13 @@ const Enquiries = () => {
         else next.delete("priority");
         if (assigneeFilter !== "all") next.set("assignee", assigneeFilter);
         else next.delete("assignee");
+        if (followUpFilter === "overdue") next.set("followUp", "overdue");
+        else next.delete("followUp");
         return next;
       },
       { replace: true },
     );
-  }, [searchQuery, statusFilter, priorityFilter, assigneeFilter, setSearchParams]);
+  }, [searchQuery, statusFilter, priorityFilter, assigneeFilter, followUpFilter, setSearchParams]);
 
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -281,8 +286,9 @@ const Enquiries = () => {
         statusFilter,
         priorityFilter,
         assigneeFilter,
+        followUpFilter,
       }),
-    [enquiries, searchQuery, statusFilter, priorityFilter, assigneeFilter],
+    [enquiries, searchQuery, statusFilter, priorityFilter, assigneeFilter, followUpFilter],
   );
 
   const showAllEnquiries = () => {
