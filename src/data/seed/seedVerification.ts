@@ -10,6 +10,7 @@ import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/bu
 
 import { reconcileClientPaymentLedger } from "@/lib/clientPaymentReconciliation";
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
+import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 
@@ -149,6 +150,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
     errors.push(
       `FC1: enquiry ${stale.enquiryId} (${stale.enquiryStatus}) still open after quotation ${stale.quotationId} (${stale.quotationStatus})`,
     );
+  }
+
+  for (const stale of findStaleChangeRequestBilling(state)) {
+    errors.push(`FC3: change request ${stale.changeRequestId} — ${stale.reason}`);
   }
 
 

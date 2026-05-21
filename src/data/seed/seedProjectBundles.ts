@@ -8,6 +8,7 @@ import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt } from "./seedTimeModel";
 import { pushAudit } from "./seedHelpers";
 import { applyChangeRequestToProject } from "@/lib/changeRequestApproval";
+import { applyChangeRequestBillingToSeedState } from "./seedChangeRequestBilling";
 import { panelItem, inverterItem, structureItem, cableItem } from "./seedInventoryCatalog";
 
 export interface BundleContext {
@@ -362,7 +363,10 @@ export function attachProjectBundle(ctx: BundleContext): void {
           source: "manual",
         });
       }
-      state.projectChangeRequests.push({ ...cr, deltaAmount: deltaAmount || cr.deltaAmount });
+      const withDelta = { ...cr, deltaAmount: deltaAmount || cr.deltaAmount };
+      state.projectChangeRequests.push(
+        applyChangeRequestBillingToSeedState(state, project, withDelta, seedDateAt(fraction + 0.09)),
+      );
     } else {
       state.projectChangeRequests.push(cr);
     }

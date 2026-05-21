@@ -1,21 +1,10 @@
 import { VoucherPostingService } from "@/application/services/VoucherPostingService";
 import type { AppState } from "@/contexts/AppDataContext";
 import { resolveChangeRequestDeltaAmount } from "@/lib/changeRequestApproval";
-import {
-  buildChangeRequestDeltaInvoice,
-  isPlaceholderChangeRequestInvoiceId,
-} from "@/lib/changeRequestDeltaInvoice";
+import { isPlaceholderChangeRequestInvoiceId } from "@/lib/changeRequestDeltaInvoice";
+import { issueChangeRequestDeltaBilling } from "@/lib/issueChangeRequestDeltaBilling";
 import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
 import { seedId, SEED_ID_PREFIX } from "@/data/seed/seedIdRegistry";
-
-function mergeProjectInvoiceRef(
-  project: import("@/types/project").Project,
-  docId: string,
-): Pick<import("@/types/project").Project, "invoiceIds" | "invoiceId"> {
-  const ids = [...(project.invoiceIds ?? [])];
-  if (!ids.includes(docId)) ids.unshift(docId);
-  return { invoiceIds: ids, invoiceId: project.invoiceId ?? docId };
-}
 
 /**
  * Backfill real delta invoices for approved change requests (seed + persisted stores).
@@ -56,27 +45,29 @@ export function reconcileChangeRequestDeltaInvoices(state: AppState): AppState {
         : cr;
     }
 
-    const customer = state.customers.find((c) => c.id === project.customerId);
-    const invoiceId = seedId(SEED_ID_PREFIX.invoice);
-    const invoice = buildChangeRequestDeltaInvoice({
+    const billing = issueChangeRequestDeltaBilling({
       project,
-      customer,
+      customer: state.customers.find((c) => c.id === project.customerId),
       changeRequest: cr,
-      deltaAmount,
-      invoiceId,
       existingInvoices: invoices,
+      invoiceId: seedId(SEED_ID_PREFIX.invoice),
       issuedAt: cr.approvedAt?.slice(0, 10),
     });
+    if (!billing) {
+      return isPlaceholderChangeRequestInvoiceId(cr.generatedInvoiceId)
+        ? { ...cr, generatedInvoiceId: undefined }
+        : cr;
+    }
 
-    invoices = [invoice, ...invoices];
-    project = { ...project, ...mergeProjectInvoiceRef(project, invoice.id) };
+    invoices = [billing.invoice, ...invoices];
+    project = { ...project, ...billing.projectInvoicePatch };
     projects[projectIndex] = project;
 
     const posting = voucherService.post({
       type: "InvoiceIssued",
-      sourceDocumentId: invoice.id,
-      amount: invoice.total,
-      gstAmount: invoice.cgst + invoice.sgst + invoice.igst,
+      sourceDocumentId: billing.invoice.id,
+      amount: billing.invoice.total,
+      gstAmount: billing.invoice.cgst + billing.invoice.sgst + billing.invoice.igst,
     });
 
     if (posting.ok) {
@@ -97,7 +88,7 @@ export function reconcileChangeRequestDeltaInvoices(state: AppState): AppState {
       ];
     }
 
-    return { ...cr, generatedInvoiceId: invoice.id };
+    return { ...cr, generatedInvoiceId: billing.generatedInvoiceId };
   });
 
   projects = reconcileProjectsAmountInvoiced(projects, invoices, state.saleBills);

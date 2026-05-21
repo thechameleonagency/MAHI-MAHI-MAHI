@@ -72,6 +72,7 @@ import { ChangeRequestSheet } from "@/components/projects/ChangeRequestSheet";
 import { AdditionalWorkSheet } from "@/components/projects/AdditionalWorkSheet";
 import { resolveChangeRequestDeltaAmount } from "@/lib/changeRequestApproval";
 import {
+  buildInvoiceToPaymentDraft,
   buildProjectToExpenseDraft,
   buildProjectToInvoiceDraft,
   saveCreateDraft,
@@ -1904,18 +1905,44 @@ const ProjectDetail = () => {
                           )}
                           {cr.generatedInvoiceId && cr.status === "approved" && (() => {
                             const inv = projectInvoices.find((i) => i.id === cr.generatedInvoiceId);
+                            const open =
+                              inv &&
+                              inv.status !== "draft" &&
+                              inv.status !== "voided" &&
+                              inv.total - (inv.amountReceived ?? 0) > 0.01;
                             return (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="link"
-                                className="h-8"
-                                onClick={() =>
-                                  navigate(`/invoices?invoice=${cr.generatedInvoiceId}`)
-                                }
-                              >
-                                {inv?.invoiceNumber ?? "View invoice"}
-                              </Button>
+                              <span className="inline-flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="link"
+                                  className="h-8"
+                                  onClick={() =>
+                                    navigate(`/invoices?invoice=${cr.generatedInvoiceId}`)
+                                  }
+                                >
+                                  {inv?.invoiceNumber ?? "View invoice"}
+                                </Button>
+                                {open && inv && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8"
+                                    onClick={() => {
+                                      saveCreateDraft(
+                                        "payment-create-draft",
+                                        buildInvoiceToPaymentDraft(inv),
+                                      );
+                                      navigate(
+                                        `/invoices?invoice=${cr.generatedInvoiceId}&recordPayment=1`,
+                                      );
+                                    }}
+                                  >
+                                    Record payment
+                                  </Button>
+                                )}
+                              </span>
                             );
                           })()}
                         </TableCell>

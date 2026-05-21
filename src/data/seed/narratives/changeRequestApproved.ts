@@ -2,6 +2,7 @@ import type { NarrativeApply } from "./shared";
 import { seedId, SEED_ID_PREFIX } from "../seedIdRegistry";
 import { seedDateAt } from "../seedTimeModel";
 import { applyChangeRequestToProject } from "@/lib/changeRequestApproval";
+import { applyChangeRequestBillingToSeedState } from "../seedChangeRequestBilling";
 
 export const applyChangeRequestApproved: NarrativeApply = (state) => {
   const project = state.projects.find((p) => p.lifecycleStatus === "In Progress" && p.customerId);
@@ -24,5 +25,6 @@ export const applyChangeRequestApproved: NarrativeApply = (state) => {
   }));
   const { projectPatch, deltaAmount } = applyChangeRequestToProject(project, cr, inventoryLookup);
   Object.assign(project, projectPatch);
-  state.projectChangeRequests.push({ ...cr, deltaAmount: deltaAmount || cr.deltaAmount });
+  const withDelta = { ...cr, deltaAmount: deltaAmount || cr.deltaAmount };
+  state.projectChangeRequests.push(applyChangeRequestBillingToSeedState(state, project, withDelta));
 };

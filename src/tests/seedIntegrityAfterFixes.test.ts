@@ -12,6 +12,7 @@ import {
 } from "@/lib/projectListFilters";
 import { isBankReconciliationStatement } from "@/lib/bankReconciliationStatement";
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
+import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 
 const DRIFT_EPS = 1;
 
@@ -177,6 +178,21 @@ describe("seed & hydration integrity after audit fixes", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+  });
+
+  it("approved change requests bill to real invoices on hydrated seed (FC3)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleChangeRequestBilling(hydrated)).toEqual([]);
+    const billed = (hydrated.projectChangeRequests ?? []).filter(
+      (cr) => cr.status === "approved" && (cr.deltaAmount ?? 0) > 0 && cr.generatedInvoiceId,
+    );
+    expect(billed.length).toBeGreaterThan(0);
+    for (const cr of billed) {
+      const inv = hydrated.invoices.find((i) => i.id === cr.generatedInvoiceId);
+      expect(inv?.status).not.toBe("draft");
+      expect(inv?.projectId).toBe(cr.projectId);
+    }
   });
 
   it("command audit logs use display names not raw member ids", () => {

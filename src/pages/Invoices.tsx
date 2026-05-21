@@ -334,6 +334,13 @@ const Invoices = () => {
     if (found) {
       setSelectedInvoice(found);
       setIsInvoiceDetailOpen(true);
+      if (params.get("recordPayment") === "1") {
+        const draft = buildInvoiceToPaymentDraft(found);
+        saveCreateDraft("payment-create-draft", draft);
+        setPaymentAmount(String(draft.amount));
+        if (draft.mode) setPaymentMode(draft.mode);
+        setIsRecordPaymentOpen(true);
+      }
     } else {
       toast({
         title: "Invoice not found",
@@ -342,6 +349,7 @@ const Invoices = () => {
       });
     }
     params.delete("invoice");
+    params.delete("recordPayment");
     const remaining = params.toString();
     navigate(`/invoices${remaining ? `?${remaining}` : ""}`, { replace: true });
   }, [location.search, invoices, saleBills, navigate]);

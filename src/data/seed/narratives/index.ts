@@ -22,6 +22,7 @@ import { applyAttendanceInconsistency } from "./attendanceInconsistency";
 import { applyLowStockProcurement } from "./lowStockProcurement";
 import { applyVendorDelayBill } from "./vendorDelayBill";
 import { applyChangeRequestApproved } from "./changeRequestApproved";
+import { applyChangeRequestDeltaPayment } from "./changeRequestDeltaPayment";
 import { applyChangeRequestRejected } from "./changeRequestRejected";
 import { applyWorkStatusApprovalPending } from "./workStatusApprovalPending";
 import { applyMaterialDamageThreshold } from "./materialDamageThreshold";
@@ -57,6 +58,7 @@ const NARRATIVES = [
   applyLowStockProcurement,
   applyVendorDelayBill,
   applyChangeRequestApproved,
+  applyChangeRequestDeltaPayment,
   applyChangeRequestRejected,
   applyWorkStatusApprovalPending,
   applyMaterialDamageThreshold,

@@ -81,7 +81,7 @@ import {
   syncBankReconciliationLinks,
 } from "@/lib/bankReconciliationLink";
 import { validateChangeRequestDraft } from "@/lib/changeRequestValidation";
-import { buildChangeRequestDeltaInvoice } from "@/lib/changeRequestDeltaInvoice";
+import { issueChangeRequestDeltaBilling } from "@/lib/issueChangeRequestDeltaBilling";
 import {
   buildClientPaymentRecordPaymentRow,
   CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX,
@@ -5061,15 +5061,15 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           return { ok: false, error: "Project must have a linked customer before billing a scope change." };
         }
         const customer = state.customers.find((c) => c.id === project.customerId);
-        deltaInvoice = buildChangeRequestDeltaInvoice({
+        const billing = issueChangeRequestDeltaBilling({
           project: updatedProjectPreview,
           customer,
           changeRequest: cr,
-          deltaAmount,
-          invoiceId: generateId("INV"),
           existingInvoices: state.invoices,
+          invoiceId: generateId("INV"),
           issuedAt: approvedAt.slice(0, 10),
         });
+        deltaInvoice = billing?.invoice;
         const invScope = financeValidationService.validateOperationalInvoice(deltaInvoice);
         if (!invScope.ok) {
           return { ok: false, error: invScope.errors.join(" ") };
