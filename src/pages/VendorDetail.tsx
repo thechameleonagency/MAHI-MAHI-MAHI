@@ -28,6 +28,7 @@ import { formatINR } from "@/lib/formatCurrency";
 import { isVendorBillOpenPayable } from "@/lib/vendorBillVoucherPosting";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
+import { FinanceLineItemRow } from "@/components/finance/FinanceLineItemRow";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 
@@ -1294,9 +1295,9 @@ const VendorDetail = () => {
               </div>
 
               {purchaseItems.map((item, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                <FinanceLineItemRow key={idx}>
                   {purchaseType === "inventory" ? (
-                    <div className="col-span-5">
+                    <div className="space-y-1 sm:col-span-2 md:col-span-5">
                       <Select 
                         value={item.inventoryItemId?.toString() || ""} 
                         onValueChange={(v) => handleSelectInventoryItem(idx, v)}
@@ -1314,7 +1315,8 @@ const VendorDetail = () => {
                       </Select>
                     </div>
                   ) : (
-                    <div className="col-span-5">
+                    <div className="space-y-1 sm:col-span-2 md:col-span-5">
+                      <Label className="text-xs md:sr-only">Description</Label>
                       <Input
                         value={item.description}
                         onChange={(e) => handleUpdatePurchaseItem(idx, 'description', e.target.value)}
@@ -1322,7 +1324,8 @@ const VendorDetail = () => {
                       />
                     </div>
                   )}
-                  <div className="col-span-2">
+                  <div className="space-y-1 md:col-span-2">
+                    <Label className="text-xs md:sr-only">Quantity</Label>
                     <Input
                       type="number"
                       value={item.quantity}
@@ -1330,7 +1333,8 @@ const VendorDetail = () => {
                       placeholder="Qty"
                     />
                   </div>
-                  <div className="col-span-3">
+                  <div className="space-y-1 md:col-span-3">
+                    <Label className="text-xs md:sr-only">Rate</Label>
                     <div className="relative">
                       <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">₹</span>
                       <Input
@@ -1345,20 +1349,24 @@ const VendorDetail = () => {
                       />
                     </div>
                   </div>
-                  <div className="col-span-2 flex justify-end">
-                    <span className="text-sm font-medium">{formatINR((item.quantity * item.rate))}</span>
+                  <div className="flex items-center justify-between gap-2 md:col-span-2 md:justify-end">
+                    <div className="text-left md:text-right">
+                      <Label className="text-xs text-muted-foreground md:sr-only">Line total</Label>
+                      <span className="text-sm font-medium tabular-nums">{formatINR((item.quantity * item.rate))}</span>
+                    </div>
                     {purchaseItems.length > 1 && (
                       <Button 
                         variant="ghost" 
                         size="icon" 
-                        className="h-6 w-6 ml-2" 
+                        className="h-8 w-8 shrink-0" 
                         onClick={() => handleRemovePurchaseItem(idx)}
+                        aria-label="Remove line"
                       >
-                        <Trash2 className="h-3 w-3 text-destructive" />
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     )}
                   </div>
-                </div>
+                </FinanceLineItemRow>
               ))}
             </div>
 

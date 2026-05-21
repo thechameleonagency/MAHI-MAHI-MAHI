@@ -42,6 +42,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { InvoiceLineItemsReadOnly } from "@/components/finance/InvoiceLineItemsReadOnly";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatINR } from "@/lib/formatCurrency";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
@@ -1023,30 +1024,7 @@ const Invoices = () => {
 
               <Separator className="my-4" />
 
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Description</TableHead>
-                    <TableHead>HSN</TableHead>
-                    <TableHead className="text-center">Qty</TableHead>
-                    <TableHead className="text-right">Rate</TableHead>
-                    <TableHead className="text-right">GST %</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(selectedInvoice.items ?? []).map((item, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell>{item.description}</TableCell>
-                      <TableCell>{item.hsn}</TableCell>
-                      <TableCell className="text-center">{item.quantity}</TableCell>
-                      <TableCell className="text-right">{formatINR(item.rate)}</TableCell>
-                      <TableCell className="text-right">{item.gstRate}%</TableCell>
-                      <TableCell className="text-right">{formatINR(item.quantity * item.rate)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <InvoiceLineItemsReadOnly items={selectedInvoice.items ?? []} />
 
               {(selectedInvoice.paymentTerms || selectedInvoice.bankAccount || selectedInvoice.notes) && (
                 <div className="mt-4 rounded-lg border bg-muted/20 p-4 text-sm space-y-2">

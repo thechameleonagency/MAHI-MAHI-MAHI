@@ -15,10 +15,11 @@ describe("InvoiceCreateSheet mobile width (MR3)", () => {
     expect(source).not.toMatch(/className=.*w-\[100vw\]/);
   });
 
-  it("keeps form content inside mobile-safe layout (min-w-0 + responsive grids)", () => {
+  it("keeps form content inside mobile-safe layout (min-w-0 + responsive line cards)", () => {
     expect(source).toContain("min-w-0 space-y-6");
     expect(source).toContain("grid-cols-1 gap-4 sm:grid-cols-3");
-    expect(source).toContain("overflow-x-auto");
+    expect(source).toContain("FinanceLineItemRow");
+    expect(source).not.toContain("min-w-[40rem]");
   });
 
   it("maps xxl preset to calc(100vw-1.5rem) mobile gutter", () => {

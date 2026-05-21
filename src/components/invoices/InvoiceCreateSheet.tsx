@@ -44,6 +44,7 @@ import { formatINR } from "@/lib/formatCurrency";
 import { BillingDirectionGuardService } from "@/application/services/BillingDirectionGuardService";
 import { HighValueInvoiceJustificationBlock } from "@/components/invoices/HighValueInvoiceJustificationBlock";
 import { InvoiceSubmitPreviewBanner } from "@/components/invoices/InvoiceSubmitPreviewBanner";
+import { FinanceLineItemRow } from "@/components/finance/FinanceLineItemRow";
 import {
   buildInvoiceSubmitPreview,
   deriveInvoicePaymentOutcome,
@@ -1000,14 +1001,13 @@ export function InvoiceCreateSheet({
                   ) : (
                     <div className="space-y-3">
                       {invoiceServices.map((service, idx) => (
-                        <div key={idx} className="space-y-2 rounded-lg border bg-background/50 p-3">
-                          <div className="-mx-1 overflow-x-auto px-1 sm:mx-0 sm:overflow-visible sm:px-0">
-                          <div className="grid min-w-[36rem] grid-cols-12 gap-2 items-end sm:min-w-0">
-                            <div className="col-span-4">
+                        <div key={idx} className="space-y-2">
+                          <FinanceLineItemRow>
+                            <div className="space-y-1 sm:col-span-2 md:col-span-4">
                               <Label className="text-xs">Description</Label>
                               <Input value={service.description} onChange={(e) => updateService(idx, 'description', e.target.value)} placeholder="Service description" />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">SAC Code</Label>
                               <Input 
                                 value={service.sac} 
@@ -1021,11 +1021,11 @@ export function InvoiceCreateSheet({
                                 ))}
                               </datalist>
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">Rate (₹)</Label>
                               <Input type="number" min="0" step="0.01" value={service.rate} onChange={(e) => updateService(idx, 'rate', parseFloat(e.target.value) || 0)} />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">GST %</Label>
                               <Select value={service.gstRate.toString()} onValueChange={(v) => updateService(idx, 'gstRate', parseFloat(v))}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -1038,19 +1038,18 @@ export function InvoiceCreateSheet({
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="col-span-1 text-right">
+                            <div className="space-y-1 text-right md:col-span-1">
                               <Label className="text-xs">Amount</Label>
                               <p className="h-9 flex items-center justify-end text-sm font-medium">₹{(service.rate * (1 + service.gstRate/100)).toLocaleString()}</p>
                             </div>
-                            <div className="col-span-1">
+                            <div className="flex justify-end md:col-span-1">
                               <Button variant="ghost" size="sm" onClick={() => removeServiceRow(idx)}>
                                 <X className="h-4 w-4 text-destructive" />
                               </Button>
                             </div>
-                          </div>
-                          </div>
+                          </FinanceLineItemRow>
                           {/* Per-service notes */}
-                          <div className="col-span-12">
+                          <div>
                             <Input 
                               value={service.serviceNotes || ""} 
                               onChange={(e) => updateService(idx, 'serviceNotes', e.target.value)} 
@@ -1108,14 +1107,13 @@ export function InvoiceCreateSheet({
                   ) : (
                     <div className="space-y-3">
                       {invoiceItems.map((item, idx) => (
-                        <div key={idx} className="space-y-2 rounded-lg border bg-background/50 p-3">
-                          <div className="-mx-1 overflow-x-auto px-1 sm:mx-0 sm:overflow-visible sm:px-0">
-                          <div className="grid min-w-[40rem] grid-cols-12 gap-2 items-end sm:min-w-0">
-                            <div className="col-span-3">
+                        <div key={idx} className="space-y-2">
+                          <FinanceLineItemRow>
+                            <div className="space-y-1 sm:col-span-2 md:col-span-3">
                               <Label className="text-xs">Description</Label>
                               <Input value={item.description} onChange={(e) => updateItem(idx, 'description', e.target.value)} placeholder="Item description" />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">HSN Code</Label>
                               <Input 
                                 value={item.hsn} 
@@ -1129,15 +1127,15 @@ export function InvoiceCreateSheet({
                                 ))}
                               </datalist>
                             </div>
-                            <div className="col-span-1">
+                            <div className="space-y-1 md:col-span-1">
                               <Label className="text-xs">Qty</Label>
                               <Input type="number" min="1" step="1" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', Math.max(1, parseInt(e.target.value) || 1))} />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">Rate (₹)</Label>
                               <Input type="number" min="0" step="0.01" value={item.rate} onChange={(e) => updateItem(idx, 'rate', parseFloat(e.target.value) || 0)} />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">GST %</Label>
                               <Select value={item.gstRate.toString()} onValueChange={(v) => updateItem(idx, 'gstRate', parseFloat(v))}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -1150,19 +1148,18 @@ export function InvoiceCreateSheet({
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="col-span-1 text-right">
+                            <div className="space-y-1 text-right md:col-span-1">
                               <Label className="text-xs">Amount</Label>
                               <p className="h-9 flex items-center justify-end text-sm font-medium">₹{(item.quantity * item.rate * (1 + item.gstRate/100)).toLocaleString()}</p>
                             </div>
-                            <div className="col-span-1">
+                            <div className="flex justify-end md:col-span-1">
                               <Button variant="ghost" size="sm" onClick={() => removeItemRow(idx)}>
                                 <X className="h-4 w-4 text-destructive" />
                               </Button>
                             </div>
-                          </div>
-                          </div>
+                          </FinanceLineItemRow>
                           {/* Per-item notes/description */}
-                          <div className="col-span-12">
+                          <div>
                             <Input 
                               value={item.itemNotes || ""} 
                               onChange={(e) => updateItem(idx, 'itemNotes', e.target.value)} 

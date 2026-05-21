@@ -33,6 +33,8 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
 import { UnifiedIncomeSheet } from "@/components/income/UnifiedIncomeSheet";
+import { FinanceLineItemRow } from "@/components/finance/FinanceLineItemRow";
+import { InvoiceLineItemsReadOnly } from "@/components/finance/InvoiceLineItemsReadOnly";
 import { toast } from "@/hooks/use-toast";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type { Income } from "@/types/finance";
@@ -1369,12 +1371,12 @@ const Finance = () => {
                     ) : (
                       <div className="space-y-3">
                         {invoiceServices.map((service, idx) => (
-                          <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                            <div className="col-span-4">
+                          <FinanceLineItemRow key={idx}>
+                            <div className="space-y-1 sm:col-span-2 md:col-span-4">
                               <Label className="text-xs">Description</Label>
                               <Input value={service.description} onChange={(e) => updateService(idx, 'description', e.target.value)} placeholder="Service description" />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">SAC Code</Label>
                               <Select value={service.sac} onValueChange={(v) => updateService(idx, 'sac', v)}>
                                 <SelectTrigger className="h-9"><SelectValue placeholder="SAC" /></SelectTrigger>
@@ -1385,11 +1387,11 @@ const Finance = () => {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">Rate (₹)</Label>
                               <Input type="number" value={service.rate} onChange={(e) => { const n = Number.parseFloat(e.target.value); updateService(idx, "rate", Number.isFinite(n) ? n : 0); }} />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">GST %</Label>
                               <Select value={service.gstRate.toString()} onValueChange={(v) => { const n = Number.parseFloat(v); updateService(idx, "gstRate", Number.isFinite(n) ? n : 0); }}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -1400,16 +1402,16 @@ const Finance = () => {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="col-span-1 text-right">
+                            <div className="space-y-1 text-right md:col-span-1">
                               <Label className="text-xs">Amount</Label>
                               <p className="h-9 flex items-center justify-end text-sm font-medium">{formatINR((service.rate * (1 + service.gstRate/100)))}</p>
                             </div>
-                            <div className="col-span-1">
+                            <div className="flex justify-end md:col-span-1">
                               <Button variant="ghost" size="sm" onClick={() => removeServiceRow(idx)}>
                                 <X className="h-4 w-4 text-destructive" />
                               </Button>
                             </div>
-                          </div>
+                          </FinanceLineItemRow>
                         ))}
                       </div>
                     )}
@@ -1456,12 +1458,12 @@ const Finance = () => {
                     ) : (
                       <div className="space-y-3">
                         {invoiceItems.map((item, idx) => (
-                          <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                            <div className="col-span-3">
+                          <FinanceLineItemRow key={idx}>
+                            <div className="space-y-1 sm:col-span-2 md:col-span-3">
                               <Label className="text-xs">Description</Label>
                               <Input value={item.description} onChange={(e) => updateItem(idx, 'description', e.target.value)} placeholder="Item description" />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">HSN Code</Label>
                               <Select value={item.hsn} onValueChange={(v) => updateItem(idx, 'hsn', v)}>
                                 <SelectTrigger className="h-9"><SelectValue placeholder="HSN" /></SelectTrigger>
@@ -1472,15 +1474,15 @@ const Finance = () => {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="col-span-1">
+                            <div className="space-y-1 md:col-span-1">
                               <Label className="text-xs">Qty</Label>
                               <Input type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', parseInt(e.target.value) || 1)} />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">Rate (₹)</Label>
                               <Input type="number" value={item.rate} onChange={(e) => { const n = Number.parseFloat(e.target.value); updateItem(idx, "rate", Number.isFinite(n) ? n : 0); }} />
                             </div>
-                            <div className="col-span-2">
+                            <div className="space-y-1 md:col-span-2">
                               <Label className="text-xs">GST %</Label>
                               <Select value={item.gstRate.toString()} onValueChange={(v) => { const n = Number.parseFloat(v); updateItem(idx, "gstRate", Number.isFinite(n) ? n : 0); }}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -1491,16 +1493,16 @@ const Finance = () => {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="col-span-1 text-right">
+                            <div className="space-y-1 text-right md:col-span-1">
                               <Label className="text-xs">Amount</Label>
                               <p className="h-9 flex items-center justify-end text-sm font-medium">{formatINR((item.quantity * item.rate * (1 + item.gstRate/100)))}</p>
                             </div>
-                            <div className="col-span-1">
+                            <div className="flex justify-end md:col-span-1">
                               <Button variant="ghost" size="sm" onClick={() => removeItemRow(idx)}>
                                 <X className="h-4 w-4 text-destructive" />
                               </Button>
                             </div>
-                          </div>
+                          </FinanceLineItemRow>
                         ))}
                       </div>
                     )}
@@ -1762,30 +1764,7 @@ const Finance = () => {
               {selectedInvoice.items && selectedInvoice.items.length > 0 && (
                 <div>
                   <h4 className="text-sm font-semibold mb-2">Items</h4>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Description</TableHead>
-                        <TableHead>HSN</TableHead>
-                        <TableHead className="text-right">Qty</TableHead>
-                        <TableHead className="text-right">Rate</TableHead>
-                        <TableHead className="text-right">GST %</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedInvoice.items.map((item, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell>{item.description}</TableCell>
-                          <TableCell>{item.hsn}</TableCell>
-                          <TableCell className="text-right">{item.quantity}</TableCell>
-                          <TableCell className="text-right">{formatINR(item.rate)}</TableCell>
-                          <TableCell className="text-right">{item.gstRate}%</TableCell>
-                          <TableCell className="text-right">{formatINR((item.quantity * item.rate * (1 + item.gstRate/100)))}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <InvoiceLineItemsReadOnly items={selectedInvoice.items} />
                 </div>
               )}
 
