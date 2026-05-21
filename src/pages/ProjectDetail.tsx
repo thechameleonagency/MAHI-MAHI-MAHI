@@ -80,6 +80,7 @@ import {
   saveCreateDraft,
 } from "@/lib/createFromContext";
 import { ClientPaymentHistory } from "@/components/projects/ClientPaymentHistory";
+import { clientPaymentRecordPaymentId } from "@/lib/clientPaymentReconciliation";
 import { CustomerSnapshotDriftHint } from "@/components/shared/CustomerSnapshotDriftHint";
 import { ProjectScopeChangeGuidance } from "@/components/shared/ProjectScopeChangeGuidance";
 import { resolveProjectClientDisplay } from "@/lib/customerPipelineIdentity";
@@ -208,6 +209,7 @@ const ProjectDetail = () => {
     addOperationalTicket,
     updateProjectTimelineForProject,
     recordCustomerInflow,
+    deletePayment,
     applySiteChecklistFromTemplate,
     dispatchSiteMaterial,
     getSiteVisitsByProject,
@@ -225,6 +227,8 @@ const ProjectDetail = () => {
   } = useAppData();
   const { getOutsourceWorkTags, getSiteChecklistPresets } = useMasters();
   const COMPANY_STATE_CODE = (() => { try { return JSON.parse(localStorage.getItem("mss.settings.company") || "{}").companyState || "08"; } catch { return "08"; } })();
+
+  const canDeleteClientPayment = useCanAction("finance:delete_payment");
 
   const project = id ? getProjectById(id) : undefined;
   const projectAccessDenied = useMemo(() => {
@@ -1592,6 +1596,8 @@ const ProjectDetail = () => {
                 record: { ...payment, id: generateId("CPR"), recordedAt: new Date().toISOString() },
               })
             }
+            canDeletePayment={canDeleteClientPayment}
+            onDeletePayment={(cprId) => deletePayment(clientPaymentRecordPaymentId(cprId))}
             partnerName={partnerRow?.partnerName}
             forbidPartnerSettlement={forbidPartnerSettlement}
           />
@@ -2320,6 +2326,8 @@ const ProjectDetail = () => {
                     record: { ...payment, id: generateId("CPR"), recordedAt: new Date().toISOString() },
                   })
                 }
+                canDeletePayment={canDeleteClientPayment}
+                onDeletePayment={(cprId) => deletePayment(clientPaymentRecordPaymentId(cprId))}
                 partnerName={partnerRow?.partnerName}
                 forbidPartnerSettlement={forbidPartnerSettlement}
               />

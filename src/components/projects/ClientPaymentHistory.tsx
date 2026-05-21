@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { Plus, IndianRupee } from "lucide-react";
+import { Plus, IndianRupee, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,7 @@ import { formatUiDate } from "@/lib/formatUiDate";
 import { validateClientPaymentRecord } from "@/lib/clientPaymentReconciliation";
 /** E10: parent wires `onRecordPayment` → `recordCustomerInflow({ path: "project_fifo", record })`. */
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 
 interface ClientPaymentHistoryProps {
   projectId: string;
@@ -29,6 +30,9 @@ interface ClientPaymentHistoryProps {
   contractAmount: number;
   payments: ClientPaymentRecord[];
   onRecordPayment: (payment: Omit<ClientPaymentRecord, "id" | "recordedAt">) => boolean;
+  /** Removes CPR + synthetic `cpr:*` payment and replays FIFO (super_admin / admin). */
+  onDeletePayment?: (cprId: string) => void;
+  canDeletePayment?: boolean;
   /** External partner name for labels when settlement is partner/split */
   partnerName?: string;
   /** When true, client cash cannot be recorded as received by partner or split (company-only). */
@@ -65,10 +69,13 @@ export function ClientPaymentHistory({
   contractAmount,
   payments,
   onRecordPayment,
+  onDeletePayment,
+  canDeletePayment = false,
   partnerName,
   forbidPartnerSettlement,
 }: ClientPaymentHistoryProps) {
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
+  const [deleteCprId, setDeleteCprId] = useState<string | null>(null);
   const [paymentDate, setPaymentDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<string>("");
@@ -269,6 +276,7 @@ export function ClientPaymentHistory({
                 <TableHead>Mode</TableHead>
                 <TableHead>Reference</TableHead>
                 <TableHead>Notes</TableHead>
+                {canDeletePayment && onDeletePayment ? <TableHead className="w-10" /> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -308,6 +316,20 @@ export function ClientPaymentHistory({
                   <TableCell className="max-w-[200px] truncate text-muted-foreground">
                     {payment.notes || "-"}
                   </TableCell>
+                  {canDeletePayment && onDeletePayment ? (
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        aria-label={`Delete payment ${formatUiDate(payment.date)}`}
+                        onClick={() => setDeleteCprId(payment.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>
@@ -465,6 +487,30 @@ export function ClientPaymentHistory({
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
+
+      <DestructiveConfirmDialog
+        open={deleteCprId != null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteCprId(null);
+        }}
+        title="Delete client payment?"
+        description={
+          deleteCprId
+            ? `Removes this collection (${formatINR(sortedPayments.find((p) => p.id === deleteCprId)?.amount ?? 0)}) and replays invoice FIFO for the project. Linked CPR and payment ledger rows are cleared.`
+            : ""
+        }
+        confirmLabel="Delete payment"
+        onConfirm={() => {
+          if (deleteCprId && onDeletePayment) {
+            onDeletePayment(deleteCprId);
+            toast({
+              title: "Payment removed",
+              description: "Collections and invoice allocations were recalculated.",
+            });
+          }
+          setDeleteCprId(null);
+        }}
+      />
     </Card>
   );
 }

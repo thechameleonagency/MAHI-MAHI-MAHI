@@ -79,6 +79,7 @@ export function seedAuditCoverage(state: AppState, profile: SeedProfile): AppSta
     "ScheduledInstallation", "SiteVisit", "MaterialDamage", "Blockage",
     "ProjectChangeRequest", "BankReconciliation", "MaterialReservation",
     "AgentCommissionAccrual", "ProcurementNeedLine", "ClientPaymentRecord",
+    "AccountingReviewQueue",
   ];
   let i = 0;
   while (state.auditLogs.length < target) {

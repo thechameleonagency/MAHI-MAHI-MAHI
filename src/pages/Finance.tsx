@@ -24,6 +24,7 @@ import { useMasters } from "@/contexts/MastersContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useCan } from "@/hooks/useCan";
 import { useFinanceHubPanels } from "@/hooks/useFinanceHubPanels";
+import { useCanAction } from "@/hooks/useCanAction";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
 import { PageShell } from "@/components/layout/PageShell";
@@ -111,6 +112,7 @@ const Finance = () => {
   const canCreateExpense = useCan("expense", "create");
   const canCreateIncome = useCan("income", "create");
   const canCreateInvoice = useCan("invoice", "create");
+  const canManageAccountingReview = useCanAction("finance:record_expense_income");
 
   const [txnTablePage, setTxnTablePage] = useState(1);
   const [txnTablePageSize, setTxnTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -942,30 +944,34 @@ const Finance = () => {
                     </span>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-1.5 sm:justify-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        const r = retryAccountingReviewPosting(item.id);
-                        if (r.ok) {
-                          toast({ title: "Voucher posted", description: "Event re-posted; item removed from queue." });
-                        }
-                      }}
-                    >
-                      Retry post
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        dismissAccountingReviewItem(item.id);
-                        toast({ title: "Dismissed", description: "Removed from review queue (mark resolved in your process)." });
-                      }}
-                    >
-                      Dismiss
-                    </Button>
+                    {canManageAccountingReview ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            const r = retryAccountingReviewPosting(item.id);
+                            if (r.ok) {
+                              toast({ title: "Voucher posted", description: "Event re-posted; item removed from queue." });
+                            }
+                          }}
+                        >
+                          Retry post
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            dismissAccountingReviewItem(item.id);
+                            toast({ title: "Dismissed", description: "Removed from review queue (mark resolved in your process)." });
+                          }}
+                        >
+                          Dismiss
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                 </li>
               ))}

@@ -68,4 +68,29 @@ describe("M5 — finance mutation audit coverage", () => {
       /dismissAccountingReviewItem[\s\S]*?String\(item\.amount\)/,
     );
   });
+
+  it("deleteVendorPayment logs amount reversal on vendor payment delete", () => {
+    expect(source).toMatch(
+      /deleteVendorPayment[\s\S]*?createAuditEntry\(\s*"delete",\s*"VendorPayment"/,
+    );
+    expect(source).toMatch(
+      /deleteVendorPayment[\s\S]*?"amount",\s*String\(payment\.amount\),\s*"0"/,
+    );
+    expect(source).toMatch(/deleteVendorPayment[\s\S]*?stripVendorPaymentAccounting/);
+  });
+
+  it("ClientPaymentHistory wires CPR delete to deletePayment", () => {
+    const history = readFileSync(
+      resolve(process.cwd(), "src/components/projects/ClientPaymentHistory.tsx"),
+      "utf8",
+    );
+    const projectDetail = readFileSync(
+      resolve(process.cwd(), "src/pages/ProjectDetail.tsx"),
+      "utf8",
+    );
+    expect(history).toContain("onDeletePayment");
+    expect(history).toContain("DestructiveConfirmDialog");
+    expect(projectDetail).toContain("clientPaymentRecordPaymentId(cprId)");
+    expect(projectDetail).toContain("deletePayment(clientPaymentRecordPaymentId");
+  });
 });

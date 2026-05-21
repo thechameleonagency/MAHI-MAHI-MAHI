@@ -108,6 +108,18 @@ describe("paymentDeleteContinuity (FC10)", () => {
     ).toEqual([]);
   });
 
+  it("deletePayment id matches clientPaymentRecordPaymentId for CPR rows", () => {
+    const record: ClientPaymentRecord = {
+      id: "CPR-ID",
+      projectId: "P1",
+      amount: 12000,
+      date: "2026-04-01",
+      paymentMode: "cash",
+      recordedAt: "2026-04-01T10:00:00Z",
+    };
+    expect(clientPaymentRecordPaymentId(record.id)).toBe("cpr:CPR-ID");
+  });
+
   it("deleting an invoice-targeted payment adjusts invoice received", () => {
     const payment: Payment = {
       id: "PAY-1",

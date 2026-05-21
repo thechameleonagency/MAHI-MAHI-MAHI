@@ -4397,9 +4397,18 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const deleteVendorPayment = useCallback((id: string) => {
     if (!canPerformActionOrWarn("vendor:delete_payment")) return;
-    const auditEntry = createAuditEntry("delete", "VendorPayment", id, id);
     setState((prev) => {
       const payment = prev.vendorPayments.find((p) => p.id === id);
+      if (!payment) return prev;
+      const auditEntry = createAuditEntry(
+        "delete",
+        "VendorPayment",
+        id,
+        payment.vendorName || `Vendor ${payment.vendorId}`,
+        "amount",
+        String(payment.amount),
+        "0",
+      );
       const updatedVendors = payment
         ? prev.vendors.map((v) =>
             v.id === payment.vendorId
@@ -4407,7 +4416,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
               : v,
           )
         : prev.vendors;
-      const updatedBills = payment?.billId
+      const updatedBills = payment.billId
         ? prev.vendorBills.map((b) =>
             b.id === payment.billId
               ? { ...b, amountPaid: Math.max(0, (b.amountPaid || 0) - payment.amount) }
