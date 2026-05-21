@@ -45,8 +45,7 @@ export default defineConfig(({ mode }) => ({
     pool: "threads",
     /**
      * Default `npm test` / `npm run test:run` skips plan-traceability matrix.
-     * `npm run test:empty` — empty-boot / normalize / smoke (excludes seed + plan matrix).
-     * `npm run test:seed` — seedProvenance, projectSmokeAllSeeds, appSeedBuilder only.
+     * `npm run test:empty` — excludes p0MandatoryMatrix only.
      */
     exclude: ["**/node_modules/**", "**/dist/**", "**/p0MandatoryMatrix.test.ts"],
   },

@@ -36,7 +36,7 @@ export class AppErrorBoundary extends Component<Props, State> {
           <div className="max-w-md text-center space-y-3">
             <h1 className="text-xl font-semibold">Something went wrong</h1>
             <p className="text-sm text-muted-foreground">
-              Please refresh the page. If this repeats, use <strong>Settings → Reset demo data</strong> to restore the built-in sample dataset.
+              Please refresh the page. If this repeats, use <strong>Settings → Reset to empty workspace</strong> to clear local data.
             </p>
             {isDev && this.state.error && (
               <pre className="mt-3 max-h-36 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-left text-xs text-muted-foreground">

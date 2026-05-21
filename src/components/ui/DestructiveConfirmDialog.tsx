@@ -48,6 +48,7 @@ export function DestructiveConfirmDialog({
   description,
   typedConfirmation,
   confirmLabel = "Delete",
+  warnCannotUndo = true,
   onConfirm,
 }: DestructiveConfirmDialogProps) {
   const [typedValue, setTypedValue] = useState("");

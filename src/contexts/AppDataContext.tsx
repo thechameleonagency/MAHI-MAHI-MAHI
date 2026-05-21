@@ -20,7 +20,7 @@ import type {
   SettingsTeamMember,
 } from "@/types/project";
 import { DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
-import { buildEmptyAppState, buildSequencedAppSeed } from "@/data/appSeedBuilder";
+import { buildEmptyAppState } from "@/data/appSeedBuilder";
 import { APP_DATA_RESET_EPOCH_KEY, clearAllAppStorage } from "@/lib/clearAppStorage";
 import {
   APP_DATA_STORAGE_KEY,
@@ -85,7 +85,7 @@ import {
   recordCustomerInflowDispatch,
   type RecordCustomerInflowInput,
 } from "@/lib/customerInflowWritePaths";
-import type { VendorBill, VendorPayment } from "@/data/inventoryData";
+import type { VendorBill, VendorPayment } from "@/types/inventory";
 import { canTransitionEnquiryStatus, type EnquiryStatus } from "@/domain/stateMachines/enquiryStateMachine";
 import { canTransitionQuotationStatus, type QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
 import { canTransitionProjectStatus, type ProjectLifecycleStatus } from "@/domain/stateMachines/projectStateMachine";
@@ -638,8 +638,6 @@ interface AppDataContextType extends AppState {
   /** Next sequential customer id (`CUST-0001` …), aware of legacy `C001` seeds. */
   allocateCustomerId: () => string;
   resetToDefaults: () => void;
-  /** Load the built-in sequenced demo dataset into memory (explicit opt-in). */
-  loadDemoDataset: () => void;
   /** Returns true when the current role is allowed to perform the action. Use to disable/hide UI elements. */
   canDo: (action: AppAction) => boolean;
 }
@@ -880,31 +878,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     window.location.reload();
   }, [actorRole, roleMatrixOverride]);
 
-  const loadDemoDataset = useCallback(() => {
-    if (!canFeature(actorRole, "resetPrototype", "create", roleMatrixOverride)) {
-      showPermissionDeniedToast(
-        `The ${ROLE_LABELS[actorRole] ?? actorRole} role cannot load the demo dataset.`,
-      );
-      return;
-    }
-    const demo = applyAppStateHydrationPipeline(buildSequencedAppSeed());
-    setState(demo);
-    syncPrototypeRepositoriesFromAppState(demo, repositories);
-    try {
-      const serialized = serializeAppState(demo);
-      lastPersistedSnapshotRef.current = serialized;
-      persistFreshAppStateSeed(demo);
-    } catch (e) {
-      if (import.meta.env.DEV) {
-        console.warn("Failed to persist demo dataset:", e);
-      }
-    }
-    toast({
-      title: "Demo dataset loaded",
-      description: "Sequenced sample projects, quotations, and finance rows are now in memory.",
-    });
-  }, [actorRole, roleMatrixOverride, repositories]);
-  
   // ============ PROJECTS CRUD ============
   const createProjectFromConfirmedQuotation = useCallback(
     async (project: Project): Promise<{ ok: boolean; error?: string; projectId?: string }> => {
@@ -5175,7 +5148,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     generateId,
     allocateCustomerId,
     resetToDefaults,
-    loadDemoDataset,
     canDo,
   };
   

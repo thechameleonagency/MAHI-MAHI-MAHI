@@ -72,6 +72,12 @@ describe("DS4 confirm dialog consistency", () => {
 
   });
 
+  it("DestructiveConfirmDialog destructures warnCannotUndo prop", () => {
+    const src = readFileSync(join(SRC, "components/ui/DestructiveConfirmDialog.tsx"), "utf8");
+    expect(src).toMatch(/warnCannotUndo\s*=\s*true/);
+    expect(src).toMatch(/export function DestructiveConfirmDialog\(\{[\s\S]*warnCannotUndo/);
+  });
+
 
 
   it("no window.confirm in application source", () => {

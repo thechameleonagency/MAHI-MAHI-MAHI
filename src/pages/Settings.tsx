@@ -60,7 +60,6 @@ const Settings = () => {
   const navigate = useNavigate();
   const {
     resetToDefaults,
-    loadDemoDataset,
     settingsTeamMembers,
     replaceSettingsTeamMembers,
   } = useAppData();
@@ -723,30 +722,15 @@ const Settings = () => {
               <CardHeader>
                 <CardTitle className="text-base font-medium">App data</CardTitle>
                 <CardDescription>
-                  The app boots with zero business rows (masters only). Load the demo dataset when you need sample projects and finance data for testing.
+                  The app boots with zero business rows (masters only). Full business seed loads from Settings once implemented — see `SEEDING DATA.md`.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Reset wipes localStorage and reloads an empty workspace. Demo load fills memory with the sequenced seed without a full page reload.
+                  Reset wipes localStorage and reloads an empty workspace.
                 </p>
                 {canResetPrototype && (
                   <>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="gap-2"
-                      onClick={() => {
-                        loadDemoDataset();
-                        setLastConfirm({
-                          variant: "success",
-                          title: "Demo dataset loaded",
-                          description: "Sample projects, quotations, and related rows are now available.",
-                        });
-                      }}
-                    >
-                      Load demo dataset
-                    </Button>
                     <Button
                       type="button"
                       variant="outline"

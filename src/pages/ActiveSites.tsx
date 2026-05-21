@@ -177,7 +177,7 @@ const calculateOverallProgress = (timeline: ProjectTimelineStatus | null): numbe
   return Math.round(progress);
 };
 
-/** Active Sites reads `blockages`, `operationalTickets`, `projectTimelineByProjectId` from AppData (seed: `src/data/activeSitesSeed.ts`). */
+/** Active Sites reads `blockages`, `operationalTickets`, `projectTimelineByProjectId` from AppData. */
 
 const ActiveSites = () => {
   const navigate = useNavigate();

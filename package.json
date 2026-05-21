@@ -11,8 +11,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:empty": "vitest run --exclude '**/seedProvenance.test.ts' --exclude '**/projectSmokeAllSeeds.test.ts' --exclude '**/appSeedBuilder.test.ts' --exclude '**/p0MandatoryMatrix.test.ts'",
-    "test:seed": "vitest run seedProvenance projectSmokeAllSeeds appSeedBuilder",
+    "test:empty": "vitest run --exclude '**/p0MandatoryMatrix.test.ts'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

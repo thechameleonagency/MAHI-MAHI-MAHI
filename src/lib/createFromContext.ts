@@ -32,7 +32,7 @@ import type {
   Expense,
   Agent,
 } from "@/types/finance";
-import type { VendorBill } from "@/data/inventoryData";
+import type { VendorBill } from "@/types/inventory";
 import { formatPricingLineDescription } from "@/lib/pricingBasis";
 import { formatQuotationClientAddress } from "@/lib/quotationApproveCustomer";
 import {

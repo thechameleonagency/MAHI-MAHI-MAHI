@@ -4,7 +4,7 @@ import {
   buildDamageQtyIndex,
 } from "@/lib/needToGetDamageAttribution";
 import { resolveProcurementNeedByDate } from "@/lib/procurementNeedByDate";
-import type { VendorBill } from "@/data/inventoryData";
+import type { VendorBill } from "@/types/inventory";
 import type { InventoryItem, Project, SiteRecord } from "@/types/project";
 import type { MaterialDamage, MaterialReservation } from "@/types/operations";
 

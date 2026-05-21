@@ -30,7 +30,7 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 
-import { VendorBill } from "@/data/inventoryData";
+import type { VendorBill } from "@/types/inventory";
 import type { VendorBillStatus } from "@/types/inventory";
 import { buildVendorBillToPaymentDraft, saveCreateDraft } from "@/lib/createFromContext";
 import { findByRouteId, resolveRouteId } from "@/lib/resolveEntityId";

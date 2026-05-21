@@ -448,6 +448,13 @@ const Timeline = () => {
   const [sitesProjectId, setSitesProjectId] = useState<string>("all");
   const [sitesDaysBack, setSitesDaysBack] = useState<7 | 14 | 30>(14);
 
+  const tasksOverdueOnly = searchParams.get("tasks") === "overdue";
+
+  const timelineTasks = useMemo(() => {
+    if (!tasksOverdueOnly) return tasks;
+    return tasks.filter((t) => getTaskOverdueAging(t) != null);
+  }, [tasks, tasksOverdueOnly]);
+
   const cutoffSites = startOfDay(subDays(new Date(), sitesDaysBack));
 
   const filteredTasksForSites = useMemo(() => {

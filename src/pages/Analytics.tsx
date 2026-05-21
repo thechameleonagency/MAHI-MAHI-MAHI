@@ -40,7 +40,7 @@ function MetricGrid({ rows }: { rows: MetricRow[] }) {
       <ListEmptyState
         icon={BarChart3}
         title="No metrics for this range"
-        description="Widen the date filter or load sample data from Settings."
+        description="Widen the date filter or add business data (see SEEDING DATA.md)."
         className="py-10"
       />
     );
