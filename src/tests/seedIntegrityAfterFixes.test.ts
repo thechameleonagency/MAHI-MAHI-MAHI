@@ -21,6 +21,7 @@ import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToG
 import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
 import { findStaleClientPaymentLedgerLinkage } from "@/lib/clientPaymentReconciliation";
 import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
+import { findStaleProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 
 const DRIFT_EPS = 1;
 
@@ -163,6 +164,20 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(
       findStaleEnquiryAssigneeState(hydrated.enquiries, hydrated.settingsTeamMembers),
     ).toEqual([]);
+  });
+
+  it("project customer FK and client fields stay consistent on hydrated seed (ER3)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleProjectCustomerLinkage(hydrated)).toEqual([]);
+    for (const project of hydrated.projects) {
+      if (!project.customerId || project.customerId.startsWith("inc-")) continue;
+      const customer = hydrated.customers.find((c) => c.id === project.customerId);
+      expect(customer, `project ${project.id}`).toBeTruthy();
+      if (project.client?.trim()) {
+        expect(project.client.trim().toLowerCase()).toBe(customer!.name.trim().toLowerCase());
+      }
+    }
   });
 
   it("no stale open enquiry after quotation approve on hydrated seed (FC2)", () => {

@@ -21,6 +21,7 @@ import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive
 import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToGetSync";
 import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
 import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
+import { findStaleProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 
@@ -201,6 +202,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleEnquiryAssigneeState(state.enquiries, state.settingsTeamMembers)) {
     errors.push(`ER1: enquiry ${stale.enquiryId} — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleProjectCustomerLinkage(state)) {
+    errors.push(`ER3: project ${stale.projectId} — ${stale.reason}`);
   }
 
   for (const stale of findStaleClientPaymentLedgerLinkage({

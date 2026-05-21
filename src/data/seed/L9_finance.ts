@@ -37,7 +37,9 @@ export function buildL9Finance(state: AppState, profile: SeedProfile): AppState 
 
   for (let i = 0; i < invoiceCount; i++) {
     const project = projects[i % projects.length];
-    const customer = state.customers.find((c) => c.id === project?.customerId) ?? state.customers[i % state.customers.length];
+    if (!project?.customerId) continue;
+    const customer = state.customers.find((c) => c.id === project.customerId);
+    if (!customer) continue;
     const status = INVOICE_STATUSES[i % INVOICE_STATUSES.length];
     const fraction = 0.45 + i * 0.008;
     const base = roundInr((project?.contractAmount ?? 200000) * (0.3 + (i % 3) * 0.2));
