@@ -19,6 +19,7 @@ import Materials from "./pages/Materials";
 import Tools from "./pages/Tools";
 import TemplatesPage from "./pages/inventory/TemplatesPage";
 import InventoryIndexRedirect from "./components/routing/InventoryIndexRedirect";
+import { ListPrefixDetailRedirect } from "./components/routing/ListPrefixDetailRedirect";
 import Employees from "./pages/Employees";
 import Teams from "./pages/Teams";
 import TeamDetail from "./pages/TeamDetail";
@@ -120,8 +121,16 @@ const App = () => (
                 <Route path="/partners" element={<Partners />} />
                 <Route path="/partners/:id" element={<PartnerDetail />} />
                 <Route path="/vendorship-companies" element={<VendorshipCompanies />} />
+                <Route
+                  path="/vendorship-companies/:id"
+                  element={<ListPrefixDetailRedirect detailPrefix="/vendorship" />}
+                />
                 <Route path="/vendorship/:id" element={<VendorshipCompanyDetail />} />
                 <Route path="/inc-work-sources" element={<INCWorkSources />} />
+                <Route
+                  path="/inc-work-sources/:id"
+                  element={<ListPrefixDetailRedirect detailPrefix="/inc-sources" />}
+                />
                 <Route path="/inc-sources/:id" element={<INCWorkSourceDetail />} />
                 <Route path="/timeline" element={<Timeline />} />
                 <Route path="/calendar" element={<CalendarPage />} />

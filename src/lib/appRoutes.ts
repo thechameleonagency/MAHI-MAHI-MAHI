@@ -12,6 +12,24 @@ export const LEGACY_APP_REDIRECT_PATHS = [
   "/inventory/presets",
 ] as const;
 
+/**
+ * List/detail prefix aliases (MD6) — `<ListPrefixDetailRedirect>` in App.tsx.
+ * Not registered routes; React Router redirects to canonical detail paths.
+ */
+export const LEGACY_APP_REDIRECT_PARAM_ROUTES: readonly {
+  appPath: string;
+  test: (pathname: string) => boolean;
+}[] = [
+  {
+    appPath: "/vendorship-companies/:id",
+    test: (p) => /^\/vendorship-companies\/[^/]+$/.test(p),
+  },
+  {
+    appPath: "/inc-work-sources/:id",
+    test: (p) => /^\/inc-work-sources\/[^/]+$/.test(p),
+  },
+];
+
 /** Static paths (no dynamic segments). */
 export const APP_ROUTE_EXACT_PATHS = [
   "/login",

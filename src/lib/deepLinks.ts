@@ -11,6 +11,8 @@ export const deepLink = {
   employee: (id: string) => `/employees/${encodeURIComponent(id)}`,
   vendor: (id: string) => `/vendors/${encodeURIComponent(id)}`,
   team: (id: string) => `/teams/${encodeURIComponent(id)}`,
+  /** Canonical detail path — `/vendorship-companies/:id` redirects here (MD6). */
   vendorship: (id: string) => `/vendorship/${encodeURIComponent(id)}`,
+  /** Canonical detail path — `/inc-work-sources/:id` redirects here (MD6). */
   incSource: (id: string) => `/inc-sources/${encodeURIComponent(id)}`,
 } as const;
