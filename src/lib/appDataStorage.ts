@@ -30,6 +30,7 @@ import { reconcileProjectAgentCommissionState } from "@/lib/projectStartContinui
 import { normalizeNonCollectibleBillingDocuments } from "@/lib/clientPaymentReconciliation";
 import { reconcileCustomersAutoArchive } from "@/domain/customer/customerArchive";
 import { reconcileProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
+import { reconcileProgressReportTaskLinkage } from "@/lib/progressReportTaskContinuity";
 import { syncSitesChecklistFromProjects } from "@/lib/siteChecklistNeedToGetSync";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import type { AppState } from "@/contexts/AppDataContext";
@@ -119,12 +120,14 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
     ),
   };
 
-  return reconcileProjectCustomerLinkage(
-    reconcileProjectAgentCommissionState(
-      reconcileIncGiverTransactions(
-        reconcileChangeRequestDeltaInvoices(
-          reconcileProjectActorScopeSeed(
-            reconcileVendorBillInventoryReceipt(reconcileVendorBillVouchers(withSites)),
+  return reconcileProgressReportTaskLinkage(
+    reconcileProjectCustomerLinkage(
+      reconcileProjectAgentCommissionState(
+        reconcileIncGiverTransactions(
+          reconcileChangeRequestDeltaInvoices(
+            reconcileProjectActorScopeSeed(
+              reconcileVendorBillInventoryReceipt(reconcileVendorBillVouchers(withSites)),
+            ),
           ),
         ),
       ),

@@ -25,6 +25,10 @@ import {
   findStaleBillingAmountReceived,
   formatStaleBillingAmountReceivedErrors,
 } from "@/lib/billingAmountReceivedContinuity";
+import {
+  findStaleProgressReportTaskLinkage,
+  formatStaleProgressReportTaskErrors,
+} from "@/lib/progressReportTaskContinuity";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 import { findSeedForeignKeyViolations, formatSeedForeignKeyErrors } from "./seedForeignKeyMatrix";
@@ -203,6 +207,8 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
   }
 
   errors.push(...formatStaleBillingAmountReceivedErrors(findStaleBillingAmountReceived(state)));
+
+  errors.push(...formatStaleProgressReportTaskErrors(findStaleProgressReportTaskLinkage(state)));
 
   for (const stale of findStaleClientPaymentLedgerLinkage({
     clientPaymentRecords: state.clientPaymentRecords,

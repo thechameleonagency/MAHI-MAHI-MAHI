@@ -160,9 +160,9 @@ function buildTimeline(ctx: BundleContext): ProjectTimelineStatus {
     } : index % 11 === 0 ? {
       structure: {
         status: "closed",
-        photoCount: 2,
         photoUrls: [
           "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='48'%3E%3Crect fill='%23e2e8f0' width='64' height='48'/%3E%3Ctext x='8' y='28' font-size='10' fill='%2364748b'%3ESeed%3C/text%3E%3C/svg%3E",
+          "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='48'%3E%3Crect fill='%23cbd5e1' width='64' height='48'/%3E%3Ctext x='8' y='28' font-size='10' fill='%2364748b'%3ESeed2%3C/text%3E%3C/svg%3E",
         ],
         updatedBy: "admin-001",
         updatedByName: "Anita Deshmukh",
@@ -217,6 +217,38 @@ export function attachProjectBundle(ctx: BundleContext): void {
 
   state.projectTimelineByProjectId[project.id] = buildTimeline(ctx);
   buildWorkStatusTasks(ctx);
+
+  if (index % 11 === 0 && project.projectKind !== "VENDORSHIP_ONLY") {
+    const tl = state.projectTimelineByProjectId[project.id];
+    const structureApproval = tl?.workStatusApprovals?.structure;
+    if (structureApproval?.status === "closed" && site) {
+      const photoTaskId = seedId(SEED_ID_PREFIX.task);
+      const installer = state.employees[index % state.employees.length];
+      state.tasks.push({
+        id: photoTaskId,
+        employeeId: installer?.id,
+        projectId: project.id,
+        siteId: site.id,
+        siteName: site.name,
+        workType: "Site photos: Structure",
+        workTag: "structure",
+        milestoneId: "structure",
+        notes: `Photo task ${photoTaskId} assigned to ${installer?.name ?? "installer"}`,
+        createdDate: seedDayAt(fraction + 0.03),
+        workDate: seedDayAt(fraction + 0.04).slice(0, 10),
+        status: "done",
+        createdBy: "Karthik Rao",
+        workItems: [{ stageKey: "structure", stageName: "Structure", subItems: [] }],
+      });
+      state.projectTimelineByProjectId[project.id] = {
+        ...tl,
+        workStatusApprovals: {
+          ...tl.workStatusApprovals,
+          structure: { ...structureApproval, linkedTaskId: photoTaskId },
+        },
+      };
+    }
+  }
 
   if (project.lifecycleStatus === "New") {
     project.siteReadiness = {

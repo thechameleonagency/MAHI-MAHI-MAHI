@@ -275,6 +275,8 @@ export interface WorkStatusSubItemApproval {
   videoCount?: number;
   photoUrls?: string[];
   videoUrls?: string[];
+  /** Field photo-capture task created from Progress Report assign flow (ER9). */
+  linkedTaskId?: string;
   /** Free-form update label (who last touched this sub-item). */
   updatedBy?: string;
   updatedByName?: string;
@@ -299,6 +301,8 @@ export interface WorkStatusApprovalInfo {
   /** Optional media URLs captured at the main-stage level (mirrors sub-item shape). */
   photoUrls?: string[];
   videoUrls?: string[];
+  /** Field photo-capture task from Progress Report assign (ER9). */
+  linkedTaskId?: string;
   /** Activity / audit metadata used by ProgressReportTab for "last updated" cells. */
   updatedBy?: string;
   updatedByName?: string;

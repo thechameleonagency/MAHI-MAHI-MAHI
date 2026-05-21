@@ -970,6 +970,7 @@ export function ProgressReportTab({
         [key]: {
           ...prev[key],
           status: "pending",
+          linkedTaskId: taskId,
           requestedBy: actorUserId,
           requestedByName: actorDisplayName,
           requestedAt: new Date().toISOString(),

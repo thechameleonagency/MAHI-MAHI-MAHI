@@ -47,6 +47,7 @@ import {
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
 import type { BankReconciliationStatement, Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany, INCGiverTransaction } from "@/types/finance";
 import type { Blockage, Ticket, ProjectTimelineStatus, ClientPaymentRecord } from "@/types/blockage";
+import { applyTaskCompletionToTimeline } from "@/lib/progressReportTaskContinuity";
 import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate, stripOrphanChecklistInventoryRefs } from "@/lib/siteChecklist";
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
 import { resolveAuditActorUserName } from "@/lib/resolveAuditActorUserName";
@@ -3230,75 +3231,21 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       const task = prev.tasks.find(t => t.id === id);
       if (!task) return prev;
 
-      const updatedTasks = prev.tasks.map(t => t.id === id ? { ...t, ...updates } : t);
-      
-      // Timeline Automation
+      const updatedTask = { ...task, ...updates };
+      const updatedTasks = prev.tasks.map(t => t.id === id ? updatedTask : t);
+
       let nextTimelineByProject = prev.projectTimelineByProjectId;
-      if (task.projectId && updates.status === "done") {
-        const projectId = task.projectId;
-        const currentTimeline: ProjectTimelineStatus = prev.projectTimelineByProjectId[projectId] || {
-          projectId,
-          fileLogin: "pending",
-          fileLoginComplete: false,
-          subsidyType: "",
-          bankFileType: "",
-          loanStage: "",
-          loanStatus: "",
-          workStatusChecks: [],
-          workStatusComplete: false,
-          discomChecks: [],
-          discomSubsidyStatus: "",
-          paymentType: "",
-          updatedAt: new Date().toISOString(),
-        };
-
-        const workType = task.workType.toLowerCase();
-        const timelineUpdates: Partial<ProjectTimelineStatus> = {};
-
-        // 1. File Login Logic
-        if (workType.includes("file login") || workType.includes("document")) {
-          timelineUpdates.fileLogin = "complete";
-          timelineUpdates.fileLoginComplete = true;
-        } 
-        
-        // 2. Work Status Logic (Main Stages)
-        const workStages = ["structure", "panel", "wiring", "earthing", "inverter", "civil", "meter"];
-        if (workStages.includes(workType)) {
-          const checks = currentTimeline.workStatusChecks || [];
-          if (!checks.includes(workType)) {
-            timelineUpdates.workStatusChecks = [...checks, workType];
-            // If all 7 stages are done, mark workStatusComplete
-            if (timelineUpdates.workStatusChecks.length >= 7) {
-              timelineUpdates.workStatusComplete = true;
-            }
-          }
-        }
-
-        // 3. DISCOM Logic
-        if (workType.includes("discom") || workType.includes("net metering")) {
-          const checks = currentTimeline.discomChecks || [];
-          const discomKey = workType.includes("net metering") ? "net-metering" : "meter-file-submit";
-          if (!checks.includes(discomKey)) {
-            timelineUpdates.discomChecks = [...checks, discomKey];
-          }
-        }
-
-        if (Object.keys(timelineUpdates).length > 0) {
-          nextTimelineByProject = {
-            ...prev.projectTimelineByProjectId,
-            [projectId]: {
-              ...currentTimeline,
-              ...timelineUpdates,
-              updatedAt: new Date().toISOString(),
-            }
-          };
+      if (updates.status === "done") {
+        const patch = applyTaskCompletionToTimeline(updatedTask, prev.projectTimelineByProjectId);
+        if (patch) {
+          nextTimelineByProject = patch.projectTimelineByProjectId;
         }
       }
 
       return {
         ...prev,
         tasks: updatedTasks,
-        projectTimelineByProjectId: nextTimelineByProject
+        projectTimelineByProjectId: nextTimelineByProject,
       };
     });
   }, []);

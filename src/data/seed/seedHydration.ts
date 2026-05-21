@@ -16,6 +16,7 @@ import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScope
 import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
 import { reconcileIncGiverTransactions } from "@/lib/reconcileIncGiverTransactions";
 import { reconcileProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
+import { reconcileProgressReportTaskLinkage } from "@/lib/progressReportTaskContinuity";
 
 /**
  * Appendix N — full hydration after seed assembly (steps 6–12 beyond boot pipeline).
@@ -68,6 +69,6 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
 
   s = reconcileIncGiverTransactions(s);
 
-  return reconcileProjectCustomerLinkage(s);
+  return reconcileProgressReportTaskLinkage(reconcileProjectCustomerLinkage(s));
 }
 
