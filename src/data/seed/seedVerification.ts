@@ -41,6 +41,7 @@ import {
   findStaleQuotationShareDetails,
   formatStaleQuotationShareErrors,
 } from "@/lib/quotationShareContinuity";
+import { findInvalidMachineBackedStatuses } from "@/lib/entityStateCoverage";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 import { findSeedForeignKeyViolations, formatSeedForeignKeyErrors } from "./seedForeignKeyMatrix";
@@ -158,6 +159,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
 
   errors.push(...formatSeedForeignKeyErrors(findSeedForeignKeyViolations(state)));
+
+  for (const row of findInvalidMachineBackedStatuses(state)) {
+    errors.push(`AR2: ${row.entity} ${row.id} status "${row.status}" — ${row.reason}`);
+  }
 
   for (const stale of findStaleOpenEnquiriesAfterProjectWin(state)) {
     errors.push(

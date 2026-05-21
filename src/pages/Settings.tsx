@@ -25,6 +25,7 @@ import { RoleMatrixTab } from "@/components/settings/RoleMatrixTab";
 import { DeletionQueueTab } from "@/components/settings/DeletionQueueTab";
 import { MobileDemoPostureCard } from "@/components/demo/MobileDemoPostureCard";
 import { DualPersistenceModelCard } from "@/components/architecture/DualPersistenceModelCard";
+import { EntityStateCoverageCard } from "@/components/architecture/EntityStateCoverageCard";
 import { QuotationStaticSectionsTab } from "@/components/settings/QuotationStaticSectionsTab";
 import { useCan } from "@/hooks/useCan";
 import { ToastAction } from "@/components/ui/toast";
@@ -810,6 +811,7 @@ const Settings = () => {
             </Card>
             <MobileDemoPostureCard variant="full" />
             <DualPersistenceModelCard />
+            <EntityStateCoverageCard />
           </TabsContent>
           )}
 

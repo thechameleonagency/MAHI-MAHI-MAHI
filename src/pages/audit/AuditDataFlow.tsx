@@ -16,7 +16,7 @@ import {
   Building2, Users, Home, HardHat, Crown, Handshake, Briefcase, Landmark,
   ArrowRight, ArrowDown, ChevronRight, TrendingUp, TrendingDown, Package,
   FileText, Scale, BookOpen, Wallet, ShieldCheck,
- Database, Receipt, Layers, MousePointerClick, Calendar, ClipboardList, AlertTriangle, GitBranch,
+ Database, Receipt, Layers, MousePointerClick, Calendar, ClipboardList, AlertTriangle, GitBranch, GitMerge,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
@@ -31,6 +31,10 @@ import {
   FINANCE_ACCOUNTING_REVIEW_QUEUE_PATH,
 } from "@/lib/accountingReviewQueueGuidance";
 import { DUAL_PERSISTENCE_SUMMARY, DUAL_PERSISTENCE_DIVERGENCE_RULE } from "@/lib/dualPersistenceModel";
+import {
+  ENTITY_STATE_COVERAGE_SUMMARY,
+  ENTITY_STATE_DIVERGENCE_RULE,
+} from "@/lib/entityStateCoverage";
 
 // ============ DATA STRUCTURES ============
 
@@ -485,6 +489,20 @@ const AuditDataFlow = () => {
           Expense and income flow trees below are illustrative. They are not generated from live Settings masters or{" "}
           <code className="text-xs bg-muted px-1 rounded">auditBooksMasters</code> — use Chart of Accounts and Profit
           &amp; Loss for current mappings.
+        </AlertDescription>
+      </Alert>
+
+      <Alert className="border-primary/20 bg-primary/5">
+        <GitMerge className="h-4 w-4 text-primary" />
+        <AlertTitle className="text-sm">Training: Entity state coverage (AR2)</AlertTitle>
+        <AlertDescription className="space-y-2 text-sm text-muted-foreground">
+          <p>{ENTITY_STATE_COVERAGE_SUMMARY}</p>
+          <p>{ENTITY_STATE_DIVERGENCE_RULE}</p>
+          <p>
+            Enquiry / quotation / project lifecycle use{" "}
+            <code className="text-xs bg-muted px-1 rounded">domain/stateMachines</code>; invoices,
+            tasks, and progress approvals are soft-state with continuity tests.
+          </p>
         </AlertDescription>
       </Alert>
 
