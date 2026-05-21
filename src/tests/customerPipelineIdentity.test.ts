@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildProjectClientSnapshotFromQuotation,
+  findStaleEnquiryQuotationCustomerLinks,
   freezeProjectClientFieldsFromQuotation,
+  linkEnquiryCustomerFromQuotation,
   projectClientSnapshotMatchesCustomer,
   resolveProjectClientDisplay,
   syncEnquiryCustomerIdAfterQuotationApprove,
 } from "@/lib/customerPipelineIdentity";
+import { buildBusinessSeed } from "@/data/seed/buildBusinessSeed";
+import { applyAppStateHydrationPipeline } from "@/lib/appDataStorage";
 import { buildEnquiryToQuotationDraft } from "@/lib/createFromContext";
 import type { Customer } from "@/types/finance";
 import type { Enquiry, Project, Quotation } from "@/types/project";
@@ -139,6 +143,25 @@ describe("E1 customer pipeline identity", () => {
       "CUST-0001",
     );
     expect(store.get("ENQ-1")?.customerId).toBe("CUST-0001");
+  });
+
+  it("linkEnquiryCustomerFromQuotation uses repository adapter", () => {
+    const enquiries = [{ id: "ENQ-1", customerName: "A" } as Enquiry];
+    const repo = {
+      getById: (id: string) => enquiries.find((e) => e.id === id),
+      update: (id: string, patch: { customerId: string }) => {
+        const idx = enquiries.findIndex((e) => e.id === id);
+        if (idx >= 0) enquiries[idx] = { ...enquiries[idx], ...patch };
+      },
+    };
+    linkEnquiryCustomerFromQuotation({ enquiryRepository: repo }, "ENQ-1", "CUST-9");
+    expect(enquiries[0]?.customerId).toBe("CUST-9");
+  });
+
+  it("hydrated smoke seed has aligned enquiry and quotation customer ids (V6)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleEnquiryQuotationCustomerLinks(hydrated)).toEqual([]);
   });
 
   it("does not overwrite enquiry when already linked to a different customer", () => {

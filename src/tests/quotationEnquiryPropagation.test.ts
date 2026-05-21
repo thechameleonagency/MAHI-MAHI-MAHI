@@ -92,10 +92,12 @@ describe("Quotation approve → enquiry converted (FC2 / MD1)", () => {
     });
 
     expect(result.ok).toBe(true);
+    const updatedQuotation = repositories.quotationRepository.getById("Q-1");
     const updated = repositories.enquiryRepository.getById("ENQ-1");
+    expect(updatedQuotation?.status).toBe("approved");
+    expect(updatedQuotation?.customerId).toBeTruthy();
     expect(updated?.status).toBe("converted");
-    expect(updated?.customerId).toBeTruthy();
-    expect(repositories.quotationRepository.getById("Q-1")?.status).toBe("approved");
+    expect(updated?.customerId).toBe(updatedQuotation?.customerId);
   });
 
   it("converts meeting_scheduled enquiry when quotation is approved", async () => {

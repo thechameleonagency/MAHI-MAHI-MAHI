@@ -20,7 +20,7 @@ import {
   validateQuotationClientForApproval,
 } from "@/lib/quotationApproveCustomer";
 import { createNextCustomerId } from "@/lib/idFactory";
-import { syncEnquiryCustomerIdAfterQuotationApprove } from "@/lib/customerPipelineIdentity";
+import { linkEnquiryCustomerFromQuotation } from "@/lib/customerPipelineIdentity";
 import { convertLinkedEnquiryAfterQuotationApproved } from "@/lib/enquiryConversionAtProjectWin";
 import { rejectQuotationTerminalEdit } from "@/lib/quotationProjectConversionPolicy";
 
@@ -265,12 +265,7 @@ export const registerQuotationCommands = (
         const enquiryBeforeLink = quotation.enquiryId
           ? repositories.enquiryRepository.getById(quotation.enquiryId)
           : undefined;
-        syncEnquiryCustomerIdAfterQuotationApprove(
-          (id) => repositories.enquiryRepository.getById(id),
-          (id, patch) => repositories.enquiryRepository.update(id, patch),
-          quotation.enquiryId,
-          customerId,
-        );
+        linkEnquiryCustomerFromQuotation(repositories, quotation.enquiryId, customerId);
         if (enquiryBeforeLink && quotation.enquiryId) {
           const enquiryAfterLink = repositories.enquiryRepository.getById(quotation.enquiryId);
           if (

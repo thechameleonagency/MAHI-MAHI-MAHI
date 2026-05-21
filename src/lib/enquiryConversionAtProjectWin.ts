@@ -7,6 +7,7 @@ import {
   resolveCustomerForEnquiryConversion,
 } from "@/lib/convertEnquiryCustomer";
 import type { Customer } from "@/types/finance";
+import { linkEnquiryCustomerFromQuotation } from "@/lib/customerPipelineIdentity";
 import type { Enquiry, Quotation } from "@/types/project";
 
 export type EnquiryConversionAtProjectWinResult =
@@ -134,6 +135,8 @@ export function convertLinkedEnquiryAfterProjectFromQuotation(
     return { ok: true, converted: false };
   }
 
+  linkEnquiryCustomerFromQuotation(repositories, quotation.enquiryId, quotation.customerId);
+
   const result = executeEnquiryConversion(
     repositories,
     auditService,
@@ -187,6 +190,8 @@ export function convertLinkedEnquiryAfterQuotationApproved(
     };
   }
 
+  linkEnquiryCustomerFromQuotation(repositories, quotation.enquiryId, quotation.customerId);
+
   const result = executeEnquiryConversion(
     repositories,
     auditService,
@@ -197,15 +202,6 @@ export function convertLinkedEnquiryAfterQuotationApproved(
 
   if (!result.ok) {
     return result;
-  }
-
-  if (quotation.customerId && result.converted) {
-    const enquiry = repositories.enquiryRepository.getById(quotation.enquiryId);
-    if (enquiry && enquiry.customerId !== quotation.customerId) {
-      repositories.enquiryRepository.update(quotation.enquiryId, {
-        customerId: quotation.customerId,
-      });
-    }
   }
 
   return result;

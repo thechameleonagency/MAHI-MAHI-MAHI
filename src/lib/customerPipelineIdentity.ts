@@ -6,10 +6,13 @@
  * - **Display** prefers the live `Customer` record when `customerId` is set; surfaces drift vs snapshot.
  */
 
+import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
 import { formatQuotationClientAddress, resolveCustomerState } from "@/lib/quotationApproveCustomer";
 import { normalizePhoneDigits } from "@/lib/phoneNormalize";
+import { quotationTriggersEnquiryConverted } from "@/lib/enquiryPipelineContinuity";
+import type { AppState } from "@/contexts/AppDataContext";
 import type { Customer } from "@/types/finance";
-import type { Project, Quotation } from "@/types/project";
+import type { Enquiry, Project, Quotation } from "@/types/project";
 
 /** Frozen client identity copied onto a project at conversion (E1 snapshot). */
 export type ProjectClientSnapshot = {
@@ -166,4 +169,101 @@ export function syncEnquiryCustomerIdAfterQuotationApprove(
   if (enquiry.customerId && enquiry.customerId !== customerId) return;
   if (enquiry.customerId === customerId) return;
   updateEnquiry(enquiryId, { customerId });
+}
+
+/** Command/repository adapter — single entry for enquiry←quotation customer FK (V6 / M3). */
+export function linkEnquiryCustomerFromQuotation(
+  repositories: Pick<AppRepositoryContext, "enquiryRepository">,
+  enquiryId: string | undefined,
+  customerId: string | undefined,
+): void {
+  syncEnquiryCustomerIdAfterQuotationApprove(
+    (id) => repositories.enquiryRepository.getById(id),
+    (id, patch) => repositories.enquiryRepository.update(id, patch),
+    enquiryId,
+    customerId ?? "",
+  );
+}
+
+export type StaleEnquiryQuotationCustomer = {
+  enquiryId: string;
+  quotationId: string;
+  reason: "missing_enquiry_customer" | "customer_mismatch";
+};
+
+/** Approved/converted quotes and their enquiries must share the same customerId. */
+export function findStaleEnquiryQuotationCustomerLinks(
+  state: Pick<AppState, "enquiries" | "quotations">,
+): StaleEnquiryQuotationCustomer[] {
+  const stale: StaleEnquiryQuotationCustomer[] = [];
+  for (const quotation of state.quotations) {
+    if (!quotation.enquiryId?.trim() || !quotation.customerId?.trim()) continue;
+    if (quotation.status !== "approved" && quotation.status !== "converted_to_project") continue;
+
+    const enquiry = state.enquiries.find((e) => e.id === quotation.enquiryId);
+    if (!enquiry) continue;
+
+    if (!enquiry.customerId?.trim()) {
+      stale.push({
+        enquiryId: enquiry.id,
+        quotationId: quotation.id,
+        reason: "missing_enquiry_customer",
+      });
+      continue;
+    }
+    if (enquiry.customerId !== quotation.customerId) {
+      stale.push({
+        enquiryId: enquiry.id,
+        quotationId: quotation.id,
+        reason: "customer_mismatch",
+      });
+    }
+  }
+  return stale;
+}
+
+/** Backfill customerId on approved/converted quotations that only exist in seed status (no command replay). */
+export function reconcileApprovedQuotationCustomerIds(state: AppState): AppState {
+  let quotations = [...state.quotations];
+  let changed = false;
+
+  for (let i = 0; i < quotations.length; i++) {
+    const q = quotations[i];
+    if (q.status !== "approved" && q.status !== "converted_to_project") continue;
+    if (q.customerId?.trim()) continue;
+
+    const enquiry = q.enquiryId
+      ? state.enquiries.find((e) => e.id === q.enquiryId)
+      : undefined;
+    const customerId = enquiry?.customerId?.trim() ?? q.customerId;
+    if (!customerId) continue;
+
+    quotations[i] = { ...q, customerId };
+    changed = true;
+  }
+
+  return changed ? { ...state, quotations } : state;
+}
+
+/**
+ * Hydration repair: approved/converted quotations own the enquiry customer FK.
+ * Runs after pipeline status reconcile so converted rows still align to quote customer.
+ */
+export function reconcileEnquiryQuotationCustomerLinks(state: AppState): AppState {
+  let enquiries = [...state.enquiries];
+  let changed = false;
+
+  for (const quotation of state.quotations) {
+    if (!quotationTriggersEnquiryConverted(quotation)) continue;
+    if (!quotation.enquiryId?.trim() || !quotation.customerId?.trim()) continue;
+
+    enquiries = enquiries.map((e) => {
+      if (e.id !== quotation.enquiryId) return e;
+      if (e.customerId === quotation.customerId) return e;
+      changed = true;
+      return { ...e, customerId: quotation.customerId };
+    });
+  }
+
+  return changed ? { ...state, enquiries } : state;
 }

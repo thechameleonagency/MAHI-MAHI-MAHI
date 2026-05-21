@@ -75,7 +75,10 @@ export function buildL8Crm(state: AppState, profile: SeedProfile): AppState {
   const quoteCount = countFor(profile, 42);
   for (let i = 0; i < quoteCount; i++) {
     const enquiry = state.enquiries[i % state.enquiries.length];
-    const customer = state.customers[(i + 3) % state.customers.length];
+    const customer =
+      (enquiry?.customerId
+        ? state.customers.find((c) => c.id === enquiry.customerId)
+        : undefined) ?? state.customers[i % state.customers.length];
     const category = (["residential", "commercial", "industrial"] as const)[i % 3];
     const kw = Number(CAPACITIES_KW[i % CAPACITIES_KW.length]);
     const contract = contractForCapacity(kw, category);
@@ -92,7 +95,10 @@ export function buildL8Crm(state: AppState, profile: SeedProfile): AppState {
       quotationType: "solar",
       enquiryId: enquiry?.id,
       salesOwnerMemberId: enquiry?.assignedToMemberId,
-      customerId: customer?.id,
+      customerId:
+        ["approved", "converted_to_project"].includes(status)
+          ? enquiry?.customerId ?? customer?.id
+          : customer?.id,
       clientName: customer?.name ?? enquiry?.customerName ?? companyName(i),
       clientPhone: customer?.phone ?? enquiry?.customerPhone ?? phoneNumber(900 + i),
       clientEmail: customer?.email ?? enquiry?.customerEmail ?? emailFor(personName(i)),

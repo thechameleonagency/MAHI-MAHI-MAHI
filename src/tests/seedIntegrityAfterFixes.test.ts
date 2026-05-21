@@ -30,6 +30,7 @@ import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinui
 import { findStaleClientPaymentLedgerLinkage } from "@/lib/clientPaymentReconciliation";
 import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
 import { findStaleQuotationSalesOwners } from "@/lib/reconcileQuotationSalesOwner";
+import { findStaleEnquiryQuotationCustomerLinks } from "@/lib/customerPipelineIdentity";
 import {
   filterProjectsForActor,
   buildProjectActorScopeContext,
@@ -227,8 +228,10 @@ describe("seed & hydration integrity after audit fixes", () => {
     for (const q of approvedWithEnquiry) {
       const enquiry = hydrated.enquiries.find((e) => e.id === q.enquiryId);
       expect(enquiry?.status).toBe("converted");
+      expect(enquiry?.customerId).toBe(q.customerId);
     }
     expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+    expect(findStaleEnquiryQuotationCustomerLinks(hydrated)).toEqual([]);
   });
 
   it("no stale open enquiry after quotation project win on hydrated seed (FC1)", () => {

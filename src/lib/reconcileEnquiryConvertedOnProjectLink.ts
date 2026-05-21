@@ -2,6 +2,7 @@ import type { AppState } from "@/contexts/AppDataContext";
 import { canConvertEnquiryOnPipelineWin } from "@/lib/enquiryConversionAtProjectWin";
 import { quotationTriggersEnquiryConverted } from "@/lib/enquiryPipelineContinuity";
 import { enrichCustomerFromEnquiry, resolveCustomerForEnquiryConversion } from "@/lib/convertEnquiryCustomer";
+import { syncEnquiryCustomerIdAfterQuotationApprove } from "@/lib/customerPipelineIdentity";
 import type { Customer } from "@/types/finance";
 import type { Enquiry } from "@/types/project";
 
@@ -44,8 +45,19 @@ export function reconcileEnquiriesConvertedOnProjectLink(state: AppState): AppSt
       continue;
     }
 
-    const resolved = resolveCustomerForEnquiryConversion(enquiry, customers);
-    let customerId = quotation.customerId ?? resolved.customerId;
+    let customerId: string;
+
+    if (quotation.customerId?.trim()) {
+      customerId = quotation.customerId;
+      syncEnquiryCustomerIdAfterQuotationApprove(
+        (id) => enquiries.find((e) => e.id === id),
+        (id, patch) => patchEnquiry(id, patch),
+        enquiry.id,
+        customerId,
+      );
+    } else {
+      const resolved = resolveCustomerForEnquiryConversion(enquiry, customers);
+      customerId = resolved.customerId;
 
     if (resolved.customerCreated && resolved.customer) {
       upsertCustomer(resolved.customer);
@@ -61,6 +73,7 @@ export function reconcileEnquiriesConvertedOnProjectLink(state: AppState): AppSt
     const project = projectById.get(quotation.linkedProjectId);
     if (project?.customerId && !quotation.customerId) {
       customerId = project.customerId;
+    }
     }
 
     patchEnquiry(enquiry.id, {

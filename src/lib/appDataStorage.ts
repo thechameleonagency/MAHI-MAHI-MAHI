@@ -26,6 +26,10 @@ import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
 import { reconcileVendorPaymentVouchers } from "@/lib/vendorPaymentVoucherPosting";
 import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScopeSeed";
 import { reconcileQuotationSalesOwnerState } from "@/lib/reconcileQuotationSalesOwner";
+import {
+  reconcileApprovedQuotationCustomerIds,
+  reconcileEnquiryQuotationCustomerLinks,
+} from "@/lib/customerPipelineIdentity";
 import { reconcileIncGiverTransactions } from "@/lib/reconcileIncGiverTransactions";
 import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
 import { reconcileProjectAgentCommissionState } from "@/lib/projectStartContinuity";
@@ -100,7 +104,7 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
     ),
   );
   const auditLogs = reconcileAuditLogUserNames(migrated.auditLogs, migrated.settingsTeamMembers);
-  const linked = reconcileEnquiriesConvertedOnProjectLink({
+  const withQuotationCustomers = reconcileApprovedQuotationCustomerIds({
     ...migrated,
     projects,
     quotations,
@@ -108,6 +112,7 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
     saleBills,
     auditLogs,
   });
+  const linked = reconcileEnquiriesConvertedOnProjectLink(withQuotationCustomers);
 
   const withBilling = reconcileBillingAmountReceivedState(linked);
 
@@ -131,21 +136,23 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
       reconcileDeletionRequests(
         reconcileProjectTimelineDiscomChecks(
           reconcileProgressReportTaskLinkage(
-          reconcileProjectCustomerLinkage(
-            reconcileProjectAgentCommissionState(
-              reconcileIncGiverTransactions(
-                reconcileChangeRequestDeltaInvoices(
-                  reconcileQuotationSalesOwnerState(
-                    reconcileProjectActorScopeSeed(
-                      reconcileVendorBillInventoryReceipt(
-                        reconcileVendorPaymentVouchers(reconcileVendorBillVouchers(withSites)),
+            reconcileProjectCustomerLinkage(
+              reconcileProjectAgentCommissionState(
+                reconcileIncGiverTransactions(
+                  reconcileChangeRequestDeltaInvoices(
+                    reconcileEnquiryQuotationCustomerLinks(
+                      reconcileQuotationSalesOwnerState(
+                        reconcileProjectActorScopeSeed(
+                          reconcileVendorBillInventoryReceipt(
+                            reconcileVendorPaymentVouchers(reconcileVendorBillVouchers(withSites)),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
           ),
         ),
       ),
