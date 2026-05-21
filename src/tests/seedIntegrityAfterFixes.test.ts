@@ -15,6 +15,10 @@ import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineCont
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
 import { findStaleVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
+import {
+  findSeedForeignKeyViolations,
+  formatSeedForeignKeyErrors,
+} from "@/data/seed/seedForeignKeyMatrix";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
 import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
@@ -33,6 +37,13 @@ describe("seed & hydration integrity after audit fixes", () => {
       console.error("Seed errors:", verification.errors);
     }
     expect(verification.ok, verification.errors.join("; ")).toBe(true);
+  });
+
+  it("hydrated smoke seed passes ER8 foreign-key matrix", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const violations = findSeedForeignKeyViolations(hydrated);
+    expect(violations, formatSeedForeignKeyErrors(violations).join("; ")).toEqual([]);
   });
 
   it("hydrated projects: amountInvoiced and amountReceived match derived totals", () => {

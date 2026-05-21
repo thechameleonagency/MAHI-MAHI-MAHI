@@ -25,6 +25,7 @@ import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
 import { findStaleProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
+import { findSeedForeignKeyViolations, formatSeedForeignKeyErrors } from "./seedForeignKeyMatrix";
 
 import { FULL_PROFILE_MINIMUMS, getMinimumFor } from "./seedVolumeTargets";
 
@@ -138,25 +139,7 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
 
 
-  for (const p of state.projects) {
-
-    if (p.customerId && !state.customers.some((c) => c.id === p.customerId)) {
-
-      errors.push(`Project ${p.id} references missing customer ${p.customerId}`);
-
-    }
-
-  }
-
-  for (const inv of state.invoices) {
-
-    if (!state.customers.some((c) => c.id === inv.customerId)) {
-
-      errors.push(`Invoice ${inv.id} missing customer FK`);
-
-    }
-
-  }
+  errors.push(...formatSeedForeignKeyErrors(findSeedForeignKeyViolations(state)));
 
   for (const stale of findStaleOpenEnquiriesAfterProjectWin(state)) {
     errors.push(
