@@ -39,6 +39,7 @@ import { applyMultiAlertNotificationsRoute } from "./multiAlertNotificationsRout
 import { applyEnquiryShareTrail } from "./enquiryShareTrail";
 import { applyDeletionRequestSamples } from "./deletionRequestSamples";
 import { applyFieldInstallationDemo } from "./fieldInstallationDemo";
+import { applyAccountingReviewQueueTraining } from "./accountingReviewQueueTraining";
 
 const NARRATIVES = [
   applyStalledEnquiry,
@@ -81,6 +82,7 @@ const NARRATIVES = [
   applyEnquiryShareTrail,
   applyDeletionRequestSamples,
   applyFieldInstallationDemo,
+  applyAccountingReviewQueueTraining,
 ] as const;
 
 /** Apply all narrative edge-case patches (Appendix I). */

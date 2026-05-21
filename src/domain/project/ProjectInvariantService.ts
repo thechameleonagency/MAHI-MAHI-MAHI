@@ -6,6 +6,10 @@ import {
   isPartnerCreditTransaction,
 } from "@/domain/partners/derivePartnerEconomics";
 import { resolveProjectPartnerRow } from "@/lib/projectPartnerEconomics";
+import {
+  ACCOUNTING_REVIEW_QUEUE_COMPLETION_BLOCK_REASON,
+  projectHasAccountingReviewQueueBlock,
+} from "@/lib/accountingReviewQueueGuidance";
 import { projectRequiresClientInvoiceForCompletion } from "@/lib/projectCompletionInvoice";
 
 export type ProjectCreateInvariantInput = {
@@ -45,17 +49,6 @@ export type ProjectInvariantWorld = {
   attendanceRecords: AttendanceRecord[];
   partnerTransactions?: PartnerTransaction[];
 };
-
-function reviewQueueTouchesProject(queue: AccountingReviewQueueItem[], projectId: string, world: ProjectInvariantWorld): boolean {
-  return queue.some((q) => {
-    if (q.projectId === projectId) return true;
-    const inv = [...world.invoices, ...world.saleBills].find((i) => i.id === q.sourceDocumentId);
-    if (inv?.projectId === projectId) return true;
-    const exp = world.expenses.find((e) => e.id === q.sourceDocumentId);
-    if (exp?.projectId === projectId) return true;
-    return world.incomes.some((inc) => inc.id === q.sourceDocumentId && inc.projectId === projectId);
-  });
-}
 
 export class ProjectInvariantService {
   /**
@@ -141,8 +134,8 @@ export class ProjectInvariantService {
       }
     }
 
-    if (reviewQueueTouchesProject(world.accountingReviewQueue, projectId, world)) {
-      reasons.push("Clear or retry accounting review queue items for this project before completion.");
+    if (projectHasAccountingReviewQueueBlock(world.accountingReviewQueue, projectId, world)) {
+      reasons.push(ACCOUNTING_REVIEW_QUEUE_COMPLETION_BLOCK_REASON);
     }
 
     const lines = project.executionLineItems ?? [];

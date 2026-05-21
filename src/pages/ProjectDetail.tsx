@@ -36,9 +36,10 @@ import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner
 import { DirectExceptionProjectBanner } from "@/components/projects/DirectExceptionProjectBanner";
 import { projectDirectExceptionReason } from "@/lib/projectDirectException";
 import {
-  projectCompletionInvoiceBlockReason,
   projectRequiresClientInvoiceForCompletion,
 } from "@/lib/projectCompletionInvoice";
+import { evaluateProjectCompletionReadiness } from "@/lib/projectCompletionReadiness";
+import { ProjectCompletionHelpBanner } from "@/components/projects/ProjectCompletionHelpBanner";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useMasters } from "@/contexts/MastersContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
@@ -180,11 +181,14 @@ const ProjectDetail = () => {
     settingsTeamMembers,
     scheduledInstallations,
     expenses,
+    incomes,
     quotations,
     invoices,
     partners,
     partnerTransactions,
     payments,
+    accountingReviewQueue,
+    blockages,
     projects: _projects,
     saleBills,
     sites,
@@ -301,10 +305,38 @@ const ProjectDetail = () => {
     () => (project ? projectRequiresClientInvoiceForCompletion(project) : true),
     [project],
   );
-  const projectCompletionInvoiceReason = useMemo(
-    () => (project ? projectCompletionInvoiceBlockReason(project, projectInvoices) : null),
-    [project, projectInvoices],
-  );
+  const completionReadiness = useMemo(() => {
+    if (!project || !id) return null;
+    return evaluateProjectCompletionReadiness({
+      projectId: id,
+      project,
+      projectInvoices,
+      world: {
+        projects: [project],
+        invoices,
+        saleBills: saleBills ?? [],
+        expenses,
+        incomes,
+        blockages: blockages.filter((b) => b.projectId === id),
+        accountingReviewQueue,
+        attendanceRecords,
+        partnerTransactions,
+      },
+    });
+  }, [
+    project,
+    id,
+    projectInvoices,
+    invoices,
+    saleBills,
+    expenses,
+    incomes,
+    blockages,
+    accountingReviewQueue,
+    attendanceRecords,
+    partnerTransactions,
+  ]);
+  const completionBlockReason = completionReadiness?.primaryBlocker ?? null;
   const projectPayments = useMemo(
     () => payments.filter((payment) => payment.projectId === id),
     [id, payments],
@@ -525,7 +557,7 @@ const ProjectDetail = () => {
 
   const handleMarkProjectCompleted = () => {
     if (!project || !id) return;
-    const block = projectCompletionInvoiceReason;
+    const block = completionBlockReason;
     if (block) {
       toast({ title: "Cannot complete project", description: block, variant: "destructive" });
       return;
@@ -929,8 +961,8 @@ const ProjectDetail = () => {
               variant="outline"
               size="sm"
               className="h-8 text-success border-success/30"
-              disabled={Boolean(projectCompletionInvoiceReason)}
-              title={projectCompletionInvoiceReason ?? undefined}
+              disabled={Boolean(completionBlockReason)}
+              title={completionBlockReason ?? undefined}
               onClick={handleMarkProjectCompleted}
             >
               <CheckSquare className="w-3.5 h-3.5 mr-1.5" />Complete
@@ -962,11 +994,11 @@ const ProjectDetail = () => {
                       key={to}
                       disabled={
                         to === "Completed" &&
-                        (Boolean(projectCompletionInvoiceReason) || !canMarkProjectComplete)
+                        (Boolean(completionBlockReason) || !canMarkProjectComplete)
                       }
                       title={
                         to === "Completed"
-                          ? (projectCompletionInvoiceReason ??
+                          ? (completionBlockReason ??
                             (!canMarkProjectComplete ? "Your role cannot mark projects complete." : undefined))
                           : undefined
                       }
@@ -981,7 +1013,7 @@ const ProjectDetail = () => {
                             });
                             return;
                           }
-                          const reason = projectCompletionInvoiceReason;
+                          const reason = completionBlockReason;
                           if (reason) {
                             toast({ title: "Cannot move to Completed", description: reason, variant: "destructive" });
                             return;
@@ -1048,6 +1080,10 @@ const ProjectDetail = () => {
           project={project}
           reasonOverride={directExceptionFlash}
         />
+      )}
+
+      {!isProjectCompleted && (
+        <ProjectCompletionHelpBanner readiness={completionReadiness} />
       )}
 
       {project?.archivedAt && (

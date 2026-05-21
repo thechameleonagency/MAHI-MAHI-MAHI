@@ -583,7 +583,8 @@ export const ENTITY_POSTING_INVENTORY: EntityPostingRow[] = [
   {
     entity: "AccountingReviewQueueItem",
     typesFile: "finance.ts",
-    trigger: "Auto-flagged unusual entry for super-admin review",
+    trigger:
+      "Auto-flagged when voucher post fails; blocks project completion until retry or dismiss (see Finance queue)",
     voucher: "n/a (review-only)",
     coaLeaves: "—",
     auditConsumer: "Audit Logs, Chart of Accounts auto-posting rules",

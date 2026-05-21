@@ -130,4 +130,36 @@ describe("ProjectInvariantService", () => {
     const { ok } = svc.canMarkCompleted("P5", w);
     expect(ok).toBe(true);
   });
+
+  it("blocks completion when accounting review queue touches project", () => {
+    const p = baseProject({
+      id: "P6",
+      projectKind: "VENDORSHIP_ONLY",
+      executionLineItems: [],
+      generatedDocuments: [
+        {
+          id: "d1",
+          docKey: "vendor_code_agreement",
+          title: "Vendor code agreement",
+          createdAt: "2026-01-01",
+          bodyHtml: "<p>ok</p>",
+        },
+      ],
+    });
+    const w = emptyWorld([p]);
+    w.accountingReviewQueue = [
+      {
+        id: "ARQ-1",
+        reason: "Unbalanced",
+        eventType: "InvoiceIssued",
+        sourceDocumentId: "INV-X",
+        projectId: "P6",
+        amount: 1000,
+        createdAt: "2026-05-01",
+      },
+    ];
+    const { ok, reasons } = svc.canMarkCompleted("P6", w);
+    expect(ok).toBe(false);
+    expect(reasons.some((r) => /accounting review queue/i.test(r))).toBe(true);
+  });
 });

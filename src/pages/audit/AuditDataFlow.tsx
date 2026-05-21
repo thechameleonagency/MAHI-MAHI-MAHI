@@ -25,6 +25,11 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { VOUCHER_TYPES, LEDGER_ACCOUNTS } from "@/services/finance/chartOfAccounts";
 import { ENTITY_POSTING_INVENTORY } from "@/lib/audit/entityInventory";
+import {
+  ACCOUNTING_REVIEW_DISMISS_HELP,
+  ACCOUNTING_REVIEW_RETRY_HELP,
+  FINANCE_ACCOUNTING_REVIEW_QUEUE_PATH,
+} from "@/lib/accountingReviewQueueGuidance";
 
 // ============ DATA STRUCTURES ============
 
@@ -479,6 +484,32 @@ const AuditDataFlow = () => {
           Expense and income flow trees below are illustrative. They are not generated from live Settings masters or{" "}
           <code className="text-xs bg-muted px-1 rounded">auditBooksMasters</code> — use Chart of Accounts and Profit
           &amp; Loss for current mappings.
+        </AlertDescription>
+      </Alert>
+
+      <Alert className="border-warning/30 bg-warning/5">
+        <AlertTriangle className="h-4 w-4 text-warning" />
+        <AlertTitle className="text-sm">Training: Accounting review queue &amp; project completion</AlertTitle>
+        <AlertDescription className="space-y-2 text-sm text-muted-foreground">
+          <p>
+            When voucher auto-post fails, Finance shows a row in the{" "}
+            <button
+              type="button"
+              className="text-primary underline-offset-2 hover:underline"
+              onClick={() => navigate(FINANCE_ACCOUNTING_REVIEW_QUEUE_PATH)}
+            >
+              accounting review queue
+            </button>
+            . Projects cannot move to <strong>Completed</strong> while any queue row still touches that project
+            (direct <code className="text-xs bg-muted px-1 rounded">projectId</code> or linked invoice / expense /
+            income).
+          </p>
+          <p>{ACCOUNTING_REVIEW_RETRY_HELP}</p>
+          <p>{ACCOUNTING_REVIEW_DISMISS_HELP}</p>
+          <p>
+            Project detail shows the same guidance on the completion banner when blocked. Dismiss is audited as a queue
+            removal, not a voucher post.
+          </p>
         </AlertDescription>
       </Alert>
 

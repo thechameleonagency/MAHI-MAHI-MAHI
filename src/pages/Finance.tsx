@@ -946,6 +946,9 @@ const Finance = () => {
             </CardTitle>
             <p className="text-sm text-muted-foreground">
               Voucher auto-posting failed for these events — resolve manually or adjust mapping (prototype).
+              While a row is linked to a project, that project cannot move to <strong>Completed</strong> until you{" "}
+              <strong>Retry post</strong> (books updated) or <strong>Dismiss</strong> (intentional escape hatch — no voucher
+              is created; fix books outside the app, then dismiss to unblock completion).
             </p>
           </CardHeader>
           <CardContent className="pt-0">
@@ -983,9 +986,14 @@ const Finance = () => {
                           type="button"
                           size="sm"
                           variant="outline"
+                          title="Removes from queue without posting a voucher. Use after manual books fix or when auto-post cannot succeed — unblocks project completion for this project."
                           onClick={() => {
                             dismissAccountingReviewItem(item.id);
-                            toast({ title: "Dismissed", description: "Removed from review queue (mark resolved in your process)." });
+                            toast({
+                              title: "Dismissed",
+                              description:
+                                "Removed from review queue without posting. Project completion can proceed once all rows for that project are cleared.",
+                            });
                           }}
                         >
                           Dismiss
