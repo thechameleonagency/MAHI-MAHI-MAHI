@@ -14,7 +14,7 @@ export const applyClosedProjectReopen: NarrativeApply = (state) => {
   const target = state.projects.find((p) => p.lifecycleStatus === "Closed");
   if (!target) return;
   target.lifecycleStatus = "In Progress";
-  target.status = "Ongoing";
+  target.status = "In Progress";
   target.executionNotes = "Reopened by super_admin — warranty callback for inverter fault";
   pushAudit(state, {
     action: "update",

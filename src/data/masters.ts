@@ -89,9 +89,11 @@ export const progressStages: MasterItem[] = [
 
 // PROJECT STATUSES
 export const projectStatuses: MasterItem[] = [
-  { value: "ongoing", label: "Ongoing" },
-  { value: "completed", label: "Completed" },
+  { value: "new", label: "New" },
+  { value: "in-progress", label: "In Progress" },
   { value: "on-hold", label: "On Hold" },
+  { value: "completed", label: "Completed" },
+  { value: "closed", label: "Closed" },
 ];
 
 // Outsource Work Tags (for analytics in Finance)

@@ -1,9 +1,13 @@
+import type { AppState } from "@/contexts/AppDataContext";
 import {
   canonicalizeProjectLifecycleStatus,
+  projectLifecycleDisplayLabel,
   type ProjectLifecycleStatus,
 } from "@/domain/stateMachines/projectStateMachine";
 import { normalizeProject } from "@/lib/projectNormalize";
 import type { Project } from "@/types/project";
+
+export { projectLifecycleDisplayLabel };
 
 export type ProjectLifecycleFilter = "all" | ProjectLifecycleStatus;
 
@@ -82,5 +86,50 @@ export function buildProjectsListKpiStats(projects: Project[]) {
     completed: lifecycleCounts.Completed,
     closed: lifecycleCounts.Closed,
     totalKW: projects.reduce((sum, p) => sum + (parseFloat(p.capacity) || 0), 0).toFixed(1),
+  };
+}
+
+/** Executing on site — canonical `In Progress` only (excludes New intake). */
+export function isProjectLifecycleInProgress(project: Project): boolean {
+  return getProjectLifecycleStatus(project) === "In Progress";
+}
+
+export function isProjectLifecycleOnHold(project: Project): boolean {
+  return getProjectLifecycleStatus(project) === "On Hold";
+}
+
+export function isProjectLifecycleNew(project: Project): boolean {
+  return getProjectLifecycleStatus(project) === "New";
+}
+
+/** Dashboard / analytics “active project” counts — in-flight execution, not intake. */
+export function isProjectActiveForOperations(project: Project): boolean {
+  return isProjectLifecycleInProgress(project);
+}
+
+/** Active Sites tab — started execution, not terminal. */
+export function isProjectActiveForSiteExecution(project: Project): boolean {
+  const lifecycle = getProjectLifecycleStatus(project);
+  if (lifecycle === "Completed" || lifecycle === "Closed") return false;
+  if (!project.startedAt?.trim()) return false;
+  return lifecycle === "In Progress" || lifecycle === "On Hold";
+}
+
+export function projectStatusBadgeProps(project: Project): {
+  status: string;
+  label: string;
+} {
+  const lifecycle = getProjectLifecycleStatus(project);
+  return {
+    status: lifecycle,
+    label: projectLifecycleDisplayLabel(lifecycle),
+  };
+}
+
+/** Hydrate pass — sync legacy `status` + lifecycle from normalizeProject (UX1). */
+export function reconcileProjectsLifecycleVocabulary(state: AppState): AppState {
+  return {
+    ...state,
+    projects: state.projects.map((p) => normalizeProject(p)),
   };
 }

@@ -38,5 +38,5 @@ export const applyDirectExceptionProject: NarrativeApply = (state) => {
   p.progressStage = "work-in-progress";
   p.executionPhase = "Panel installation";
   p.startedAt = p.startedAt ?? seedDateAt(0.72);
-  p.status = "Ongoing";
+  p.status = "In Progress";
 };

@@ -79,7 +79,15 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
             <div className="flex items-center gap-2">
               <Badge variant="outline">{project.type}</Badge>
               <Badge variant="outline">{project.projectType}</Badge>
-              <Badge className={project.status === "Ongoing" ? "bg-primary/10 text-primary" : "bg-muted"}>{project.status}</Badge>
+              <Badge
+                className={
+                  project.lifecycleStatus === "In Progress" || project.lifecycleStatus === "New"
+                    ? "bg-primary/10 text-primary"
+                    : "bg-muted"
+                }
+              >
+                {project.lifecycleStatus ?? project.status}
+              </Badge>
             </div>
           </div>
         </div>

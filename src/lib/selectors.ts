@@ -16,7 +16,7 @@ export function getProjectKind(project: Project | undefined | null): ProjectKind
 }
 
 export function getProjectStatus(project: Project | undefined | null): string {
-  return project?.status ?? "Ongoing";
+  return project?.lifecycleStatus ?? project?.status ?? "New";
 }
 
 export function getProjectPartners(project: Project | undefined | null) {

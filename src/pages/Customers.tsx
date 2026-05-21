@@ -401,7 +401,9 @@ const Customers = () => {
           const pendingAmount = allBills.reduce((sum, inv) => sum + (inv.total - (inv.amountReceived || 0)), 0);
           const totalReceived = allBills.reduce((sum, inv) => sum + (inv.amountReceived || 0), 0);
           const activeProjectsCount = projects.filter(
-            (p) => p.customerId === customer.id && p.status === "Ongoing",
+            (p) =>
+              p.customerId === customer.id &&
+              (p.lifecycleStatus === "In Progress" || p.lifecycleStatus === "On Hold"),
           ).length;
           const isLead = (customer.itemsBought?.length ?? 0) === 0 && (customer.totalPurchases ?? 0) === 0;
           

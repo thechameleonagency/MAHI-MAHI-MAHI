@@ -82,12 +82,17 @@ export const canStartProject = (
   return { ok: true };
 };
 
-/** Legacy `status` field kept in sync with canonical lifecycle for list badges. */
+/** Denormalized list `status` — mirrors lifecycle labels (UX1: no separate "Ongoing" vocabulary). */
 export function legacyStatusFromLifecycle(
   lifecycle: ProjectLifecycleStatus,
-): "Ongoing" | "Completed" | "On Hold" | "Closed" {
-  if (lifecycle === "Completed") return "Completed";
-  if (lifecycle === "Closed") return "Closed";
-  if (lifecycle === "On Hold") return "On Hold";
-  return "Ongoing";
+): ProjectLifecycleStatus {
+  return lifecycle;
+}
+
+/** Human-readable label for badges, filters, and KPIs. */
+export function projectLifecycleDisplayLabel(
+  lifecycle: ProjectLifecycleStatus | undefined,
+): string {
+  if (!lifecycle) return "New";
+  return lifecycle;
 }

@@ -529,7 +529,7 @@ const Timeline = () => {
         value: timelineTasks.length,
       },
       { label: "This week", value: tasksThisWeek },
-      { label: "Open projects", value: projects.filter((p) => p.status === "Ongoing").length },
+      { label: "In progress", value: projects.filter((p) => p.lifecycleStatus === "In Progress").length },
     ];
   }, [timelineTasks, tasksOverdueOnly, projects]);
 

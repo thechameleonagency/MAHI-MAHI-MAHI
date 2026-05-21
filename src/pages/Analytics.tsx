@@ -18,6 +18,7 @@ import { BarChart3, Download } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useAppData } from "@/contexts/AppDataContext";
+import { isProjectActiveForOperations } from "@/lib/projectListFilters";
 import { downloadCSV } from "@/lib/csvExport";
 import { formatINR, formatINRCompact } from "@/lib/formatCurrency";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
@@ -277,7 +278,7 @@ const Analytics = () => {
     const totalRevenue = filteredPayments
       .filter((p) => p.direction === "in")
       .reduce((s, p) => s + p.amount, 0);
-    const activeProjects = projects.filter(p => p.status === "Ongoing").length;
+    const activeProjects = projects.filter((p) => isProjectActiveForOperations(p)).length;
     const totalEmployees = employees.length;
     const stockValue = inventoryItems.reduce((sum, item) => sum + ((item.stock || 0) * (item.salePrice || 0)), 0);
 

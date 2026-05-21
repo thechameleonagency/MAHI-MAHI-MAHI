@@ -3,6 +3,7 @@
  */
 import type { Project } from "@/types/project";
 import type { Customer, Invoice } from "@/types/finance";
+import { isActiveSiteProject } from "@/lib/activeSiteProjects";
 import { isProjectCompleted, isProjectOpen } from "@/lib/agingHelpers";
 import { filterCustomersForList, type CustomerKindFilter } from "@/lib/customerListFilters";
 import { isCustomerArchived } from "@/lib/selectors";
@@ -30,16 +31,7 @@ export function completedDividerIndex(projects: Project[], hideCompleted: boolea
 }
 
 export function filterActiveSiteProjects(projects: Project[]): Project[] {
-  return projects.filter((p) => {
-    if (p.lifecycleStatus === "Completed") return false;
-    if (p.status === "Completed" || p.status === "Closed") return false;
-    return (
-      p.status === "Ongoing" ||
-      p.lifecycleStatus === "In Progress" ||
-      p.lifecycleStatus === "In Progress" ||
-      p.lifecycleStatus === "On Hold"
-    );
-  });
+  return projects.filter((p) => isActiveSiteProject(p));
 }
 
 export type { CustomerKindFilter } from "@/lib/customerListFilters";

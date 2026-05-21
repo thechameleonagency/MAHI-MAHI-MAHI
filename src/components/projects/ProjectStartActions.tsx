@@ -88,7 +88,7 @@ export function ProjectStartActions({ project }: { project: Project }) {
     updateProject(project.id, {
       startedAt: now,
       lifecycleStatus: "In Progress",
-      status: "Ongoing",
+      status: "In Progress",
     });
     markProjectCommissionAccrualsPayable(project.id, project.quotationId);
     toast({ title: "Project started", description: `${project.name} is now active.` });

@@ -19,6 +19,7 @@ import { reconcileProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 import { reconcileProgressReportTaskLinkage } from "@/lib/progressReportTaskContinuity";
 import { reconcileDeletionRequests } from "@/lib/deletionRequestContinuity";
 import { reconcileQuotationShareDetails } from "@/lib/quotationShareContinuity";
+import { reconcileProjectsLifecycleVocabulary } from "@/lib/projectListFilters";
 
 /**
  * Appendix N — full hydration after seed assembly (steps 6–12 beyond boot pipeline).
@@ -71,8 +72,10 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
 
   s = reconcileIncGiverTransactions(s);
 
-  return reconcileQuotationShareDetails(
-    reconcileDeletionRequests(reconcileProgressReportTaskLinkage(reconcileProjectCustomerLinkage(s))),
+  return reconcileProjectsLifecycleVocabulary(
+    reconcileQuotationShareDetails(
+      reconcileDeletionRequests(reconcileProgressReportTaskLinkage(reconcileProjectCustomerLinkage(s))),
+    ),
   );
 }
 

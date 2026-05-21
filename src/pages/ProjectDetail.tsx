@@ -49,8 +49,10 @@ import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 import {
   canTransitionProjectStatus,
+  legacyStatusFromLifecycle,
   type ProjectLifecycleStatus,
 } from "@/domain/stateMachines/projectStateMachine";
+import { PROJECT_LIFECYCLE_FILTER_OPTIONS } from "@/lib/projectListFilters";
 import { toast } from "@/hooks/use-toast";
 import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { ToastAction } from "@/components/ui/toast";
@@ -400,7 +402,9 @@ const ProjectDetail = () => {
   const [editPartnerType, setEditPartnerType] = useState<ProjectPartnerType>(project?.partners?.[0]?.partnerType || "profit");
   const [editPartnerShare, setEditPartnerShare] = useState("");
   const [editEndDate, setEditEndDate] = useState(project?.endDate || "");
-  const [editProjectStatus, setEditProjectStatus] = useState<Project["status"]>(project?.status || "Ongoing");
+  const [editLifecycleStatus, setEditLifecycleStatus] = useState<ProjectLifecycleStatus>(
+    project?.lifecycleStatus ?? "New",
+  );
   const [editProgressStage, setEditProgressStage] = useState(project?.progressStage || "");
 
   // Outsource work state
@@ -422,8 +426,9 @@ const ProjectDetail = () => {
   }, [project?.projectType, siteChecklistTemplates]);
 
   // Derived project status
-  const projectStatus = project?.status || "Ongoing";
-  const isProjectCompleted = projectStatus === "Completed";
+  const projectLifecycle = project?.lifecycleStatus ?? "New";
+  const isProjectCompleted =
+    projectLifecycle === "Completed" || projectLifecycle === "Closed";
   const canViewCommercial = useCan("projectCommercial", "view");
   const canMarkProjectComplete =
     useCan("projectCommercial", "edit") || useCan("projectExecution", "edit");
@@ -452,7 +457,7 @@ const ProjectDetail = () => {
       setEditStartDate(project.startDate);
       setEditCustomerId(project.customerId);
       setEditEndDate(project.endDate || "");
-      setEditProjectStatus(project.status);
+      setEditLifecycleStatus(project.lifecycleStatus ?? "New");
       setEditProgressStage(project.progressStage || "");
       const p = project.partners?.[0];
       setEditPartnerId(p?.partnerId || "");
@@ -493,7 +498,8 @@ const ProjectDetail = () => {
       projectType: editProjectType,
       startDate: editStartDate,
       endDate: editEndDate || undefined,
-      status: editProjectStatus,
+      lifecycleStatus: editLifecycleStatus,
+      status: legacyStatusFromLifecycle(editLifecycleStatus),
       progressStage: editProgressStage || undefined,
       partners: partnerData
     });
@@ -508,7 +514,11 @@ const ProjectDetail = () => {
       toast({ title: "Cannot complete project", description: block, variant: "destructive" });
       return;
     }
-    updateProject(project.id, { lifecycleStatus: "Completed", endDate: new Date().toISOString().slice(0, 10) });
+    updateProject(project.id, {
+      lifecycleStatus: "Completed",
+      status: legacyStatusFromLifecycle("Completed"),
+      endDate: new Date().toISOString().slice(0, 10),
+    });
     const invoiceParams = new URLSearchParams({
       from: "project", client: project.client,
       address: project.clientAddress || "", contact: project.clientPhone || "",
@@ -957,14 +967,7 @@ const ProjectDetail = () => {
                         }
                         updateProject(project.id, {
                           lifecycleStatus: to,
-                          status:
-                            to === "Completed" || to === "Closed"
-                              ? to === "Closed"
-                                ? "Closed"
-                                : "Completed"
-                              : to === "On Hold"
-                                ? "On Hold"
-                                : "Ongoing",
+                          status: legacyStatusFromLifecycle(to),
                           ...(to === "Completed" || to === "Closed"
                             ? { endDate: new Date().toISOString().slice(0, 10) }
                             : {}),
@@ -1067,7 +1070,7 @@ const ProjectDetail = () => {
           <ProgressReportTab
             projectId={project.id}
             projectName={project.name}
-            projectStatus={project.status}
+            projectStatus={project.lifecycleStatus ?? project.status}
             blockages={projectBlockages}
             tickets={projectTickets}
             timelineStatus={projectTimeline}
@@ -2400,12 +2403,19 @@ const ProjectDetail = () => {
 
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select value={editProjectStatus} onValueChange={(v: any) => setEditProjectStatus(v)}>
+                <Select
+                  value={editLifecycleStatus}
+                  onValueChange={(v) => setEditLifecycleStatus(v as ProjectLifecycleStatus)}
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Ongoing">Ongoing</SelectItem>
-                    <SelectItem value="On Hold">On Hold</SelectItem>
-                    <SelectItem value="Completed">Completed</SelectItem>
+                    {PROJECT_LIFECYCLE_FILTER_OPTIONS.filter((o) => o.value !== "all").map(
+                      (opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ),
+                    )}
                   </SelectContent>
                 </Select>
               </div>

@@ -77,6 +77,7 @@ import {
   parseProjectStatusFilterFromUrl,
   PROJECT_LIFECYCLE_FILTER_OPTIONS,
   projectLifecycleFilterToUrlParam,
+  projectStatusBadgeProps,
   type ProjectLifecycleFilter,
 } from "@/lib/projectListFilters";
 
@@ -927,7 +928,7 @@ const Projects = () => {
                 </TableCell>
                 <TableCell>{project.capacity}</TableCell>
                 <TableCell>
-                  <StatusBadge status={normalizeProject(project).lifecycleStatus} />
+                  <StatusBadge {...projectStatusBadgeProps(normalizeProject(project))} />
                 </TableCell>
                 <TableCell className="text-muted-foreground">{project.startDate}</TableCell>
                 <TableCell className="text-right">
@@ -959,7 +960,7 @@ const Projects = () => {
                       <p className="text-xs text-muted-foreground font-mono">{project.id}</p>
                     </div>
                   </div>
-                  <StatusBadge status={normalizeProject(project).lifecycleStatus} />
+                  <StatusBadge {...projectStatusBadgeProps(normalizeProject(project))} />
                 </div>
                 
                 <div className="flex flex-wrap gap-1.5 mb-3">

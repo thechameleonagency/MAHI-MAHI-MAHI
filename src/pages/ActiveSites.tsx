@@ -701,7 +701,7 @@ const ActiveSites = () => {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Ongoing
+                In progress
                 <Badge variant="secondary" className="ml-1.5 text-2xs">
                   {activeProjects.length}
                 </Badge>
@@ -724,7 +724,7 @@ const ActiveSites = () => {
             <InlineKpiStrip
               className="w-full sm:w-auto sm:justify-end"
               items={[
-                { label: "Ongoing sites", value: activeProjects.length },
+                { label: "In progress sites", value: activeProjects.length },
                 { label: "Blockages", value: blockages.filter((b) => b.status === "active").length },
                 { label: "Ticket sites", value: completedProjectsWithTickets.length },
                 { label: "Active tickets", value: activeTicketsCount },

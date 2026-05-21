@@ -252,7 +252,8 @@ export interface Project {
   executionNotes?: string;
   
   // Legacy coexisting fields enforced in normalization
-  status?: "Ongoing" | "Completed" | "On Hold" | string;
+  /** Denormalized mirror of `lifecycleStatus` (same labels after UX1 reconcile). */
+  status?: import("@/domain/stateMachines/projectStateMachine").ProjectLifecycleStatus | string;
   progressStage?: string;
   
   // Client details

@@ -95,7 +95,7 @@ const Agents = () => {
   const getAgentStats = (agentId: string) => {
     const agentProjects = projects.filter(p => p.agentId === agentId);
     const agentEnquiries = enquiries.filter(e => e.agentId === agentId);
-    const ongoing = agentProjects.filter(p => p.status === "Ongoing").length;
+    const ongoing = agentProjects.filter((p) => p.lifecycleStatus === "In Progress").length;
     const completed = agentProjects.filter(p => p.status === "Completed").length;
     const agent = agents?.find((a: any) => a.id === agentId);
     const ratePerKw = parseFloat(String(agent?.ratePerKw ?? "0"));

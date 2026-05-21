@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { legacyStatusFromLifecycle } from "@/domain/stateMachines/projectStateMachine";
 import {
   buildProjectsListKpiStats,
   countProjectsByLifecycle,
+  isProjectActiveForOperations,
   matchesProjectLifecycleFilter,
   parseProjectStatusFilterFromUrl,
+  reconcileProjectsLifecycleVocabulary,
 } from "@/lib/projectListFilters";
 import type { Project } from "@/types/project";
 
@@ -100,8 +103,30 @@ describe("projectListFilters (MD3)", () => {
     expect(stats.inProgress).toBe(1);
     expect(stats.total).toBe(2);
     expect(stats.totalKW).toBe("15.0");
-    expect(
-      rows.filter((p) => p.status === "Ongoing").length,
-    ).toBe(2);
+    expect(rows.filter((p) => isProjectActiveForOperations(p)).length).toBe(1);
+  });
+
+  it("legacyStatusFromLifecycle mirrors lifecycle labels (UX1)", () => {
+    expect(legacyStatusFromLifecycle("New")).toBe("New");
+    expect(legacyStatusFromLifecycle("In Progress")).toBe("In Progress");
+    expect(legacyStatusFromLifecycle("On Hold")).toBe("On Hold");
+  });
+
+  it("reconcileProjectsLifecycleVocabulary syncs status from lifecycle", () => {
+    const state = {
+      projects: [
+        base({ id: "P-NEW", lifecycleStatus: "New", status: "Ongoing" }),
+        base({
+          id: "P-IP",
+          lifecycleStatus: "In Progress",
+          status: "Ongoing",
+          startedAt: "2026-02-01",
+          progressStage: "work-in-progress",
+        }),
+      ],
+    } as import("@/contexts/AppDataContext").AppState;
+    const next = reconcileProjectsLifecycleVocabulary(state);
+    expect(next.projects.find((p) => p.id === "P-NEW")?.status).toBe("New");
+    expect(next.projects.find((p) => p.id === "P-IP")?.status).toBe("In Progress");
   });
 });

@@ -48,6 +48,11 @@ import {
   getOutstandingReceivables,
   partitionCashRevenueByBillKind,
 } from "@/domain/finance/financialSemantics";
+import {
+  isProjectActiveForOperations,
+  isProjectActiveForSiteExecution,
+  isProjectLifecycleOnHold,
+} from "@/lib/projectListFilters";
 import { getInvoiceOpenBalance } from "@/lib/billingSelectors";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
@@ -202,7 +207,10 @@ const Dashboard = () => {
   ]);
 
   const ongoingProjectIds = useMemo(
-    () => new Set(scopedProjects.filter((p) => p.status === "Ongoing").map((p) => p.id)),
+    () =>
+      new Set(
+        scopedProjects.filter((p) => isProjectActiveForSiteExecution(p)).map((p) => p.id),
+      ),
     [scopedProjects],
   );
 
@@ -220,8 +228,10 @@ const Dashboard = () => {
     const totalRevenue = getRevenueCash(payments);
     const cashSplit = partitionCashRevenueByBillKind(payments, invoices, saleBills);
 
-    const activeProjects = scopedProjects.filter((p) => p.status === "Ongoing").length;
-    const completedCount = scopedProjects.filter((p) => p.status === "Completed").length;
+    const activeProjects = scopedProjects.filter((p) => isProjectActiveForOperations(p)).length;
+    const completedCount = scopedProjects.filter(
+      (p) => p.lifecycleStatus === "Completed" || p.status === "Completed",
+    ).length;
 
     const activeEmployees = employees.filter((e) => e.status === "Active").length;
     const onLeave = employees.filter((e) => e.status !== "Active").length;
@@ -234,7 +244,7 @@ const Dashboard = () => {
 
     const pendingQuotations = quotations.filter((q) => q.status === "draft" || q.status === "sent");
 
-    const activeBlockages = scopedProjects.filter((p) => p.status === "On Hold").length;
+    const activeBlockages = scopedProjects.filter((p) => isProjectLifecycleOnHold(p)).length;
 
     const activeLoansList = loans.filter((l) => l.status === "Active");
     const upcomingEmiAmount = activeLoansList.reduce((sum, l) => sum + l.emiAmount, 0);
@@ -499,14 +509,7 @@ const Dashboard = () => {
   const activeProjectsList = useMemo(
     () =>
       scopedProjects.filter(
-        (p) =>
-          p.lifecycleStatus === "Active" ||
-          p.lifecycleStatus === "In Progress" ||
-          p.status === "Ongoing" ||
-          (p.lifecycleStatus !== "Completed" &&
-            p.lifecycleStatus !== "New" &&
-            p.status !== "Completed" &&
-            p.status !== "Closed"),
+        (p) => isProjectActiveForOperations(p) || isProjectLifecycleOnHold(p),
       ),
     [scopedProjects],
   );
