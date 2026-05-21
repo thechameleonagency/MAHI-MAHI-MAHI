@@ -45,8 +45,12 @@ import {
 } from "@/lib/progressReportTransport";
 import { formatINR } from "@/lib/formatCurrency";
 import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 import { CEO_OPERATIONAL_READ_ONLY_HINT } from "@/lib/ceoOperationalReadOnly";
+import { pickFocusWorkStatusStageKey } from "@/lib/progressReportWorkStatusMobile";
+import { WorkStatusMobileStagePicker } from "@/components/projects/WorkStatusMobileStagePicker";
+import { cn } from "@/lib/utils";
 
 // Timeline steps for site status card (now 7 steps)
 const TIMELINE_STEPS = [
@@ -233,6 +237,7 @@ export function ProgressReportTab({
     role: currentRole,
   });
   const ceoReadOnly = useCeoOperationalReadOnly();
+  const isMobile = useIsMobile();
   const updateTimeline = useCallback(
     (updates: Partial<ProjectTimelineStatus>) => {
       if (ceoReadOnly) {
@@ -270,6 +275,23 @@ export function ProgressReportTab({
   useEffect(() => {
     setWorkStatusApprovals(timelineStatus?.workStatusApprovals ?? {});
   }, [projectId, timelineStatus?.updatedAt]);
+
+  const [mobileWorkStageKey, setMobileWorkStageKey] = useState(() =>
+    pickFocusWorkStatusStageKey(WORK_STATUS_STAGES, [], {}),
+  );
+
+  useEffect(() => {
+    if (!isMobile) return;
+    setMobileWorkStageKey((prev) => {
+      const stillValid = WORK_STATUS_STAGES.some((s) => s.value === prev);
+      if (stillValid && prev) return prev;
+      return pickFocusWorkStatusStageKey(
+        WORK_STATUS_STAGES,
+        timelineStatus?.workStatusChecks ?? [],
+        timelineStatus?.workStatusApprovals ?? {},
+      );
+    });
+  }, [isMobile, projectId, timelineStatus?.workStatusChecks, timelineStatus?.workStatusApprovals]);
   
   // Image viewer state
   const [viewerImage, setViewerImage] = useState<{ url: string; fileName: string } | null>(null);
@@ -365,6 +387,15 @@ export function ProgressReportTab({
   const loanStage = timelineStatus?.loanStage || "";
   const loanStatus = timelineStatus?.loanStatus || "";
   const workStatusChecks = timelineStatus?.workStatusChecks || [];
+
+  const workStatusStagesForView = useMemo(() => {
+    if (!isMobile) return WORK_STATUS_STAGES;
+    const key =
+      mobileWorkStageKey ||
+      pickFocusWorkStatusStageKey(WORK_STATUS_STAGES, workStatusChecks, workStatusApprovals);
+    return WORK_STATUS_STAGES.filter((s) => s.value === key);
+  }, [isMobile, mobileWorkStageKey, workStatusChecks, workStatusApprovals]);
+
   const discomChecks = timelineStatus?.discomChecks || [];
   const discomSubsidyStatus = timelineStatus?.discomSubsidyStatus || "";
   const paymentType = timelineStatus?.paymentType || "";
@@ -1763,7 +1794,14 @@ export function ProgressReportTab({
                 }}
               />
               
-              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-1">
+              <div
+                className={cn(
+                  "py-1",
+                  isMobile
+                    ? "grid grid-cols-4 gap-2"
+                    : "flex items-center gap-1 overflow-x-auto no-scrollbar",
+                )}
+              >
                 {visibleSteps.map((step) => {
                   const isComplete = isStepComplete(step.key);
                   const inProgress = isStepInProgress(step.key);
@@ -1771,7 +1809,13 @@ export function ProgressReportTab({
                   const StepIcon = step.icon;
                   
                   return (
-                    <div key={step.key} className="flex flex-col items-center gap-1.5 flex-1 z-10">
+                    <div
+                      key={step.key}
+                      className={cn(
+                        "flex flex-col items-center gap-1.5 z-10",
+                        isMobile ? "min-w-0" : "flex-1",
+                      )}
+                    >
                       <div 
                         onClick={() => setExpandedStep(isExpanded ? null : step.key)}
                         className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer 
@@ -2707,9 +2751,24 @@ export function ProgressReportTab({
                     <Progress value={getWorkStatusProgress()} className="h-2" />
                   </div>
                   
+                  <WorkStatusMobileStagePicker
+                    stages={WORK_STATUS_STAGES}
+                    selectedKey={
+                      mobileWorkStageKey ||
+                      pickFocusWorkStatusStageKey(
+                        WORK_STATUS_STAGES,
+                        workStatusChecks,
+                        workStatusApprovals,
+                      )
+                    }
+                    checkedKeys={workStatusChecks}
+                    approvals={workStatusApprovals}
+                    onSelect={setMobileWorkStageKey}
+                  />
+
                   {/* Work Items with Approval Flow */}
                   <div className="space-y-3">
-                    {WORK_STATUS_STAGES.map((stage) => {
+                    {workStatusStagesForView.map((stage) => {
                       const isChecked = workStatusChecks.includes(stage.value);
                       const approval = workStatusApprovals[stage.value];
                       const approvalStatus = approval?.status || "pending";
@@ -2726,7 +2785,8 @@ export function ProgressReportTab({
                             approvalStatus === "closed" ? 'bg-muted border-muted-foreground/20' :
                             'bg-muted/30 border-muted-foreground/10'
                         }`}>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
+                            <div className="flex min-w-0 items-start gap-2">
                             {/* Checkbox - approver roles only */}
                             {canApproveWorkStatus ? (
                               <Checkbox
@@ -2736,7 +2796,7 @@ export function ProgressReportTab({
                                 disabled={approvalStatus === "closed"}
                               />
                             ) : (
-                              <div className={`w-4 h-4 rounded-sm border flex items-center justify-center ${
+                              <div className={`w-4 h-4 rounded-sm border flex items-center justify-center shrink-0 ${
                                 isChecked ? 'bg-primary border-primary' : 'border-muted-foreground/40'
                               }`}>
                                 {isChecked && <Check className="w-3 h-3 text-primary-foreground" />}
@@ -2745,16 +2805,17 @@ export function ProgressReportTab({
                             
                             <label 
                               htmlFor={`work-${stage.value}`} 
-                              className={`text-sm flex-1 ${isChecked ? 'text-foreground font-medium' : 'text-muted-foreground'}`}
+                              className={`text-sm min-w-0 flex-1 ${isChecked ? 'text-foreground font-medium' : 'text-muted-foreground'}`}
                             >
                               {stage.label}
-                              {stage.subItems && stage.subItems.length > 0 && (
+                              {stage.subItems && stage.subItems.length > 0 && !isMobile && (
                                 <span className="text-2xs text-muted-foreground ml-1">({stage.subItems.length} sub-items)</span>
                               )}
                             </label>
+                            </div>
                             
                             {/* Media indicators */}
-                            <div className="flex items-center gap-1.5 text-2xs">
+                            <div className="flex flex-wrap items-center gap-1.5 text-2xs sm:ml-auto">
                               {stage.photoRequired && approval?.photoUrls && approval.photoUrls.length > 0 && (
                                 <div className="flex items-center gap-0.5">
                                   {approval.photoUrls.slice(0, 3).map((url, idx) => (
@@ -2791,37 +2852,43 @@ export function ProgressReportTab({
                             
                             {/* Status Badge */}
                             {approvalStatus === "requested" && (
-                              <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-2xs px-1.5">
+                              <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-2xs px-1.5 shrink-0">
                                 Pending Approval
                               </Badge>
                             )}
                             {approvalStatus === "approved" && (
-                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-2xs px-1.5">
+                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-2xs px-1.5 shrink-0">
                                 Approved
                               </Badge>
                             )}
                             {approvalStatus === "rejected" && (
-                              <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-2xs px-1.5">
+                              <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-2xs px-1.5 shrink-0">
                                 Rejected
                               </Badge>
                             )}
                             {approvalStatus === "closed" && (
-                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-2xs px-1.5">
+                              <Badge variant="outline" className="bg-accent text-foreground border-border/80 text-2xs px-1.5 shrink-0">
                                 Completed
                               </Badge>
                             )}
                           </div>
                           
-                          {/* Sub-items (expandable) with enhanced status */}
+                          {/* Sub-items — expanded on mobile (MO1); collapsible on md+ */}
                           {stage.subItems && stage.subItems.length > 0 && (
-                            <Collapsible>
-                              <CollapsibleTrigger asChild>
-                                <Button variant="ghost" size="sm" className="h-6 text-xs ml-6 gap-1">
-                                  <ChevronRight className="w-3 h-3 transition-transform duration-200 ui-expanded:rotate-90" />
-                                  View {stage.subItems.length} sub-items
-                                </Button>
-                              </CollapsibleTrigger>
-                              <CollapsibleContent className="ml-6 mt-2 space-y-2">
+                            <Collapsible open={isMobile ? true : undefined}>
+                              {!isMobile ? (
+                                <CollapsibleTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="h-6 text-xs ml-6 gap-1">
+                                    <ChevronRight className="w-3 h-3 transition-transform duration-200 ui-expanded:rotate-90" />
+                                    View {stage.subItems.length} sub-items
+                                  </Button>
+                                </CollapsibleTrigger>
+                              ) : (
+                                <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground pt-1">
+                                  Sub-items ({stage.subItems.length})
+                                </p>
+                              )}
+                              <CollapsibleContent className={cn("mt-2 space-y-2", !isMobile && "ml-6")}>
                                 {stage.subItems.map((subItem) => {
                                   // Get sub-item approval info
                                   const subApproval = approval?.subItemApprovals?.[subItem.value];
@@ -2850,7 +2917,8 @@ export function ProgressReportTab({
                                       }`}
                                       onClick={() => handleSubItemClick(stage.value, subItem.value, subItem.photoRequired || false)}
                                     >
-                                      <div className="flex items-center gap-2 text-xs">
+                                      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2 text-xs">
+                                        <div className="flex min-w-0 items-center gap-2">
                                         {/* Status indicator */}
                                         {isSubCompleted ? (
                                           <CheckCircle2 className="w-3.5 h-3.5 text-success flex-shrink-0" />
@@ -2860,7 +2928,7 @@ export function ProgressReportTab({
                                           <Circle className="w-2.5 h-2.5 text-destructive flex-shrink-0" />
                                         )}
                                         
-                                        <span className={`flex-1 font-medium ${
+                                        <span className={`min-w-0 flex-1 font-medium ${
                                           isSubCompleted 
                                             ? 'text-foreground' 
                                             : isOnHold
@@ -2869,7 +2937,9 @@ export function ProgressReportTab({
                                         }`}>
                                           {subItem.label}
                                         </span>
+                                        </div>
                                         
+                                        <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
                                         {/* Transport counts for transport sub-items */}
                                         {subItem.value?.includes("transport") && (
                                           <span className="text-2xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
@@ -2917,11 +2987,12 @@ export function ProgressReportTab({
                                             {subApproval?.videoCount || 0}
                                           </span>
                                         )}
+                                        </div>
                                       </div>
                                       
                                       {/* Employee info and timestamp for completed/pending items */}
                                       {subApproval?.updatedByName && (
-                                        <div className="mt-1.5 ml-5 text-2xs text-muted-foreground">
+                                        <div className="mt-1.5 text-2xs text-muted-foreground sm:ml-5">
                                           <div className="flex items-center gap-1">
                                             <User className="w-2.5 h-2.5" />
                                             <span className="font-medium">
@@ -2944,7 +3015,7 @@ export function ProgressReportTab({
                                       
                                       {/* On hold / blockage indicator */}
                                       {isOnHold && (
-                                        <div className="mt-1.5 ml-5 flex items-center gap-1 text-2xs text-warning">
+                                        <div className="mt-1.5 flex items-center gap-1 text-2xs text-warning sm:ml-5">
                                           <Flag className="w-2.5 h-2.5" />
                                           <span>{hasBlockage ? "On Hold - Blockage linked" : "Rejected - Photo retake required"}</span>
                                         </div>
@@ -2952,14 +3023,14 @@ export function ProgressReportTab({
                                       
                                       {/* Rejection reason */}
                                       {subApproval?.rejectionReason && (
-                                        <div className="mt-1.5 ml-5 p-1.5 bg-destructive/10 rounded text-2xs text-destructive">
+                                        <div className="mt-1.5 p-1.5 bg-destructive/10 rounded text-2xs text-destructive sm:ml-5">
                                           Reason: {subApproval.rejectionReason}
                                         </div>
                                       )}
                                       
                                       {/* Approver actions for field submissions */}
                                       {canApproveWorkStatus && awaitsSubApproval && (
-                                        <div className="mt-2 ml-5 flex gap-2">
+                                        <div className="mt-2 flex gap-2 sm:ml-5">
                                           <Button 
                                             size="sm" 
                                             className="h-6 text-2xs" 
@@ -2991,7 +3062,7 @@ export function ProgressReportTab({
                           
                           {/* Stage Completion Info - shown when all sub-items done */}
                           {stage.subItems && stage.subItems.length > 0 && allSubItemsDone && (
-                            <div className="ml-6 mt-2 p-2 bg-muted/40 border border-border/60 rounded-lg text-xs">
+                            <div className={cn("mt-2 p-2 bg-muted/40 border border-border/60 rounded-lg text-xs", !isMobile && "ml-6")}>
                               <div className="flex items-center gap-2 text-foreground">
                                 <CheckCircle2 className="w-4 h-4" />
                                 <span className="font-medium">All Sub-items Complete</span>
@@ -3005,7 +3076,7 @@ export function ProgressReportTab({
                           )}
                           
                           {/* Action Buttons */}
-                          <div className="flex items-center gap-2 ml-6">
+                          <div className={cn("flex flex-wrap items-center gap-2", !isMobile && "ml-6")}>
                             {/* User: Request Done button */}
                             {!canApproveWorkStatus && approvalStatus === "pending" && !isChecked && (
                               <Button 
