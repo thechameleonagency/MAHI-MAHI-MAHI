@@ -129,7 +129,7 @@ import { formatINR } from "@/lib/formatCurrency";
  * - `addClientPaymentRecord` — project FIFO + CPR + synthetic Payment (`cpr:<id>`).
  * - `addPayment` — invoice-targeted receipt when `invoiceId` is set (voucher + invoice sync).
  *
- * Boot `reconcileClientPaymentLedger` replays CPR rows only (C3). CustomerDetail still uses
+ * Boot `reconcileClientPaymentLedger` replays CPR rows only (C3).
  * Customer bulk pay uses `planCustomerBulkInflow` + `recordCustomerInflow` (see `customerInflowWritePaths.ts`).
  */
 import { validateExpensePaidByRecord } from "@/lib/expensePayerValidation";
@@ -689,7 +689,14 @@ const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
 // ============ PROVIDER COMPONENT ============
 export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { override: roleMatrixOverride } = useRoleMatrix();
-  const [state, setState] = useState<AppState>(getInitialState);
+  const [state, setState] = useState<AppState>(() => {
+    try {
+      return getInitialState();
+    } catch (e) {
+      console.error("[MSS] Failed to load persisted app state; using empty boot.", e);
+      return buildDefaultBootState();
+    }
+  });
   const lastPersistedSnapshotRef = useRef<string | null>(null);
   const { permissionService, commandBus, repositories } = useFoundation();
   const { currentRole, sessionUserId, demoUserName } = useAppSession();
@@ -717,7 +724,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const runCommand = useCallback(
     <TResult,>(command: Command): Promise<CommandResult<TResult>> =>
-      runCommand<TResult>({ ...command, matrixOverride: roleMatrixOverride }),
+      commandBus.execute<TResult>({ ...command, matrixOverride: roleMatrixOverride }),
     [commandBus, roleMatrixOverride],
   );
 

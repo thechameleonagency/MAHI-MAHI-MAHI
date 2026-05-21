@@ -127,6 +127,10 @@ describe("customerInflowWritePaths (E10)", () => {
     expect(source).toContain("customerInflowWritePaths.ts");
     expect(source).toContain("recordCustomerInflow");
     expect(source).toContain("recordCustomerInflowDispatch");
+    expect(source).toContain("commandBus.execute<TResult>");
+    expect(source).not.toMatch(
+      /const runCommand = useCallback\([\s\S]*?runCommand<TResult>/,
+    );
   });
 
   it("production pages use recordCustomerInflow for customer inflow", () => {

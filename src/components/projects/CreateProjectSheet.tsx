@@ -20,7 +20,6 @@ import type { ProjectIntakePayload } from "@/application/services/ProjectKindSer
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
-import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
