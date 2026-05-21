@@ -31,6 +31,7 @@ import { applyDisputedVendorBill } from "./disputedVendorBill";
 import { applyClosedProjectReopen } from "./closedProjectReopen";
 import { applyStaleBlockage } from "./stalLeBlockage";
 import { applyMultiAlertNotificationsRoute } from "./multiAlertNotificationsRoute";
+import { applyEnquiryShareTrail } from "./enquiryShareTrail";
 
 const NARRATIVES = [
   applyStalledEnquiry,
@@ -65,9 +66,10 @@ const NARRATIVES = [
   applyClosedProjectReopen,
   applyStaleBlockage,
   applyMultiAlertNotificationsRoute,
+  applyEnquiryShareTrail,
 ] as const;
 
-/** Apply all 31 narrative edge-case patches (Appendix I). */
+/** Apply all narrative edge-case patches (Appendix I). */
 export function applyAllNarratives(state: AppState): AppState {
   for (const apply of NARRATIVES) {
     apply(state);

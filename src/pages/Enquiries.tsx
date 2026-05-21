@@ -77,6 +77,14 @@ import {
   stripQuickCreateParam,
   saveCreateDraft,
 } from "@/lib/createFromContext";
+import {
+  buildEnquiryShareActivityNote,
+  buildEnquiryShareMessage,
+  formatEnquiryShareMethodLabel,
+  openEnquiryShareExternalLink,
+  type EnquiryShareMethod,
+} from "@/lib/enquiryShare";
+import { resolveAuditActorUserName } from "@/lib/resolveAuditActorUserName";
 
 const ENQUIRY_CREATE_DRAFT_KEY = "enquiry-create-v1";
 
@@ -126,7 +134,7 @@ const Enquiries = () => {
     generateId: _generateId,
     customers,
   } = useAppData();
-  const { currentRole } = useAppSession();
+  const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const canCreateEnquiry = useCan("enquiry", "create");
   const canEditEnquiry = useCan("enquiry", "edit");
   const canUpdateEnquiry = useCan("enquiry", "create");
@@ -669,20 +677,74 @@ const formatCapacityInput = (capacity: string) => {
     toast({ title: "Meeting Scheduled", description: `Meeting set for ${meetingDate}` });
   };
 
-  const handleShare = () => {
+  const handleShare = async () => {
     if (!selectedEnquiry) return;
-    
-    const message = `Enquiry: ${selectedEnquiry.id}\nCustomer: ${selectedEnquiry.customerName}\nPhone: ${selectedEnquiry.customerPhone}\nSystem: ${selectedEnquiry.systemCapacity}\nBudget: ${formatCurrency(selectedEnquiry.estimatedBudget)}`;
-    
+
     if (shareMethod === "whatsapp") {
-      const phone = selectedEnquiry.customerPhone.replace(/\s/g, '').replace('+', '');
-      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
-    } else {
-      window.open(`mailto:${selectedEnquiry.customerEmail}?subject=Enquiry ${selectedEnquiry.id}&body=${encodeURIComponent(message)}`, '_blank');
+      const phoneCheck = validateContactPhone(selectedEnquiry.customerPhone);
+      if (!phoneCheck.ok) {
+        toast({
+          title: "Cannot share via WhatsApp",
+          description: phoneCheck.message,
+          variant: "destructive",
+        });
+        return;
+      }
+    } else if (!selectedEnquiry.customerEmail?.trim()) {
+      toast({
+        title: "Cannot share via email",
+        description: "Add a customer email on this enquiry first.",
+        variant: "destructive",
+      });
+      return;
     }
-    
+
+    const shareEntry = {
+      method: shareMethod as EnquiryShareMethod,
+      contactValue:
+        shareMethod === "whatsapp"
+          ? selectedEnquiry.customerPhone.trim()
+          : selectedEnquiry.customerEmail.trim(),
+      sentAt: new Date().toISOString(),
+    };
+
+    const actorDisplayName = resolveAuditActorUserName({
+      actor: { actorUserId: sessionUserId, actorRole: currentRole },
+      settingsTeamMembers,
+      demoUserName,
+    });
+
+    const activityNote = buildEnquiryShareActivityNote(shareEntry, actorDisplayName);
+    const result = await updateEnquiry(selectedEnquiry.id, {
+      shareHistory: [...(selectedEnquiry.shareHistory ?? []), shareEntry],
+      notes: [activityNote, ...(selectedEnquiry.notes ?? [])],
+      updatedAt: new Date().toISOString().split("T")[0],
+    });
+
+    if (!result.ok) {
+      toast({
+        title: "Could not record share",
+        description: friendlyCommandErrorMessage(result.error, "Update failed"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const message = buildEnquiryShareMessage(selectedEnquiry);
+    openEnquiryShareExternalLink(selectedEnquiry, shareMethod, message);
+
+    setSelectedEnquiry({
+      ...selectedEnquiry,
+      shareHistory: [...(selectedEnquiry.shareHistory ?? []), shareEntry],
+      notes: [activityNote, ...(selectedEnquiry.notes ?? [])],
+      updatedAt: new Date().toISOString().split("T")[0],
+    });
+
     setIsShareOpen(false);
-    toast({ title: "Shared", description: `Enquiry details shared via ${shareMethod}` });
+    toast({
+      title: "Enquiry shared",
+      description: `Logged and opened ${formatEnquiryShareMethodLabel(shareMethod)}`,
+    });
   };
 
   const handleCreateQuotation = (enquiry: Enquiry) => {
@@ -1433,6 +1495,30 @@ const formatCapacityInput = (capacity: string) => {
                   </p>
                 </div>
 
+                {(selectedEnquiry.shareHistory?.length ?? 0) > 0 ? (
+                  <div className="p-4 bg-muted/30 rounded-xl border border-border/50 space-y-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <Share2 className="h-3 w-3" />
+                      Share history
+                    </h4>
+                    <ul className="space-y-2">
+                      {selectedEnquiry.shareHistory.map((entry, idx) => (
+                        <li key={`${entry.sentAt}-${idx}`} className="text-sm flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="text-2xs capitalize">
+                            {formatEnquiryShareMethodLabel(entry.method)}
+                          </Badge>
+                          {entry.contactValue ? (
+                            <span className="text-muted-foreground">{entry.contactValue}</span>
+                          ) : null}
+                          <time className="text-2xs text-muted-foreground ml-auto">
+                            {entry.sentAt.split("T")[0]}
+                          </time>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
                 {/* Follow-up Notes Timeline */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -1872,6 +1958,10 @@ const formatCapacityInput = (capacity: string) => {
         <AppSheetContent layout="form" size="xs">
           <SheetHeader>
             <SheetTitle>Share Enquiry Details</SheetTitle>
+            <SheetDescription>
+              Opens {shareMethod === "whatsapp" ? "WhatsApp" : "email"} and logs the share on this enquiry
+              (same CRM trail as quotation share history).
+            </SheetDescription>
           </SheetHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -1886,10 +1976,17 @@ const formatCapacityInput = (capacity: string) => {
                 </SelectContent>
               </Select>
             </div>
+            {selectedEnquiry ? (
+              <p className="text-xs text-muted-foreground">
+                {shareMethod === "whatsapp"
+                  ? `To: ${selectedEnquiry.customerPhone || "— add phone on enquiry"}`
+                  : `To: ${selectedEnquiry.customerEmail || "— add email on enquiry"}`}
+              </p>
+            ) : null}
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsShareOpen(false)}>Cancel</Button>
-            <Button onClick={handleShare}>
+            <Button onClick={() => void handleShare()}>
               <Send className="h-4 w-4 mr-2" />
               Share
             </Button>

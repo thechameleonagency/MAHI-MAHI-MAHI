@@ -799,6 +799,12 @@ export interface Enquiry {
   createdAt: string;
   updatedAt: string;
   notes: { date: string; note: string; by: string; updatedBy?: string }[];
+  /** CRM log when enquiry details are shared externally (parity with quotation `shareHistory`). */
+  shareHistory?: {
+    method: "whatsapp" | "email";
+    contactValue?: string;
+    sentAt: string;
+  }[];
   /** Soft-archive marker. Active when null/undefined. */
   archivedAt?: string | null;
   archivedReason?: string;
