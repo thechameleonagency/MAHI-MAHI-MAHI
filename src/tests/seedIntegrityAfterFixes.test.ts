@@ -30,6 +30,8 @@ import { findStaleClientPaymentLedgerLinkage } from "@/lib/clientPaymentReconcil
 import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
 import { findStaleProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 import { findStaleProgressReportTaskLinkage } from "@/lib/progressReportTaskContinuity";
+import { findStaleDeletionRequests } from "@/lib/deletionRequestContinuity";
+import { findStaleQuotationShareDetails } from "@/lib/quotationShareContinuity";
 
 const DRIFT_EPS = 1;
 
@@ -189,6 +191,8 @@ describe("seed & hydration integrity after audit fixes", () => {
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleProjectCustomerLinkage(hydrated)).toEqual([]);
     expect(findStaleProgressReportTaskLinkage(hydrated)).toEqual([]);
+    expect(findStaleQuotationShareDetails(hydrated)).toEqual([]);
+    expect(findStaleDeletionRequests(hydrated)).toEqual([]);
     for (const project of hydrated.projects) {
       if (!project.customerId || project.customerId.startsWith("inc-")) continue;
       const customer = hydrated.customers.find((c) => c.id === project.customerId);

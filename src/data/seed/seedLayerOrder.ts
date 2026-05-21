@@ -110,4 +110,6 @@ export const SEED_COLLECTION_KEYS = Object.keys({
   materialDamageRecords: 1,
   agentCommissionAccruals: 1,
   procurementNeedLines: 1,
+  deletionRequests: 1,
+  quotationShareDetails: 1,
 }) as (keyof AppState)[];

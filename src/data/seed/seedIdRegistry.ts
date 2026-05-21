@@ -55,6 +55,8 @@ export const SEED_ID_PREFIX = {
   incGiver: "IGC",
   incGiverTx: "IGT",
   attendance: "ATT",
+  deletionRequest: "DR-",
+  quotationShare: "QSH-",
 } as const;
 
 export type SeedIdPrefix = (typeof SEED_ID_PREFIX)[keyof typeof SEED_ID_PREFIX];

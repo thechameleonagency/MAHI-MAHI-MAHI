@@ -247,7 +247,8 @@ export interface DeletionRequest {
   entityName: string;
   reason: string;
   responsiblePerson?: string;
-  responsiblePersonId?: number;
+  /** FK to `employees.id` when assigned. */
+  responsiblePersonId?: string;
   notes?: string;
   requestedBy: string;
   requestedAt: string;

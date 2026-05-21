@@ -66,6 +66,8 @@ export function buildEmptyAppState(): AppState {
     materialDamageRecords: [],
     agentCommissionAccruals: [],
     procurementNeedLines: [],
+    deletionRequests: [],
+    quotationShareDetails: [],
   };
 }
 
@@ -169,5 +171,7 @@ export function normalizeAppState(parsed: Partial<AppState> | null | undefined):
     materialDamageRecords: ensureArray(parsed.materialDamageRecords),
     agentCommissionAccruals: ensureArray(parsed.agentCommissionAccruals),
     procurementNeedLines: ensureArray(parsed.procurementNeedLines),
+    deletionRequests: ensureArray(parsed.deletionRequests),
+    quotationShareDetails: ensureArray(parsed.quotationShareDetails),
   };
 }

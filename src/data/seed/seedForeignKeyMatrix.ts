@@ -171,6 +171,27 @@ export function findSeedForeignKeyViolations(state: AppState): SeedForeignKeyVio
     pushIfMissing(violations, "task", task.id, "teamId", task.teamId, teams);
   }
 
+  for (const share of state.quotationShareDetails ?? []) {
+    pushIfMissing(violations, "quotationShare", share.id, "quotationId", share.quotationId, quotations);
+  }
+
+  for (const dr of state.deletionRequests ?? []) {
+    pushIfMissing(violations, "deletionRequest", dr.id, "responsiblePersonId", dr.responsiblePersonId, employees);
+    const target =
+      dr.entityType === "quotation"
+        ? quotations
+        : dr.entityType === "project"
+          ? projects
+          : dr.entityType === "invoice"
+            ? billingDocs
+            : dr.entityType === "sale-bill"
+              ? billingDocs
+              : undefined;
+    if (target) {
+      pushIfMissing(violations, "deletionRequest", dr.id, "entityId", dr.entityId, target);
+    }
+  }
+
   for (const bill of state.vendorBills) {
     pushIfMissing(violations, "vendorBill", bill.id, "vendorId", bill.vendorId, vendors);
     pushIfMissing(violations, "vendorBill", bill.id, "projectId", bill.projectId, projects);

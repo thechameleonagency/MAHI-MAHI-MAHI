@@ -1,7 +1,7 @@
 import { differenceInCalendarDays, parseISO, isValid } from "date-fns";
 import { normalizeLoanPersonKey } from "@/lib/loanPerson";
 import type { Invoice, Loan } from "@/types/finance";
-import type { Blockage } from "@/types/blockage";
+import type { Blockage, DeletionRequest } from "@/types/blockage";
 import type { Project, InventoryItem, Quotation } from "@/types/project";
 import type { VendorBill } from "@/types/inventory";
 
@@ -15,7 +15,8 @@ export type BusinessAlertKind =
   | "blockage_stale"
   | "quotation"
   | "vendor_bill"
-  | "approval";
+  | "approval"
+  | "deletion_request";
 
 export type BusinessAlertDescriptor = {
   id: string;
@@ -45,6 +46,8 @@ export type BusinessAlertsInput = {
   vendorBills: VendorBill[];
   /** Optional vendor id → display name for bill alerts. */
   vendorNamesById?: Map<string, string>;
+  /** ER7 — pending admin deletion approvals. */
+  deletionRequests?: DeletionRequest[];
 };
 
 function vendorLabel(bill: VendorBill, names?: Map<string, string>): string {
@@ -234,6 +237,26 @@ export function deriveBusinessAlertDescriptors(input: BusinessAlertsInput): Busi
         }
       }
     }
+  }
+
+  for (const req of input.deletionRequests ?? []) {
+    if (req.status !== "pending") continue;
+    const href =
+      req.entityType === "quotation"
+        ? `/quotations?open=${req.entityId}`
+        : req.entityType === "project"
+          ? `/projects/${req.entityId}`
+          : req.entityType === "invoice" || req.entityType === "sale-bill"
+            ? `/invoices?invoice=${req.entityId}`
+            : "/notifications";
+    out.push({
+      id: `del-req-${req.id}`,
+      severity: "medium",
+      title: `Deletion request — ${req.entityName}`,
+      detail: `${req.entityType} · ${req.reason.slice(0, 80)}${req.reason.length > 80 ? "…" : ""}`,
+      href,
+      kind: "deletion_request",
+    });
   }
 
   return out;

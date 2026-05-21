@@ -46,7 +46,23 @@ import {
 } from "@/lib/quotationProjectConversionPolicy";
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
 import type { BankReconciliationStatement, Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany, INCGiverTransaction } from "@/types/finance";
-import type { Blockage, Ticket, ProjectTimelineStatus, ClientPaymentRecord } from "@/types/blockage";
+import type {
+  Blockage,
+  Ticket,
+  ProjectTimelineStatus,
+  ClientPaymentRecord,
+  DeletionRequest,
+  QuotationShareDetails,
+} from "@/types/blockage";
+import {
+  entityDisplayNameForDeletion,
+  reconcileDeletionRequests,
+} from "@/lib/deletionRequestContinuity";
+import {
+  historyEntryToShareDetails,
+  reconcileQuotationShareDetails,
+  type QuotationShareInput,
+} from "@/lib/quotationShareContinuity";
 import { applyTaskCompletionToTimeline } from "@/lib/progressReportTaskContinuity";
 import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate, stripOrphanChecklistInventoryRefs } from "@/lib/siteChecklist";
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
@@ -301,6 +317,11 @@ export interface AppState {
   agentCommissionAccruals: import("@/types/operations").AgentCommissionAccrual[];
   /** Need-to-Get: per-line vendor assignment and acquire state. */
   procurementNeedLines: import("@/types/operations").ProcurementNeedLine[];
+
+  /** Admin deletion approval queue (ER7). */
+  deletionRequests: DeletionRequest[];
+  /** Canonical quotation share log; `quotation.shareHistory` is denormalized from this (ER7). */
+  quotationShareDetails: QuotationShareDetails[];
 }
 
 // ============ CONTEXT TYPE ============
@@ -346,8 +367,15 @@ interface AppDataContextType extends AppState {
   getApprovedQuotations: () => Quotation[];
   getProjectEligibleQuotations: () => Quotation[];
   transitionQuotationStatus: (id: string, nextStatus: QuotationStatus) => Promise<{ ok: boolean; error?: string }>;
+  recordQuotationShare: (quotationId: string, entry: QuotationShareInput) => void;
   reviseQuotation: (id: string) => Promise<{ ok: boolean; revisedQuotationId?: string; error?: string }>;
   withdrawQuotation: (id: string, reason?: string) => Promise<{ ok: boolean; error?: string }>;
+  addDeletionRequest: (request: DeletionRequest) => { ok: boolean; error?: string };
+  updateDeletionRequest: (id: string, updates: Partial<DeletionRequest>) => void;
+  getDeletionRequestsForEntity: (
+    entityType: DeletionRequest["entityType"],
+    entityId: string,
+  ) => DeletionRequest[];
   
   // Customers CRUD
   addCustomer: (customer: Customer) => boolean;
@@ -1473,6 +1501,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       );
       return {
         ...applied.next,
+        deletionRequests: (prev.deletionRequests ?? []).filter(
+          (r) => !(r.entityType === "project" && r.entityId === id),
+        ),
         auditLogs: [auditEntry, ...prev.auditLogs],
       };
     });
@@ -1530,11 +1561,13 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!result.ok) {
           return { ok: false, error: (result as { message: string }).message };
         }
-        setState((prev) => ({
-          ...prev,
-          quotations: repositories.quotationRepository.getAll() as Quotation[],
-          auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
-        }));
+        setState((prev) =>
+          reconcileQuotationShareDetails({
+            ...prev,
+            quotations: repositories.quotationRepository.getAll() as Quotation[],
+            auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
+          }),
+        );
         return { ok: true };
       } catch (e) {
         const message = e instanceof Error ? e.message : "Command failed";
@@ -1572,15 +1605,23 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         quotation.quotationNumber || id,
       );
 
-      setState((prev) => ({
-        ...prev,
-        quotations: prev.quotations.filter((q) => q.id !== id),
-        enquiries: unlinkQuotationFromEnquiries(prev.enquiries, id),
-        agentCommissionAccruals: (prev.agentCommissionAccruals ?? []).filter(
-          (a) => a.sourceQuotationId !== id,
-        ),
-        auditLogs: [auditEntry, ...prev.auditLogs],
-      }));
+      setState((prev) =>
+        reconcileQuotationShareDetails({
+          ...prev,
+          quotations: prev.quotations.filter((q) => q.id !== id),
+          enquiries: unlinkQuotationFromEnquiries(prev.enquiries, id),
+          agentCommissionAccruals: (prev.agentCommissionAccruals ?? []).filter(
+            (a) => a.sourceQuotationId !== id,
+          ),
+          quotationShareDetails: (prev.quotationShareDetails ?? []).filter(
+            (d) => d.quotationId !== id,
+          ),
+          deletionRequests: (prev.deletionRequests ?? []).filter(
+            (r) => !(r.entityType === "quotation" && r.entityId === id),
+          ),
+          auditLogs: [auditEntry, ...prev.auditLogs],
+        }),
+      );
 
       return { ok: true };
     },
@@ -1699,6 +1740,59 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     },
     [actorRole, commandBus, permissionService, repositories, roleMatrixOverride, state.enquiries, state.quotations],
+  );
+
+  const recordQuotationShare = useCallback((quotationId: string, entry: QuotationShareInput) => {
+    setState((prev) => {
+      const detail = historyEntryToShareDetails(quotationId, {
+        method: entry.method,
+        contactValue: entry.contactValue,
+        sentAt: entry.sentAt,
+        visitDate: entry.visitDate,
+        visitTime: entry.visitTime,
+        visitNotes: entry.visitNotes,
+      });
+      return reconcileQuotationShareDetails({
+        ...prev,
+        quotationShareDetails: [...(prev.quotationShareDetails ?? []), detail],
+      });
+    });
+  }, []);
+
+  const addDeletionRequest = useCallback((request: DeletionRequest): { ok: boolean; error?: string } => {
+    let ok = true;
+    let error: string | undefined;
+    setState((prev) => {
+      if (!entityDisplayNameForDeletion(prev, request.entityType, request.entityId)) {
+        ok = false;
+        error = "Target entity not found";
+        return prev;
+      }
+      return reconcileDeletionRequests({
+        ...prev,
+        deletionRequests: [request, ...(prev.deletionRequests ?? [])],
+      });
+    });
+    return { ok, error };
+  }, []);
+
+  const updateDeletionRequest = useCallback((id: string, updates: Partial<DeletionRequest>) => {
+    setState((prev) =>
+      reconcileDeletionRequests({
+        ...prev,
+        deletionRequests: (prev.deletionRequests ?? []).map((r) =>
+          r.id === id ? { ...r, ...updates } : r,
+        ),
+      }),
+    );
+  }, []);
+
+  const getDeletionRequestsForEntity = useCallback(
+    (entityType: DeletionRequest["entityType"], entityId: string) =>
+      (state.deletionRequests ?? []).filter(
+        (r) => r.entityType === entityType && r.entityId === entityId,
+      ),
+    [state.deletionRequests],
   );
 
   const reviseQuotation = useCallback(
@@ -5495,8 +5589,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     getApprovedQuotations,
     getProjectEligibleQuotations,
     transitionQuotationStatus,
+    recordQuotationShare,
     reviseQuotation,
     withdrawQuotation,
+    addDeletionRequest,
+    updateDeletionRequest,
+    getDeletionRequestsForEntity,
 
     // Customers
     addCustomer,

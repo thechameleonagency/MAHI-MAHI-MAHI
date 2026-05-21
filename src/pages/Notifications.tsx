@@ -51,6 +51,7 @@ function iconForAlertKind(kind: BusinessAlertKind): typeof Bell {
     case "vendor_bill":
       return Truck;
     case "approval":
+    case "deletion_request":
     default:
       return Bell;
   }
@@ -68,6 +69,7 @@ const Notifications = () => {
     projectTimelineByProjectId,
     vendorBills,
     vendors,
+    deletionRequests,
   } = useAppData();
 
   const vendorNamesById = useMemo(

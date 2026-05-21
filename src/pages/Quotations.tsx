@@ -183,7 +183,8 @@ const Quotations = () => {
     customers: _customers,
     addCustomer: _addCustomer,
     addQuotation, 
-    updateQuotation, 
+    updateQuotation,
+    recordQuotationShare,
     transitionQuotationStatus,
     reviseQuotation,
     withdrawQuotation,
@@ -1297,7 +1298,6 @@ const Quotations = () => {
           return;
         }
       }
-      const existingHistory = currentQuotation?.shareHistory || [];
       const result = await transitionQuotationStatus(quotationId, "sent");
       if (!result.ok) {
         toast({
@@ -1307,17 +1307,7 @@ const Quotations = () => {
         });
         return;
       }
-      const ur = await updateQuotation(quotationId, {
-        shareHistory: [...existingHistory, shareEntry],
-      });
-      if (!ur.ok) {
-        toast({
-          title: "Could not record share",
-          description: friendlyCommandErrorMessage(ur.error, "Command failed"),
-          variant: "destructive",
-        });
-        return;
-      }
+      recordQuotationShare(quotationId, shareEntry);
       setStatus("sent");
     }
 

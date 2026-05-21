@@ -35,6 +35,7 @@ import { applyClosedProjectReopen } from "./closedProjectReopen";
 import { applyStaleBlockage } from "./stalLeBlockage";
 import { applyMultiAlertNotificationsRoute } from "./multiAlertNotificationsRoute";
 import { applyEnquiryShareTrail } from "./enquiryShareTrail";
+import { applyDeletionRequestSamples } from "./deletionRequestSamples";
 
 const NARRATIVES = [
   applyStalledEnquiry,
@@ -73,6 +74,7 @@ const NARRATIVES = [
   applyStaleBlockage,
   applyMultiAlertNotificationsRoute,
   applyEnquiryShareTrail,
+  applyDeletionRequestSamples,
 ] as const;
 
 /** Apply all narrative edge-case patches (Appendix I). */

@@ -29,6 +29,14 @@ import {
   findStaleProgressReportTaskLinkage,
   formatStaleProgressReportTaskErrors,
 } from "@/lib/progressReportTaskContinuity";
+import {
+  findStaleDeletionRequests,
+  formatStaleDeletionRequestErrors,
+} from "@/lib/deletionRequestContinuity";
+import {
+  findStaleQuotationShareDetails,
+  formatStaleQuotationShareErrors,
+} from "@/lib/quotationShareContinuity";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 import { findSeedForeignKeyViolations, formatSeedForeignKeyErrors } from "./seedForeignKeyMatrix";
@@ -209,6 +217,8 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
   errors.push(...formatStaleBillingAmountReceivedErrors(findStaleBillingAmountReceived(state)));
 
   errors.push(...formatStaleProgressReportTaskErrors(findStaleProgressReportTaskLinkage(state)));
+  errors.push(...formatStaleQuotationShareErrors(findStaleQuotationShareDetails(state)));
+  errors.push(...formatStaleDeletionRequestErrors(findStaleDeletionRequests(state)));
 
   for (const stale of findStaleClientPaymentLedgerLinkage({
     clientPaymentRecords: state.clientPaymentRecords,

@@ -17,6 +17,7 @@ export function useDerivedAlertCount(): number {
     projectTimelineByProjectId,
     vendorBills,
     vendors,
+    deletionRequests,
   } = useAppData();
 
   const vendorNamesById = useMemo(
@@ -36,6 +37,7 @@ export function useDerivedAlertCount(): number {
         projectTimelineByProjectId,
         vendorBills,
         vendorNamesById,
+        deletionRequests,
       }),
     [
       invoices,
@@ -47,6 +49,7 @@ export function useDerivedAlertCount(): number {
       projectTimelineByProjectId,
       vendorBills,
       vendorNamesById,
+      deletionRequests,
     ],
   );
 
