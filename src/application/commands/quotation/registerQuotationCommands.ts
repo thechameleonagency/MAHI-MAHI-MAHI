@@ -21,6 +21,7 @@ import {
 } from "@/lib/quotationApproveCustomer";
 import { createNextCustomerId } from "@/lib/idFactory";
 import { syncEnquiryCustomerIdAfterQuotationApprove } from "@/lib/customerPipelineIdentity";
+import { convertLinkedEnquiryAfterQuotationApproved } from "@/lib/enquiryConversionAtProjectWin";
 import { rejectQuotationTerminalEdit } from "@/lib/quotationProjectConversionPolicy";
 
 type TransitionQuotationPayload = {
@@ -277,6 +278,20 @@ export const registerQuotationCommands = (
               { customerId: enquiryAfterLink.customerId ?? "" },
             );
           }
+        }
+
+        const enquiryWin = convertLinkedEnquiryAfterQuotationApproved(
+          repositories,
+          auditService,
+          command,
+          { ...quotation, customerId },
+        );
+        if (!enquiryWin.ok) {
+          return {
+            ok: false,
+            errorCode: enquiryWin.errorCode,
+            message: enquiryWin.message,
+          };
         }
       } else {
         repositories.quotationRepository.update(quotation.id, {

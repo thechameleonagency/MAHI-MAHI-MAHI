@@ -13,8 +13,8 @@ export type EnquiryConversionAtProjectWinResult =
   | { ok: true; converted: boolean; customerId?: string; previousStatus?: EnquiryStatus }
   | { ok: false; errorCode: string; message: string };
 
-/** Statuses that may close when a linked quotation wins a project (operational win). */
-export function canConvertEnquiryOnProjectWin(from: EnquiryStatus): boolean {
+/** Statuses that may close when a linked quotation wins (approved or project created). */
+export function canConvertEnquiryOnPipelineWin(from: EnquiryStatus): boolean {
   if (from === "converted" || from === "lost" || from === "quotation_rejected") {
     return false;
   }
@@ -28,16 +28,19 @@ export function canConvertEnquiryOnProjectWin(from: EnquiryStatus): boolean {
   return false;
 }
 
+/** @deprecated Use {@link canConvertEnquiryOnPipelineWin}. */
+export const canConvertEnquiryOnProjectWin = canConvertEnquiryOnPipelineWin;
+
 /**
  * Shared enquiry→customer conversion used by CONVERT_ENQUIRY_COMMAND and project-create commands.
- * When `projectWin` is true, allows meeting_scheduled → converted in addition to the state machine.
+ * When `pipelineWin` is true, allows meeting_scheduled → converted in addition to the state machine.
  */
 export function executeEnquiryConversion(
   repositories: AppRepositoryContext,
   auditService: AuditService,
   command: Command<unknown>,
   enquiryId: string,
-  options?: { projectWin?: boolean },
+  options?: { pipelineWin?: boolean; projectWin?: boolean },
 ): EnquiryConversionAtProjectWinResult {
   const enquiry = repositories.enquiryRepository.getById(enquiryId);
   if (!enquiry) {
@@ -53,8 +56,9 @@ export function executeEnquiryConversion(
     };
   }
 
-  const mayConvert = options?.projectWin
-    ? canConvertEnquiryOnProjectWin(enquiry.status)
+  const pipelineWin = options?.pipelineWin ?? options?.projectWin;
+  const mayConvert = pipelineWin
+    ? canConvertEnquiryOnPipelineWin(enquiry.status)
     : canTransitionEnquiryStatus(enquiry.status, "converted", command.actorRole);
 
   if (!mayConvert) {
@@ -131,7 +135,7 @@ export function convertLinkedEnquiryAfterProjectFromQuotation(
     auditService,
     command,
     quotation.enquiryId,
-    { projectWin: true },
+    { pipelineWin: true },
   );
 
   if (!result.ok) {
@@ -139,6 +143,58 @@ export function convertLinkedEnquiryAfterProjectFromQuotation(
   }
 
   // Align enquiry customer with quotation when quote already carried a customer id.
+  if (quotation.customerId && result.converted) {
+    const enquiry = repositories.enquiryRepository.getById(quotation.enquiryId);
+    if (enquiry && enquiry.customerId !== quotation.customerId) {
+      repositories.enquiryRepository.update(quotation.enquiryId, {
+        customerId: quotation.customerId,
+      });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * After quotation approval (customer created/linked), close the linked enquiry pipeline.
+ * Non-fatal when there is no enquiry or the enquiry is already converted.
+ */
+export function convertLinkedEnquiryAfterQuotationApproved(
+  repositories: AppRepositoryContext,
+  auditService: AuditService,
+  command: Command<unknown>,
+  quotation: Pick<Quotation, "id" | "enquiryId" | "customerId">,
+): EnquiryConversionAtProjectWinResult {
+  if (!quotation.enquiryId?.trim() || !quotation.customerId?.trim()) {
+    return { ok: true, converted: false };
+  }
+
+  const enquiry = repositories.enquiryRepository.getById(quotation.enquiryId);
+  if (!enquiry) {
+    return { ok: true, converted: false };
+  }
+  // Approval must not fail when the enquiry pipeline already ended.
+  if (enquiry.status === "lost" || enquiry.status === "quotation_rejected") {
+    return {
+      ok: true,
+      converted: false,
+      customerId: enquiry.customerId,
+      previousStatus: enquiry.status,
+    };
+  }
+
+  const result = executeEnquiryConversion(
+    repositories,
+    auditService,
+    command,
+    quotation.enquiryId,
+    { pipelineWin: true },
+  );
+
+  if (!result.ok) {
+    return result;
+  }
+
   if (quotation.customerId && result.converted) {
     const enquiry = repositories.enquiryRepository.getById(quotation.enquiryId);
     if (enquiry && enquiry.customerId !== quotation.customerId) {

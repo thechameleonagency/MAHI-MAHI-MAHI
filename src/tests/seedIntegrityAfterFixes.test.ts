@@ -86,6 +86,26 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(Math.abs(ledger.revenueCollected - cashIn)).toBeLessThanOrEqual(DRIFT_EPS);
   });
 
+  it("no open enquiry remains when linked quotation is approved with customer", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const mismatches = state.quotations
+      .filter(
+        (q) =>
+          q.status === "approved" &&
+          q.enquiryId &&
+          q.customerId,
+      )
+      .map((q) => state.enquiries.find((e) => e.id === q.enquiryId))
+      .filter(
+        (e) =>
+          e &&
+          e.status !== "converted" &&
+          e.status !== "lost" &&
+          (e.status === "quotation_sent" || e.status === "meeting_scheduled"),
+      );
+    expect(mismatches.length).toBe(0);
+  });
+
   it("command audit logs use display names not raw member ids", () => {
     const { state } = buildBusinessSeed("smoke");
     const bad = state.auditLogs.filter(

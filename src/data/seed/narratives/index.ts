@@ -1,5 +1,6 @@
 import type { AppState } from "@/contexts/AppDataContext";
 import { applyStalledEnquiry } from "./stalledEnquiry";
+import { applyApprovedQuotationOpenEnquiry } from "./approvedQuotationOpenEnquiry";
 import { applyQuotationRevisionChain } from "./quotationRevisionChain";
 import { applyPartialInvoice } from "./partialInvoice";
 import { applyOverpaidInvoice } from "./overpaidInvoice";
@@ -33,6 +34,7 @@ import { applyMultiAlertNotificationsRoute } from "./multiAlertNotificationsRout
 
 const NARRATIVES = [
   applyStalledEnquiry,
+  applyApprovedQuotationOpenEnquiry,
   applyQuotationRevisionChain,
   applyPartialInvoice,
   applyOverpaidInvoice,

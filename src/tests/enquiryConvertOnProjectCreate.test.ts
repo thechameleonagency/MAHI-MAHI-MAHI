@@ -144,7 +144,67 @@ describe("enquiry convert on project create (C1)", () => {
     expect(repositories.quotationRepository.getById("Q-C1")?.status).toBe("converted_to_project");
   });
 
-  it("reconcileEnquiriesConvertedOnProjectLink repairs seed-style mismatch", () => {
+  it("reconcileEnquiriesConvertedOnProjectLink repairs approved quotation with open enquiry", () => {
+    const state = {
+      enquiries: [
+        {
+          id: "ENQ-APP",
+          customerName: "Approved Client",
+          customerPhone: "9222222222",
+          customerEmail: "",
+          customerAddress: "",
+          customerType: "individual",
+          source: "phone",
+          systemCapacity: "5",
+          estimatedBudget: 0,
+          requirements: "",
+          status: "quotation_sent",
+          priority: "medium",
+          assignedTo: "",
+          createdAt: "2026-01-01",
+          updatedAt: "2026-01-01",
+          notes: [],
+        },
+      ],
+      quotations: [
+        {
+          id: "Q-APP",
+          quotationNumber: "Q-APP-1",
+          status: "approved",
+          enquiryId: "ENQ-APP",
+          customerId: "C-APP",
+          clientName: "Approved Client",
+          clientPhone: "9222222222",
+          clientCity: "Jaipur",
+          clientState: "RJ",
+          systemCapacity: "5",
+          totalAmount: 100000,
+          paymentType: "cash",
+          createdAt: "2026-02-01",
+        },
+      ],
+      projects: [],
+      customers: [
+        {
+          id: "C-APP",
+          name: "Approved Client",
+          phone: "9222222222",
+          email: "",
+          address: "",
+          type: "individual",
+          itemsBought: [],
+          totalPurchases: 0,
+          createdAt: "2026-01-01",
+        },
+      ],
+    } as unknown as AppState;
+
+    const next = reconcileEnquiriesConvertedOnProjectLink(state);
+    expect(next.enquiries[0].status).toBe("converted");
+    expect(next.enquiries[0].customerId).toBe("C-APP");
+  });
+
+  it("reconcileEnquiriesConvertedOnProjectLink repairs seed-style project mismatch", () => {
     const state = {
       enquiries: [
         {

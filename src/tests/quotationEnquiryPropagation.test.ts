@@ -62,6 +62,63 @@ const sentQuotation = (): Quotation => ({
   presetSnapshot: [{ id: "line-1", name: "Panel", quantity: 1, unitPrice: 100000 }],
 });
 
+describe("Quotation approve → enquiry converted (MD1)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("marks linked enquiry converted when quotation is approved", async () => {
+    const enquiry = baseEnquiry("quotation_sent");
+    const quotation = {
+      ...sentQuotation(),
+      status: "sent" as const,
+      customerId: undefined,
+    };
+    const repositories = emptyRepos(enquiry, quotation);
+    const bus = new CommandBus();
+    registerQuotationCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+
+    const result = await bus.execute({
+      type: TRANSITION_QUOTATION_STATUS_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { quotationId: "Q-1", nextStatus: "approved" },
+    });
+
+    expect(result.ok).toBe(true);
+    const updated = repositories.enquiryRepository.getById("ENQ-1");
+    expect(updated?.status).toBe("converted");
+    expect(updated?.customerId).toBeTruthy();
+    expect(repositories.quotationRepository.getById("Q-1")?.status).toBe("approved");
+  });
+
+  it("does not convert enquiry when already lost", async () => {
+    const repositories = emptyRepos(baseEnquiry("lost"), sentQuotation());
+    const bus = new CommandBus();
+    registerQuotationCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+
+    const result = await bus.execute({
+      type: TRANSITION_QUOTATION_STATUS_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { quotationId: "Q-1", nextStatus: "approved" },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(repositories.enquiryRepository.getById("ENQ-1")?.status).toBe("lost");
+  });
+});
+
 describe("Quotation reject/withdraw → enquiry propagation (C2)", () => {
   beforeEach(() => {
     localStorage.clear();

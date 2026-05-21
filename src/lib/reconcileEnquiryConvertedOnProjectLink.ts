@@ -1,12 +1,23 @@
 import type { AppState } from "@/contexts/AppDataContext";
-import { canConvertEnquiryOnProjectWin } from "@/lib/enquiryConversionAtProjectWin";
+import { canConvertEnquiryOnPipelineWin } from "@/lib/enquiryConversionAtProjectWin";
 import { enrichCustomerFromEnquiry, resolveCustomerForEnquiryConversion } from "@/lib/convertEnquiryCustomer";
 import type { Customer } from "@/types/finance";
 import type { Enquiry, Quotation } from "@/types/project";
 
+function quotationTriggersEnquiryConverted(quotation: Quotation): boolean {
+  if (!quotation.enquiryId?.trim()) return false;
+  if (quotation.status === "converted_to_project" && quotation.linkedProjectId) {
+    return true;
+  }
+  if (quotation.status === "approved" && quotation.customerId?.trim()) {
+    return true;
+  }
+  return false;
+}
+
 /**
- * Repair enquiries left open when their quotation already has a linked project
- * (seed axis mismatch or pre-fix UI paths). Idempotent for already-converted rows.
+ * Repair enquiries left open when their quotation already won the pipeline
+ * (approved with customer, or converted to project). Idempotent for converted rows.
  */
 export function reconcileEnquiriesConvertedOnProjectLink(state: AppState): AppState {
   const projectById = new Map(state.projects.map((p) => [p.id, p]));
@@ -30,10 +41,7 @@ export function reconcileEnquiriesConvertedOnProjectLink(state: AppState): AppSt
   };
 
   for (const quotation of state.quotations) {
-    if (quotation.status !== "converted_to_project" || !quotation.linkedProjectId) {
-      continue;
-    }
-    if (!quotation.enquiryId) {
+    if (!quotationTriggersEnquiryConverted(quotation)) {
       continue;
     }
 
@@ -42,7 +50,7 @@ export function reconcileEnquiriesConvertedOnProjectLink(state: AppState): AppSt
       continue;
     }
 
-    if (!canConvertEnquiryOnProjectWin(enquiry.status)) {
+    if (!canConvertEnquiryOnPipelineWin(enquiry.status)) {
       continue;
     }
 
