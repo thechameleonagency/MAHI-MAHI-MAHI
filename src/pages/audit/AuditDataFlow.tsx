@@ -35,6 +35,11 @@ import {
   ENTITY_STATE_COVERAGE_SUMMARY,
   ENTITY_STATE_DIVERGENCE_RULE,
 } from "@/lib/entityStateCoverage";
+import {
+  PROTOTYPE_MIRROR_DIVERGENCE_RULE,
+  PROTOTYPE_MIRROR_SCOPE_SUMMARY,
+  SINGLE_WRITER_RULE,
+} from "@/lib/prototypeRepositoryMirrorScope";
 
 // ============ DATA STRUCTURES ============
 
@@ -502,6 +507,20 @@ const AuditDataFlow = () => {
             Enquiry / quotation / project lifecycle use{" "}
             <code className="text-xs bg-muted px-1 rounded">domain/stateMachines</code>; invoices,
             tasks, and progress approvals are soft-state with continuity tests.
+          </p>
+        </AlertDescription>
+      </Alert>
+
+      <Alert className="border-primary/20 bg-primary/5">
+        <Layers className="h-4 w-4 text-primary" />
+        <AlertTitle className="text-sm">Training: Repository mirror scope (AR3)</AlertTitle>
+        <AlertDescription className="space-y-2 text-sm text-muted-foreground">
+          <p>{PROTOTYPE_MIRROR_SCOPE_SUMMARY}</p>
+          <p>{SINGLE_WRITER_RULE}</p>
+          <p>{PROTOTYPE_MIRROR_DIVERGENCE_RULE}</p>
+          <p>
+            Settings → App data lists mirrored vs context-only slices; seed verification runs{" "}
+            <code className="text-xs bg-muted px-1 rounded">findPrototypeMirrorDrift</code> after sync.
           </p>
         </AlertDescription>
       </Alert>

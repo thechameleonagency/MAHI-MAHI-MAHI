@@ -2,7 +2,16 @@ import { LocalStorageJsonRepository } from "@/infrastructure/repositories/localS
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
 import { PROTOTYPE_REPOSITORY_STORAGE_KEYS } from "@/infrastructure/repositories/prototypeRepositoryManifest";
 import type { Customer, Invoice, AuditLogEntry } from "@/types/finance";
-import type { Enquiry, InventoryItem, Project, Quotation, Employee } from "@/types/project";
+import type {
+  Enquiry,
+  InventoryItem,
+  Project,
+  Quotation,
+  Employee,
+  SiteRecord,
+  Task,
+  Vendor,
+} from "@/types/project";
 
 export const createPrototypeRepositoryContext = (): AppRepositoryContext => {
   return {
@@ -17,5 +26,8 @@ export const createPrototypeRepositoryContext = (): AppRepositoryContext => {
       [],
     ),
     auditRepository: new LocalStorageJsonRepository<AuditLogEntry>(PROTOTYPE_REPOSITORY_STORAGE_KEYS.auditLogs, []),
+    siteRepository: new LocalStorageJsonRepository<SiteRecord>(PROTOTYPE_REPOSITORY_STORAGE_KEYS.sites, []),
+    taskRepository: new LocalStorageJsonRepository<Task>(PROTOTYPE_REPOSITORY_STORAGE_KEYS.tasks, []),
+    vendorRepository: new LocalStorageJsonRepository<Vendor>(PROTOTYPE_REPOSITORY_STORAGE_KEYS.vendors, []),
   };
 };

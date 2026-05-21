@@ -110,7 +110,7 @@ export const DIRECT_APP_STATE_MODULES: readonly PersistenceModuleSpec[] = [
       "partner:add_transaction",
       "loan:add_repayment",
     ],
-    notes: "Context-only slices — no mss.repo mirror (see APP_STATE_CONTEXT_ONLY_SLICES).",
+    notes: "Context-only finance/HR slices — no mss.repo mirror (sites/tasks/vendors are mirrored per AR3).",
   },
 ] as const;
 
@@ -118,7 +118,7 @@ export const DUAL_PERSISTENCE_SUMMARY =
   "CRM and inventory mutations go through the command bus into mss.repo mirrors; finance and field ops write AppState directly. Both paths now refresh mirrors immediately after each AppState commit so the next command sees current data.";
 
 export const DUAL_PERSISTENCE_DIVERGENCE_RULE =
-  "Never read mss.repo.* for finance/vendor/task data — use AppDataContext. Before every command, mirrors are synced from AppState; after every AppState mutation, mirrors are synced again (AR1).";
+  "UI reads AppDataContext for all entities. Command-bus mirrors include sites, tasks, and vendors (AR3) so automation stays aligned; finance/vendor-bill/payment slices remain context-only. Mirrors sync before every command and after every AppState commit (AR1).";
 
 export function mirroredRepositoryKeys(): string[] {
   return PROTOTYPE_REPOSITORY_MIRROR_SLICES.map((s) => s.key);

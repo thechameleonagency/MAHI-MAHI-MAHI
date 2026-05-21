@@ -9,7 +9,7 @@ import type { AppState } from "@/contexts/AppDataContext";
  *   snapshot before every command, immediately after every AppState commit (AR1), and on persist /
  *   cross-tab reload.
  *
- * Slices listed in `APP_STATE_CONTEXT_ONLY_SLICES` are not mirrored yet; command handlers
+ * Slices listed in `APP_STATE_CONTEXT_ONLY_SLICES` have no mirror; command handlers
  * must not read them from localStorage repos (use in-memory state merged after commands).
  */
 
@@ -22,6 +22,9 @@ export const PROTOTYPE_REPOSITORY_STORAGE_KEYS = {
   employees: "mss.repo.employees",
   inventoryItems: "mss.repo.inventoryItems",
   auditLogs: "mss.repo.auditLogs",
+  sites: "mss.repo.sites",
+  tasks: "mss.repo.tasks",
+  vendors: "mss.repo.vendors",
 } as const;
 
 export type PrototypeRepositoryKey = keyof typeof PROTOTYPE_REPOSITORY_STORAGE_KEYS;
@@ -39,15 +42,33 @@ export const PROTOTYPE_REPOSITORY_MIRROR_SLICES: readonly {
   { key: "employees", select: (s) => s.employees },
   { key: "inventoryItems", select: (s) => s.inventoryItems },
   { key: "auditLogs", select: (s) => s.auditLogs },
+  { key: "sites", select: (s) => s.sites },
+  { key: "tasks", select: (s) => s.tasks },
+  { key: "vendors", select: (s) => s.vendors },
 ];
 
+/** Maps manifest keys to `AppRepositoryContext` property names (shared by sync + drift checks). */
+export const PROTOTYPE_REPOSITORY_CONTEXT_MAP: Record<
+  PrototypeRepositoryKey,
+  keyof import("@/infrastructure/repositories/contracts").AppRepositoryContext
+> = {
+  projects: "projectRepository",
+  quotations: "quotationRepository",
+  enquiries: "enquiryRepository",
+  customers: "customerRepository",
+  invoices: "invoiceRepository",
+  employees: "employeeRepository",
+  inventoryItems: "inventoryItemRepository",
+  auditLogs: "auditRepository",
+  sites: "siteRepository",
+  tasks: "taskRepository",
+  vendors: "vendorRepository",
+};
+
 /**
- * AppState collections with no `mss.repo.*` mirror (context-only until a command needs them).
- * Includes entities named in audit MD9 (tasks, vendors, vendor bills, etc.).
+ * AppState collections with no `mss.repo.*` mirror (finance / ledger slices).
  */
 export const APP_STATE_CONTEXT_ONLY_SLICES = [
-  "tasks",
-  "vendors",
   "vendorBills",
   "vendorPayments",
   "payments",

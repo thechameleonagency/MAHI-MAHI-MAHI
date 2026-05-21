@@ -1,4 +1,13 @@
-import type { Enquiry, InventoryItem, Project, Quotation, Employee } from "@/types/project";
+import type {
+  Enquiry,
+  InventoryItem,
+  Project,
+  Quotation,
+  Employee,
+  SiteRecord,
+  Task,
+  Vendor,
+} from "@/types/project";
 import type { AuditLogEntry, Customer, Invoice } from "@/types/finance";
 
 export interface CrudRepository<TEntity extends { id: string | number }> {
@@ -19,4 +28,7 @@ export interface AppRepositoryContext {
   employeeRepository: CrudRepository<Employee>;
   inventoryItemRepository: CrudRepository<InventoryItem>;
   auditRepository: CrudRepository<AuditLogEntry>;
+  siteRepository: CrudRepository<SiteRecord>;
+  taskRepository: CrudRepository<Task>;
+  vendorRepository: CrudRepository<Vendor>;
 }

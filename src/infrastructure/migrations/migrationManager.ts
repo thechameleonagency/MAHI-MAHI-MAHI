@@ -1,6 +1,6 @@
 const SCHEMA_VERSION_KEY = "mss.schema.version";
 const APP_VERSION_KEY = "mss.app.version";
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 const CURRENT_APP_VERSION = "phase-4-modular-v2";
 
 import { runQuotationProjectLinkStorageMigration } from "@/infrastructure/migrations/quotationProjectLinkMigration";
@@ -73,6 +73,21 @@ const migrations: MigrationStep[] = [
     toVersion: 4,
     run: () => {
       runQuotationProjectLinkStorageMigration();
+    },
+  },
+  {
+    toVersion: 5,
+    run: () => {
+      const defaults: Record<string, string> = {
+        "mss.repo.sites": "[]",
+        "mss.repo.tasks": "[]",
+        "mss.repo.vendors": "[]",
+      };
+      Object.entries(defaults).forEach(([key, value]) => {
+        if (!localStorage.getItem(key)) {
+          localStorage.setItem(key, value);
+        }
+      });
     },
   },
 ];

@@ -26,6 +26,7 @@ import { DeletionQueueTab } from "@/components/settings/DeletionQueueTab";
 import { MobileDemoPostureCard } from "@/components/demo/MobileDemoPostureCard";
 import { DualPersistenceModelCard } from "@/components/architecture/DualPersistenceModelCard";
 import { EntityStateCoverageCard } from "@/components/architecture/EntityStateCoverageCard";
+import { PrototypeRepositoryMirrorCard } from "@/components/architecture/PrototypeRepositoryMirrorCard";
 import { QuotationStaticSectionsTab } from "@/components/settings/QuotationStaticSectionsTab";
 import { useCan } from "@/hooks/useCan";
 import { ToastAction } from "@/components/ui/toast";
@@ -812,6 +813,7 @@ const Settings = () => {
             <MobileDemoPostureCard variant="full" />
             <DualPersistenceModelCard />
             <EntityStateCoverageCard />
+            <PrototypeRepositoryMirrorCard />
           </TabsContent>
           )}
 

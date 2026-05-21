@@ -24,9 +24,12 @@ describe("syncPrototypeRepositories (MD9)", () => {
       "employees",
       "inventoryItems",
       "auditLogs",
+      "sites",
+      "tasks",
+      "vendors",
     ]);
-    expect(APP_STATE_CONTEXT_ONLY_SLICES).toContain("tasks");
-    expect(APP_STATE_CONTEXT_ONLY_SLICES).toContain("vendors");
+    expect(APP_STATE_CONTEXT_ONLY_SLICES).not.toContain("tasks");
+    expect(APP_STATE_CONTEXT_ONLY_SLICES).not.toContain("vendors");
   });
 
   it("syncPrototypeRepositoriesFromAppState writes all mss.repo.* keys", () => {
@@ -36,12 +39,14 @@ describe("syncPrototypeRepositories (MD9)", () => {
     state.quotations = [{ id: "Q-1", quotationNumber: "Q-1" } as never];
     state.invoices = [{ id: "INV-1", invoiceNumber: "INV-1" } as never];
     state.saleBills = [{ id: "SB-1", invoiceNumber: "SB-1" } as never];
+    state.tasks = [{ id: "T-1", projectId: "PRJ-1", siteId: "S-1", title: "Install" } as never];
 
     syncPrototypeRepositoriesFromAppState(state, repositories);
 
     expect(JSON.parse(localStorage.getItem(PROTOTYPE_REPOSITORY_STORAGE_KEYS.projects)!).length).toBe(1);
     expect(JSON.parse(localStorage.getItem(PROTOTYPE_REPOSITORY_STORAGE_KEYS.invoices)!).length).toBe(2);
     expect(repositories.projectRepository.getById("PRJ-1")?.name).toBe("Alpha");
+    expect(repositories.taskRepository.getById("T-1")?.title).toBe("Install");
   });
 
   it("isPrototypeRepositoryStorageKey recognizes repo mirror writes", () => {

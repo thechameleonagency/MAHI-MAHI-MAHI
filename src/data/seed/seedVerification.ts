@@ -42,6 +42,12 @@ import {
   formatStaleQuotationShareErrors,
 } from "@/lib/quotationShareContinuity";
 import { findInvalidMachineBackedStatuses } from "@/lib/entityStateCoverage";
+import { createPrototypeRepositoryContext } from "@/infrastructure/repositories/localStorage/createPrototypeRepositoryContext";
+import { syncPrototypeRepositoriesFromAppState } from "@/infrastructure/repositories/syncPrototypeRepositories";
+import {
+  findPrototypeMirrorDrift,
+  formatMirrorDriftError,
+} from "@/lib/prototypeRepositoryMirrorScope";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 import { findSeedForeignKeyViolations, formatSeedForeignKeyErrors } from "./seedForeignKeyMatrix";
@@ -162,6 +168,12 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const row of findInvalidMachineBackedStatuses(state)) {
     errors.push(`AR2: ${row.entity} ${row.id} status "${row.status}" — ${row.reason}`);
+  }
+
+  const repositories = createPrototypeRepositoryContext();
+  syncPrototypeRepositoriesFromAppState(state, repositories);
+  for (const drift of findPrototypeMirrorDrift(state, repositories)) {
+    errors.push(`AR3: ${formatMirrorDriftError(drift)}`);
   }
 
   for (const stale of findStaleOpenEnquiriesAfterProjectWin(state)) {
