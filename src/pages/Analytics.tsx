@@ -273,7 +273,7 @@ const Analytics = () => {
       employees: totalEmployees || 0,
       stockValue: stockValue || 0,
     };
-  }, [invoices, saleBills, payments, projects, employees, inventoryItems, analyticsDateRange]);
+  }, [payments, projects, employees, inventoryItems, analyticsDateRange]);
   
   const toggleProject = (projectId: string) => {
     setSelectedProjects(prev => 

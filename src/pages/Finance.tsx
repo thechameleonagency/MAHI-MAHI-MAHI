@@ -40,6 +40,7 @@ import {
   getAccountsPayable,
 } from "@/domain/finance/financialSemantics";
 import { getInvoiceOpenBalance } from "@/lib/billingSelectors";
+import { buildFinanceHubRevenueBreakdown } from "@/lib/financeHubKpiBreakdown";
 import { downloadCSV } from "@/lib/csvExport";
 import { format, isValid, parseISO } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -327,18 +328,14 @@ const Finance = () => {
   /** KPI drill-down rows derived from context (replaces hardcoded demo figures in modals). */
   const financeKpiBreakdowns = useMemo(() => {
     const today = new Date();
-    const invoiceReceivedTotal = contextInvoices.reduce((s, i) => s + (i.amountReceived || 0), 0);
-    const paymentsIn = contextPayments.filter((p) => p.direction === "in");
-    const paymentsInTotal = paymentsIn.reduce((s, p) => s + p.amount, 0);
-    const receiptBucket = new Map<string, number>();
-    paymentsIn.forEach((p) => {
-      const label = p.counterpartyName?.trim() || p.counterpartyType || "Other";
-      receiptBucket.set(label, (receiptBucket.get(label) || 0) + p.amount);
-    });
-    const topReceipts = Array.from(receiptBucket.entries())
-      .map(([label, amount]) => ({ label, amount }))
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 12);
+    const revenueBreakdown = buildFinanceHubRevenueBreakdown(
+      contextPayments,
+      contextInvoices,
+      contextSaleBills,
+      inDateRange,
+      dateFrom || undefined,
+      dateTo || undefined,
+    );
 
     const expenseByCategory = new Map<string, number>();
     contextExpenses.forEach((e) => {
@@ -382,15 +379,29 @@ const Finance = () => {
     });
 
     return {
-      invoiceReceivedTotal,
-      paymentsInTotal,
-      topReceipts,
+      revenueBreakdown,
       expenseLines,
       outstandingRows,
       largestDebtor,
       overdueCount: outstandingRows.filter((r) => r.isOverdue).length,
     };
-  }, [contextInvoices, contextSaleBills, contextPayments, contextExpenses]);
+  }, [
+    contextInvoices,
+    contextSaleBills,
+    contextPayments,
+    contextExpenses,
+    dateFrom,
+    dateTo,
+  ]);
+
+  const revenuePeriodLabel = useMemo(() => {
+    if (dateFrom && dateTo) {
+      return `${format(parseISO(dateFrom), "dd MMM yyyy")} – ${format(parseISO(dateTo), "dd MMM yyyy")}`;
+    }
+    if (dateFrom) return `From ${format(parseISO(dateFrom), "dd MMM yyyy")}`;
+    if (dateTo) return `Through ${format(parseISO(dateTo), "dd MMM yyyy")}`;
+    return "All time";
+  }, [dateFrom, dateTo]);
   
   // Map inventory items for local use
   const inventoryItems = contextInventory.map(item => ({
@@ -2074,28 +2085,46 @@ const Finance = () => {
           </SheetHeader>
           <div className="space-y-4">
             <div className="p-4 bg-primary/10 rounded-lg">
-              <p className="text-sm text-muted-foreground">Total Revenue (All Time)</p>
+              <p className="text-sm text-muted-foreground">
+                Cash revenue ({revenuePeriodLabel})
+              </p>
               <p className="text-3xl font-bold text-primary">{formatINR(kpiValues.revenue)}</p>
             </div>
             <div className="space-y-3">
-              <h4 className="font-medium text-sm text-muted-foreground">Revenue Breakdown</h4>
+              <h4 className="font-medium text-sm text-muted-foreground">Cash breakdown (payments in)</h4>
               <p className="text-xs text-muted-foreground">
-                Total matches KPI: invoice <span className="font-medium">amount received</span> plus all{" "}
-                <span className="font-medium">incoming payments</span> (components may overlap if the same receipt was booked twice).
+                Matches the Revenue KPI — sums incoming payments only, not stored invoice{" "}
+                <span className="font-medium">amountReceived</span> fields.
               </p>
               <div className="space-y-2">
                 <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Invoices — amount received</span>
-                  <span className="font-semibold">{formatINR(financeKpiBreakdowns.invoiceReceivedTotal)}</span>
+                  <span className="text-sm">Linked to tax invoices</span>
+                  <span className="font-semibold">
+                    {formatINR(financeKpiBreakdowns.revenueBreakdown.cashFromInvoices)}
+                  </span>
                 </div>
                 <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
-                  <span className="text-sm">Payment ledger — credits in</span>
-                  <span className="font-semibold">{formatINR(financeKpiBreakdowns.paymentsInTotal)}</span>
+                  <span className="text-sm">Linked to sale bills</span>
+                  <span className="font-semibold">
+                    {formatINR(financeKpiBreakdowns.revenueBreakdown.cashFromSaleBills)}
+                  </span>
                 </div>
-                {financeKpiBreakdowns.topReceipts.length === 0 ? (
+                <div className="flex justify-between p-3 bg-muted/30 rounded-lg">
+                  <span className="text-sm">Unlinked / other receipts</span>
+                  <span className="font-semibold">
+                    {formatINR(financeKpiBreakdowns.revenueBreakdown.cashUnlinked)}
+                  </span>
+                </div>
+                <div className="flex justify-between p-3 border border-border/80 rounded-lg">
+                  <span className="text-sm text-muted-foreground">Revenue (accrual) — invoiced in period</span>
+                  <span className="font-semibold">
+                    {formatINR(financeKpiBreakdowns.revenueBreakdown.accrualRevenue)}
+                  </span>
+                </div>
+                {financeKpiBreakdowns.revenueBreakdown.topReceipts.length === 0 ? (
                   <ListEmptyState density="compact" icon={IndianRupee} title="No incoming payments in ledger yet" />
                 ) : (
-                  financeKpiBreakdowns.topReceipts.map((row) => (
+                  financeKpiBreakdowns.revenueBreakdown.topReceipts.map((row) => (
                     <div key={row.label} className="flex justify-between p-3 bg-muted/30 rounded-lg">
                       <span className="text-sm truncate pr-2" title={row.label}>
                         {row.label}
