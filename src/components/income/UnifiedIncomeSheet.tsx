@@ -25,6 +25,8 @@ import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
 import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
 import { requireDateNotBefore } from "@/lib/dateSanity";
 import { FORM_CREATE_LABEL } from "@/lib/formActionLabels";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 
 const INCOME_MODAL_DRAFT_KEY = "income-sheet-modal";
 
@@ -57,6 +59,7 @@ export function UnifiedIncomeSheet({
   const { projects, partners, employees, loans, addIncome, updateIncome, generateId } = useAppData();
   const isEdit = Boolean(editingIncome?.id);
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
+  const ceoReadOnly = useCeoOperationalReadOnly();
 
   const [step, setStep] = useState<Step>("main-category");
   const [mainCategory, setMainCategory] = useState<MainIncomeCategory | "">(prefillProjectId ? "project" : "");
@@ -244,6 +247,7 @@ export function UnifiedIncomeSheet({
   const goBack = () => { const idx = steps.indexOf(step); if (idx > 0) setStep(steps[idx - 1]); };
 
   const handleSubmit = () => {
+    if (ceoReadOnly) return;
     if (interestRate.trim()) {
       const rate = Number.parseFloat(interestRate);
       if (!Number.isFinite(rate) || rate < 0) {
@@ -355,6 +359,7 @@ export function UnifiedIncomeSheet({
             {mainCategory && <Badge variant="outline" className="ml-2">{INCOME_MAIN_CATEGORIES.find(c => c.value === mainCategory)?.label}</Badge>}
           </SheetDescription>
         </SheetHeader>
+        <CeoReadOnlySheetBanner className="mb-2" />
 
         {/* Progress */}
         <div className="flex gap-1 mb-4">
@@ -731,11 +736,11 @@ export function UnifiedIncomeSheet({
           <Button variant="outline" onClick={step === "main-category" ? onClose : goBack}>
             {step === "main-category" ? "Cancel" : <><ArrowLeft className="w-4 h-4 mr-2" />Back</>}
           </Button>
-          {step === "confirm" ? (
+          {!ceoReadOnly && (step === "confirm" ? (
             <Button onClick={handleSubmit}><Check className="w-4 h-4 mr-2" />{FORM_CREATE_LABEL}</Button>
           ) : (
             <Button onClick={goNext} disabled={!isStepValid()}>Next<ArrowRight className="w-4 h-4 ml-2" /></Button>
-          )}
+          ))}
         </div>
       </AppSheetContent>
     </Sheet>

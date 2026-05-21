@@ -12,6 +12,8 @@ import { toast } from "@/hooks/use-toast";
 import { parseValidatedPhotoUrlLines } from "@/lib/photoUrlLines";
 import type { Project } from "@/types/project";
 import type { SiteVisitItem } from "@/types/operations";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 
 type LineDraft = {
   key: string;
@@ -49,6 +51,7 @@ export function SiteVisitSheet({
   onVisitCreated?: (visitId: string) => void;
 }) {
   const { addSiteVisit, employees, inventoryItems } = useAppData();
+  const ceoReadOnly = useCeoOperationalReadOnly();
   const today = new Date().toISOString().slice(0, 10);
 
   const [visitDate, setVisitDate] = useState(today);
@@ -84,6 +87,7 @@ export function SiteVisitSheet({
   };
 
   const handleSubmit = () => {
+    if (ceoReadOnly) return;
     if (!visitedBy?.trim()) {
       toast({ title: "Select installer", variant: "destructive" });
       return;
@@ -151,6 +155,7 @@ export function SiteVisitSheet({
             Capture what was observed on site for {project.name}. Lines can be merged into the site checklist later.
           </SheetDescription>
         </SheetHeader>
+        <CeoReadOnlySheetBanner className="py-2" />
 
         <div className="space-y-4 py-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -277,7 +282,7 @@ export function SiteVisitSheet({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit}>Save visit</Button>
+          {!ceoReadOnly && <Button onClick={handleSubmit}>Save visit</Button>}
         </SheetFooter>
       </AppSheetContent>
     </Sheet>

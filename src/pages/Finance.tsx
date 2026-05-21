@@ -25,6 +25,8 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { useCan } from "@/hooks/useCan";
 import { useFinanceHubPanels } from "@/hooks/useFinanceHubPanels";
 import { useCanAction } from "@/hooks/useCanAction";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { MappingPostingChip } from "@/components/shared/MappingPostingChip";
 import { PageShell } from "@/components/layout/PageShell";
@@ -112,6 +114,7 @@ const Finance = () => {
     canViewVendorAp,
     hasAnyPanel,
   } = useFinanceHubPanels();
+  const ceoReadOnly = useCeoOperationalReadOnly();
   const canCreateExpense = useCan("expense", "create");
   const canCreateIncome = useCan("income", "create");
   const canCreateInvoice = useCan("invoice", "create");
@@ -1204,6 +1207,7 @@ const Finance = () => {
           <SheetHeader>
             <SheetTitle>Owner capital movement</SheetTitle>
           </SheetHeader>
+          <CeoReadOnlySheetBanner className="mt-4" />
           <div className="mt-4 space-y-4 py-2">
             <div className="space-y-2">
               <Label>Type</Label>
@@ -1255,7 +1259,9 @@ const Finance = () => {
             <Button variant="outline" onClick={() => { resetOwnerInvestmentForm(); setIsOwnerInvestmentOpen(false); }}>
               Cancel
             </Button>
+            {!ceoReadOnly && canCreateIncome && (
             <Button onClick={handleSaveOwnerInvestment}>Save</Button>
+            )}
           </SheetFooter>
         </AppSheetContent>
       </Sheet>

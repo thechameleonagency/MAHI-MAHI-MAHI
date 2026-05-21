@@ -17,4 +17,6 @@ export const PERMISSION_DENIED_HINTS = {
     "Only admin, super-admin, or installation team can reverse inventory movements.",
   toolMovementReverse:
     "Only admin, super-admin, or installation team can reverse tool movements.",
+  ceoOperationalReadOnly:
+    "CEO role is read-only here. Approve quotations or convert approved quotes to projects where your role allows.",
 } as const;

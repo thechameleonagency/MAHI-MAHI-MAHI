@@ -11,6 +11,8 @@ import { toast } from "@/hooks/use-toast";
 import { formatINR } from "@/lib/formatCurrency";
 import { computeAdditionalWorkTotal } from "@/lib/changeRequestApproval";
 import type { Project } from "@/types/project";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 
 export function AdditionalWorkSheet({
   open,
@@ -22,6 +24,7 @@ export function AdditionalWorkSheet({
   project: Project;
 }) {
   const { updateProject } = useAppData();
+  const ceoReadOnly = useCeoOperationalReadOnly();
   const [description, setDescription] = useState("");
   const [basis, setBasis] = useState<"fixed" | "per_kw" | "per_sqft">("fixed");
   const [rate, setRate] = useState("");
@@ -35,6 +38,7 @@ export function AdditionalWorkSheet({
   );
 
   const handleSubmit = () => {
+    if (ceoReadOnly) return;
     if (!description.trim()) {
       toast({ title: "Description required", variant: "destructive" });
       return;
@@ -90,6 +94,7 @@ export function AdditionalWorkSheet({
             Add fixed, per-kW, or per-sqft work lines — contract amount updates automatically.
           </SheetDescription>
         </SheetHeader>
+        <CeoReadOnlySheetBanner className="py-2" />
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
@@ -130,7 +135,7 @@ export function AdditionalWorkSheet({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit}>Add to contract</Button>
+          {!ceoReadOnly && <Button onClick={handleSubmit}>Add to contract</Button>}
         </SheetFooter>
       </AppSheetContent>
     </Sheet>

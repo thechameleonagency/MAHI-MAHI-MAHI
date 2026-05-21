@@ -45,6 +45,9 @@ import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { canPerformAction } from "@/domain/policies/permissionMatrix";
 import { useCan } from "@/hooks/useCan";
 import { useCanAction } from "@/hooks/useCanAction";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { allowOperationalWrite } from "@/lib/ceoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 import {
@@ -436,6 +439,17 @@ const ProjectDetail = () => {
     useCan("projectCommercial", "edit") || useCan("projectExecution", "edit");
   const canApproveChangeRequest = useCanAction("approval:resolve");
   const canCreateInvoice = useCanAction("finance:create_invoice");
+  const ceoReadOnly = useCeoOperationalReadOnly();
+  const canWriteInvoice = allowOperationalWrite(ceoReadOnly, canCreateInvoice);
+  const canWriteExpense = allowOperationalWrite(
+    ceoReadOnly,
+    canPerformAction(currentRole, "finance:record_expense_income"),
+  );
+  const canWriteExecution = allowOperationalWrite(
+    ceoReadOnly,
+    canPerformAction(currentRole, "project:update_execution"),
+  );
+  const canWriteProjectComplete = allowOperationalWrite(ceoReadOnly, canMarkProjectComplete);
   const [showFinancialDetail, setShowFinancialDetail] = useState(false);
   const hasFinancialDetail = Boolean(
     project?.bankDocumentationAmount || project?.totalPartnerInvestment || project?.mssBackendAmount ||
@@ -852,6 +866,7 @@ const ProjectDetail = () => {
           <ProjectStartActions project={project} />
           {/* Primary CTA — state-derived. Filled style so it stands out from secondary outline buttons. */}
           {project?.archivedAt ? (
+            !ceoReadOnly ? (
             <Button
               size="sm"
               className="h-8"
@@ -863,19 +878,22 @@ const ProjectDetail = () => {
             >
               <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />Unarchive
             </Button>
+            ) : null
           ) : isProjectCompleted ? (
             <Button size="sm" className="h-8" onClick={() => navigate("/audit/audit-logs")}>
               <FileText className="w-3.5 h-3.5 mr-1.5" />Open audit
             </Button>
-          ) : (
+          ) : canWriteInvoice ? (
             <Button size="sm" className="h-8" onClick={handleOpenNewInvoiceForProject}>
               <FileText className="w-3.5 h-3.5 mr-1.5" />Invoice
             </Button>
-          )}
+          ) : null}
+          {!ceoReadOnly && (
           <Button variant="outline" size="sm" className="h-8" onClick={() => setIsSiteVisitOpen(true)}>
             <ClipboardList className="w-3.5 h-3.5 mr-1.5" />Site visit
           </Button>
-          {canPerformAction(currentRole, "project:update_execution") && (
+          )}
+          {canWriteExecution && (
             <Button
               variant="outline"
               size="sm"
@@ -894,7 +912,7 @@ const ProjectDetail = () => {
               Assign task
             </Button>
           )}
-          {canPerformAction(currentRole, "finance:record_expense_income") && (
+          {canWriteExpense && (
             <Button
               variant="outline"
               size="sm"
@@ -906,7 +924,7 @@ const ProjectDetail = () => {
               <Plus className="w-3.5 h-3.5 mr-1.5" />Expense
             </Button>
           )}
-          {!isProjectCompleted && canMarkProjectComplete && (
+          {!isProjectCompleted && canWriteProjectComplete && (
             <Button
               variant="outline"
               size="sm"
@@ -931,9 +949,11 @@ const ProjectDetail = () => {
               >
                 <Users className="w-4 h-4 mr-2" /> Outsource Work
               </DropdownMenuItem>
+              {!ceoReadOnly && (
               <DropdownMenuItem onClick={() => { if (isProjectCompleted) return; openEditProjectModal(); }} disabled={isProjectCompleted}>
                 <Edit className="w-4 h-4 mr-2" /> Edit Details
               </DropdownMenuItem>
+              )}
               {lifecycleTransitions.length > 0 && (
                 <>
                   <DropdownMenuSeparator />
@@ -1340,10 +1360,12 @@ const ProjectDetail = () => {
               <MiniMetric label="Billed so far" value={formatINR(billed)} />
               <MiniMetric label="Collected so far" value={formatINR(collected)} />
               </div>
+              {canWriteInvoice && (
               <Button type="button" size="sm" className="shrink-0" onClick={handleOpenNewInvoiceForProject}>
                 <Plus className="mr-1 h-4 w-4" />
                 New invoice
               </Button>
+              )}
             </div>
             <DataTableShell
             variant="inline" >
@@ -1408,10 +1430,12 @@ const ProjectDetail = () => {
               <MiniMetric label="Transport" value={formatINR(projectExpenses.filter((e) => e.category === "Transport").reduce((sum, e) => sum + e.amount, 0))} />
               <MiniMetric label="Total cost" value={formatINR(actualCost)} />
               </div>
+              {canWriteExpense && (
               <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => setIsAddExpenseOpen(true)}>
                 <Plus className="mr-1 h-4 w-4" />
                 Add expense
               </Button>
+              )}
             </div>
             <DataTableShell
             variant="inline" >
@@ -1473,12 +1497,16 @@ const ProjectDetail = () => {
                 onChange={(e) => setExecutionNotesDraft(e.target.value)}
                 placeholder="e.g. 12 Apr - Structure complete, awaiting DISCOM inspection..."
                 className="text-sm"
+                readOnly={ceoReadOnly}
+                disabled={ceoReadOnly}
               />
+              {canWriteExecution && (
               <div className="mt-3 flex justify-end">
                 <Button type="button" size="sm" onClick={handleSaveExecutionNotes}>
                   Save notes
                 </Button>
               </div>
+              )}
             </TabCard>
             <TabCard title="Scheduled installations" icon={<Calendar className="h-4 w-4 text-primary" />}>
               {projectSchedules.length === 0 ? (
@@ -1509,9 +1537,11 @@ const ProjectDetail = () => {
             </TabCard>
             <TabCard title="Site visits" icon={<ClipboardList className="h-4 w-4 text-primary" />}>
               <div className="mb-3 flex justify-end">
+                {!ceoReadOnly && (
                 <Button type="button" size="sm" variant="outline" onClick={() => setIsSiteVisitOpen(true)}>
                   <Plus className="mr-1 h-4 w-4" /> Record visit
                 </Button>
+                )}
               </div>
               {projectSiteVisits.length === 0 ? (
                 <ListEmptyState
@@ -1539,11 +1569,11 @@ const ProjectDetail = () => {
                             <Badge variant="secondary" className="text-xs">
                               Reconciled {new Date(visit.reconciledChecklistAt).toLocaleDateString()}
                             </Badge>
-                          ) : (
+                          ) : !ceoReadOnly ? (
                             <Button type="button" size="sm" variant="outline" onClick={() => handleReconcileSiteVisit(visit.id)}>
                               Reconcile to checklist
                             </Button>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     );
@@ -1823,16 +1853,18 @@ const ProjectDetail = () => {
               />
             )}
             <div className="mb-3 flex flex-wrap gap-2 justify-end">
-              {kind === "INC_GIVEN" && (
+              {kind === "INC_GIVEN" && !ceoReadOnly && (
                 <Button type="button" size="sm" variant="secondary" onClick={() => setIsAdditionalWorkOpen(true)}>
                   <Plus className="mr-1 h-4 w-4" />
                   Additional work
                 </Button>
               )}
+              {!ceoReadOnly && (
               <Button type="button" size="sm" onClick={() => setIsChangeRequestOpen(true)}>
                 <Plus className="mr-1 h-4 w-4" />
                 New change request
               </Button>
+              )}
             </div>
             {projectChangeRequests.length === 0 ? (
               <ListEmptyState density="compact" icon={FileText} title="No change requests yet" />
@@ -1987,11 +2019,13 @@ const ProjectDetail = () => {
           {/* Invoices - only for kinds that bill */}
           {!["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(kind) && (
             <TabCard title="Invoices" icon={<ReceiptText className="h-4 w-4 text-primary" />}>
+              {canWriteInvoice && (
               <div className="mb-3 flex justify-end">
                 <Button type="button" size="sm" onClick={handleOpenNewInvoiceForProject}>
                   <Plus className="mr-1 h-4 w-4" />New invoice
                 </Button>
               </div>
+              )}
               <DataTableShell variant="inline">
                 <TableHeader>
                   <TableRow>
@@ -2052,9 +2086,11 @@ const ProjectDetail = () => {
                 <MiniMetric label="Labour" value={formatINR(projectExpenses.filter((e) => e.category === "Labour").reduce((s, e) => s + e.amount, 0))} />
                 <MiniMetric label="Total" value={formatINR(actualCost)} />
               </div>
+              {canWriteExpense && (
               <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => setIsAddExpenseOpen(true)}>
                 <Plus className="mr-1 h-4 w-4" />Add expense
               </Button>
+              )}
             </div>
             <DataTableShell variant="inline">
               <TableHeader>
@@ -2100,10 +2136,12 @@ const ProjectDetail = () => {
                 </TabCard>
                 <TabCard title="Field notes & milestones" icon={<ClipboardList className="h-4 w-4 text-muted-foreground" />}>
                   <p className="mb-2 text-xs text-muted-foreground">Log site progress, milestone completions, and follow-ups.</p>
-                  <Textarea rows={5} value={executionNotesDraft} onChange={(e) => setExecutionNotesDraft(e.target.value)} placeholder="e.g. 12 Apr - Structure complete, awaiting DISCOM inspection..." className="text-sm" />
+                  <Textarea rows={5} value={executionNotesDraft} onChange={(e) => setExecutionNotesDraft(e.target.value)} placeholder="e.g. 12 Apr - Structure complete, awaiting DISCOM inspection..." className="text-sm" readOnly={ceoReadOnly} disabled={ceoReadOnly} />
+                  {canWriteExecution && (
                   <div className="mt-3 flex justify-end">
                     <Button type="button" size="sm" onClick={handleSaveExecutionNotes}>Save notes</Button>
                   </div>
+                  )}
                 </TabCard>
               </div>
               <TabCard title="Site photos" icon={<Camera className="h-4 w-4 text-primary" />}>
@@ -2115,11 +2153,13 @@ const ProjectDetail = () => {
                     className="hidden"
                     onChange={handleProjectPhotoAdd}
                   />
+                  {!ceoReadOnly && (
                   <Button type="button" variant="outline" size="sm" asChild>
                     <label htmlFor="project-photo-upload" className="cursor-pointer">
                       Add photo
                     </label>
                   </Button>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     {(project.photoGallery?.length ?? project.photos ?? 0)} on file
                   </span>
@@ -2167,8 +2207,8 @@ const ProjectDetail = () => {
                     density="compact"
                     icon={MapPin}
                     title="No sites for this project"
-                    actionLabel="Add site"
-                    onAction={() => { setNewSiteName(""); setNewSiteWorkStart(new Date().toISOString().split("T")[0]); setNewSiteStatus("active"); setIsAddSiteOpen(true); }}
+                    actionLabel={ceoReadOnly ? undefined : "Add site"}
+                    onAction={ceoReadOnly ? undefined : () => { setNewSiteName(""); setNewSiteWorkStart(new Date().toISOString().split("T")[0]); setNewSiteStatus("active"); setIsAddSiteOpen(true); }}
                     className="rounded-lg border border-dashed bg-muted/20"
                   />
                 ) : (
@@ -2343,11 +2383,12 @@ const ProjectDetail = () => {
             <SheetTitle>Edit Project</SheetTitle>
             <SheetDescription>Update project details</SheetDescription>
           </SheetHeader>
+          <CeoReadOnlySheetBanner className="py-2" />
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2 col-span-2">
                 <Label>Project Name</Label>
-                <Input value={editProjectName} onChange={(e) => setEditProjectName(e.target.value)} />
+                <Input value={editProjectName} onChange={(e) => setEditProjectName(e.target.value)} disabled={ceoReadOnly} readOnly={ceoReadOnly} />
               </div>
               
               <div className="space-y-2">
@@ -2509,7 +2550,9 @@ const ProjectDetail = () => {
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setIsEditProjectOpen(false)}>Cancel</Button>
+            {!ceoReadOnly && (
             <Button onClick={handleSaveEditProject}>{formPrimaryLabel("edit")}</Button>
+            )}
           </div>
         </AppSheetContent>
       </Sheet>
@@ -2565,7 +2608,7 @@ const ProjectDetail = () => {
           </Tabs>
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="outline" onClick={() => setIsAddOutsourceOpen(false)}>Cancel</Button>
-            <Button onClick={handleConfirmOutsource}>Confirm</Button>
+            {!ceoReadOnly && <Button onClick={handleConfirmOutsource}>Confirm</Button>}
           </div>
         </AppSheetContent>
       </Sheet>

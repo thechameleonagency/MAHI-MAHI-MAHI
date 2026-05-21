@@ -56,6 +56,8 @@ import {
 } from "@/lib/expensePayerValidation";
 import { ExpenseReimbursementStatus } from "@/components/expenses/ExpenseReimbursementStatus";
 import { FORM_CREATE_LABEL } from "@/lib/formActionLabels";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 
 /** Ledger preview: negative outflow (formatINR is always positive ₹…). */
 function formatInrOutflow(n: number): string {
@@ -122,7 +124,8 @@ export function UnifiedExpenseSheet({
   const masters = useMasters();
   const ownerName = (() => { try { return JSON.parse(localStorage.getItem("mss.settings.company") || "{}").ownerName || "Owner"; } catch { return "Owner"; } })();
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
-  
+  const ceoReadOnly = useCeoOperationalReadOnly();
+
   const [step, setStep] = useState<Step>(() => (prefillProjectId || prefillEmployeeId ? "category" : "main-category"));
   
   // Main category
@@ -645,6 +648,7 @@ export function UnifiedExpenseSheet({
   };
 
   const handleSubmit = () => {
+    if (ceoReadOnly) return;
     if (!wizardReadyForSubmit) {
       toast({
         title: "Cannot save expense",
@@ -807,6 +811,7 @@ export function UnifiedExpenseSheet({
             {mainCategory && <Badge variant="outline" className="ml-2">{EXPENSE_MAIN_CATEGORIES.find(c => c.value === mainCategory)?.label}</Badge>}
           </SheetDescription>
         </SheetHeader>
+        <CeoReadOnlySheetBanner className="mb-2" />
 
         {/* Progress */}
         <div className="flex gap-1 mb-4">
@@ -1732,13 +1737,13 @@ export function UnifiedExpenseSheet({
           <Button variant="outline" onClick={step === "main-category" ? onClose : goBack}>
             {step === "main-category" ? "Cancel" : <><ArrowLeft className="w-4 h-4 mr-2" />Back</>}
           </Button>
-          {step === "confirm" ? (
+          {!ceoReadOnly && (step === "confirm" ? (
             <Button onClick={handleSubmit} disabled={!wizardReadyForSubmit} title={!wizardReadyForSubmit ? payerValidation.errors[0] : undefined}>
               <Check className="w-4 h-4 mr-2" />{FORM_CREATE_LABEL}
             </Button>
           ) : (
             <Button onClick={goNext} disabled={!isStepValid()}>Next<ArrowRight className="w-4 h-4 ml-2" /></Button>
-          )}
+          ))}
         </div>
       </AppSheetContent>
     </Sheet>

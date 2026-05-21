@@ -50,6 +50,9 @@ import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { getEnquiryFollowUpAging } from "@/lib/agingHelpers";
 import { canReopenLostEnquiry } from "@/domain/stateMachines/enquiryStateMachine";
 import { useCan } from "@/hooks/useCan";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { allowOperationalWrite } from "@/lib/ceoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 import { formPrimaryLabel } from "@/lib/formActionLabels";
@@ -135,11 +138,17 @@ const Enquiries = () => {
     customers,
   } = useAppData();
   const { currentRole, sessionUserId, demoUserName, memberId } = useAppSession();
+  const ceoReadOnly = useCeoOperationalReadOnly();
   const canCreateEnquiry = useCan("enquiry", "create");
   const canEditEnquiry = useCan("enquiry", "edit");
   const canUpdateEnquiry = useCan("enquiry", "create");
   const canCreateQuotation = useCan("quotation", "create");
   const canReopenLost = canReopenLostEnquiry(currentRole);
+  const canWriteEnquiryCreate = allowOperationalWrite(ceoReadOnly, canCreateEnquiry);
+  const canWriteEnquiryEdit = allowOperationalWrite(ceoReadOnly, canEditEnquiry);
+  const canWriteEnquiryUpdate = allowOperationalWrite(ceoReadOnly, canUpdateEnquiry);
+  const canWriteQuotationFromEnquiry = allowOperationalWrite(ceoReadOnly, canCreateQuotation);
+  const canWriteReopenLost = allowOperationalWrite(ceoReadOnly, canReopenLost);
 
   const salesAssignees = useMemo(
     () => getActiveSalesTeamMembers(settingsTeamMembers),
@@ -951,7 +960,7 @@ const formatCapacityInput = (capacity: string) => {
           </div>
         }
       >
-        <Button size="sm" onClick={() => { resetCreateForm(); setIsAddEnquiryOpen(true); }} disabled={!canCreateEnquiry}>
+        <Button size="sm" onClick={() => { resetCreateForm(); setIsAddEnquiryOpen(true); }} disabled={!canWriteEnquiryCreate}>
           <Plus className="h-4 w-4 mr-2" />
           Add enquiry
         </Button>
@@ -1030,7 +1039,7 @@ const formatCapacityInput = (capacity: string) => {
                           >
                             <span>Previous quote rejected or withdrawn — re-quote when ready.</span>
                             <PermissionGatedButton
-                              allowed={canCreateQuotation}
+                              allowed={canWriteQuotationFromEnquiry}
                               deniedHint={PERMISSION_DENIED_HINTS.enquiryCreateQuotation}
                               type="button"
                               variant="link"
@@ -1099,7 +1108,7 @@ const formatCapacityInput = (capacity: string) => {
                 : "Try clearing filters or adjusting your search."
           }
           actionLabel={
-            enquiries.length === 0 && canCreateEnquiry
+            enquiries.length === 0 && canWriteEnquiryCreate
               ? "Add your first enquiry"
               : enquiries.length === 0
                 ? undefined
@@ -1108,7 +1117,7 @@ const formatCapacityInput = (capacity: string) => {
                   : "Clear filters"
           }
           onAction={
-            enquiries.length === 0 && canCreateEnquiry
+            enquiries.length === 0 && canWriteEnquiryCreate
               ? () => {
                   resetCreateForm();
                   setIsAddEnquiryOpen(true);
@@ -1299,10 +1308,17 @@ const formatCapacityInput = (capacity: string) => {
                 {selectedEnquiry?.id}
               </div>
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" onClick={() => setIsShareOpen(true)}>
+                <PermissionGatedButton
+                  allowed={canWriteEnquiryUpdate}
+                  deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
+                  variant="ghost"
+                  size="sm"
+                  hideWhenDenied
+                  onClick={() => setIsShareOpen(true)}
+                >
                   <Share2 className="h-4 w-4 mr-2" />Share
-                </Button>
-                {canEditEnquiry && (
+                </PermissionGatedButton>
+                {canWriteEnquiryEdit && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1320,6 +1336,7 @@ const formatCapacityInput = (capacity: string) => {
               </div>
             </SheetTitle>
           </SheetHeader>
+          <CeoReadOnlySheetBanner className="mt-4 px-1" />
           {selectedEnquiry && (selectedEnquiry.archivedAt || selectedEnquiry.status === "lost") && (
             <div className="mt-4 px-1">
               <LifecycleTerminalBanner
@@ -1328,19 +1345,21 @@ const formatCapacityInput = (capacity: string) => {
                 description={
                   selectedEnquiry.archivedAt
                     ? "This enquiry is archived and hidden from the default pipeline. Unarchive to resume follow-up or create a quotation."
-                    : canReopenLost
+                    : canWriteReopenLost
                       ? "This lead is closed as lost. Reopen it to continue follow-up, or archive it to remove from active lists."
                       : "This lead is closed as lost. Only admin can reopen it; you can archive it to remove from active lists."
                 }
                 primaryActionLabel={
                   selectedEnquiry.archivedAt
-                    ? "Unarchive"
-                    : selectedEnquiry.status === "lost" && canReopenLost
+                    ? canWriteEnquiryUpdate
+                      ? "Unarchive"
+                      : undefined
+                    : selectedEnquiry.status === "lost" && canWriteReopenLost
                       ? "Reopen"
                       : undefined
                 }
                 onPrimaryAction={
-                  selectedEnquiry.archivedAt
+                  selectedEnquiry.archivedAt && canWriteEnquiryUpdate
                     ? async () => {
                         const res = await updateEnquiry(selectedEnquiry.id, { archivedAt: null });
                         if (!res.ok) {
@@ -1353,13 +1372,17 @@ const formatCapacityInput = (capacity: string) => {
                         }
                         toast({ title: "Enquiry restored" });
                       }
-                    : selectedEnquiry.status === "lost" && canReopenLost
+                    : selectedEnquiry.status === "lost" && canWriteReopenLost
                       ? () => { setReopenReasonText(""); setIsReopenEnquiryOpen(true); }
                       : undefined
                 }
-                secondaryActionLabel={!selectedEnquiry.archivedAt && selectedEnquiry.status === "lost" ? "Archive" : undefined}
+                secondaryActionLabel={
+                  !selectedEnquiry.archivedAt && selectedEnquiry.status === "lost" && canWriteEnquiryUpdate
+                    ? "Archive"
+                    : undefined
+                }
                 onSecondaryAction={
-                  !selectedEnquiry.archivedAt && selectedEnquiry.status === "lost"
+                  !selectedEnquiry.archivedAt && selectedEnquiry.status === "lost" && canWriteEnquiryUpdate
                     ? async () => {
                         const res = await updateEnquiry(selectedEnquiry.id, {
                           archivedAt: new Date().toISOString(),
@@ -1386,9 +1409,9 @@ const formatCapacityInput = (capacity: string) => {
                 variant="rejected"
                 title="Quotation rejected or withdrawn"
                 description="The linked quote is no longer active. Create a new quotation to re-engage this lead, or mark the enquiry as lost if the opportunity is closed."
-                primaryActionLabel={canCreateQuotation ? "Create new quotation" : undefined}
+                primaryActionLabel={canWriteQuotationFromEnquiry ? "Create new quotation" : undefined}
                 onPrimaryAction={
-                  canCreateQuotation ? () => handleCreateQuotation(selectedEnquiry) : undefined
+                  canWriteQuotationFromEnquiry ? () => handleCreateQuotation(selectedEnquiry) : undefined
                 }
               />
             </div>
@@ -1541,14 +1564,17 @@ const formatCapacityInput = (capacity: string) => {
                       <MessageCircle className="h-3 w-3" />
                       Recent Activity & Notes
                     </h4>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <PermissionGatedButton
+                      allowed={canWriteEnquiryUpdate}
+                      deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
+                      variant="ghost"
+                      size="sm"
                       className="h-7 text-2xs text-primary"
+                      hideWhenDenied
                       onClick={() => setIsAddNoteOpen(true)}
                     >
                       <Plus className="h-3 w-3 mr-1" /> Add Note
-                    </Button>
+                    </PermissionGatedButton>
                   </div>
                   
                   <div className="space-y-3 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-border/60">
@@ -1651,9 +1677,12 @@ const formatCapacityInput = (capacity: string) => {
               <div className="pt-6 mt-6 border-t bg-background/80 backdrop-blur-sm sticky bottom-0 z-20">
                 <div className="flex flex-wrap items-center justify-between gap-3 pb-6">
                   <div className="flex items-center gap-2">
-                    <Button
+                    <PermissionGatedButton
+                      allowed={canWriteEnquiryUpdate}
+                      deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                       variant="outline"
                       size="sm"
+                      hideWhenDenied
                       disabled={selectedEnquiry.status === "converted" || selectedEnquiry.status === "lost"}
                       onClick={() => {
                         setAssignTo(selectedEnquiry.assignedToMemberId ?? "");
@@ -1662,34 +1691,40 @@ const formatCapacityInput = (capacity: string) => {
                     >
                       <UserPlus className="h-4 w-4 mr-2" />
                       {enquiryHasAssignee(selectedEnquiry) ? "Reassign" : "Assign Lead"}
-                    </Button>
+                    </PermissionGatedButton>
                     {(selectedEnquiry.status === "new" || selectedEnquiry.status === "meeting_scheduled") && (
-                      <Button
+                      <PermissionGatedButton
+                        allowed={canWriteEnquiryUpdate}
+                        deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                         variant="outline"
                         size="sm"
+                        hideWhenDenied
                         onClick={() => setIsScheduleMeetingOpen(true)}
                       >
                         <Calendar className="h-4 w-4 mr-2" />
                         Schedule Meeting
-                      </Button>
+                      </PermissionGatedButton>
                     )}
                   </div>
 
                   <div className="flex items-center gap-2">
                     {/* Mark as Lost — available until converted/lost */}
                     {selectedEnquiry.status !== "converted" && selectedEnquiry.status !== "lost" && (
-                      <Button
+                      <PermissionGatedButton
+                        allowed={canWriteEnquiryUpdate}
+                        deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                         variant="destructive"
                         size="sm"
+                        hideWhenDenied
                         onClick={handleMarkAsLost}
                         className="bg-destructive/5 text-destructive hover:bg-destructive hover:text-white border-destructive/20"
                       >
                         Mark as Lost
-                      </Button>
+                      </PermissionGatedButton>
                     )}
                     {selectedEnquiry.status === "lost" && (
                       <PermissionGatedButton
-                        allowed={canReopenLost}
+                        allowed={canWriteReopenLost}
                         deniedHint={PERMISSION_DENIED_HINTS.enquiryReopenLost}
                         variant="outline"
                         size="sm"
@@ -1699,9 +1734,12 @@ const formatCapacityInput = (capacity: string) => {
                       </PermissionGatedButton>
                     )}
                     {selectedEnquiry.archivedAt ? (
-                      <Button
+                      <PermissionGatedButton
+                        allowed={canWriteEnquiryUpdate}
+                        deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                         variant="outline"
                         size="sm"
+                        hideWhenDenied
                         onClick={async () => {
                           const res = await updateEnquiry(selectedEnquiry.id, { archivedAt: null });
                           if (!res.ok) {
@@ -1716,13 +1754,16 @@ const formatCapacityInput = (capacity: string) => {
                         }}
                       >
                         Unarchive
-                      </Button>
+                      </PermissionGatedButton>
                     ) : (
                       (selectedEnquiry.status === "lost" || selectedEnquiry.status === "converted") && (
-                        <Button
+                        <PermissionGatedButton
+                          allowed={canWriteEnquiryUpdate}
+                          deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                           variant="outline"
                           size="sm"
                           className="text-muted-foreground"
+                          hideWhenDenied
                           onClick={async () => {
                             const res = await updateEnquiry(selectedEnquiry.id, {
                               archivedAt: new Date().toISOString(),
@@ -1740,14 +1781,14 @@ const formatCapacityInput = (capacity: string) => {
                           }}
                         >
                           Archive
-                        </Button>
+                        </PermissionGatedButton>
                       )
                     )}
 
                     {/* Send Quotation — for active leads pre-conversion */}
                     {(selectedEnquiry.status === "new" || selectedEnquiry.status === "meeting_scheduled") && (
                       <PermissionGatedButton
-                        allowed={canUpdateEnquiry}
+                        allowed={canWriteEnquiryUpdate}
                         deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
                         size="sm"
                         variant="outline"
@@ -1762,7 +1803,7 @@ const formatCapacityInput = (capacity: string) => {
                     {/* Mark as Converted — only from quotation_sent */}
                     {selectedEnquiry.status === "quotation_sent" && (
                       <PermissionGatedButton
-                        allowed={canUpdateEnquiry}
+                        allowed={canWriteEnquiryUpdate}
                         deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
                         size="sm"
                         className="bg-primary text-white"
@@ -1776,7 +1817,7 @@ const formatCapacityInput = (capacity: string) => {
                     {/* Re-quote after rejection / withdrawal */}
                     {selectedEnquiry.status === "quotation_rejected" && (
                       <PermissionGatedButton
-                        allowed={canCreateQuotation}
+                        allowed={canWriteQuotationFromEnquiry}
                         deniedHint={PERMISSION_DENIED_HINTS.enquiryCreateQuotation}
                         size="sm"
                         className="bg-primary text-white"

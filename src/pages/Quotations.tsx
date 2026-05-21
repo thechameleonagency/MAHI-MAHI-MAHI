@@ -84,6 +84,9 @@ import { AgingChip } from "@/components/ui/AgingChip";
 import { getQuotationNoResponseAging } from "@/lib/agingHelpers";
 import { useCan } from "@/hooks/useCan";
 import { useCanAction } from "@/hooks/useCanAction";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { allowOperationalWrite } from "@/lib/ceoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
@@ -215,11 +218,15 @@ const Quotations = () => {
     settingsTeamMembers,
     scheduledInstallations,
   } = useAppData();
+  const ceoReadOnly = useCeoOperationalReadOnly();
   const canCreateQuotation = useCan("quotation", "create");
   const canEditQuotation = useCan("quotation", "edit");
   const canDeleteQuotation = useCan("quotation", "delete");
   const canApproveQuotation = useCan("quotationApprove", "edit");
   const canCreateProjectFromQuote = useCanAction("project:create_from_quote");
+  const canWriteQuotation = allowOperationalWrite(ceoReadOnly, canCreateQuotation);
+  const canWriteQuotationEdit = allowOperationalWrite(ceoReadOnly, canEditQuotation);
+  const canWriteQuotationDelete = allowOperationalWrite(ceoReadOnly, canDeleteQuotation);
   
   // State for Create Project in edit/create view
   
@@ -2157,7 +2164,7 @@ const Quotations = () => {
             size="sm"
             className="bg-primary text-primary-foreground"
             onClick={beginNewQuotationCreate}
-            disabled={!canCreateQuotation}
+            disabled={!canWriteQuotation}
           >
             <Plus className="w-4 h-4 mr-2" />
             New quotation
@@ -2214,8 +2221,8 @@ const Quotations = () => {
                         ? `No quotations match "${listSearchQuery}". Clear the search or change filters to see all rows.`
                         : "Create a quotation to start tracking proposals for customers."
                     }
-                    actionLabel={canCreateQuotation ? "New quotation" : undefined}
-                    onAction={canCreateQuotation ? beginNewQuotationCreate : undefined}
+                    actionLabel={canWriteQuotation ? "New quotation" : undefined}
+                    onAction={canWriteQuotation ? beginNewQuotationCreate : undefined}
                   />
                 </TableCell>
               </TableRow>
@@ -2242,7 +2249,7 @@ const Quotations = () => {
                   </div>
                   <QuotationTerminalListCue
                     quotation={quotation}
-                    onClone={() => handleCloneQuotation(quotation)}
+                    onClone={canWriteQuotation ? () => handleCloneQuotation(quotation) : undefined}
                     onViewProject={() => {
                       const pid = quotationLinkedProjectId(quotation);
                       if (pid) navigate(`/projects/${pid}`);
@@ -2318,7 +2325,7 @@ const Quotations = () => {
                     </Badge>
                   )}
                 </div>
-                {canEditQuotation &&
+                {canWriteQuotationEdit &&
                   selectedQuotation &&
                   !isQuotationConverted(selectedQuotation) && (
                 <Button 
@@ -2339,11 +2346,12 @@ const Quotations = () => {
               </SheetTitle>
             </SheetHeader>
 
+            <CeoReadOnlySheetBanner className="mt-4 px-1" />
             {selectedQuotation && (
               <QuotationTerminalLifecycleBanner
                 className="mt-4"
                 quotation={selectedQuotation}
-                onClone={() => handleCloneQuotation(selectedQuotation)}
+                onClone={canWriteQuotation ? () => handleCloneQuotation(selectedQuotation) : undefined}
                 onViewProject={() => {
                   const pid = quotationLinkedProjectId(selectedQuotation);
                   if (pid) navigate(`/projects/${pid}`);
@@ -2617,44 +2625,56 @@ const Quotations = () => {
                         <Printer className="h-4 w-4 mr-2" />
                         Preview / Print
                       </Button>
-                      <Button 
-                        variant="outline" 
+                      <PermissionGatedButton
+                        allowed={canWriteQuotationEdit}
+                        deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
+                        variant="outline"
                         size="sm"
-                        onClick={() => { setIsViewQuotationOpen(false); handleOpenShareModal(); }}
+                        hideWhenDenied
                         disabled={
                           selectedQuotation.status === "rejected" ||
                           !hasPositiveQuotationAmount(selectedQuotation)
                         }
+                        onClick={() => { setIsViewQuotationOpen(false); handleOpenShareModal(); }}
                       >
                         <Share2 className="h-4 w-4 mr-2" />
                         Share
-                      </Button>
-                      <Button
+                      </PermissionGatedButton>
+                      <PermissionGatedButton
+                        allowed={canWriteQuotation}
+                        deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                         variant="outline"
                         size="sm"
+                        hideWhenDenied
                         onClick={() => handleCloneQuotation(selectedQuotation)}
                       >
                         <Copy className="h-4 w-4 mr-2" />
                         Clone
-                      </Button>
+                      </PermissionGatedButton>
                       {(selectedQuotation.status === "draft" ||
                         selectedQuotation.status === "sent" ||
                         selectedQuotation.status === "rejected") && (
-                        <Button
+                        <PermissionGatedButton
+                          allowed={canWriteQuotationEdit}
+                          deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                           variant="outline"
                           size="sm"
+                          hideWhenDenied
                           onClick={() => { void handleReviseQuotation(selectedQuotation); }}
                         >
                           <Edit className="h-4 w-4 mr-2" />
                           Revise
-                        </Button>
+                        </PermissionGatedButton>
                       )}
                       {selectedQuotation.status !== "withdrawn" &&
                         selectedQuotation.status !== "converted_to_project" && (
-                          <Button
+                          <PermissionGatedButton
+                            allowed={canWriteQuotationEdit}
+                            deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                             variant="outline"
                             size="sm"
                             className="text-muted-foreground"
+                            hideWhenDenied
                             onClick={() => { setWithdrawReason(""); setWithdrawDialogQuotation(selectedQuotation); }}
                           >
                             <X className="h-4 w-4 mr-2" />
@@ -2662,19 +2682,22 @@ const Quotations = () => {
                               Withdraw
                               <LifecycleTermHint term="quotationWithdraw" side="bottom" />
                             </span>
-                          </Button>
+                          </PermissionGatedButton>
                         )}
-                      {canDeleteQuotation &&
+                      {canWriteQuotationDelete &&
                         canDeleteQuotationRecord(selectedQuotation, quotationDeleteContext).ok && (
-                        <Button
+                        <PermissionGatedButton
+                          allowed={canWriteQuotationDelete}
+                          deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                           variant="outline"
                           size="sm"
                           className="text-destructive"
+                          hideWhenDenied
                           onClick={() => handleDeleteQuotation(selectedQuotation)}
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Delete
-                        </Button>
+                        </PermissionGatedButton>
                       )}
                     </div>
 
@@ -2682,7 +2705,7 @@ const Quotations = () => {
                       {/* Send Quotation — draft only */}
                       {selectedQuotation.status === "draft" && (
                         <PermissionGatedButton
-                          allowed={canEditQuotation}
+                          allowed={canWriteQuotationEdit}
                           deniedHint={PERMISSION_DENIED_HINTS.quotationSend}
                           variant="outline"
                           size="sm"
@@ -2700,7 +2723,7 @@ const Quotations = () => {
                         selectedQuotation.status === "sent" ||
                         selectedQuotation.status === "approved") && (
                         <PermissionGatedButton
-                          allowed={canEditQuotation}
+                          allowed={canWriteQuotationEdit}
                           deniedHint={PERMISSION_DENIED_HINTS.quotationReject}
                           variant="destructive"
                           size="sm"
@@ -2821,13 +2844,14 @@ const Quotations = () => {
         />
       )}
 
+      <CeoReadOnlySheetBanner />
       {editingQuotationId && (() => {
         const editingQuotation = savedQuotations.find((q) => q.id === editingQuotationId);
         if (!editingQuotation || !getQuotationTerminalKind(editingQuotation)) return null;
         return (
           <QuotationTerminalLifecycleBanner
             quotation={editingQuotation}
-            onClone={() => handleCloneQuotation(editingQuotation)}
+            onClone={canWriteQuotation ? () => handleCloneQuotation(editingQuotation) : undefined}
             onViewProject={() => {
               const pid = quotationLinkedProjectId(editingQuotation);
               if (pid) navigate(`/projects/${pid}`);
@@ -3549,7 +3573,7 @@ const Quotations = () => {
                     {/* Send Quotation — draft only */}
                     {status === "draft" && (
                       <PermissionGatedButton
-                        allowed={canEditQuotation}
+                        allowed={canWriteQuotationEdit}
                         deniedHint={PERMISSION_DENIED_HINTS.quotationSend}
                         variant="outline"
                         className="w-full border-primary text-primary hover:bg-primary/10"
@@ -3610,7 +3634,7 @@ const Quotations = () => {
                     {/* Reject — draft, sent or approved (terminal-but-allowed) */}
                     {(status === "draft" || status === "sent" || status === "approved") && (
                       <PermissionGatedButton
-                        allowed={canEditQuotation}
+                        allowed={canWriteQuotationEdit}
                         deniedHint={PERMISSION_DENIED_HINTS.quotationReject}
                         variant="outline"
                         className="w-full border-destructive text-destructive hover:bg-destructive/10"

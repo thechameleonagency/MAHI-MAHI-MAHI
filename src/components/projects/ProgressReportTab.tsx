@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { AlertTriangle, Check, Clock, Plus, Flag, Users, Calendar, MapPin, ChevronDown, ChevronRight, FileText, Briefcase, CheckCircle2, XCircle, Circle, IndianRupee, RotateCcw, User, Wrench, Zap, Camera, Video } from "lucide-react";
 import { ImageViewerModal } from "@/components/shared/ImageViewerModal";
@@ -44,6 +44,9 @@ import {
   sumTransportedQtyForStage,
 } from "@/lib/progressReportTransport";
 import { formatINR } from "@/lib/formatCurrency";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
+import { CEO_OPERATIONAL_READ_ONLY_HINT } from "@/lib/ceoOperationalReadOnly";
 
 // Timeline steps for site status card (now 7 steps)
 const TIMELINE_STEPS = [
@@ -229,7 +232,22 @@ export function ProgressReportTab({
     displayName: demoUserName,
     role: currentRole,
   });
-  
+  const ceoReadOnly = useCeoOperationalReadOnly();
+  const updateTimeline = useCallback(
+    (updates: Partial<ProjectTimelineStatus>) => {
+      if (ceoReadOnly) {
+        toast({
+          title: "Read-only view",
+          description: CEO_OPERATIONAL_READ_ONLY_HINT,
+          variant: "destructive",
+        });
+        return;
+      }
+      onUpdateTimeline(updates);
+    },
+    [ceoReadOnly, onUpdateTimeline],
+  );
+
   // Blockage view toggle: "active" or "history"
   const [blockageViewMode, setBlockageViewMode] = useState<"active" | "history">("active");
   
@@ -371,21 +389,21 @@ export function ProgressReportTab({
       // Auto-populate Bank File (step 3)
       if (!bankFileType) {
         if (projectPaymentType === "cash") {
-          onUpdateTimeline({ bankFileType: "cash", updatedAt: new Date().toISOString() });
+          updateTimeline({ bankFileType: "cash", updatedAt: new Date().toISOString() });
         } else if (projectPaymentType === "loan") {
-          onUpdateTimeline({ bankFileType: "loan", loanStage: "file-prepare", loanStatus: "pending", updatedAt: new Date().toISOString() });
+          updateTimeline({ bankFileType: "loan", loanStage: "file-prepare", loanStatus: "pending", updatedAt: new Date().toISOString() });
         } else if (projectPaymentType === "cash-and-loan") {
-          onUpdateTimeline({ bankFileType: "cash-and-loan", loanStage: "file-prepare", loanStatus: "pending", updatedAt: new Date().toISOString() });
+          updateTimeline({ bankFileType: "cash-and-loan", loanStage: "file-prepare", loanStatus: "pending", updatedAt: new Date().toISOString() });
         }
       }
       // Auto-populate Payment Type (step 6)
       if (!paymentType) {
         if (projectPaymentType === "cash") {
-          onUpdateTimeline({ paymentType: "cash-to-mahi", updatedAt: new Date().toISOString() });
+          updateTimeline({ paymentType: "cash-to-mahi", updatedAt: new Date().toISOString() });
         } else if (projectPaymentType === "loan") {
-          onUpdateTimeline({ paymentType: "instalments", updatedAt: new Date().toISOString() });
+          updateTimeline({ paymentType: "instalments", updatedAt: new Date().toISOString() });
         } else if (projectPaymentType === "cash-and-loan") {
-          onUpdateTimeline({ paymentType: "cash-to-mahi", updatedAt: new Date().toISOString() });
+          updateTimeline({ paymentType: "cash-to-mahi", updatedAt: new Date().toISOString() });
         }
       }
     }
@@ -429,6 +447,7 @@ export function ProgressReportTab({
   const resolvedTickets = tickets.filter(t => t.status === "completed" || t.status === "cancelled");
 
   const handleAddBlockage = () => {
+    if (ceoReadOnly) return;
     if (!blockageTitle || !blockageReason) {
       toast({ title: "Error", description: "Title and reason are required", variant: "destructive" });
       return;
@@ -488,6 +507,7 @@ export function ProgressReportTab({
   };
 
   const handleAddTicket = () => {
+    if (ceoReadOnly) return;
     if (!ticketDescription || !ticketDueDate) {
       toast({ title: "Error", description: "Description and due date are required", variant: "destructive" });
       return;
@@ -538,26 +558,26 @@ export function ProgressReportTab({
     
     // Can only move to next step or current step
     if (targetIndex <= currentIndex + 1) {
-      onUpdateTimeline({ fileLogin: step as ProjectTimelineStatus["fileLogin"], updatedAt: new Date().toISOString() });
+      updateTimeline({ fileLogin: step as ProjectTimelineStatus["fileLogin"], updatedAt: new Date().toISOString() });
     }
   };
 
   const handleMarkFileLoginComplete = () => {
     if (fileLogin === "submitted") {
-      onUpdateTimeline({ fileLogin: "complete", fileLoginComplete: true, updatedAt: new Date().toISOString() });
+      updateTimeline({ fileLogin: "complete", fileLoginComplete: true, updatedAt: new Date().toISOString() });
       toast({ title: "File Login Complete", description: "File login process has been marked as complete" });
     }
   };
 
   // Subsidy: Click to select
   const handleSubsidySelect = (value: string) => {
-    onUpdateTimeline({ subsidyType: value as ProjectTimelineStatus["subsidyType"], updatedAt: new Date().toISOString() });
+    updateTimeline({ subsidyType: value as ProjectTimelineStatus["subsidyType"], updatedAt: new Date().toISOString() });
   };
 
   // Bank File: Two trees
   const handleBankFileTypeSelect = (type: "cash" | "loan") => {
     if (type === "cash") {
-      onUpdateTimeline({ 
+      updateTimeline({ 
         bankFileType: "cash", 
         loanStage: "", 
         loanStatus: "",
@@ -565,7 +585,7 @@ export function ProgressReportTab({
       });
       toast({ title: "Cash File Selected", description: "Bank file marked as complete (Cash)" });
     } else {
-      onUpdateTimeline({ 
+      updateTimeline({ 
         bankFileType: "loan", 
         loanStage: "file-prepare",
         loanStatus: "pending",
@@ -575,11 +595,11 @@ export function ProgressReportTab({
   };
 
   const handleLoanStageChange = (stage: string) => {
-    onUpdateTimeline({ loanStage: stage as ProjectTimelineStatus["loanStage"], updatedAt: new Date().toISOString() });
+    updateTimeline({ loanStage: stage as ProjectTimelineStatus["loanStage"], updatedAt: new Date().toISOString() });
   };
 
   const handleLoanStatusChange = (status: "approved" | "rejected") => {
-    onUpdateTimeline({ loanStatus: status, updatedAt: new Date().toISOString() });
+    updateTimeline({ loanStatus: status, updatedAt: new Date().toISOString() });
     if (status === "approved") {
       toast({ title: "Loan Approved", description: "Bank file process marked as complete" });
     } else {
@@ -588,7 +608,7 @@ export function ProgressReportTab({
   };
 
   const handleLoanRestart = () => {
-    onUpdateTimeline({ 
+    updateTimeline({ 
       loanStage: "file-prepare", 
       loanStatus: "pending", 
       updatedAt: new Date().toISOString() 
@@ -618,7 +638,7 @@ export function ProgressReportTab({
 
     const isComplete = newChecks.length === WORK_STATUS_STAGES.length;
     setWorkStatusApprovals(newApprovals);
-    onUpdateTimeline({
+    updateTimeline({
       workStatusChecks: newChecks,
       workStatusComplete: isComplete,
       workStatusApprovals: newApprovals,
@@ -692,7 +712,7 @@ export function ProgressReportTab({
       },
     };
     setWorkStatusApprovals(next);
-    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+    updateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
 
     toast({
       title: canApproveWorkStatus ? "Item Completed" : "Submitted for Approval",
@@ -722,7 +742,7 @@ export function ProgressReportTab({
       },
     };
     setWorkStatusApprovals(next);
-    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+    updateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     toast({ title: "Approved", description: "Sub-item has been approved" });
   };
 
@@ -744,7 +764,7 @@ export function ProgressReportTab({
       },
     };
     setWorkStatusApprovals(next);
-    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+    updateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     setRejectReasonModal(null);
     setRejectReason("");
     toast({ title: "Rejected", description: "Photo retake requested", variant: "destructive" });
@@ -776,7 +796,7 @@ export function ProgressReportTab({
       },
     };
     setWorkStatusApprovals(next);
-    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+    updateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     toast({ title: "Request Submitted", description: `"${WORK_STATUS_STAGES.find(i => i.value === item)?.label}" marked for approval` });
   };
 
@@ -797,7 +817,7 @@ export function ProgressReportTab({
 
     const newChecks = workStatusChecks.includes(item) ? [...workStatusChecks] : [...workStatusChecks, item];
     const isComplete = newChecks.length === WORK_STATUS_STAGES.length;
-    onUpdateTimeline({
+    updateTimeline({
       workStatusChecks: newChecks,
       workStatusComplete: isComplete,
       workStatusApprovals: next,
@@ -818,7 +838,7 @@ export function ProgressReportTab({
       },
     };
     setWorkStatusApprovals(next);
-    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+    updateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     toast({ title: "Rejected", description: `Work item has been sent back for revision`, variant: "destructive" });
   };
 
@@ -833,7 +853,7 @@ export function ProgressReportTab({
       },
     };
     setWorkStatusApprovals(next);
-    onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+    updateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
     toast({ title: "Completed", description: `Work item marked as completed` });
   };
   
@@ -941,7 +961,7 @@ export function ProgressReportTab({
         },
       };
       setWorkStatusApprovals(next);
-      onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+      updateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
       toast({
         title: stageStatus === "closed" ? "Stage completed" : "Submitted for approval",
         description: hasMedia
@@ -995,7 +1015,7 @@ export function ProgressReportTab({
         },
       };
       setWorkStatusApprovals(next);
-      onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+      updateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
       toast({
         title: "Photo task created",
         description: `Task ${taskId} assigned to ${emp?.name || "employee"}`,
@@ -1023,11 +1043,11 @@ export function ProgressReportTab({
       });
       return;
     }
-    onUpdateTimeline({ discomChecks: result.checks, updatedAt: new Date().toISOString() });
+    updateTimeline({ discomChecks: result.checks, updatedAt: new Date().toISOString() });
   };
 
   const handleDiscomSubsidyStatus = (status: "approved" | "rejected") => {
-    onUpdateTimeline({ discomSubsidyStatus: status, updatedAt: new Date().toISOString() });
+    updateTimeline({ discomSubsidyStatus: status, updatedAt: new Date().toISOString() });
     if (status === "approved") {
       toast({ title: "Subsidy Approved", description: "DISCOM process marked as complete" });
     }
@@ -1035,7 +1055,7 @@ export function ProgressReportTab({
 
   // Payment: Two trees
   const handlePaymentTypeSelect = (type: "cash-to-mahi" | "instalments") => {
-    onUpdateTimeline({ 
+    updateTimeline({ 
       paymentType: type, 
       cashToMahiConfirmed: false,
       firstInstallmentPaid: false,
@@ -1045,13 +1065,13 @@ export function ProgressReportTab({
   };
 
   const handleConfirmCashToMahi = () => {
-    onUpdateTimeline({ cashToMahiConfirmed: true, updatedAt: new Date().toISOString() });
+    updateTimeline({ cashToMahiConfirmed: true, updatedAt: new Date().toISOString() });
     setIsConfirmCashModalOpen(false);
     toast({ title: "Payment Confirmed", description: "Cash to Mahi payment has been confirmed" });
   };
 
   const handleFirstInstallmentCheck = (checked: boolean) => {
-    onUpdateTimeline({ firstInstallmentPaid: checked, updatedAt: new Date().toISOString() });
+    updateTimeline({ firstInstallmentPaid: checked, updatedAt: new Date().toISOString() });
   };
 
   const handleSecondInstallmentClick = () => {
@@ -1063,7 +1083,7 @@ export function ProgressReportTab({
   };
 
   const handleConfirmSecondInstallment = () => {
-    onUpdateTimeline({ secondInstallmentPaid: true, updatedAt: new Date().toISOString() });
+    updateTimeline({ secondInstallmentPaid: true, updatedAt: new Date().toISOString() });
     setIsConfirmInstallmentModalOpen(false);
     toast({ title: "Payment Complete", description: "All installments have been paid" });
   };
@@ -1079,6 +1099,7 @@ export function ProgressReportTab({
 
   // Handle resolving blockage
   const handleResolveBlockageSubmit = () => {
+    if (ceoReadOnly) return;
     if (!selectedBlockageToResolve || !resolvedBy) {
       toast({ title: "Error", description: "Please select who resolved the blockage", variant: "destructive" });
       return;
@@ -1153,11 +1174,11 @@ export function ProgressReportTab({
   };
 
   const handleDcrStepChange = (step: string) => {
-    onUpdateTimeline({ dcrStatus: step as ProjectTimelineStatus["dcrStatus"], updatedAt: new Date().toISOString() });
+    updateTimeline({ dcrStatus: step as ProjectTimelineStatus["dcrStatus"], updatedAt: new Date().toISOString() });
   };
 
   const handleDcrComplete = () => {
-    onUpdateTimeline({ dcrStatus: "complete", dcrComplete: true, updatedAt: new Date().toISOString() });
+    updateTimeline({ dcrStatus: "complete", dcrComplete: true, updatedAt: new Date().toISOString() });
     toast({ title: "DCR Complete", description: "DCR & Work Completion Report has been marked as complete" });
   };
   // Calculate overall progress for site status card
@@ -1599,7 +1620,7 @@ export function ProgressReportTab({
                     onClick={() => {
                       const newStatus = step.value as ProjectTimelineStatus["dcrStatus"];
                       const isComplete = step.value === "complete";
-                      onUpdateTimeline({ dcrStatus: newStatus, dcrComplete: isComplete, updatedAt: new Date().toISOString() });
+                      updateTimeline({ dcrStatus: newStatus, dcrComplete: isComplete, updatedAt: new Date().toISOString() });
                     }}
                   >
                     {isStepDone ? <CheckCircle2 className="w-3 h-3 flex-shrink-0" /> : <Circle className="w-3 h-3 flex-shrink-0 opacity-40" />}
@@ -1638,6 +1659,7 @@ export function ProgressReportTab({
 
   return (
     <div className="space-y-6">
+      <CeoReadOnlySheetBanner />
       {/* Outsource tracking panel — visible whenever the project has outsource info attached. */}
       {outsource && (
         <Card className="border-warning/30 bg-warning/50 dark:bg-warning/5">
@@ -1675,6 +1697,7 @@ export function ProgressReportTab({
       )}
 
       {/* Conditional CTA Button - based on project status */}
+      {!ceoReadOnly && (
       <div className="flex flex-wrap gap-2">
         {isCompleted ? (
           <Button onClick={() => setIsAddTicketOpen(true)}>
@@ -1688,6 +1711,7 @@ export function ProgressReportTab({
           </Button>
         )}
       </div>
+      )}
 
       {/* Active Site Status Card - Enhanced Visual Design */}
       <Card className="bg-gradient-to-br from-card to-muted/20 border-muted-foreground/10">
@@ -1891,10 +1915,12 @@ export function ProgressReportTab({
                 </Button>
               </div>
               
+              {!ceoReadOnly && (
               <Button size="sm" variant="outline" onClick={() => setIsAddBlockageOpen(true)} className="gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
                 Add
               </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -1959,6 +1985,7 @@ export function ProgressReportTab({
                           </div>
                           <p className="text-sm text-muted-foreground">{blockage.reason}</p>
                         </div>
+                        {!ceoReadOnly && (
                         <Button 
                           size="sm" 
                           variant="outline" 
@@ -1968,6 +1995,7 @@ export function ProgressReportTab({
                           <Check className="w-3.5 h-3.5" />
                           Resolve
                         </Button>
+                        )}
                       </div>
                       
                       {/* How to Solve - Always visible in detailed view */}
@@ -2429,7 +2457,7 @@ export function ProgressReportTab({
                         size="sm" 
                         className="h-auto py-3 flex-col"
                         onClick={() => {
-                          onUpdateTimeline({ 
+                          updateTimeline({ 
                             bankFileType: "cash-and-loan",
                             loanStage: "file-prepare",
                             loanStatus: "pending",
@@ -3782,7 +3810,7 @@ export function ProgressReportTab({
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsAddBlockageOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddBlockage}>Add Blockage</Button>
+            {!ceoReadOnly && <Button onClick={handleAddBlockage}>Add Blockage</Button>}
           </SheetFooter>
         </AppSheetContent>
       </Sheet>

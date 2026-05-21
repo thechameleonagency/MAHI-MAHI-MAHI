@@ -20,6 +20,8 @@ import {
 } from "@/lib/changeRequestValidation";
 import type { Project } from "@/types/project";
 import type { ProjectChangeRequestType } from "@/types/operations";
+import { useCeoOperationalReadOnly } from "@/hooks/useCeoOperationalReadOnly";
+import { CeoReadOnlySheetBanner } from "@/components/ui/CeoReadOnlySheetBanner";
 
 type MaterialLine = { key: string; itemId: string; deltaQty: string };
 
@@ -41,6 +43,7 @@ export function ChangeRequestSheet({
   onCreated?: () => void;
 }) {
   const { addProjectChangeRequest, inventoryItems } = useAppData();
+  const ceoReadOnly = useCeoOperationalReadOnly();
   const [type, setType] = useState<ProjectChangeRequestType>("capacity");
   const [deltaKw, setDeltaKw] = useState("");
   const [deltaPanels, setDeltaPanels] = useState("");
@@ -75,6 +78,7 @@ export function ChangeRequestSheet({
   };
 
   const handleSubmit = () => {
+    if (ceoReadOnly) return;
     const materialDelta = parseMaterialDeltaFromLines(materialLines);
     const numericFields = parseChangeRequestFieldsFromForm(type, {
       deltaKw,
@@ -125,6 +129,7 @@ export function ChangeRequestSheet({
             Capacity, panel count, add-on work, or material deltas for {project.name}.
           </SheetDescription>
         </SheetHeader>
+        <CeoReadOnlySheetBanner className="py-2" />
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
@@ -225,7 +230,7 @@ export function ChangeRequestSheet({
         </div>
 
         <AppSheetFormFooter onCancel={() => onOpenChange(false)}>
-          <Button onClick={handleSubmit}>Save draft request</Button>
+          {!ceoReadOnly && <Button onClick={handleSubmit}>Save draft request</Button>}
         </AppSheetFormFooter>
       </AppSheetContent>
     </Sheet>
