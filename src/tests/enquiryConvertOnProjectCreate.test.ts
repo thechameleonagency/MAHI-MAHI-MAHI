@@ -3,6 +3,7 @@ import { CommandBus } from "@/application/commands/CommandBus";
 import { registerEnquiryCommands } from "@/application/commands/enquiry/registerEnquiryCommands";
 import {
   CREATE_PROJECT_FROM_QUOTATION_COMMAND,
+  CREATE_PROJECT_INTAKE_COMMAND,
   registerProjectCommands,
 } from "@/application/commands/project/registerProjectCommands";
 import { PermissionService } from "@/application/services/PermissionService";
@@ -36,7 +37,7 @@ const intake: ProjectIntakePayload = {
   },
 };
 
-describe("enquiry convert on project create (C1)", () => {
+describe("enquiry convert on project create (FC1 / C1)", () => {
   beforeEach(() => {
     localStorage.clear();
   });
@@ -202,6 +203,85 @@ describe("enquiry convert on project create (C1)", () => {
     const next = reconcileEnquiriesConvertedOnProjectLink(state);
     expect(next.enquiries[0].status).toBe("converted");
     expect(next.enquiries[0].customerId).toBe("C-APP");
+  });
+
+  it("CREATE_PROJECT_INTAKE with quotationId closes linked enquiry", async () => {
+    const repositories = emptyRepos();
+    const bus = new CommandBus();
+    const audit = new AuditService({ auditRepository: repositories.auditRepository });
+    registerProjectCommands(bus, repositories, new PermissionService(), audit);
+
+    const enquiry: Enquiry = {
+      id: "ENQ-INTAKE",
+      customerName: "Intake Client",
+      customerPhone: "9000000099",
+      customerEmail: "",
+      customerAddress: "Pune",
+      customerType: "individual",
+      source: "phone",
+      systemCapacity: "6 kW",
+      estimatedBudget: 300000,
+      requirements: "",
+      status: "meeting_scheduled",
+      priority: "medium",
+      assignedTo: "",
+      createdAt: "2026-05-01",
+      updatedAt: "2026-05-02",
+      notes: [],
+    };
+    repositories.enquiryRepository.add(enquiry);
+
+    const quotation: Quotation = {
+      id: "Q-INTAKE",
+      quotationNumber: "Q-INTAKE-1",
+      status: "approved",
+      enquiryId: "ENQ-INTAKE",
+      clientName: enquiry.customerName,
+      clientPhone: enquiry.customerPhone,
+      clientCity: "Pune",
+      clientState: "MH",
+      systemCapacity: "6",
+      totalAmount: 320000,
+      clientAgreedAmount: 310000,
+      paymentType: "cash",
+      createdAt: "2026-05-03",
+      customerId: "C-intake",
+    };
+    repositories.quotationRepository.add(quotation);
+
+    const project: Project = {
+      id: "P-INTAKE",
+      name: "Intake Client 6kW",
+      client: enquiry.customerName,
+      customerId: "C-intake",
+      quotationId: "Q-INTAKE",
+      lifecycleStatus: "New",
+      projectType: "Residential",
+      projectCategory: "solar",
+      capacity: "6",
+      location: "Pune",
+      contractAmount: 310000,
+      amountReceived: 0,
+      startDate: "2026-05-10",
+      type: "EPC",
+      projectKind: "SOLO_EPC",
+      assignees: [],
+      onSite: 0,
+      totalCost: 0,
+      photos: 0,
+      createdAt: "2026-05-10",
+    } as Project;
+
+    const result = await bus.execute({
+      type: CREATE_PROJECT_INTAKE_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { project, intake, quotationId: "Q-INTAKE" },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(repositories.enquiryRepository.getById("ENQ-INTAKE")?.status).toBe("converted");
+    expect(repositories.quotationRepository.getById("Q-INTAKE")?.status).toBe("converted_to_project");
   });
 
   it("reconcileEnquiriesConvertedOnProjectLink repairs seed-style project mismatch", () => {

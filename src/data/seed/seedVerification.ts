@@ -9,6 +9,7 @@ import { buildCalendarEvents, type CalendarEventSource } from "@/lib/calendarSou
 import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/businessAlerts";
 
 import { reconcileClientPaymentLedger } from "@/lib/clientPaymentReconciliation";
+import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 
@@ -142,6 +143,12 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
     }
 
+  }
+
+  for (const stale of findStaleOpenEnquiriesAfterProjectWin(state)) {
+    errors.push(
+      `FC1: enquiry ${stale.enquiryId} (${stale.enquiryStatus}) still open after quotation ${stale.quotationId} (${stale.quotationStatus})`,
+    );
   }
 
 

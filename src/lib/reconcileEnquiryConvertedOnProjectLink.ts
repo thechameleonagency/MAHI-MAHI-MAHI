@@ -1,19 +1,9 @@
 import type { AppState } from "@/contexts/AppDataContext";
 import { canConvertEnquiryOnPipelineWin } from "@/lib/enquiryConversionAtProjectWin";
+import { quotationTriggersEnquiryConverted } from "@/lib/enquiryPipelineContinuity";
 import { enrichCustomerFromEnquiry, resolveCustomerForEnquiryConversion } from "@/lib/convertEnquiryCustomer";
 import type { Customer } from "@/types/finance";
-import type { Enquiry, Quotation } from "@/types/project";
-
-function quotationTriggersEnquiryConverted(quotation: Quotation): boolean {
-  if (!quotation.enquiryId?.trim()) return false;
-  if (quotation.status === "converted_to_project" && quotation.linkedProjectId) {
-    return true;
-  }
-  if (quotation.status === "approved" && quotation.customerId?.trim()) {
-    return true;
-  }
-  return false;
-}
+import type { Enquiry } from "@/types/project";
 
 /**
  * Repair enquiries left open when their quotation already won the pipeline

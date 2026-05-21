@@ -11,6 +11,7 @@ import {
   matchesProjectLifecycleFilter,
 } from "@/lib/projectListFilters";
 import { isBankReconciliationStatement } from "@/lib/bankReconciliationStatement";
+import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 
 const DRIFT_EPS = 1;
 
@@ -158,24 +159,10 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(bad.slice(0, 5).map((e) => e.id)).toEqual([]);
   });
 
-  it("no open enquiry remains when linked quotation is approved with customer", () => {
+  it("no stale open enquiry after quotation project win on hydrated seed (FC1)", () => {
     const { state } = buildBusinessSeed("smoke");
-    const mismatches = state.quotations
-      .filter(
-        (q) =>
-          q.status === "approved" &&
-          q.enquiryId &&
-          q.customerId,
-      )
-      .map((q) => state.enquiries.find((e) => e.id === q.enquiryId))
-      .filter(
-        (e) =>
-          e &&
-          e.status !== "converted" &&
-          e.status !== "lost" &&
-          (e.status === "quotation_sent" || e.status === "meeting_scheduled"),
-      );
-    expect(mismatches.length).toBe(0);
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
   });
 
   it("command audit logs use display names not raw member ids", () => {
