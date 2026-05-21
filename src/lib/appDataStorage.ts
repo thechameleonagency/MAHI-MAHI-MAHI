@@ -23,6 +23,7 @@ import { reconcileAuditLogUserNames } from "@/lib/resolveAuditActorUserName";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
 import { reconcileVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
 import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
+import { reconcileVendorPaymentVouchers } from "@/lib/vendorPaymentVoucherPosting";
 import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScopeSeed";
 import { reconcileIncGiverTransactions } from "@/lib/reconcileIncGiverTransactions";
 import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
@@ -132,7 +133,9 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
               reconcileIncGiverTransactions(
                 reconcileChangeRequestDeltaInvoices(
                   reconcileProjectActorScopeSeed(
-                    reconcileVendorBillInventoryReceipt(reconcileVendorBillVouchers(withSites)),
+                    reconcileVendorBillInventoryReceipt(
+                      reconcileVendorPaymentVouchers(reconcileVendorBillVouchers(withSites)),
+                    ),
                   ),
                 ),
               ),

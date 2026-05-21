@@ -12,6 +12,7 @@ import { findStaleClientPaymentLedgerLinkage } from "@/lib/clientPaymentReconcil
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
+import { findStaleVendorPaymentBooks } from "@/lib/vendorPaymentPipelineContinuity";
 import { findStaleVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
@@ -167,6 +168,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleVendorBillBooks(state)) {
     errors.push(`FC4: vendor bill ${stale.vendorBillId} (${stale.billNumber}) — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleVendorPaymentBooks(state)) {
+    errors.push(`FC4: vendor payment ${stale.vendorPaymentId} (vendor ${stale.vendorId}) — ${stale.reason}`);
   }
 
   for (const stale of findStaleVendorBillInventoryReceipt(state)) {

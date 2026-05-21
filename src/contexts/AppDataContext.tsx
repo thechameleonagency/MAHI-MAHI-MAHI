@@ -172,6 +172,12 @@ import {
   vendorBillUpdateIsDocumentOnly,
 } from "@/lib/vendorBillVoucherPosting";
 import {
+  postVendorPaymentVoucher,
+  resolveVendorPaymentProjectId,
+  stripVendorPaymentAccounting,
+  vendorPaymentUpdateAffectsBooks,
+} from "@/lib/vendorPaymentVoucherPosting";
+import {
   vendorBillInventoryReceiptLines,
   type VendorBillInventoryLine,
 } from "@/lib/vendorBillInventoryLinkage";
@@ -4324,49 +4330,94 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addVendorPayment = useCallback((payment: VendorPayment) => {
     if (!canPerformActionOrWarn("vendor:record_payment")) return;
     const auditEntry = createAuditEntry("create", "VendorPayment", payment.id, `Payment to vendor ${payment.vendorId}`);
-    setState(prev => {
-      const updatedVendors = prev.vendors.map(v =>
+    const postingResult = postVendorPaymentVoucher(payment, voucherPostingService);
+    setState((prev) => {
+      const projectId = resolveVendorPaymentProjectId(prev, payment);
+      const reviewQueueItem = postingResult ? createReviewQueueItem(postingResult, projectId) : null;
+      const updatedVendors = prev.vendors.map((v) =>
         v.id === payment.vendorId
           ? { ...v, outstandingAmount: Math.max(0, (v.outstandingAmount || 0) - payment.amount) }
-          : v
+          : v,
       );
       const updatedBills = payment.billId
-        ? prev.vendorBills.map(b =>
-            b.id === payment.billId ? { ...b, amountPaid: (b.amountPaid || 0) + payment.amount } : b
-          )
-        : prev.vendorBills;
-      return { ...prev, vendorPayments: [payment, ...prev.vendorPayments], vendors: updatedVendors, vendorBills: updatedBills, auditLogs: [auditEntry, ...prev.auditLogs] };
-    });
-  }, [canPerformActionOrWarn, createAuditEntry]);
-
-  const updateVendorPayment = useCallback((id: string, updates: Partial<VendorPayment>) => {
-    if (!canPerformActionOrWarn("vendor:update_payment")) return;
-    const auditEntry = createAuditEntry("update", "VendorPayment", id, id);
-    setState(prev => ({
-      ...prev,
-      vendorPayments: prev.vendorPayments.map(p => p.id === id ? { ...p, ...updates } : p),
-      auditLogs: [auditEntry, ...prev.auditLogs],
-    }));
-  }, [canPerformActionOrWarn, createAuditEntry]);
-
-  const deleteVendorPayment = useCallback((id: string) => {
-    if (!canPerformActionOrWarn("vendor:delete_payment")) return;
-    const auditEntry = createAuditEntry("delete", "VendorPayment", id, id);
-    setState(prev => {
-      const payment = prev.vendorPayments.find(p => p.id === id);
-      const updatedVendors = payment
-        ? prev.vendors.map(v =>
-            v.id === payment.vendorId ? { ...v, outstandingAmount: (v.outstandingAmount || 0) + payment.amount } : v
-          )
-        : prev.vendors;
-      const updatedBills = payment?.billId
-        ? prev.vendorBills.map(b =>
-            b.id === payment.billId ? { ...b, amountPaid: Math.max(0, (b.amountPaid || 0) - payment.amount) } : b
+        ? prev.vendorBills.map((b) =>
+            b.id === payment.billId ? { ...b, amountPaid: (b.amountPaid || 0) + payment.amount } : b,
           )
         : prev.vendorBills;
       return {
         ...prev,
-        vendorPayments: prev.vendorPayments.filter(p => p.id !== id),
+        vendorPayments: [payment, ...prev.vendorPayments],
+        vendors: updatedVendors,
+        vendorBills: updatedBills,
+        accountingVouchers:
+          postingResult?.ok ? [postingResult.voucher, ...prev.accountingVouchers] : prev.accountingVouchers,
+        accountingReviewQueue: reviewQueueItem
+          ? [reviewQueueItem, ...prev.accountingReviewQueue]
+          : prev.accountingReviewQueue,
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      };
+    });
+  }, [canPerformActionOrWarn, createAuditEntry, createReviewQueueItem, voucherPostingService]);
+
+  const updateVendorPayment = useCallback((id: string, updates: Partial<VendorPayment>) => {
+    if (!canPerformActionOrWarn("vendor:update_payment")) return;
+    const auditEntry = createAuditEntry("update", "VendorPayment", id, id);
+    setState((prev) => {
+      const existing = prev.vendorPayments.find((p) => p.id === id);
+      if (!existing) return prev;
+
+      const merged: VendorPayment = { ...existing, ...updates };
+      let accountingVouchers = prev.accountingVouchers;
+      let accountingReviewQueue = prev.accountingReviewQueue;
+
+      if (vendorPaymentUpdateAffectsBooks(updates)) {
+        const stripped = stripVendorPaymentAccounting(prev, id);
+        accountingVouchers = stripped.accountingVouchers;
+        accountingReviewQueue = stripped.accountingReviewQueue;
+        const postingResult = postVendorPaymentVoucher(merged, voucherPostingService);
+        const projectId = resolveVendorPaymentProjectId(prev, merged);
+        const reviewQueueItem = postingResult ? createReviewQueueItem(postingResult, projectId) : null;
+        if (postingResult?.ok) {
+          accountingVouchers = [postingResult.voucher, ...accountingVouchers];
+        } else if (reviewQueueItem) {
+          accountingReviewQueue = [reviewQueueItem, ...accountingReviewQueue];
+        }
+      }
+
+      return {
+        ...prev,
+        vendorPayments: prev.vendorPayments.map((p) => (p.id === id ? merged : p)),
+        accountingVouchers,
+        accountingReviewQueue,
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      };
+    });
+  }, [canPerformActionOrWarn, createAuditEntry, createReviewQueueItem, voucherPostingService]);
+
+  const deleteVendorPayment = useCallback((id: string) => {
+    if (!canPerformActionOrWarn("vendor:delete_payment")) return;
+    const auditEntry = createAuditEntry("delete", "VendorPayment", id, id);
+    setState((prev) => {
+      const payment = prev.vendorPayments.find((p) => p.id === id);
+      const updatedVendors = payment
+        ? prev.vendors.map((v) =>
+            v.id === payment.vendorId
+              ? { ...v, outstandingAmount: (v.outstandingAmount || 0) + payment.amount }
+              : v,
+          )
+        : prev.vendors;
+      const updatedBills = payment?.billId
+        ? prev.vendorBills.map((b) =>
+            b.id === payment.billId
+              ? { ...b, amountPaid: Math.max(0, (b.amountPaid || 0) - payment.amount) }
+              : b,
+          )
+        : prev.vendorBills;
+      const stripped = stripVendorPaymentAccounting(prev, id);
+      return {
+        ...prev,
+        ...stripped,
+        vendorPayments: prev.vendorPayments.filter((p) => p.id !== id),
         vendors: updatedVendors,
         vendorBills: updatedBills,
         auditLogs: [auditEntry, ...prev.auditLogs],

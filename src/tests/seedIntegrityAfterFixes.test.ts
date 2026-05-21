@@ -14,6 +14,7 @@ import { isBankReconciliationStatement } from "@/lib/bankReconciliationStatement
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
+import { findStaleVendorPaymentBooks } from "@/lib/vendorPaymentPipelineContinuity";
 import { findStaleVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
 import {
   findSeedForeignKeyViolations,
@@ -294,6 +295,14 @@ describe("seed & hydration integrity after audit fixes", () => {
       if (bill.status === "draft") continue;
       expect(bill.warehouseReceiptApplied, bill.billNumber).toBe(true);
     }
+  });
+
+  it("vendor payments post VendorPaymentRecorded on hydrated seed (FC4 / V2)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleVendorPaymentBooks(hydrated)).toEqual([]);
+    const paid = hydrated.vendorPayments.filter((vp) => vp.amount > 0);
+    expect(paid.length).toBeGreaterThan(0);
   });
 
   it("bookable vendor bills post PurchaseBillBooked on hydrated seed (FC4)", () => {
