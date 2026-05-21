@@ -661,6 +661,9 @@ export interface SettingsTeamMember {
   email: string;
   role: string;
   status: string;
+  inviteToken?: string;
+  invitedAt?: string;
+  activatedAt?: string;
 }
 
 /** @deprecated Use Settings → masters; kept as empty export for import compatibility. */

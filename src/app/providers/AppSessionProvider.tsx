@@ -1,28 +1,47 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { type UserRole } from "@/domain/entities/identity";
+import { DEMO_LOGIN_USERS, DEMO_PASSWORD, findDemoUserByEmail } from "@/domain/demoCredentials";
+import type { SettingsTeamMember } from "@/types/project";
 import {
   buildSessionUserId,
+  clearAuthenticatedSession,
+  isSessionAuthenticated,
   loadStoredDemoUserName,
+  loadStoredEmail,
+  loadStoredMemberId,
   loadStoredSessionRole,
-  persistDemoUserName,
+  persistAuthenticatedSession,
   persistSessionRole,
+  persistDemoUserName,
+  validateLoginPassword,
+  type AuthenticatedSession,
 } from "@/lib/sessionActorStorage";
+import { normalizeTeamMemberStatus } from "@/lib/seedSessionBootstrap";
+
+export type LoginResult = { ok: true } | { ok: false; error: string };
 
 type AppSessionContextType = {
   currentRole: UserRole;
   setCurrentRole: (role: UserRole) => void;
-  /** Free-text demo user label (persisted); distinguishes actors sharing a role. */
   demoUserName: string;
   setDemoUserName: (name: string) => void;
-  /** Stable actor id for audit/command attribution. */
   sessionUserId: string;
+  memberId: string;
+  email: string;
+  isAuthenticated: boolean;
+  login: (email: string, password: string, teamMembers?: SettingsTeamMember[]) => LoginResult;
+  loginAsDemoUser: (memberId: string) => LoginResult;
+  logout: () => void;
 };
 
 const AppSessionContext = createContext<AppSessionContextType | undefined>(undefined);
 
 export const AppSessionProvider = ({ children }: { children: ReactNode }) => {
+  const [authenticated, setAuthenticated] = useState(isSessionAuthenticated);
   const [currentRole, setCurrentRoleState] = useState<UserRole>(loadStoredSessionRole);
   const [demoUserName, setDemoUserNameState] = useState(loadStoredDemoUserName);
+  const [memberId, setMemberId] = useState(loadStoredMemberId);
+  const [email, setEmail] = useState(loadStoredEmail);
 
   const setCurrentRole = useCallback((role: UserRole) => {
     setCurrentRoleState(role);
@@ -34,9 +53,83 @@ export const AppSessionProvider = ({ children }: { children: ReactNode }) => {
     persistDemoUserName(name);
   }, []);
 
+  const applySession = useCallback((session: AuthenticatedSession) => {
+    persistAuthenticatedSession(session);
+    setAuthenticated(true);
+    setMemberId(session.memberId);
+    setEmail(session.email);
+    setCurrentRoleState(session.role);
+    setDemoUserNameState(session.displayName);
+  }, []);
+
+  const loginAsDemoUser = useCallback((targetMemberId: string): LoginResult => {
+    const demo = DEMO_LOGIN_USERS.find((u) => u.memberId === targetMemberId);
+    if (!demo) return { ok: false, error: "Unknown demo user." };
+    applySession({
+      memberId: demo.memberId,
+      email: demo.email,
+      role: demo.role,
+      displayName: demo.name,
+    });
+    return { ok: true };
+  }, [applySession]);
+
+  const login = useCallback(
+    (rawEmail: string, password: string, teamMembers?: SettingsTeamMember[]): LoginResult => {
+      const normalizedEmail = rawEmail.trim().toLowerCase();
+      if (!normalizedEmail || !password) {
+        return { ok: false, error: "Email and password are required." };
+      }
+
+      const demo = findDemoUserByEmail(normalizedEmail);
+      if (demo && validateLoginPassword(normalizedEmail, password, DEMO_PASSWORD)) {
+        if (teamMembers?.length) {
+          const row = teamMembers.find((m) => m.email.toLowerCase() === normalizedEmail);
+          if (row && normalizeTeamMemberStatus(row.status) !== "Active") {
+            return { ok: false, error: "This account is not active yet. Complete your invitation first." };
+          }
+        }
+        applySession({
+          memberId: demo.memberId,
+          email: demo.email,
+          role: demo.role,
+          displayName: demo.name,
+        });
+        return { ok: true };
+      }
+
+      if (teamMembers?.length) {
+        const member = teamMembers.find((m) => m.email.toLowerCase() === normalizedEmail);
+        if (member && normalizeTeamMemberStatus(member.status) === "Active") {
+          if (validateLoginPassword(normalizedEmail, password, DEMO_PASSWORD)) {
+            applySession({
+              memberId: String(member.id),
+              email: member.email,
+              role: member.role as UserRole,
+              displayName: member.name,
+            });
+            return { ok: true };
+          }
+        }
+      }
+
+      return { ok: false, error: "Invalid email or password." };
+    },
+    [applySession],
+  );
+
+  const logout = useCallback(() => {
+    clearAuthenticatedSession();
+    setAuthenticated(false);
+    setMemberId("");
+    setEmail("");
+    setDemoUserNameState("");
+    setCurrentRoleState(loadStoredSessionRole());
+  }, []);
+
   const sessionUserId = useMemo(
-    () => buildSessionUserId(demoUserName, currentRole),
-    [demoUserName, currentRole],
+    () => buildSessionUserId(demoUserName, currentRole, authenticated ? memberId : undefined),
+    [demoUserName, currentRole, memberId, authenticated],
   );
 
   const value = useMemo(
@@ -46,8 +139,26 @@ export const AppSessionProvider = ({ children }: { children: ReactNode }) => {
       demoUserName,
       setDemoUserName,
       sessionUserId,
+      memberId,
+      email,
+      isAuthenticated: authenticated,
+      login,
+      loginAsDemoUser,
+      logout,
     }),
-    [currentRole, setCurrentRole, demoUserName, setDemoUserName, sessionUserId],
+    [
+      currentRole,
+      setCurrentRole,
+      demoUserName,
+      setDemoUserName,
+      sessionUserId,
+      memberId,
+      email,
+      authenticated,
+      login,
+      loginAsDemoUser,
+      logout,
+    ],
   );
 
   return <AppSessionContext.Provider value={value}>{children}</AppSessionContext.Provider>;

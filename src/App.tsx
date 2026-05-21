@@ -59,6 +59,9 @@ import AuditLogs from "./pages/audit/AuditLogs";
 import AuditReports from "./pages/audit/AuditReports";
 import AuditDataFlow from "./pages/audit/AuditDataFlow";
 import ChartOfAccounts from "./pages/audit/ChartOfAccounts";
+import Login from "./pages/Login";
+import InviteAccept from "./pages/InviteAccept";
+import { AuthGate } from "./components/auth/AuthGate";
 
 const queryClient = new QueryClient();
 
@@ -73,8 +76,16 @@ const App = () => (
               <TooltipProvider>
                 <Toaster />
                 <BrowserRouter>
-                  <AppLayout>
-                    <Routes>
+                  <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/invite/:token" element={<InviteAccept />} />
+                <Route
+                  element={
+                    <AuthGate>
+                      <AppLayout />
+                    </AuthGate>
+                  }
+                >
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/active-sites" element={<ActiveSites />} />
                 <Route path="/projects" element={<Projects />} />
@@ -131,8 +142,8 @@ const App = () => (
                 <Route path="/audit/reports" element={<AuditReports />} />
                 <Route path="/audit/data-flow" element={<AuditDataFlow />} />
                 <Route path="*" element={<NotFound />} />
-                    </Routes>
-                  </AppLayout>
+                </Route>
+                  </Routes>
                 </BrowserRouter>
               </TooltipProvider>
             </MastersProvider>

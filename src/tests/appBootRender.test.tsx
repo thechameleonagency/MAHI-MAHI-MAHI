@@ -1,12 +1,19 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import App from "@/App";
+import { clearAuthenticatedSession, persistAuthenticatedSession } from "@/lib/sessionActorStorage";
 
 describe("appBootRender", () => {
   const errors: unknown[] = [];
 
   beforeEach(() => {
     errors.length = 0;
+    persistAuthenticatedSession({
+      memberId: "SA-001",
+      email: "rajesh.kulkarni@mss.solar",
+      role: "super_admin",
+      displayName: "Rajesh Kulkarni",
+    });
     vi.stubGlobal(
       "matchMedia",
       vi.fn((query: string) => ({
@@ -26,6 +33,7 @@ describe("appBootRender", () => {
   });
 
   afterEach(() => {
+    clearAuthenticatedSession();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });

@@ -5,7 +5,7 @@
 
 import { clearAllFormDrafts } from "@/lib/formDraftStorage";
 
-const APP_KEY_PREFIXES = ["mss.", "mahi_solar_"] as const;
+const APP_KEY_PREFIXES = ["mss.", "mahi_solar_", "mahi_demo_"] as const;
 
 const APP_EXACT_KEYS = [
   "masters_data",
@@ -42,6 +42,7 @@ export function clearAllAppStorage(): string[] {
   return removed;
 }
 
-/** Bump when every browser must drop stale data and boot empty (masters only). */
-export const APP_DATA_RESET_EPOCH = "2026-05-19-empty-boot-v2";
+/** Bump when every browser must drop stale data and re-bootstrap (default = business seed). */
+/** Bump when default boot behavior changes (v2 = business seed on first open / LS clear). */
+export const APP_DATA_RESET_EPOCH = "2026-05-21-business-seed-v2-default-boot";
 export const APP_DATA_RESET_EPOCH_KEY = "mahi_solar_app_reset_epoch";

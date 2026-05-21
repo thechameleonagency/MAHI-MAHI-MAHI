@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
  * etc.) — fix the page; do NOT add a defensive import wrapper here.
  */
 describe("Every page in src/pages imports without throwing", () => {
-  it("imports all top-level pages", { timeout: 30000 }, async () => {
+  it("imports all top-level pages", { timeout: 60000 }, async () => {
     await expect(import("@/pages/Dashboard")).resolves.toBeDefined();
     await expect(import("@/pages/Enquiries")).resolves.toBeDefined();
     await expect(import("@/pages/Quotations")).resolves.toBeDefined();

@@ -3,9 +3,22 @@ import { normalizeSiteReadinessMarkedBy } from "@/lib/siteReadinessNormalize";
 
 export const SESSION_ROLE_STORAGE_KEY = "mahi_demo_session_role";
 export const SESSION_USER_NAME_STORAGE_KEY = "mahi_demo_session_user_name";
+export const SESSION_MEMBER_ID_KEY = "mahi_demo_session_member_id";
+export const SESSION_EMAIL_KEY = "mahi_demo_session_email";
+export const SESSION_AUTHENTICATED_KEY = "mahi_demo_session_authenticated";
 
-/** Build stable actor id from demo display name; falls back to role-based id when empty. */
-export function buildSessionUserId(demoUserName: string, role: UserRole): string {
+export interface AuthenticatedSession {
+  memberId: string;
+  email: string;
+  role: UserRole;
+  displayName: string;
+}
+
+const INVITE_PASSWORD_PREFIX = "mahi_demo_invite_password:";
+
+/** Build stable actor id — prefers authenticated member id. */
+export function buildSessionUserId(demoUserName: string, role: UserRole, memberId?: string): string {
+  if (memberId?.trim()) return memberId.trim();
   const trimmed = demoUserName.trim();
   if (!trimmed) {
     return `actor-${role}`;
@@ -37,9 +50,57 @@ export function loadStoredDemoUserName(): string {
   }
 }
 
+export function loadStoredMemberId(): string {
+  try {
+    return localStorage.getItem(SESSION_MEMBER_ID_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function loadStoredEmail(): string {
+  try {
+    return localStorage.getItem(SESSION_EMAIL_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function isSessionAuthenticated(): boolean {
+  try {
+    return localStorage.getItem(SESSION_AUTHENTICATED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function persistSessionRole(role: UserRole): void {
   try {
     localStorage.setItem(SESSION_ROLE_STORAGE_KEY, role);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function persistAuthenticatedSession(session: AuthenticatedSession): void {
+  try {
+    localStorage.setItem(SESSION_AUTHENTICATED_KEY, "1");
+    localStorage.setItem(SESSION_MEMBER_ID_KEY, session.memberId);
+    localStorage.setItem(SESSION_EMAIL_KEY, session.email);
+    localStorage.setItem(SESSION_ROLE_STORAGE_KEY, session.role);
+    localStorage.setItem(SESSION_USER_NAME_STORAGE_KEY, session.displayName);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearAuthenticatedSession(): void {
+  try {
+    localStorage.removeItem(SESSION_AUTHENTICATED_KEY);
+    localStorage.removeItem(SESSION_MEMBER_ID_KEY);
+    localStorage.removeItem(SESSION_EMAIL_KEY);
+    localStorage.removeItem(SESSION_ROLE_STORAGE_KEY);
+    localStorage.removeItem(SESSION_USER_NAME_STORAGE_KEY);
   } catch {
     /* ignore */
   }
@@ -76,4 +137,27 @@ export function persistDemoUserName(name: string): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Store password for invite-accepted users (local prototype only). */
+export function persistInvitePassword(email: string, password: string): void {
+  try {
+    localStorage.setItem(`${INVITE_PASSWORD_PREFIX}${email.trim().toLowerCase()}`, password);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadInvitePassword(email: string): string | null {
+  try {
+    return localStorage.getItem(`${INVITE_PASSWORD_PREFIX}${email.trim().toLowerCase()}`);
+  } catch {
+    return null;
+  }
+}
+
+export function validateLoginPassword(email: string, password: string, demoPassword: string): boolean {
+  const invitePw = loadInvitePassword(email);
+  if (invitePw && invitePw === password) return true;
+  return password === demoPassword;
 }

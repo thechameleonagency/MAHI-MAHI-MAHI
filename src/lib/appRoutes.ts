@@ -14,6 +14,7 @@ export const LEGACY_APP_REDIRECT_PATHS = [
 
 /** Static paths (no dynamic segments). */
 export const APP_ROUTE_EXACT_PATHS = [
+  "/login",
   "/",
   "/active-sites",
   "/projects",
@@ -73,4 +74,5 @@ export const APP_ROUTE_PARAM_ROUTES: readonly {
   { appPath: "/partners/:id", test: (p) => /^\/partners\/[^/]+$/.test(p) },
   { appPath: "/vendorship/:id", test: (p) => /^\/vendorship\/[^/]+$/.test(p) },
   { appPath: "/inc-sources/:id", test: (p) => /^\/inc-sources\/[^/]+$/.test(p) },
+  { appPath: "/invite/:token", test: (p) => /^\/invite\/[^/]+$/.test(p) },
 ];

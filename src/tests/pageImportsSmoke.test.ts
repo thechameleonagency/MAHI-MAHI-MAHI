@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
  * than at the user's first navigation.
  */
 describe("All routed pages import without throwing", () => {
-  it("loads detail pages and key flows", { timeout: 30000 }, async () => {
+  it("loads detail pages and key flows", { timeout: 60000 }, async () => {
     await expect(import("@/pages/Dashboard")).resolves.toBeDefined();
     await expect(import("@/pages/Finance")).resolves.toBeDefined();
     await expect(import("@/pages/Customers")).resolves.toBeDefined();

@@ -9,6 +9,13 @@ import {
   APP_DATA_RESET_EPOCH_KEY,
   clearAllAppStorage,
 } from "@/lib/clearAppStorage";
+import {
+  getWorkspaceMode,
+  isEmptyWorkspaceState,
+  materializeDefaultBusinessBoot,
+  persistDefaultBusinessBoot,
+  setWorkspaceMode,
+} from "@/lib/defaultAppBoot";
 import { migrateOpaqueCustomerIds } from "@/lib/migrateCustomerIds";
 import { migratePersistedState } from "@/lib/migratePersistedIds";
 import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
@@ -86,12 +93,24 @@ export function persistFreshAppStateSeed(baseSeed: AppState): void {
 }
 
 type ReadPersistedOptions = {
-  /** When true, writes empty boot / version keys if storage is missing or stale (initial provider mount). */
+  /** When true, writes default/empty boot keys if storage is missing or stale (initial provider mount). */
   persistOnBootstrap?: boolean;
 };
 
+function hydrateStoredSnapshot(parsed: AppState, storedVersion: number): AppState {
+  let next = parsed;
+  if (storedVersion < APP_DATA_STORAGE_VERSION) {
+    next = migratePersistedState(parsed);
+  }
+  return applyAppStateHydrationPipeline(normalizeAppState(next));
+}
+
 /**
  * Load app state from localStorage (hydrated). Used on boot and on cross-tab `storage` events.
+ *
+ * Default opening state: full business seed (all roles see data after login).
+ * Explicit Settings "Reset to empty workspace" sets workspace mode `empty`.
+ * Clearing localStorage re-triggers default business seed on next load.
  */
 export function readPersistedAppState(options?: ReadPersistedOptions): AppState {
   const emptyBoot = buildEmptyAppState();
@@ -100,15 +119,26 @@ export function readPersistedAppState(options?: ReadPersistedOptions): AppState 
   try {
     const storedEpoch = localStorage.getItem(APP_DATA_RESET_EPOCH_KEY);
     const storedVersion = Number(localStorage.getItem(APP_DATA_STORAGE_VERSION_KEY) ?? "0");
+    const workspaceMode = getWorkspaceMode();
     const needsFullReset =
       storedEpoch !== APP_DATA_RESET_EPOCH || storedVersion !== APP_DATA_STORAGE_VERSION;
 
     if (needsFullReset) {
       if (persistOnBootstrap) {
-        clearAllAppStorage();
+        return persistDefaultBusinessBoot();
+      }
+      return materializeDefaultBusinessBoot();
+    }
+
+    if (workspaceMode === "empty") {
+      if (persistOnBootstrap && !localStorage.getItem(APP_DATA_STORAGE_KEY)) {
         persistFreshAppStateSeed(emptyBoot);
-        if (import.meta.env.DEV) {
-          console.info("[MSS] Full storage wipe — empty boot (masters reload from code).");
+      }
+      const stored = localStorage.getItem(APP_DATA_STORAGE_KEY);
+      if (stored) {
+        const parsed = deserializeAppState(stored);
+        if (parsed) {
+          return hydrateStoredSnapshot(parsed, storedVersion);
         }
       }
       return emptyBoot;
@@ -116,12 +146,13 @@ export function readPersistedAppState(options?: ReadPersistedOptions): AppState 
 
     const stored = localStorage.getItem(APP_DATA_STORAGE_KEY);
     if (stored) {
-      let parsed = deserializeAppState(stored);
+      const parsed = deserializeAppState(stored);
       if (parsed) {
-        if (storedVersion < APP_DATA_STORAGE_VERSION) {
-          parsed = migratePersistedState(parsed);
+        const hydrated = hydrateStoredSnapshot(parsed, storedVersion);
+        if (persistOnBootstrap && isEmptyWorkspaceState(hydrated)) {
+          return persistDefaultBusinessBoot();
         }
-        return applyAppStateHydrationPipeline(normalizeAppState(parsed));
+        return hydrated;
       }
     }
   } catch (e) {
@@ -131,7 +162,7 @@ export function readPersistedAppState(options?: ReadPersistedOptions): AppState 
   }
 
   if (persistOnBootstrap) {
-    persistFreshAppStateSeed(emptyBoot);
+    return persistDefaultBusinessBoot();
   }
   return emptyBoot;
 }

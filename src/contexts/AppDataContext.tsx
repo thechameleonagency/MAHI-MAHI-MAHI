@@ -21,6 +21,10 @@ import type {
 } from "@/types/project";
 import { DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
 import { buildEmptyAppState } from "@/data/appSeedBuilder";
+import { buildBusinessSeed } from "@/data/seed/buildBusinessSeed";
+import { persistMastersData } from "@/data/seed/seedMastersSync";
+import { bootstrapSessionAfterReset, bootstrapSessionAfterSeed } from "@/lib/seedSessionBootstrap";
+import { persistEmptyWorkspaceBoot, setWorkspaceMode } from "@/lib/defaultAppBoot";
 import { APP_DATA_RESET_EPOCH_KEY, clearAllAppStorage } from "@/lib/clearAppStorage";
 import {
   APP_DATA_STORAGE_KEY,
@@ -638,6 +642,8 @@ interface AppDataContextType extends AppState {
   /** Next sequential customer id (`CUST-0001` …), aware of legacy `C001` seeds. */
   allocateCustomerId: () => string;
   resetToDefaults: () => void;
+  /** Load full business seed (Settings → App data). Requires resetPrototype permission. */
+  loadBusinessSeed: (profile?: "full" | "smoke") => void;
   /** Returns true when the current role is allowed to perform the action. Use to disable/hide UI elements. */
   canDo: (action: AppAction) => boolean;
 }
@@ -704,7 +710,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const projectInvariantService = useMemo(() => new ProjectInvariantService(), []);
   const actorRole = currentRole ?? DEFAULT_ACTOR_ROLE;
   const actorUserId = sessionUserId;
-  const actorDisplayName = demoUserName.trim() || ROLE_LABELS[actorRole];
+  const actorDisplayName = useMemo(() => {
+    const trimmed = demoUserName.trim();
+    if (trimmed) return trimmed;
+    const member = state.settingsTeamMembers.find((m) => m.id === sessionUserId);
+    return member?.name ?? ROLE_LABELS[actorRole];
+  }, [demoUserName, sessionUserId, state.settingsTeamMembers, actorRole]);
 
   const canPerformActionOrWarn = useCallback((action: AppAction): boolean => {
     const allowed = permissionService.canPerformAction(actorRole, action, roleMatrixOverride);
@@ -872,10 +883,53 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       );
       return;
     }
-    clearAllAppStorage();
-    const fresh = buildDefaultBootState();
-    persistFreshAppStateSeed(fresh);
+    persistEmptyWorkspaceBoot();
+    bootstrapSessionAfterReset();
     window.location.reload();
+  }, [actorRole, roleMatrixOverride]);
+
+  const loadBusinessSeed = useCallback((profile: "full" | "smoke" = "full") => {
+    if (!canFeature(actorRole, "resetPrototype", "create", roleMatrixOverride)) {
+      showPermissionDeniedToast(
+        `The ${ROLE_LABELS[actorRole] ?? actorRole} role cannot load business seed data.`,
+      );
+      return;
+    }
+    clearAllAppStorage();
+    try {
+      const { state, verification } = buildBusinessSeed(profile);
+      if (!verification.ok) {
+        if (import.meta.env.DEV) {
+          console.warn("[MSS] Seed verification errors:", verification.errors);
+        }
+        toast({
+          title: "Seed loaded with verification issues",
+          description: `Seed verification reported ${verification.errors.length} issue(s). See console in dev.`,
+          variant: "destructive",
+        });
+      } else if (verification.warnings.length > 0 && import.meta.env.DEV) {
+        toast({
+          title: "Seed loaded",
+          description: verification.warnings[0]?.slice(0, 120),
+        });
+      }
+      setWorkspaceMode("business");
+      persistFreshAppStateSeed(state);
+      persistMastersData();
+      bootstrapSessionAfterSeed(state);
+      window.location.reload();
+    } catch (err) {
+      console.error("[MSS] buildBusinessSeed failed:", err);
+      const fresh = buildDefaultBootState();
+      persistFreshAppStateSeed(fresh);
+      bootstrapSessionAfterReset();
+      toast({
+        title: "Seed build failed",
+        description: err instanceof Error ? err.message : "Restored empty workspace.",
+        variant: "destructive",
+      });
+      window.location.reload();
+    }
   }, [actorRole, roleMatrixOverride]);
 
   // ============ PROJECTS CRUD ============
@@ -5148,6 +5202,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     generateId,
     allocateCustomerId,
     resetToDefaults,
+    loadBusinessSeed,
     canDo,
   };
   

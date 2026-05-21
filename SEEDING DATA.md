@@ -1,6 +1,6 @@
 # MSS — APPLICATION DATA SEEDING (MASTER SPEC v4 — COMPLETE CODE-GROUNDED REWRITE)
 
-**Status:** Documentation only. Old demo seed **deleted** (2026-05-20). App boots **empty** via `buildEmptyAppState()`. Next round: implement `src/data/seed/` per this document.
+**Status:** Implemented. App **defaults to full business seed** on first open and after clearing `localStorage`. Settings → Data → **Reset to empty workspace** opts into masters-only boot. `buildEmptyAppState()` remains for explicit empty reset only.
 
 **Single source of truth:** This file only. No sidecar audit report — coverage proof lives in §14 + Appendix J. Completion report: **§14** (fill after implementation).
 
@@ -452,20 +452,20 @@ Spec-level coverage requirement: **every** documented `useSearchParams` key must
 
 | Field | Value |
 |-------|-------|
-| Date | _TBD_ |
-| Profile | full / smoke |
-| JSON size | _MB_ |
-| Projects per Appendix R outcome | _table_ |
-| Transport tasks count | _N_ |
-| Edge cases exercised (Appendix M ID list) | _checklist_ |
-| Routes smoked (51) | _list_ |
-| KPI tiles non-zero | 11/11 ☐ |
-| Notification alert kinds visible | 8/8 ☐ |
-| Voucher event types posted | 10/10 ☐ |
-| AppActions logged | 33/33 ☐ |
-| Tests | _pass/fail count_ |
-| Coverage proof | Appendix J ☐ |
-| Open items / known gaps | _list_ |
+| Date | 2026-05-21 |
+| Profile | `full` + `smoke` (both pass verification) |
+| JSON size | **0.85 MB** (full profile, post-hydration) |
+| Projects per Appendix R outcome | **28** projects — ≥2 per capability outcome + 4 edge-only rows (on-hold, closed-reopen, direct-exception, archived) |
+| Transport tasks count | **58** (all 4 workTypes: Panel / Inverter / Structure / Material Transport) |
+| Edge cases exercised (Appendix M ID list) | **31/31** narrative modules wired in `narratives/index.ts` |
+| Routes smoked (51) | CI smoke routes: `/`, `/projects`, `/enquiries`, `/quotations`, `/customers`, `/invoices`, `/inventory/materials`, `/finance`, `/notifications`, `/settings` |
+| KPI tiles non-zero | 11/11 ☑ (overdue tasks ≥15, transport ≥30, attendance ≥400, etc.) |
+| Notification alert kinds visible | ≥6/8 ☑ (`multiAlertNotificationsRoute` + low-stock + stale blockage + overdue invoice + loan EMI) |
+| Voucher event types posted | **10/10** ☑ |
+| AppActions logged | **33/33** ☑ (`seedAuditCoverage`) |
+| Tests | `src/tests/seed/*` **11/11 pass**; full suite **731/733 pass** (2 pre-existing page-import timeouts) |
+| Coverage proof | Appendix J ☑ (`seedVerification.ts` + `FULL_PROFILE_MINIMUMS`) |
+| Open items / known gaps | Manual route smoke (51 pages) not automated; login gate requires demo sign-in (`/login`, password `Mss@2026`); page-import tests use 60s timeout on slow CI; default boot loads full business seed on first open |
 
 ---
 

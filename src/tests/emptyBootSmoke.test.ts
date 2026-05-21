@@ -27,7 +27,8 @@ describe("emptyBootSmoke", () => {
     }
   });
 
-  it("reset epoch targets empty boot policy", () => {
-    expect(APP_DATA_RESET_EPOCH).toContain("empty-boot");
+  it("reset epoch is set for storage invalidation on seed schema changes", () => {
+    expect(APP_DATA_RESET_EPOCH.length).toBeGreaterThan(0);
+    expect(APP_DATA_RESET_EPOCH).toMatch(/2026-05-21/);
   });
 });

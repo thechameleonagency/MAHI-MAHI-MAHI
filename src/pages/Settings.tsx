@@ -60,6 +60,7 @@ const Settings = () => {
   const navigate = useNavigate();
   const {
     resetToDefaults,
+    loadBusinessSeed,
     settingsTeamMembers,
     replaceSettingsTeamMembers,
   } = useAppData();
@@ -74,13 +75,19 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState("profile");
   const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
   const [isResetDataConfirmOpen, setIsResetDataConfirmOpen] = useState(false);
+  const [isLoadSeedConfirmOpen, setIsLoadSeedConfirmOpen] = useState(false);
+  const [seedProfile, setSeedProfile] = useState<"full" | "smoke">("full");
 
   useEffect(() => {
     const tabParam = new URLSearchParams(location.search).get("tab");
     if (tabParam === "design" && canViewTheme) {
       navigate("/settings/design-system", { replace: true });
+      return;
     }
-  }, [location.search, canViewTheme, navigate]);
+    if (tabParam === "data" && canViewData) {
+      setActiveTab("data");
+    }
+  }, [location.search, canViewTheme, canViewData, navigate]);
 
   useEffect(() => {
     const restricted: Record<string, boolean> = {
@@ -256,26 +263,31 @@ const Settings = () => {
 
   const handleInviteMember = () => {
     if (inviteEmail && inviteRole) {
+      const token = `inv-${crypto.randomUUID()}`;
+      const inviteLink = `${window.location.origin}/invite/${token}`;
       const newMember: SettingsTeamMember = {
-        id: Date.now(),
+        id: `STM-${Date.now()}`,
         name: inviteEmail.split("@")[0],
         email: inviteEmail,
         role: inviteRole,
         status: "Pending",
+        inviteToken: token,
+        invitedAt: new Date().toISOString(),
       };
       replaceSettingsTeamMembers([...settingsTeamMembers, newMember]);
       setLastConfirm({
         variant: "success",
-        title: "Invitation sent",
-        description: `Invitation sent to ${inviteEmail}`,
+        title: "Invitation created",
+        description: `Invite link copied to clipboard for ${inviteEmail}`,
       });
+      void navigator.clipboard?.writeText(inviteLink);
       setInviteEmail("");
       setInviteRole("");
       setIsInviteModalOpen(false);
     }
   };
 
-  const handleRemoveMember = (memberId: number) => {
+  const handleRemoveMember = (memberId: string) => {
     const member = settingsTeamMembers.find((m) => m.id === memberId);
     if (member?.role === "super_admin" || member?.role === "Admin") return;
     replaceSettingsTeamMembers(settingsTeamMembers.filter((m) => m.id !== memberId));
@@ -722,15 +734,42 @@ const Settings = () => {
               <CardHeader>
                 <CardTitle className="text-base font-medium">App data</CardTitle>
                 <CardDescription>
-                  The app boots with zero business rows (masters only). Full business seed loads from Settings once implemented — see `SEEDING DATA.md`.
+                  The app opens with a full business seed by default (4–5 months of solar EPC data). All roles see this data after sign-in. Clearing browser storage reloads the default seed automatically.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Reset wipes localStorage and reloads an empty workspace.
+                  Use <strong>Reset to empty workspace</strong> to demo masters-only boot. Use <strong>Load business seed</strong> to rebuild the portfolio from scratch. See `SEEDING DATA.md`.
                 </p>
+                {canViewData && !canResetPrototype && (
+                  <p className="text-sm text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
+                    Load and reset require Super Admin. Log in as Rajesh Kulkarni (super_admin) from the login page.
+                  </p>
+                )}
                 {canResetPrototype && (
                   <>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="seed-profile">Seed profile</Label>
+                        <Select value={seedProfile} onValueChange={(v) => setSeedProfile(v as "full" | "smoke")}>
+                          <SelectTrigger id="seed-profile" className="w-[180px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="full">Full (4–5 months)</SelectItem>
+                            <SelectItem value="smoke">Smoke (CI ~30%)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        type="button"
+                        className="gap-2"
+                        onClick={() => setIsLoadSeedConfirmOpen(true)}
+                      >
+                        <Database className="h-4 w-4" />
+                        Load business seed
+                      </Button>
+                    </div>
                     <Button
                       type="button"
                       variant="outline"
@@ -858,6 +897,18 @@ const Settings = () => {
         onConfirm={() => {
           resetToDefaults();
           /* resetToDefaults reloads the page */
+        }}
+      />
+
+      <DestructiveConfirmDialog
+        open={isLoadSeedConfirmOpen}
+        onOpenChange={setIsLoadSeedConfirmOpen}
+        title="Load business seed?"
+        description={`This wipes current data and loads the ${seedProfile === "full" ? "full 4–5 month" : "smoke CI"} business seed portfolio with linked projects, finance, inventory, and audit history. The page will reload.`}
+        typedConfirmation="SEED"
+        confirmLabel="Load seed"
+        onConfirm={() => {
+          loadBusinessSeed(seedProfile);
         }}
       />
     </PageShell>

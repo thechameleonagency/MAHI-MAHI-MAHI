@@ -1,4 +1,4 @@
-import { Menu, Settings, Plus, Pin, PinOff, Search, MoreHorizontal } from "lucide-react";
+import { LogOut, Menu, Settings, Plus, Pin, PinOff, Search, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -16,11 +16,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ROLE_LABELS, USER_ROLES, type UserRole } from "@/domain/entities/identity";
+import { ROLE_LABELS } from "@/domain/entities/identity";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useFoundation } from "@/app/providers/FoundationProvider";
-import { showRouteAccessDeniedToast } from "@/lib/permissionFeedback";
-import { markRoleSwitchRouteDenied } from "@/lib/roleSwitchToast";
 import { quickCreatePath } from "@/lib/createFromContext";
 import GlobalSearch from "./GlobalSearch";
 import { NotificationBellLink } from "./NotificationBellLink";
@@ -35,7 +33,7 @@ type TopHeaderProps = {
 };
 
 const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
-  const { currentRole, setCurrentRole, demoUserName, setDemoUserName } = useAppSession();
+  const { currentRole, demoUserName, memberId, logout, isAuthenticated } = useAppSession();
   const { permissionService } = useFoundation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -241,46 +239,42 @@ const TopHeader = ({ onOpenSidebar }: TopHeaderProps) => {
           </Button>
         )}
 
-        <Input
-          className="h-8 w-[min(7.5rem,26vw)] text-xs sm:h-9 sm:w-[min(9rem,22vw)] sm:text-sm"
-          placeholder="Demo user"
-          value={demoUserName}
-          onChange={(e) => setDemoUserName(e.target.value)}
-          aria-label="Demo user name"
-          title="Name shown in audit logs (persisted for this browser)"
-        />
+        {isAuthenticated && (
+          <div className="hidden sm:flex flex-col items-end max-w-[10rem] truncate">
+            <span className="text-xs font-medium text-foreground truncate w-full text-right" title={demoUserName}>
+              {demoUserName || ROLE_LABELS[currentRole]}
+            </span>
+            <span className="text-[10px] text-muted-foreground truncate w-full text-right">
+              {memberId ? `${memberId} · ` : ""}{ROLE_LABELS[currentRole]}
+            </span>
+          </div>
+        )}
 
-        <Select
-          value={currentRole}
-          onValueChange={(role) => {
-            const next = role as UserRole;
-            setCurrentRole(next);
-            const currentPageDenied = !permissionService.canAccessPath(
-              next,
-              location.pathname,
-              roleMatrixOverride,
-            );
-            if (currentPageDenied) {
-              markRoleSwitchRouteDenied();
-              navigate("/", {
-                replace: true,
-                state: { routeAccessDeniedPath: location.pathname },
-              });
-              showRouteAccessDeniedToast(location.pathname, next);
-            }
+        {currentRole === "super_admin" && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="hidden md:inline-flex text-xs"
+            onClick={() => navigate("/login")}
+          >
+            Switch user
+          </Button>
+        )}
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5 h-8 text-xs"
+          onClick={() => {
+            logout();
+            navigate("/login", { replace: true });
           }}
         >
-          <SelectTrigger className="h-8 w-[min(140px,30vw)] text-xs sm:h-9 sm:w-[min(160px,28vw)] sm:text-sm">
-            <SelectValue placeholder="Role" />
-          </SelectTrigger>
-          <SelectContent>
-            {USER_ROLES.map((role) => (
-              <SelectItem key={role} value={role}>
-                {ROLE_LABELS[role]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <LogOut className={ICON_CLASS_NAV} />
+          <span className="hidden sm:inline">Logout</span>
+        </Button>
       </div>
 
       <Sheet open={mobileSearchOpen} onOpenChange={setMobileSearchOpen}>

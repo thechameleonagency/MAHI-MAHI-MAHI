@@ -33,9 +33,10 @@ describe("roleSwitchToast (Mn10)", () => {
     expect(source).not.toMatch(/pinned link\(s\) removed[\s\S]*removed\.length/);
   });
 
-  it("TopHeader does not show generic role toast (delegated to hook)", () => {
+  it("TopHeader uses login/logout instead of inline role switch toast", () => {
     const source = readFileSync(resolve(process.cwd(), "src/components/layout/TopHeader.tsx"), "utf8");
-    expect(source).toContain("markRoleSwitchRouteDenied");
+    expect(source).toContain("logout");
+    expect(source).not.toContain("markRoleSwitchRouteDenied");
     expect(source).not.toMatch(/Navigation and actions now follow/);
   });
 });

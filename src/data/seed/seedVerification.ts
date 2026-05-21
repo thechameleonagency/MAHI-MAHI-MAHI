@@ -1,0 +1,384 @@
+import type { AppState } from "@/contexts/AppDataContext";
+
+import type { AccountingEventType } from "@/application/services/VoucherPostingService";
+
+import { USER_ROLES } from "@/domain/entities/identity";
+import { DEMO_LOGIN_USERS } from "@/domain/demoCredentials";
+import { serializeAppState } from "@/lib/appDataStorage";
+import { buildCalendarEvents, type CalendarEventSource } from "@/lib/calendarSources";
+import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/businessAlerts";
+
+import { reconcileClientPaymentLedger } from "@/lib/clientPaymentReconciliation";
+
+import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
+
+import { FULL_PROFILE_MINIMUMS, getMinimumFor } from "./seedVolumeTargets";
+
+
+
+export interface SeedVerificationResult {
+
+  ok: boolean;
+
+  errors: string[];
+
+  warnings: string[];
+
+  jsonSizeBytes: number;
+
+  collectionCounts: Record<string, number>;
+
+}
+
+
+
+const APP_ACTIONS = [
+
+  "enquiry:create", "customer:create", "quotation:create", "quotation:confirm",
+
+  "project:create_from_quote", "project:create_direct_exception", "project:update_commercial",
+
+  "project:update_execution", "inventory:material_movement", "finance:create_invoice",
+
+  "finance:record_payment", "finance:update_payment", "finance:delete_payment",
+
+  "finance:record_expense_income", "finance:update_expense", "finance:delete_expense",
+
+  "finance:update_income", "finance:delete_income", "partner:update", "partner:delete",
+
+  "partner:add_transaction", "loan:update", "loan:delete", "loan:add_repayment",
+
+  "vendor:record_bill", "vendor:record_payment", "vendor:update_payment", "vendor:delete_payment",
+
+  "hr:release_payroll", "hr:record_wallet", "hr:mark_holiday", "hr:update_employee",
+
+  "approval:resolve",
+
+] as const;
+
+
+
+const VOUCHER_EVENT_TYPES: AccountingEventType[] = [
+
+  "InvoiceIssued", "PaymentReceived", "PurchaseBillBooked", "VendorPaymentRecorded",
+
+  "ExpenseRecorded", "PayrollReleased", "PayrollPaid", "PartnerPayoutRecorded",
+
+  "LoanReceived", "LoanRepayment",
+
+];
+
+
+
+const TRANSPORT_WORK_TYPES = [
+
+  "Panel Transport", "Inverter Transport", "Structure Transport", "Material Transport",
+
+];
+
+
+
+/** Appendix J — FK matrix, FIFO, size budget, §4 volume floors. */
+
+export function verifySeedState(state: AppState, profile: SeedProfile): SeedVerificationResult {
+
+  const errors: string[] = [];
+
+  const warnings: string[] = [];
+
+  const collectionCounts: Record<string, number> = {};
+
+
+
+  for (const key of SEED_COLLECTION_KEYS) {
+
+    const val = state[key];
+
+    collectionCounts[key] = Array.isArray(val) ? val.length : val && typeof val === "object" ? Object.keys(val).length : 0;
+
+  }
+
+
+
+  const ids = new Set<string>();
+
+  for (const key of SEED_COLLECTION_KEYS) {
+
+    const val = state[key];
+
+    if (!Array.isArray(val)) continue;
+
+    for (const row of val) {
+
+      const id = (row as { id?: string }).id;
+
+      if (!id) continue;
+
+      if (ids.has(id)) errors.push(`Duplicate id: ${id} in ${key}`);
+
+      ids.add(id);
+
+    }
+
+  }
+
+
+
+  for (const p of state.projects) {
+
+    if (p.customerId && !state.customers.some((c) => c.id === p.customerId)) {
+
+      errors.push(`Project ${p.id} references missing customer ${p.customerId}`);
+
+    }
+
+  }
+
+  for (const inv of state.invoices) {
+
+    if (!state.customers.some((c) => c.id === inv.customerId)) {
+
+      errors.push(`Invoice ${inv.id} missing customer FK`);
+
+    }
+
+  }
+
+
+
+  const before = {
+
+    payments: state.payments,
+
+    invoices: state.invoices,
+
+    projects: state.projects,
+
+  };
+
+  const after = reconcileClientPaymentLedger({
+
+    clientPaymentRecords: state.clientPaymentRecords,
+
+    payments: state.payments,
+
+    invoices: state.invoices,
+
+    projects: state.projects,
+
+  });
+
+  if (JSON.stringify(before) !== JSON.stringify({
+
+    payments: after.payments,
+
+    invoices: after.invoices,
+
+    projects: after.projects,
+
+  })) {
+
+    warnings.push("CPR FIFO replay would mutate state — ensure amounts align post-hydration");
+
+  }
+
+
+
+  const json = serializeAppState(state);
+
+  const jsonSizeBytes = new Blob([json]).size;
+
+  if (jsonSizeBytes > 8 * 1024 * 1024) errors.push(`Seed JSON ${(jsonSizeBytes / 1024 / 1024).toFixed(2)} MB exceeds 8 MB hard limit`);
+
+  else if (jsonSizeBytes > 5 * 1024 * 1024) warnings.push(`Seed JSON ${(jsonSizeBytes / 1024 / 1024).toFixed(2)} MB exceeds 5 MB target`);
+
+
+
+  if (profile === "full") {
+
+    for (const [key, min] of Object.entries(FULL_PROFILE_MINIMUMS)) {
+
+      const count = collectionCounts[key] ?? 0;
+
+      if (count < min) {
+
+        errors.push(`${key}: ${count} rows (min ${min} for full profile)`);
+
+      }
+
+    }
+
+
+
+    const transportTasks = state.tasks.filter((t) => t.workType.includes("Transport"));
+
+    if (transportTasks.length < 30) {
+
+      errors.push(`transport tasks: ${transportTasks.length} (min 30)`);
+
+    }
+
+    for (const wt of TRANSPORT_WORK_TYPES) {
+
+      if (!transportTasks.some((t) => t.workType === wt)) {
+
+        errors.push(`missing transport workType: ${wt}`);
+
+      }
+
+    }
+
+
+
+    const overdueTasks = state.tasks.filter((t) => t.workDate && t.workDate < "2026-05-20" && t.status !== "done");
+
+    if (overdueTasks.length < 15) {
+
+      errors.push(`overdue tasks: ${overdueTasks.length} (min 15)`);
+
+    }
+
+
+
+    const workStatusTasks = state.tasks.filter((t) => t.workItems?.length);
+
+    if (workStatusTasks.length < 40) {
+
+      errors.push(`work-status tasks: ${workStatusTasks.length} (min 40)`);
+
+    }
+
+
+
+    const auditFields = new Set(state.auditLogs.map((l) => l.field).filter(Boolean));
+
+    for (const action of APP_ACTIONS) {
+
+      if (!auditFields.has(action)) {
+
+        errors.push(`missing audit coverage for AppAction: ${action}`);
+
+      }
+
+    }
+
+
+
+    const voucherCounts = state.accountingVouchers.reduce<Record<string, number>>((acc, v) => {
+      const key = v.sourceEvent ?? "";
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    for (const evt of VOUCHER_EVENT_TYPES) {
+      const count = voucherCounts[evt] ?? 0;
+      if (count < 2) {
+        errors.push(`voucher event ${evt}: ${count} (min 2)`);
+      }
+    }
+
+
+
+    const richTimelines = Object.values(state.projectTimelineByProjectId).filter(
+
+      (tl) => tl.workStatusChecks?.length && tl.discomChecks?.length,
+
+    );
+
+    if (richTimelines.length < 3) {
+      errors.push(`rich project timelines: ${richTimelines.length} (min 3)`);
+    }
+
+    for (const demo of DEMO_LOGIN_USERS) {
+      if (!state.settingsTeamMembers.some((m) => m.id === demo.memberId)) {
+        errors.push(`demo credential ${demo.memberId} missing from settingsTeamMembers`);
+      }
+    }
+    for (const role of USER_ROLES) {
+      const active = state.settingsTeamMembers.filter(
+        (m) => m.role === role && (m.status === "Active" || m.status === "active"),
+      );
+      if (active.length < 1) {
+        errors.push(`settingsTeamMembers: no Active member for role ${role}`);
+      }
+    }
+    const instActive = state.settingsTeamMembers.filter(
+      (m) => m.role === "installation_team" && (m.status === "Active" || m.status === "active"),
+    );
+    if (instActive.length < 3) {
+      errors.push(`installation_team Active members: ${instActive.length} (min 3)`);
+    }
+
+    const calendarSources: CalendarEventSource[] = [
+      "task", "installation", "enquiry", "invoice", "vendor-bill", "loan-emi", "site-visit", "milestone",
+    ];
+    const events = buildCalendarEvents({
+      tasks: state.tasks,
+      scheduledInstallations: state.scheduledInstallations,
+      enquiries: state.enquiries,
+      invoices: state.invoices,
+      vendorBills: state.vendorBills,
+      loans: state.loans,
+      loanRepayments: state.loanRepayments,
+      siteVisits: state.siteVisits,
+      projects: state.projects,
+    });
+    for (const src of calendarSources) {
+      if (!events.some((e) => e.source === src)) {
+        errors.push(`calendar source missing events: ${src}`);
+      }
+    }
+
+    const lowStock = state.inventoryItems.filter((i) => i.stock < i.minStock);
+    const alerts = deriveBusinessAlertDescriptors({
+      invoices: state.invoices,
+      loans: state.loans,
+      lowStockItems: lowStock,
+      blockages: state.blockages,
+      quotations: state.quotations,
+      projects: state.projects,
+      projectTimelineByProjectId: state.projectTimelineByProjectId,
+      vendorBills: state.vendorBills,
+    });
+    const alertKinds: BusinessAlertKind[] = [
+      "invoice", "loan", "stock", "blockage", "blockage_stale", "quotation", "vendor_bill", "approval",
+    ];
+    const kindsPresent = new Set(alerts.map((a) => a.kind));
+    const missingAlertKinds = alertKinds.filter((k) => !kindsPresent.has(k));
+    if (missingAlertKinds.length > 2) {
+      errors.push(`business alert kinds missing: ${missingAlertKinds.join(", ")} (max 2 allowed)`);
+    }
+
+  } else {
+
+    for (const key of Object.keys(FULL_PROFILE_MINIMUMS) as (keyof AppState)[]) {
+
+      const min = getMinimumFor(profile, key);
+
+      const count = collectionCounts[key] ?? 0;
+
+      if (count < min) warnings.push(`${key}: ${count} rows (min ${min} for smoke profile)`);
+
+    }
+
+  }
+
+
+
+  return {
+
+    ok: errors.length === 0,
+
+    errors,
+
+    warnings,
+
+    jsonSizeBytes,
+
+    collectionCounts,
+
+  };
+
+}
+
+

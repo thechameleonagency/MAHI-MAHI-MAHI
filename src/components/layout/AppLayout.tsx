@@ -1,6 +1,6 @@
 import { ReactNode, useState, useEffect, useCallback, useMemo } from "react";
 import { useMobileSidebarSwipe } from "@/hooks/useMobileSidebarSwipe";
-import { useLocation } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import TopHeader from "./TopHeader";
 import RouteAccessGate, { RouteAccessBoundary } from "./RouteAccessGate";
@@ -9,10 +9,11 @@ import { PageErrorBoundary } from "@/app/shell/PageErrorBoundary";
 import { resolvePageErrorRecovery } from "@/lib/routeErrorRecovery";
 
 interface AppLayoutProps {
-  children: ReactNode;
+  children?: ReactNode;
 }
 
 const AppLayout = ({ children }: AppLayoutProps) => {
+  const content = children ?? <Outlet />;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -52,7 +53,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
           <TopHeader onOpenSidebar={() => setSidebarOpen(true)} />
           <main className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto w-full min-h-0 min-w-0 max-w-[min(100%,var(--app-max-width,1680px))] px-3 py-4 sm:px-5 sm:py-5 md:pb-8">
-              <RouteAccessBoundary>{children}</RouteAccessBoundary>
+              <RouteAccessBoundary>{content}</RouteAccessBoundary>
             </div>
           </main>
         </PageHeaderStickyProvider>
