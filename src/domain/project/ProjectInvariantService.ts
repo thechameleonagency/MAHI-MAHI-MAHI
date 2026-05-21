@@ -5,6 +5,7 @@ import {
   calculateProjectPartnerEarning,
   isPartnerCreditTransaction,
 } from "@/domain/partners/derivePartnerEconomics";
+import { resolveProjectPartnerRow } from "@/lib/projectPartnerEconomics";
 import { projectRequiresClientInvoiceForCompletion } from "@/lib/projectCompletionInvoice";
 
 export type ProjectCreateInvariantInput = {
@@ -124,7 +125,7 @@ export class ProjectInvariantService {
       }
     }
 
-    const partnerRow = project.partners?.[0];
+    const partnerRow = resolveProjectPartnerRow(project);
     const forbidPartnerSettlement =
       project.projectKindConfigSnapshot?.forbiddenActions?.includes("partner_settlement");
     if (partnerRow && !forbidPartnerSettlement) {

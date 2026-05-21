@@ -121,8 +121,10 @@ describe("canFeature — installation_team scope", () => {
     expect(canFeature("installation_team", "scheduleInstallation", "create")).toBe(true);
     expect(canFeature("installation_team", "inventoryItem", "view")).toBe(true);
     expect(canFeature("installation_team", "inventoryMovement", "create")).toBe(true);
+    expect(canFeature("installation_team", "inventoryMovement", "delete")).toBe(true);
     expect(canFeature("installation_team", "tool", "view")).toBe(true);
     expect(canFeature("installation_team", "toolMovement", "create")).toBe(true);
+    expect(canFeature("installation_team", "toolMovement", "delete")).toBe(true);
     expect(canFeature("installation_team", "blockage", "create")).toBe(true);
     expect(canFeature("installation_team", "calendar", "view")).toBe(true);
     expect(canFeature("installation_team", "timeline", "view")).toBe(true);

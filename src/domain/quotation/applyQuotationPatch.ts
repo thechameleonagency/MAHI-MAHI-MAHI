@@ -1,6 +1,8 @@
 import { canTransitionQuotationStatus, type QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
 import { validateQuotationSendOrApprove } from "@/domain/quotation/quotationCommercialAmount";
 import { validateQuotationPaymentTypeForSend } from "@/domain/quotation/quotationPaymentType";
+import { isQuotationConverted } from "@/lib/quotationProjectLink";
+import { rejectQuotationTerminalEdit } from "@/lib/quotationProjectConversionPolicy";
 import type { Quotation } from "@/types/project";
 
 /** Commercial line items locked after approval/confirm (aligns with AppDataContext). */
@@ -22,8 +24,9 @@ export const QUOTATION_LOCKED_FIELDS: (keyof Quotation)[] = [
   "sectionVisibility",
 ];
 
+/** Approved but not yet converted — commercial line items are locked. */
 export const isQuotationCommerciallyLocked = (quotation: Quotation) =>
-  quotation.status === "approved";
+  quotation.status === "approved" && !isQuotationConverted(quotation);
 
 export const createCommercialSnapshot = (quotation: Quotation): NonNullable<Quotation["commercialSnapshot"]> => ({
   capturedAt: new Date().toISOString(),
@@ -54,6 +57,15 @@ export type ApplyQuotationPatchResult =
  * Pure merge for quotation field updates (draft edits, status changes not using transition command, etc.).
  */
 export function applyQuotationPatch(quotation: Quotation, updates: Partial<Quotation>): ApplyQuotationPatchResult {
+  const terminalReject = rejectQuotationTerminalEdit(quotation, updates);
+  if (!terminalReject.ok) {
+    return {
+      ok: false,
+      code: terminalReject.code,
+      message: terminalReject.message,
+    };
+  }
+
   const nextStatus = updates.status as QuotationStatus | undefined;
   if (nextStatus && !canTransitionQuotationStatus(quotation.status as QuotationStatus, nextStatus)) {
     return {

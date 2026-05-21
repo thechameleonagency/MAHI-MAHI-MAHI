@@ -4,7 +4,9 @@ import { resolveProjectKindFromIntake } from "@/domain/project/intakePayload";
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
 import { formatCapacityKW } from "@/lib/formatCurrency";
 import { resolveProjectPaymentTypeFromSources } from "@/domain/project/projectPaymentType";
+import { buildProjectClientSnapshotFromQuotation } from "@/lib/customerPipelineIdentity";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
+import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
 import type { Project, Quotation } from "@/types/project";
 
 export type BuildProjectShellResult =
@@ -91,6 +93,8 @@ export function buildProjectShellFromQuotation(params: {
   });
 
   const today = new Date().toISOString().split("T")[0];
+  const clientSnapshot = buildProjectClientSnapshotFromQuotation(quotation);
+  const siteLocation = clientSnapshot.clientAddress || location;
 
   const project: Project = {
     id: projectId,
@@ -109,13 +113,15 @@ export function buildProjectShellFromQuotation(params: {
     lifecycleStatus: "New",
     executionPhase: "Intake",
     progressStage: "new",
-    client: quotation.clientName,
+    client: clientSnapshot.client,
     customerId: quotation.customerId,
-    clientAddress: quotation.clientAddress,
-    clientPhone: quotation.clientPhone,
-    clientEmail: quotation.clientEmail,
+    clientAddress: clientSnapshot.clientAddress,
+    clientPhone: clientSnapshot.clientPhone,
+    clientEmail: clientSnapshot.clientEmail,
+    clientGstin: clientSnapshot.clientGstin,
+    state: clientSnapshot.state,
     capacity: capacity || "—",
-    location,
+    location: siteLocation,
     assignees: [],
     onSite: 0,
     contractAmount,
@@ -132,5 +138,8 @@ export function buildProjectShellFromQuotation(params: {
     executionLineItems: [],
   };
 
-  return { ok: true, project };
+  return {
+    ok: true,
+    project: ensureProjectPartnerEconomics(project, { intake }),
+  };
 }

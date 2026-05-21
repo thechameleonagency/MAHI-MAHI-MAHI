@@ -199,6 +199,49 @@ describe("Project commands", () => {
     expect(q?.status).toBe("converted_to_project");
   });
 
+  it("rejects a second project from the same quotation (E2 one-shot)", async () => {
+    const quotation: Quotation = {
+      id: "Q-ONCE",
+      quotationNumber: "Q-ONCE",
+      status: "converted_to_project",
+      quotationType: "solar",
+      clientName: "Client",
+      clientPhone: "999",
+      clientEmail: "c@x.com",
+      clientCity: "J",
+      clientState: "R",
+      systemCategory: "residential",
+      systemCapacity: "5",
+      paymentType: "cash",
+      totalAmount: 100_000,
+      linkedProjectId: "PROJ-FIRST",
+      createdAt: "2026-01-01",
+      customerId: "C-1",
+    };
+    const repositories = setupRepositories(quotation);
+    const bus = new CommandBus();
+    registerProjectCommands(bus, repositories, new PermissionService(), new AuditService({ auditRepository: repositories.auditRepository }));
+
+    const second = await bus.execute({
+      type: CREATE_PROJECT_FROM_QUOTATION_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: {
+        quotationId: "Q-ONCE",
+        projectName: "Duplicate",
+        intake: {
+          kind: "SOLO_EPC",
+          parties: { customer: "C1" },
+          commercial: { contractAmount: 100_000, paymentType: "cash", internalCostEstimate: 0 },
+        },
+      },
+    });
+
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.errorCode).toBe("QUOTATION_ALREADY_CONVERTED");
+  });
+
   it("rejects SOLO_EPC intake without quotation", async () => {
     const bus = new CommandBus();
     const repositories = setupRepositories({

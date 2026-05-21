@@ -13,4 +13,8 @@ export const PERMISSION_DENIED_HINTS = {
   customerCreateQuotation: "Your role cannot create quotations for this customer.",
   customerCreateProject: "Your role cannot create projects from the customer page.",
   expenseReimbursementApprove: "Only admin, management, or CEO can approve expense reimbursements.",
+  inventoryMovementReverse:
+    "Only admin, super-admin, or installation team can reverse inventory movements.",
+  toolMovementReverse:
+    "Only admin, super-admin, or installation team can reverse tool movements.",
 } as const;

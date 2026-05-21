@@ -52,6 +52,10 @@ import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
 import { validateQuotationCreateSource } from "@/lib/quotationCreateSource";
 import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
+import {
+  PROJECT_SCOPE_CHANGE_GUIDANCE,
+  QUOTATION_ONE_SHOT_CONVERSION_HELP,
+} from "@/lib/quotationProjectConversionPolicy";
 import type { QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
 import {
   formatQuotationStatusLabel,
@@ -661,6 +665,7 @@ const Quotations = () => {
   const applyEnquiryQuotationDraft = (draft: QuotationDraftFromEnquiry) => {
     setClientName(draft.customerName);
     setClientPhone(draft.customerPhone);
+    setCustomerId(draft.customerId ?? null);
     if (draft.customerEmail) setClientEmail(draft.customerEmail);
     if (draft.customerAddress) {
       setSystemConfigNotes(`Address (from enquiry): ${draft.customerAddress}`);
@@ -2279,7 +2284,9 @@ const Quotations = () => {
                     </Badge>
                   )}
                 </div>
-                {canEditQuotation && (
+                {canEditQuotation &&
+                  selectedQuotation &&
+                  !isQuotationConverted(selectedQuotation) && (
                 <Button 
                   variant="ghost" 
                   size="sm" 
@@ -2310,6 +2317,28 @@ const Quotations = () => {
                   }
                   primaryActionLabel="Clone & re-quote"
                   onPrimaryAction={() => handleCloneQuotation(selectedQuotation)}
+                />
+              </div>
+            )}
+
+            {selectedQuotation && isQuotationConverted(selectedQuotation) && (
+              <div className="mt-4">
+                <LifecycleTerminalBanner
+                  variant="completed"
+                  title="Converted to project — one-shot"
+                  description={
+                    <>
+                      <p>{QUOTATION_ONE_SHOT_CONVERSION_HELP}</p>
+                      <p className="mt-1">{PROJECT_SCOPE_CHANGE_GUIDANCE}</p>
+                    </>
+                  }
+                  primaryActionLabel="View project"
+                  onPrimaryAction={() => {
+                    const pid = quotationLinkedProjectId(selectedQuotation);
+                    if (pid) navigate(`/projects/${pid}`);
+                  }}
+                  secondaryActionLabel="Clone for new quote"
+                  onSecondaryAction={() => handleCloneQuotation(selectedQuotation)}
                 />
               </div>
             )}

@@ -17,7 +17,10 @@ import {
 } from "@/domain/project/ProjectInvariantService";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import type { ExecutionLineItem, Project } from "@/types/project";
-import { buildQuotationProjectLinkPatch, isQuotationConverted } from "@/lib/quotationProjectLink";
+import { freezeProjectClientFieldsFromQuotation } from "@/lib/customerPipelineIdentity";
+import { rejectSecondProjectFromQuotation } from "@/lib/quotationProjectConversionPolicy";
+import { buildQuotationProjectLinkPatch } from "@/lib/quotationProjectLink";
+import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
 
 type CreateProjectFromQuotationPayload = {
   quotationId: string;
@@ -108,11 +111,16 @@ export const registerProjectCommands = (
     if (!quotation) {
       return { ok: false, errorCode: "QUOTATION_NOT_FOUND", message: "Quotation not found" };
     }
+    const convertReject = rejectSecondProjectFromQuotation(quotation);
+    if (!convertReject.ok) {
+      return {
+        ok: false,
+        errorCode: convertReject.code,
+        message: convertReject.message,
+      };
+    }
     if (quotation.status !== "approved") {
       return { ok: false, errorCode: "QUOTATION_NOT_APPROVED", message: "Project can only be created from an approved quotation" };
-    }
-    if (isQuotationConverted(quotation)) {
-      return { ok: false, errorCode: "QUOTATION_ALREADY_CONVERTED", message: "This quotation is already converted to a project" };
     }
 
     const intakeValidation = projectKindService.validateIntake(command.payload.intake);
@@ -141,12 +149,16 @@ export const registerProjectCommands = (
       }
       const { baseline, executionLineItems } = commercialBaselineFromQuotation(quotation);
       repositories.projectRepository.add(
-        withResolvedExecutionLineItems({
-          ...p,
-          customerId: p.customerId || quotation.customerId || "",
-          commercialBaseline: p.commercialBaseline ?? baseline,
-          executionLineItems: p.executionLineItems?.length ? p.executionLineItems : executionLineItems,
-        }),
+        withResolvedExecutionLineItems(
+          ensureProjectPartnerEconomics(
+            {
+              ...freezeProjectClientFieldsFromQuotation(p, quotation),
+              commercialBaseline: p.commercialBaseline ?? baseline,
+              executionLineItems: p.executionLineItems?.length ? p.executionLineItems : executionLineItems,
+            },
+            { intake: command.payload.intake },
+          ),
+        ),
       );
       repositories.quotationRepository.update(quotation.id, buildQuotationProjectLinkPatch(p.id));
       auditService.write(command, {
@@ -187,11 +199,16 @@ export const registerProjectCommands = (
 
     const { baseline, executionLineItems } = commercialBaselineFromQuotation(quotation);
     repositories.projectRepository.add(
-      withResolvedExecutionLineItems({
-        ...built.project,
-        commercialBaseline: baseline,
-        executionLineItems,
-      }),
+      withResolvedExecutionLineItems(
+        ensureProjectPartnerEconomics(
+          {
+            ...freezeProjectClientFieldsFromQuotation(built.project, quotation),
+            commercialBaseline: baseline,
+            executionLineItems,
+          },
+          { intake: command.payload.intake },
+        ),
+      ),
     );
 
     repositories.quotationRepository.update(quotation.id, buildQuotationProjectLinkPatch(projectId));
@@ -249,7 +266,11 @@ export const registerProjectCommands = (
           executionLineItems: project.executionLineItems?.length ? project.executionLineItems : executionLineItems,
         };
       }
-      repositories.projectRepository.add(withResolvedExecutionLineItems(toAdd));
+      repositories.projectRepository.add(
+        withResolvedExecutionLineItems(
+          ensureProjectPartnerEconomics(toAdd, { intake }),
+        ),
+      );
       auditService.write(command, {
         action: "create",
         entityType: "Project",
@@ -263,11 +284,16 @@ export const registerProjectCommands = (
     if (!quotation) {
       return { ok: false, errorCode: "QUOTATION_NOT_FOUND", message: "Quotation not found" };
     }
+    const convertReject = rejectSecondProjectFromQuotation(quotation);
+    if (!convertReject.ok) {
+      return {
+        ok: false,
+        errorCode: convertReject.code,
+        message: convertReject.message,
+      };
+    }
     if (quotation.status !== "approved") {
       return { ok: false, errorCode: "QUOTATION_NOT_APPROVED", message: "Project can only be created from an approved quotation" };
-    }
-    if (isQuotationConverted(quotation)) {
-      return { ok: false, errorCode: "QUOTATION_ALREADY_CONVERTED", message: "This quotation is already converted to a project" };
     }
     const intakeValidation = projectKindService.validateIntake(intake);
     if (!intakeValidation.ok) {
@@ -287,7 +313,11 @@ export const registerProjectCommands = (
       commercialBaseline: project.commercialBaseline ?? baseline,
       executionLineItems: project.executionLineItems?.length ? project.executionLineItems : executionLineItems,
     };
-    repositories.projectRepository.add(withResolvedExecutionLineItems(withQuote));
+    repositories.projectRepository.add(
+      withResolvedExecutionLineItems(
+        ensureProjectPartnerEconomics(withQuote, { intake }),
+      ),
+    );
     repositories.quotationRepository.update(quotation.id, buildQuotationProjectLinkPatch(project.id));
     auditService.write(command, {
       action: "create",

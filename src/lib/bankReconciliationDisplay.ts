@@ -1,4 +1,6 @@
 import { formatINR } from "@/lib/formatCurrency";
+import { formatBankReconciliationLinkLabel } from "@/lib/bankReconciliationLink";
+import type { BankReconciliationLink } from "@/types/finance";
 
 export type MatchedLedgerEntryView = {
   id: string;
@@ -6,6 +8,8 @@ export type MatchedLedgerEntryView = {
   description: string;
   amount: number;
   date: string;
+  /** E9 — persisted link already on the ledger row (shown after save). */
+  reconciledWith?: BankReconciliationLink;
 };
 
 export type ReconciliationRowMatchView = {
@@ -30,13 +34,20 @@ export function buildReconciliationMatchDetailLines(
   if (row.matchedLedgerEntry) {
     const e = row.matchedLedgerEntry;
     const prefix = row.flag === "possible-match" ? "Possible match" : "Matched to";
-    return [
+    const lines = [
       { label: prefix, value: e.type },
       { label: "Description", value: e.description },
       { label: "Amount", value: formatINR(e.amount) },
       { label: "Ledger date", value: e.date },
       { label: "Ledger id", value: e.id },
     ];
+    if (e.reconciledWith) {
+      lines.push({
+        label: "Saved on ledger",
+        value: formatBankReconciliationLinkLabel(e.reconciledWith),
+      });
+    }
+    return lines;
   }
   if (row.notes?.trim()) {
     return [{ label: "Note", value: row.notes.trim() }];

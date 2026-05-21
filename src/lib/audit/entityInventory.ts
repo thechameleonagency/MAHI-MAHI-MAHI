@@ -142,7 +142,7 @@ export const ENTITY_POSTING_INVENTORY: EntityPostingRow[] = [
     auditConsumer: "P&L Finance Cost (interest only), Loan schedule (principal)",
     cashAccrual: "cash",
     gstImpact: "n/a",
-    notes: "Principal NOT in P&L — reduces loan liability only",
+    notes: "Principal NOT in P&L — reduces loan liability only. E6: pair with Payment, Expense, or VendorPayment via linked*Id — cash-bank uses the cash row only.",
   },
 
   // ============== PARTNER ==============
@@ -264,7 +264,7 @@ export const ENTITY_POSTING_INVENTORY: EntityPostingRow[] = [
   {
     entity: "InventoryMovementRecord (reverse)",
     typesFile: "project.ts",
-    trigger: "Super-admin manual reversal",
+    trigger: "Manual reversal (admin / installation team; matrix delete on inventoryMovement)",
     voucher: "Undo the original entry at the same WAC",
     coaLeaves: "(varies per original)",
     auditConsumer: "Inventory Audit, Audit Logs",

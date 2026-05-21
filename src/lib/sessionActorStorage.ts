@@ -48,6 +48,7 @@ export function persistSessionRole(role: UserRole): void {
 /** Human label for `sessionUserId` / `siteReadiness.markedBy` in UI and toasts. */
 export function formatSessionActorLabel(actorId: string): string {
   const id = normalizeSiteReadinessMarkedBy(actorId);
+  if (id === "derived-site-checklist") return "Site checklist (auto)";
   if (id === "unknown") return "Unknown user";
   if (id.startsWith("actor-")) {
     const role = id.slice("actor-".length) as UserRole;

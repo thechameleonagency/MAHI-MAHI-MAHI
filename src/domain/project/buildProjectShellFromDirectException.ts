@@ -9,6 +9,7 @@ import {
 import { parseProjectPaymentType } from "@/domain/project/projectPaymentType";
 import { formatCapacityKW } from "@/lib/formatCurrency";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
+import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
 import type { Project } from "@/types/project";
 
 export type BuildDirectExceptionProjectResult =
@@ -131,5 +132,8 @@ export function buildProjectShellFromDirectException(params: {
     executionLineItems: [],
   };
 
-  return { ok: true, project };
+  return {
+    ok: true,
+    project: ensureProjectPartnerEconomics(project, { intake: params.intake }),
+  };
 }

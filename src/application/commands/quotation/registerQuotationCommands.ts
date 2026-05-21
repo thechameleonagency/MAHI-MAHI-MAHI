@@ -20,6 +20,8 @@ import {
   validateQuotationClientForApproval,
 } from "@/lib/quotationApproveCustomer";
 import { createNextCustomerId } from "@/lib/idFactory";
+import { syncEnquiryCustomerIdAfterQuotationApprove } from "@/lib/customerPipelineIdentity";
+import { rejectQuotationTerminalEdit } from "@/lib/quotationProjectConversionPolicy";
 
 type TransitionQuotationPayload = {
   quotationId: string;
@@ -119,7 +121,12 @@ export const registerQuotationCommands = (
       };
     }
 
-    repositories.quotationRepository.add(quotationToPersist);
+    const quotationWithCustomerLink =
+      enquiryLink?.enquiry.customerId && !quotationToPersist.customerId
+        ? { ...quotationToPersist, customerId: enquiryLink.enquiry.customerId }
+        : quotationToPersist;
+
+    repositories.quotationRepository.add(quotationWithCustomerLink);
 
     if (enquiryLink) {
       repositories.enquiryRepository.update(enquiryLink.enquiryId, {
@@ -245,6 +252,13 @@ export const registerQuotationCommands = (
           status: nextStatus,
           approvedAt: today,
         });
+
+        syncEnquiryCustomerIdAfterQuotationApprove(
+          (id) => repositories.enquiryRepository.getById(id),
+          (id, patch) => repositories.enquiryRepository.update(id, patch),
+          quotation.enquiryId,
+          customerId,
+        );
       } else {
         repositories.quotationRepository.update(quotation.id, {
           status: nextStatus,
@@ -289,6 +303,14 @@ export const registerQuotationCommands = (
     if (!existing) {
       return { ok: false, errorCode: "QUOTATION_NOT_FOUND", message: "Quotation not found" };
     }
+    const terminalReject = rejectQuotationTerminalEdit(existing, command.payload.updates);
+    if (!terminalReject.ok) {
+      return {
+        ok: false,
+        errorCode: terminalReject.code,
+        message: terminalReject.message,
+      };
+    }
     const applied = applyQuotationPatch(existing, command.payload.updates);
     if (!applied.ok) {
       return {
@@ -298,6 +320,21 @@ export const registerQuotationCommands = (
       };
     }
     repositories.quotationRepository.update(applied.quotation.id, applied.quotation);
+
+    const linkedCustomerId = applied.quotation.customerId;
+    if (
+      linkedCustomerId &&
+      (applied.quotation.status === "approved" || applied.quotation.status === "converted_to_project")
+    ) {
+      const customer = repositories.customerRepository.getById(linkedCustomerId);
+      if (customer) {
+        repositories.customerRepository.update(
+          linkedCustomerId,
+          enrichCustomerFromQuotation(customer, applied.quotation),
+        );
+      }
+    }
+
     auditService.writeFieldDiff(
       command,
       "Quotation",

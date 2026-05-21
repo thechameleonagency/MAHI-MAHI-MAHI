@@ -9,6 +9,7 @@ import {
 } from "@/domain/stateMachines/projectStateMachine";
 import type { Project } from "@/types/project";
 import { normalizeSiteReadinessMarkedBy } from "@/lib/siteReadinessNormalize";
+import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
 
 /**
  * Clone snapshot fields from `projectKindConfigs` for persistence (avoids drift vs. inline copies).
@@ -125,11 +126,13 @@ export function normalizeProject(p: Project): Project {
     paymentType: normalizeProjectPaymentType(p.paymentType),
   };
 
+  const withPartners = ensureProjectPartnerEconomics(baseProject);
+
   // Always recompute the snapshot from the resolver so visibleTabs / requiredDocuments /
   // forbiddenActions / allowedBillingDirections reflect the (possibly newer) attribute fields
   // rather than a stale snapshot captured at create time under the legacy registry.
   return withResolvedExecutionLineItems({
-    ...baseProject,
-    projectKindConfigSnapshot: computeCapabilitiesSnapshot(baseProject, kind),
+    ...withPartners,
+    projectKindConfigSnapshot: computeCapabilitiesSnapshot(withPartners, kind),
   });
 }

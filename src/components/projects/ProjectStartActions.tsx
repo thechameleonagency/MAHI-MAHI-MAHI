@@ -29,6 +29,7 @@ import { ScheduleInstallationSheet } from "./ScheduleInstallationSheet";
  *
  *  - Schedule installation: opens ScheduleInstallationSheet (date + team/employee).
  *  - Site readiness: Ready/Not Ready + optional note. Required before Start.
+ *    Auto-flips to ready when all execution-site checklist lines are dispatched (E5).
  *  - Start project: disabled until siteReadiness.ready === true. Super_admin can
  *    override via a written reason.
  *
@@ -39,7 +40,7 @@ import { ScheduleInstallationSheet } from "./ScheduleInstallationSheet";
  */
 
 export function ProjectStartActions({ project }: { project: Project }) {
-  const { updateProject, markAccrualPayable, agentCommissionAccruals } = useAppData();
+  const { updateProject, markProjectCommissionAccrualsPayable } = useAppData();
   const { currentRole, sessionUserId } = useAppSession();
 
   const ready = project.siteReadiness?.ready === true;
@@ -89,14 +90,7 @@ export function ProjectStartActions({ project }: { project: Project }) {
       lifecycleStatus: "In Progress",
       status: "Ongoing",
     });
-    // Phase 1.4: flip linked agent commission accruals to 'payable' on project start.
-    const accrualsForThisProject = (agentCommissionAccruals ?? []).filter(
-      (a) =>
-        a.status === "pending" &&
-        (a.projectId === project.id ||
-          (project.quotationId && a.sourceQuotationId === project.quotationId)),
-    );
-    accrualsForThisProject.forEach((a) => markAccrualPayable(a.id));
+    markProjectCommissionAccrualsPayable(project.id, project.quotationId);
     toast({ title: "Project started", description: `${project.name} is now active.` });
   };
 

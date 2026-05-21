@@ -1251,7 +1251,7 @@ export function InvoiceCreateSheet({
                           <SelectTrigger><SelectValue placeholder="Payment mode" /></SelectTrigger>
                           <SelectContent>
                             {PAYMENT_MODES.map(m => (
-                              <SelectItem key={m} value={m}>{m}>{m}</SelectItem>
+                              <SelectItem key={m} value={m}>{m}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>

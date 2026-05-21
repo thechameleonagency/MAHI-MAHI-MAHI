@@ -1,3 +1,5 @@
+import type { BankReconciliationLink } from "@/types/finance";
+
 export type VendorBillStatus = "draft" | "approved" | "disputed" | "pending" | "partial" | "paid";
 
 export interface VendorBill {
@@ -34,4 +36,9 @@ export interface VendorPayment {
   paymentMode?: string;
   reference?: string;
   notes?: string;
+  /** E6 — when vendor payment settles a loan EMI. */
+  loanId?: string;
+  loanRepaymentId?: string;
+  /** E9 — bank/cash statement line this vendor payment was matched against. */
+  reconciledWith?: BankReconciliationLink;
 }

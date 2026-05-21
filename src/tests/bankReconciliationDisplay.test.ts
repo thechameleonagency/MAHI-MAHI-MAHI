@@ -26,6 +26,27 @@ describe("bankReconciliationDisplay (T5)", () => {
     expect(lines.some((l) => l.label === "Ledger id" && l.value === "PAY-001")).toBe(true);
   });
 
+  it("shows persisted reconciledWith on ledger in expand panel", () => {
+    const lines = buildReconciliationMatchDetailLines({
+      flag: "matched",
+      matchedLedgerEntry: {
+        id: "EXP-005",
+        type: "Expense",
+        description: "Electricity Bill Mar",
+        amount: 4200,
+        date: "2026-03-25",
+        reconciledWith: {
+          statementId: "stmt-seed",
+          statementName: "hdfc-operating-mar-2026.csv",
+          bankEntryDate: "2026-03-25",
+        },
+      },
+    });
+    expect(lines.some((l) => l.label === "Saved on ledger" && l.value.includes("hdfc-operating"))).toBe(
+      true,
+    );
+  });
+
   it("labels possible-match rows distinctly", () => {
     const lines = buildReconciliationMatchDetailLines({
       flag: "possible-match",

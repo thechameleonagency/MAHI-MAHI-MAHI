@@ -15,6 +15,8 @@ describe("inventoryItem vs inventoryMovement matrix (Mn8)", () => {
     expect(canFeature("installation_team", "inventoryItem", "create")).toBe(false);
     expect(canFeature("installation_team", "inventoryItem", "edit")).toBe(false);
     expect(canFeature("installation_team", "inventoryMovement", "create")).toBe(true);
+    expect(canFeature("installation_team", "inventoryMovement", "delete")).toBe(true);
+    expect(canFeature("installation_team", "toolMovement", "delete")).toBe(true);
   });
 
   it("featurePermissions source comments link inventoryItem to inventoryMovement", () => {

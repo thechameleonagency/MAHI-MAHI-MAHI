@@ -2,6 +2,7 @@
  * Sequential app seed: empty baseline → layer-ordered hydration (see seedLayerOrder).
  * All runtime seed must flow through buildSequencedAppSeed() — no ad-hoc dummy arrays.
  */
+import { reconcileAgentCommissionAccruals } from "@/lib/agentCommissionAccrualPolicy";
 import { normalizeProject } from "@/lib/projectNormalize";
 import {
   hydrateProjectLinkage,
@@ -544,11 +545,19 @@ export function buildSequencedAppSeed(): AppState {
     saleBills,
   );
 
+  const agentCommissionAccruals = reconcileAgentCommissionAccruals({
+    accruals: state.agentCommissionAccruals ?? [],
+    quotations,
+    projects: projectsWithBilling,
+    agents: state.agents,
+  });
+
   return {
     ...state,
     projects: projectsWithBilling,
     quotations,
     invoices,
     saleBills,
+    agentCommissionAccruals,
   };
 }

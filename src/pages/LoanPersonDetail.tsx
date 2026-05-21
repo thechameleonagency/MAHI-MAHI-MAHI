@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import type { Loan, LoanRepayment } from "@/types/finance";
+import type { LoanRepaymentCashLinkInput } from "@/lib/loanRepaymentCashLink";
 import { calculateEMI } from "@/lib/emiCalc";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
@@ -87,6 +88,8 @@ const LoanPersonDetail = () => {
   const [repaymentPrincipal, setRepaymentPrincipal] = useState("");
   const [repaymentInterest, setRepaymentInterest] = useState("");
   const [repaymentNotes, setRepaymentNotes] = useState("");
+  const [repaymentCashLink, setRepaymentCashLink] = useState<LoanRepaymentCashLinkInput["type"]>("payment");
+  const [repaymentPaymentMode, setRepaymentPaymentMode] = useState("Bank Transfer");
 
   const [isEditLoanOpen, setIsEditLoanOpen] = useState(false);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
@@ -225,8 +228,20 @@ const LoanPersonDetail = () => {
       interestPaid: ip,
       totalPaid: total,
     };
-    addLoanRepayment(repayment);
-    toast({ title: "Repayment recorded", description: `${formatINR(total)} posted for ${selectedLoan.id}.` });
+    const cashLink: LoanRepaymentCashLinkInput =
+      repaymentCashLink === "payment"
+        ? { type: "payment", paymentMode: repaymentPaymentMode }
+        : repaymentCashLink === "expense"
+          ? { type: "expense" }
+          : { type: "none" };
+    addLoanRepayment(repayment, cashLink);
+    toast({
+      title: "Repayment recorded",
+      description:
+        cashLink.type === "none"
+          ? `${formatINR(total)} on loan schedule.`
+          : `${formatINR(total)} linked to ${cashLink.type === "payment" ? "payments" : "expenses"}.`,
+    });
     setIsRepaymentOpen(false);
     setRepaymentPrincipal("");
     setRepaymentInterest("");
@@ -619,6 +634,38 @@ const LoanPersonDetail = () => {
                   rows={2}
                 />
               </div>
+              <div className="space-y-2">
+                <Label>Cash link</Label>
+                <Select
+                  value={repaymentCashLink}
+                  onValueChange={(v) => setRepaymentCashLink(v as LoanRepaymentCashLinkInput["type"])}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="payment">Bank / cash payment</SelectItem>
+                    <SelectItem value="expense">Company expense</SelectItem>
+                    <SelectItem value="none">Schedule only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {repaymentCashLink === "payment" && (
+                <div className="space-y-2">
+                  <Label>Payment mode</Label>
+                  <Select value={repaymentPaymentMode} onValueChange={setRepaymentPaymentMode}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="NEFT">NEFT</SelectItem>
+                      <SelectItem value="UPI">UPI</SelectItem>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           )}
           <div className="flex justify-end gap-3 pt-4 border-t">

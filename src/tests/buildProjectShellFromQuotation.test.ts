@@ -47,6 +47,29 @@ describe("buildProjectShellFromQuotation", () => {
     expect(result.project.projectCategory).toBe("solar");
     expect(result.project.capacity).toBe("120 kW");
     expect(result.project.lifecycleStatus).toBe("New");
+    expect(result.project.customerId).toBeUndefined();
+    expect(result.project.client).toBe("Acme Industries");
+    expect(result.project.partners?.[0]?.partnerType).toBe("profit");
+    expect(result.project.partners?.[0]?.partnerName).toBe("Channel Co");
+    expect(result.project.partners?.[0]?.sharePercentage).toBe(30);
+  });
+
+  it("freezes client snapshot fields including GSTIN from quotation (E1)", () => {
+    const result = buildProjectShellFromQuotation({
+      quotation: baseQuotation({
+        customerId: "CUST-100",
+        clientGstin: "08AAAAA0000A1Z5",
+        clientState: "08",
+      }),
+      intake: partnerIntake,
+      projectName: "Acme GST",
+      projectId: "P-GST",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.project.customerId).toBe("CUST-100");
+    expect(result.project.clientGstin).toBe("08AAAAA0000A1Z5");
+    expect(result.project.state).toBe("08");
   });
 
   it("maps industrial system category", () => {

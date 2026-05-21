@@ -52,7 +52,9 @@ export const FEATURE_MATRIX_ROW_NOTES: Partial<Record<Feature, string>> = {
   inventoryItem:
     "Catalog master data. Field roles get view-only here; issue/return/receive stock uses inventoryMovement (not create/edit on this row).",
   inventoryMovement:
-    "Stock ledger (issue, return, receive). Separate from inventoryItem; movement reversal is super_admin-only in AppDataContext.",
+    "Stock ledger (issue, return, receive). Separate from inventoryItem catalog; delete column = reverse a movement (admin + installation_team / warehouse).",
+  toolMovement:
+    "Tool issue/return ledger. Delete column = reverse a movement (admin + installation_team / warehouse).",
   employeeWallet:
     "Formal advance/recovery ledger on Employee Profile. Admin/management create; CEO view-only. Employee salary advances in attendance come from expense records (expense feature), not auto-synced here.",
   auditProfitLoss:
@@ -73,6 +75,8 @@ const ADMIN_MGMT: UserRole[] = ["admin", "management"];
 const ADMIN_MGMT_CEO_VIEW: UserRole[] = ["admin", "ceo", "management"];
 const ADMIN_ONLY: UserRole[] = ["admin"];
 const NONE: UserRole[] = [];
+/** E4: movement reversal (matrix delete column; not physical delete). */
+const MOVEMENT_REVERSAL: UserRole[] = ["super_admin", "admin", "installation_team"];
 
 export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
   // ============ PIPELINE ============
@@ -165,7 +169,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
     [...ADMIN_MGMT_CEO_VIEW, "installation_team"],
     [...ADMIN_MGMT, "installation_team"],
     ADMIN_MGMT,
-    NONE, // delete unused; reversal is super_admin only in AppDataContext.reverseInventoryMovement / reverseToolMovement
+    MOVEMENT_REVERSAL,
   ),
   tool: r(
     [...ADMIN_MGMT_CEO_VIEW, "installation_team"],
@@ -177,7 +181,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
     [...ADMIN_MGMT_CEO_VIEW, "installation_team"],
     [...ADMIN_MGMT, "installation_team"],
     ADMIN_MGMT,
-    NONE,
+    MOVEMENT_REVERSAL,
   ),
   /** Shared quotation / site-checklist BOM templates — salesperson view; installation team uses materials only. */
   template: r(

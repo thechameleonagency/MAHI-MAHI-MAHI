@@ -19,6 +19,8 @@ import type { Project, ProjectScopeConfig } from "@/types/project";
 import type { ProjectIntakePayload } from "@/application/services/ProjectKindService";
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
+import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
+import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { clearFormDraft, loadFormDraft, saveFormDraft } from "@/lib/formDraftStorage";
@@ -667,7 +669,10 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
       });
       return;
     }
-    const project = applyTeamAssignmentToProject(pendingProject, team);
+    const project = ensureProjectPartnerEconomics(
+      applyTeamAssignmentToProject(pendingProject, team),
+      { intake: pendingIntake },
+    );
     const res = pendingQuotationId
       ? await createProjectFromConfirmedQuotation(project)
       : await createProjectIntake({ project, intake: pendingIntake, quotationId: pendingQuotationId });

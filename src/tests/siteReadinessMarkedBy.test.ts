@@ -56,6 +56,7 @@ describe("site readiness markedBy", () => {
 
   it("formatSessionActorLabel renders actor and user ids for UI", () => {
     expect(formatSessionActorLabel("unknown")).toBe("Unknown user");
+    expect(formatSessionActorLabel("derived-site-checklist")).toBe("Site checklist (auto)");
     expect(formatSessionActorLabel("actor-salesperson")).toBe("Salesperson");
     expect(formatSessionActorLabel("user-jitesh-k")).toBe("Jitesh K");
   });

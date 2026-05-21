@@ -73,6 +73,9 @@ import {
   saveCreateDraft,
 } from "@/lib/createFromContext";
 import { ClientPaymentHistory } from "@/components/projects/ClientPaymentHistory";
+import { CustomerSnapshotDriftHint } from "@/components/shared/CustomerSnapshotDriftHint";
+import { ProjectScopeChangeGuidance } from "@/components/shared/ProjectScopeChangeGuidance";
+import { resolveProjectClientDisplay } from "@/lib/customerPipelineIdentity";
 import {
   calculateProjectPartnerEarning,
   calculateProjectProfit,
@@ -81,6 +84,7 @@ import {
   isPartnerDebitTransaction,
 
 } from "@/domain/partners/derivePartnerEconomics";
+import { resolveProjectPartnerRow } from "@/lib/projectPartnerEconomics";
 import type { Payment, Expense, Invoice } from "@/types/finance";
 import type { Project, ProjectPartner, ProjectPartnerType } from "@/types/project";
 import { formatINR } from "@/lib/formatCurrency";
@@ -212,6 +216,14 @@ const ProjectDetail = () => {
 
   const project = id ? getProjectById(id) : undefined;
   const quotation = project?.quotationId ? getQuotationById(project.quotationId) : undefined;
+  const linkedCustomer = useMemo(
+    () => (project?.customerId ? customers.find((c) => c.id === project.customerId) : undefined),
+    [customers, project?.customerId],
+  );
+  const projectClientDisplay = useMemo(
+    () => (project ? resolveProjectClientDisplay(project, linkedCustomer) : null),
+    [linkedCustomer, project],
+  );
 
   // Drop one-shot navigation flash once persisted `directCreationReason` is on the project (T7).
   useEffect(() => {
@@ -639,11 +651,9 @@ const ProjectDetail = () => {
 
   const kind = canonicalProjectKind(project);
   const projectMode = canonicalProjectMode(project);
-  const partnerRow = project.partners?.[0];
+  const partnerRow = resolveProjectPartnerRow(project);
   const linkedPartner = partnerRow
     ? partners.find((partner) => partner.id === partnerRow.partnerId)
-    : project.scope?.partnerId
-    ? partners.find((partner) => partner.id === project.scope!.partnerId)
     : undefined;
   const projectProfit = calculateProjectProfit(project);
   const partnerEarning = partnerRow ? calculateProjectPartnerEarning(project, partnerRow) : 0;
@@ -692,7 +702,28 @@ const ProjectDetail = () => {
         subRow={
           <div className="flex flex-col gap-4 w-full">
             <div className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
-              <span className="flex min-w-0 items-center gap-1.5 truncate"><User className="w-3.5 h-3.5 shrink-0" />Client: <span className="text-foreground font-medium truncate">{project.client}</span></span>
+              <span className="flex min-w-0 flex-col gap-0.5 sm:col-span-2 lg:col-span-1">
+                <span className="flex min-w-0 items-center gap-1.5 truncate">
+                  <User className="w-3.5 h-3.5 shrink-0" />
+                  Client:{" "}
+                  <span className="text-foreground font-medium truncate">
+                    {projectClientDisplay?.name ?? project.client}
+                  </span>
+                  {projectClientDisplay?.customerId && (
+                    <Link
+                      to={`/customers/${projectClientDisplay.customerId}`}
+                      className="shrink-0 text-2xs text-primary hover:underline"
+                    >
+                      {projectClientDisplay.customerId}
+                    </Link>
+                  )}
+                </span>
+                <CustomerSnapshotDriftHint
+                  visible={Boolean(projectClientDisplay?.snapshotDiffersFromCustomer)}
+                  snapshotClient={projectClientDisplay?.snapshot.client ?? project.client}
+                  className="pl-5"
+                />
+              </span>
               <span className="flex min-w-0 items-center gap-1.5 truncate"><MapPin className="w-3.5 h-3.5 shrink-0" />{project.location}</span>
               <span className="flex min-w-0 items-center gap-1.5 truncate"><Zap className="w-3.5 h-3.5 shrink-0" />{project.capacity}</span>
               <span className="flex min-w-0 items-center gap-1.5 truncate"><Calendar className="w-3.5 h-3.5 shrink-0" />Started: <span className="text-foreground font-medium">{project.startDate}</span></span>
@@ -1723,6 +1754,14 @@ const ProjectDetail = () => {
           </div>
 
           <TabCard title="Change requests" icon={<FileText className="h-4 w-4 text-primary" />}>
+            {project.quotationId && quotation && (
+              <ProjectScopeChangeGuidance
+                className="mb-4"
+                projectId={project.id}
+                quotationId={quotation.id}
+                quotationNumber={quotation.quotationNumber}
+              />
+            )}
             <div className="mb-3 flex flex-wrap gap-2 justify-end">
               {kind === "INC_GIVEN" && (
                 <Button type="button" size="sm" variant="secondary" onClick={() => setIsAdditionalWorkOpen(true)}>

@@ -688,8 +688,8 @@ export const seedPayments: Payment[] = [
   { id: "PAY-007", date: "2026-04-30", amount: 285000, direction: "out", paymentMode: "Bank Transfer", notes: "Salary Payout Apr", counterpartyType: "employee", counterpartyName: "All Staff" },
   { id: "PAY-008", date: "2026-04-26", amount: 800000, direction: "in", paymentMode: "Bank Transfer", notes: "Blue Star milestone", counterpartyType: "customer", counterpartyId: "C007", counterpartyName: "Blue Star Logistics", customerId: "C007", projectId: "PROJ-2026-007", projectName: "Blue Star Channel 40kW", invoiceId: "INV-2026-004" },
   { id: "PAY-009", date: "2026-04-19", amount: 2600000, direction: "in", paymentMode: "RTGS", notes: "Sunshine advance + progress", counterpartyType: "customer", counterpartyId: "C009", counterpartyName: "Sunshine Hospital", customerId: "C009", projectId: "PROJ-2026-108", projectName: "Sunshine Hospital Phase-1 120kW", invoiceId: "INV-2026-006" },
-  { id: "PAY-010", date: "2026-05-02", amount: 125000, direction: "out", paymentMode: "Bank Transfer", notes: "HDFC EMI — term loan", counterpartyType: "other", counterpartyName: "HDFC Bank", loanId: "LOAN-001" },
-  { id: "PAY-011", date: "2026-05-15", amount: 45000, direction: "out", paymentMode: "Bank Transfer", notes: "ICICI EMI — capex line", counterpartyType: "other", counterpartyName: "ICICI Bank", loanId: "LOAN-002" },
+  { id: "PAY-010", date: "2026-05-01", amount: 125000, direction: "out", paymentMode: "Bank Transfer", notes: "HDFC EMI — term loan", counterpartyType: "other", counterpartyName: "HDFC Bank", loanId: "LOAN-001", loanRepaymentId: "LR-004" },
+  { id: "PAY-011", date: "2026-05-15", amount: 45000, direction: "out", paymentMode: "Bank Transfer", notes: "ICICI EMI — capex line", counterpartyType: "other", counterpartyName: "ICICI Bank", loanId: "LOAN-002", loanRepaymentId: "LR-008" },
   { id: "PAY-012", date: "2026-05-03", amount: 185000, direction: "out", paymentMode: "NEFT", notes: "Panel partial — Waaree", counterpartyType: "vendor", counterpartyId: "1", counterpartyName: "Waaree Energies Ltd" },
   { id: "PAY-013", date: "2026-04-28", amount: 62000, direction: "in", paymentMode: "UPI", notes: "Mehta second tranche", counterpartyType: "customer", counterpartyId: "C002", counterpartyName: "Sonal Mehta", customerId: "C002", projectId: "PROJ-2026-002", projectName: "Mehta Sky-Villa 3kW", invoiceId: "INV-2026-002" },
 ];
@@ -699,7 +699,21 @@ export const seedExpenses: Expense[] = [
   { id: "EXP-002", date: "2026-03-10", amount: 15000, category: "Marketing", description: "Facebook Ads Mar", paidBy: { type: "company" } },
   { id: "EXP-003", date: "2026-04-10", amount: 18000, category: "Marketing", description: "Facebook Ads Apr", paidBy: { type: "company" } },
   { id: "EXP-004", date: "2026-02-20", amount: 8500, category: "Operations", description: "Travelling - Arjun", paidBy: { type: "employee", entityId: "1", entityName: "Arjun Kapoor" } },
-  { id: "EXP-005", date: "2026-03-25", amount: 4200, category: "Office", description: "Electricity Bill Mar", paidBy: { type: "company" } },
+  {
+    id: "EXP-005",
+    date: "2026-03-25",
+    amount: 4200,
+    category: "Office",
+    description: "Electricity Bill Mar",
+    paidBy: { type: "company" },
+    reconciledWith: {
+      statementId: "stmt-seed-hdfc-mar",
+      statementName: "hdfc-operating-mar-2026.csv",
+      bankEntryDate: "2026-03-25",
+      matchedAt: "2026-03-26T09:00:00.000Z",
+      matchFlag: "matched",
+    },
+  },
   { id: "EXP-006", date: "2026-04-22", amount: 12000, mainCategory: "site", category: "Logistics", description: "Crane hire — Sunshine Phase-1", paidBy: { type: "company" }, projectId: "PROJ-2026-108", projectName: "Sunshine Hospital Phase-1 120kW", context: "project" },
   { id: "EXP-007", date: "2026-05-02", amount: 6500, mainCategory: "site", category: "Consumables", description: "Cable ties & MC4 spares — Blue Star", paidBy: { type: "company" }, projectId: "PROJ-2026-007", projectName: "Blue Star Channel 40kW", context: "project" },
   { id: "EXP-008", date: "2026-04-18", amount: 240000, mainCategory: "site", category: "Procurement", description: "Waaree panel lot — Sunshine", paidBy: { type: "company" }, vendorId: "V001", vendorName: "Waaree Energies Ltd", projectId: "PROJ-2026-108", projectName: "Sunshine Hospital Phase-1 120kW", context: "project" },
@@ -719,11 +733,11 @@ export const seedLoanRepayments: LoanRepayment[] = [
   { id: "LR-001", loanId: "LOAN-001", loanSource: "HDFC Bank", date: "2026-02-01", emiNumber: 5, principalPaid: 85000, interestPaid: 40000, totalPaid: 125000 },
   { id: "LR-002", loanId: "LOAN-001", loanSource: "HDFC Bank", date: "2026-03-01", emiNumber: 6, principalPaid: 86000, interestPaid: 39000, totalPaid: 125000 },
   { id: "LR-003", loanId: "LOAN-001", loanSource: "HDFC Bank", date: "2026-04-01", emiNumber: 7, principalPaid: 87000, interestPaid: 38000, totalPaid: 125000 },
-  { id: "LR-004", loanId: "LOAN-001", loanSource: "HDFC Bank", date: "2026-05-01", emiNumber: 8, principalPaid: 88000, interestPaid: 37000, totalPaid: 125000 },
+  { id: "LR-004", loanId: "LOAN-001", loanSource: "HDFC Bank", date: "2026-05-01", emiNumber: 8, principalPaid: 88000, interestPaid: 37000, totalPaid: 125000, linkedPaymentId: "PAY-010" },
   { id: "LR-005", loanId: "LOAN-002", loanSource: "ICICI Bank", date: "2026-02-15", emiNumber: 2, principalPaid: 30000, interestPaid: 15000, totalPaid: 45000 },
   { id: "LR-006", loanId: "LOAN-002", loanSource: "ICICI Bank", date: "2026-03-15", emiNumber: 3, principalPaid: 30500, interestPaid: 14500, totalPaid: 45000 },
   { id: "LR-007", loanId: "LOAN-002", loanSource: "ICICI Bank", date: "2026-04-15", emiNumber: 4, principalPaid: 31000, interestPaid: 14000, totalPaid: 45000 },
-  { id: "LR-008", loanId: "LOAN-002", loanSource: "ICICI Bank", date: "2026-05-15", emiNumber: 5, principalPaid: 31500, interestPaid: 13500, totalPaid: 45000 },
+  { id: "LR-008", loanId: "LOAN-002", loanSource: "ICICI Bank", date: "2026-05-15", emiNumber: 5, principalPaid: 31500, interestPaid: 13500, totalPaid: 45000, linkedPaymentId: "PAY-011" },
 ];
 
 // ═══ INVENTORY ═══

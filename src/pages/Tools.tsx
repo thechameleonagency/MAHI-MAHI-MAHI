@@ -33,6 +33,7 @@ const Tools = () => {
   const canCreateTool = useCan("tool", "create");
   const canEditTool = useCan("tool", "edit");
   const canDeleteTool = useCan("tool", "delete");
+  const canReverseMovement = useCan("toolMovement", "delete");
   
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -781,7 +782,7 @@ const Tools = () => {
                         </p>
                       )}
                     </div>
-                    {!rec.reversedAt && selectedToolForHistory && (
+                    {!rec.reversedAt && selectedToolForHistory && canReverseMovement && (
                       <Button
                         variant="ghost"
                         size="sm"

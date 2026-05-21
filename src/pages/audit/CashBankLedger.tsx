@@ -174,7 +174,14 @@ const CashBankLedger = () => {
               {pagedLedger.map((e, i) => (
                 <TableRow key={`${e.reference}-${e.date}-${i}`}>
                   <TableCell >{e.date}</TableCell>
-                  <TableCell className="max-w-[300px] truncate">{e.description}</TableCell>
+                  <TableCell className="max-w-[300px]">
+                    <div className="truncate" title={e.description}>{e.description}</div>
+                    {e.bankReconciledNote && (
+                      <p className="text-2xs text-primary truncate mt-0.5" title={e.bankReconciledNote}>
+                        {e.bankReconciledNote}
+                      </p>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-xs">
                       {e.account}

@@ -2,7 +2,10 @@ import type { ClientPaymentRecord } from "@/types/blockage";
 import type { Invoice, Payment } from "@/types/finance";
 import type { Project } from "@/types/project";
 
-/** Payment rows emitted from {@link addClientPaymentRecord} use this id/reference prefix. */
+/**
+ * Payment rows emitted from {@link addClientPaymentRecord} use this id/reference prefix.
+ * Write-path overview: `customerInflowWritePaths.ts` (E10).
+ */
 export const CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX = "cpr:";
 
 export function clientPaymentRecordPaymentId(recordId: string): string {

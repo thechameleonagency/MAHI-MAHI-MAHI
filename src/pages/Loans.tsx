@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import type { Loan, LoanRepayment } from "@/types/finance";
+import type { LoanRepaymentCashLinkInput } from "@/lib/loanRepaymentCashLink";
 import { emiComponents } from "@/lib/emiCalc";
 import { isLoanEmiDueWithinDays, isLoanEmiOverdue } from "@/lib/loanEmiDue";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -121,6 +122,8 @@ const Loans = () => {
   // Repayment form
   const [repaymentAmount, setRepaymentAmount] = useState("");
   const [repaymentDate, setRepaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [repaymentCashLink, setRepaymentCashLink] = useState<LoanRepaymentCashLinkInput["type"]>("payment");
+  const [repaymentPaymentMode, setRepaymentPaymentMode] = useState("Bank Transfer");
 
   const todayIso = () => new Date().toISOString().split("T")[0];
 
@@ -291,10 +294,24 @@ const Loans = () => {
       totalPaid: amount,
     };
 
-    addLoanRepayment(repayment);
+    const cashLink: LoanRepaymentCashLinkInput =
+      repaymentCashLink === "payment"
+        ? { type: "payment", paymentMode: repaymentPaymentMode }
+        : repaymentCashLink === "expense"
+          ? { type: "expense" }
+          : { type: "none" };
+
+    addLoanRepayment(repayment, cashLink);
     setIsRepaymentOpen(false);
     setRepaymentAmount("");
-    toast({ title: "Repayment Recorded", description: `${formatINR(amount)} recorded` });
+    setRepaymentCashLink("payment");
+    toast({
+      title: "Repayment Recorded",
+      description:
+        cashLink.type === "none"
+          ? `${formatINR(amount)} on loan schedule (no cash row).`
+          : `${formatINR(amount)} recorded and linked to ${cashLink.type === "payment" ? "payments" : "expenses"}.`,
+    });
   };
 
   const filteredLoans = useMemo(
@@ -844,6 +861,41 @@ const Loans = () => {
               <Label>Date</Label>
               <Input type="date" value={repaymentDate} onChange={(e) => setRepaymentDate(e.target.value)} />
             </div>
+            <div className="space-y-2">
+              <Label>Cash link</Label>
+              <Select
+                value={repaymentCashLink}
+                onValueChange={(v) => setRepaymentCashLink(v as LoanRepaymentCashLinkInput["type"])}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="payment">Bank / cash payment (recommended)</SelectItem>
+                  <SelectItem value="expense">Company expense (P&amp;L split)</SelectItem>
+                  <SelectItem value="none">Schedule only (no cash row)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Links this EMI to Payments or Expenses so cash-bank and loan schedule reconcile.
+              </p>
+            </div>
+            {repaymentCashLink === "payment" && (
+              <div className="space-y-2">
+                <Label>Payment mode</Label>
+                <Select value={repaymentPaymentMode} onValueChange={setRepaymentPaymentMode}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="NEFT">NEFT</SelectItem>
+                    <SelectItem value="UPI">UPI</SelectItem>
+                    <SelectItem value="Cash">Cash</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="flex gap-2 pt-4">
               <Button variant="outline" className="flex-1" onClick={() => setIsRepaymentOpen(false)}>Cancel</Button>
               <Button className="flex-1" onClick={handleRecordRepayment}>Record Payment</Button>

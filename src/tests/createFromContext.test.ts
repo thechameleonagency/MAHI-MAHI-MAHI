@@ -154,6 +154,11 @@ describe("createFromContext", () => {
       expect(draft.agentId).toBe("AG-1");
     });
 
+    it("forwards enquiry.customerId into quotation draft (E1)", () => {
+      const draft = buildEnquiryToQuotationDraft({ ...sampleEnquiry, customerId: "CUST-42" });
+      expect(draft.customerId).toBe("CUST-42");
+    });
+
     it("maps quotation to project draft with customer", () => {
       const draft = buildQuotationToProjectDraft(sampleQuotation, sampleCustomer);
       expect(draft.customerId).toBe("C-1");

@@ -1,6 +1,15 @@
 // Shared finance types used across the application
 import type { Voucher } from "@/domain/accounting/voucherTypes";
 
+/** E9 — back-link from a ledger row to a bank/cash statement line match. */
+export interface BankReconciliationLink {
+  statementId: string;
+  statementName?: string;
+  bankEntryDate: string;
+  matchedAt?: string;
+  matchFlag?: "matched" | "possible-match";
+}
+
 export interface Customer {
   id: string;
   name: string;
@@ -102,6 +111,8 @@ export interface Payment {
   linkedIncomeId?: string;
   vendorBillId?: string;
   loanId?: string;
+  /** E6 — paired loan repayment row when this outbound payment funds an EMI. */
+  loanRepaymentId?: string;
   /**
    * W5 — routing of a client payment for a partner project.
    *  - "mss": client paid us directly (default; counterpartyType=customer)
@@ -199,6 +210,8 @@ export interface Expense {
   interestPortion?: number;
   /** T1 — companion to interestPortion. */
   principalPortion?: number;
+  /** E9 — bank/cash statement line this expense was matched against. */
+  reconciledWith?: BankReconciliationLink;
 }
 
 // Legacy Income (Keeping for backward compatibility during Phase 1 migration)
@@ -226,6 +239,8 @@ export interface Income {
   createdAt: string;
   /** When a customer payment row matches this income (same project, amount, date). */
   linkedPaymentId?: string;
+  /** E9 — bank/cash statement line this income was matched against. */
+  reconciledWith?: BankReconciliationLink;
 }
 
 export interface PartnerSiteInvestment {
@@ -313,6 +328,12 @@ export interface LoanRepayment {
   principalPaid: number;
   interestPaid: number;
   totalPaid: number;
+  /** E6 — outbound payment that funded this repayment (cash-bank ledger uses this row). */
+  linkedPaymentId?: string;
+  /** E6 — company expense row (loan-repayment category) when paid via expense module. */
+  linkedExpenseId?: string;
+  /** E6 — vendor payment when a third party disbursed on our behalf. */
+  linkedVendorPaymentId?: string;
 }
 
 export interface AccountingReviewQueueItem {

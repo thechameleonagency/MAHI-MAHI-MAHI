@@ -191,6 +191,8 @@ export interface QuotationDraftFromEnquiry {
   customerEmail: string;
   customerAddress: string;
   customerType: "individual" | "company";
+  /** Forward when enquiry was already converted to a customer (E1). */
+  customerId?: string;
   agentId?: string;
   capacityHintKw: number;
   budgetHint?: number;
@@ -207,6 +209,7 @@ export function buildEnquiryToQuotationDraft(
     customerEmail: enquiry.customerEmail,
     customerAddress: enquiry.customerAddress,
     customerType: enquiry.customerType,
+    customerId: enquiry.customerId,
     agentId: enquiry.agentId,
     capacityHintKw: parseKwFromText(enquiry.systemCapacity),
     budgetHint: enquiry.estimatedBudget,
@@ -451,7 +454,7 @@ export function buildCustomerToQuotationDraft(customer: Customer): QuotationDraf
   };
 }
 
-/** Clone an existing quotation into a new draft (no id / number / status). */
+/** Clone an existing quotation into a new draft (no id / number / status / project link — E2 one-shot). */
 export interface QuotationCloneDraft {
   banner: string;
   sourceQuotationNumber: string;
@@ -483,7 +486,7 @@ export interface QuotationCloneDraft {
 
 export function buildQuotationCloneDraft(q: Quotation): QuotationCloneDraft {
   return {
-    banner: `Cloned from ${q.quotationNumber} — review and save as a new quotation.`,
+    banner: `Cloned from ${q.quotationNumber} — new quotation (not a re-conversion). Review and save.`,
     sourceQuotationNumber: q.quotationNumber,
     customerId: q.customerId,
     clientName: q.clientName,

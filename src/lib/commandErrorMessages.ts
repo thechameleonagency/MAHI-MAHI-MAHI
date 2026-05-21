@@ -21,6 +21,8 @@ export const COMMAND_ERROR_MESSAGES: Record<string, string> = {
   QUOTATION_APPROVE_VALIDATION_FAILED: "Complete customer details before approving this quotation.",
   QUOTATION_NOT_APPROVED: "Project can only be created from an approved quotation.",
   QUOTATION_ALREADY_CONVERTED: "This quotation is already linked to a project.",
+  QUOTATION_TERMINAL:
+    "This quotation is linked to a project and cannot be edited. Clone it for a new quote, or use Change requests on the project.",
   QUOTATION_PROJECT_MISMATCH: "Project and quotation ids do not match.",
   QUOTATION_MISSING_SYSTEM_CATEGORY:
     "Solar quotation is missing system category. Complete the quotation before creating a project.",
@@ -47,6 +49,8 @@ export const COMMAND_ERROR_MESSAGES: Record<string, string> = {
   INVENTORY_NOT_FOUND: "Inventory item not found.",
   MOVEMENT_INVALID: "Inventory movement could not be applied.",
   forbidden: "Your role cannot perform this action.",
+  INVENTORY_MOVEMENT_REVERSE_FORBIDDEN: "Your role cannot reverse inventory movements.",
+  TOOL_MOVEMENT_REVERSE_FORBIDDEN: "Your role cannot reverse tool movements.",
 };
 
 const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{2,}$/;

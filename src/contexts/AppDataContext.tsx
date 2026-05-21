@@ -41,9 +41,35 @@ import type { Blockage, Ticket, ProjectTimelineStatus, ClientPaymentRecord } fro
 import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate, stripOrphanChecklistInventoryRefs } from "@/lib/siteChecklist";
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
 import {
+  applyProjectDeletionToState,
+  buildProjectDeletionAuditEntry,
+} from "@/lib/projectDeletionCascade";
+import {
+  canReverseInventoryMovement,
+  canReverseToolMovement,
+} from "@/lib/inventoryMovementReversalPolicy";
+import { syncProjectsSiteReadinessFromChecklist } from "@/lib/siteReadinessFromChecklist";
+import {
+  type LoanRepaymentCashLinkInput,
+  resolveLoanRepaymentCashLink,
+  upsertExpenseRow,
+  upsertPaymentRow,
+} from "@/lib/loanRepaymentCashLink";
+import {
   applyChangeRequestToProject,
   scaleAgentAccrualsForContractChange,
 } from "@/lib/changeRequestApproval";
+import {
+  appendAccrualIfMissingOnApproval,
+  applyAgentCommissionAccrualsOnProjectCompleted,
+  linkAccrualsToProject,
+  markProjectAccrualsPayable,
+} from "@/lib/agentCommissionAccrualPolicy";
+import type { BankReconciliationMatchApplyInput } from "@/lib/bankReconciliationLink";
+import {
+  clearBankReconciliationLinksForStatement,
+  syncBankReconciliationLinks,
+} from "@/lib/bankReconciliationLink";
 import { validateChangeRequestDraft } from "@/lib/changeRequestValidation";
 import { saveCreateDraft, buildProjectToInvoiceDraft } from "@/lib/createFromContext";
 import {
@@ -55,6 +81,10 @@ import {
   summarizeClientPaymentLedgerReconcile,
   validateClientPaymentRecord,
 } from "@/lib/clientPaymentReconciliation";
+import {
+  recordCustomerInflowDispatch,
+  type RecordCustomerInflowInput,
+} from "@/lib/customerInflowWritePaths";
 import type { VendorBill, VendorPayment } from "@/data/inventoryData";
 import { canTransitionEnquiryStatus, type EnquiryStatus } from "@/domain/stateMachines/enquiryStateMachine";
 import { canTransitionQuotationStatus, type QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
@@ -91,6 +121,17 @@ import {
 } from "@/lib/invoiceDocumentType";
 import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
 import { formatINR } from "@/lib/formatCurrency";
+
+/**
+ * Customer payment writers (E10) — see `src/lib/customerInflowWritePaths.ts`.
+ *
+ * - `recordCustomerInflow` — preferred entry: `{ path: "project_fifo" | "invoice_targeted" }`.
+ * - `addClientPaymentRecord` — project FIFO + CPR + synthetic Payment (`cpr:<id>`).
+ * - `addPayment` — invoice-targeted receipt when `invoiceId` is set (voucher + invoice sync).
+ *
+ * Boot `reconcileClientPaymentLedger` replays CPR rows only (C3). CustomerDetail still uses
+ * manual FIFO + `addPayment` without `invoiceId` (documented legacy pattern in the policy file).
+ */
 import { validateExpensePaidByRecord } from "@/lib/expensePayerValidation";
 import {
   findScheduledInstallationConflicts,
@@ -297,8 +338,14 @@ interface AppDataContextType extends AppState {
   getIncomesByPartner: (partnerId: string) => Income[];
   getIncomesByEmployee: (employeeId: string) => Income[];
   
-  // Payments CRUD
+  // Payments CRUD (E10: prefer recordCustomerInflow — see customerInflowWritePaths.ts)
+  /** Invoice-targeted customer receipt; requires `invoiceId` for invoice-level reconciliation. */
   addPayment: (payment: Payment) => void;
+  /**
+   * Unified customer inflow dispatch (E10).
+   * `project_fifo` → addClientPaymentRecord; `invoice_targeted` → addPayment.
+   */
+  recordCustomerInflow: (input: RecordCustomerInflowInput) => boolean;
   updatePayment: (id: string, updates: Partial<Payment>) => void;
   deletePayment: (id: string) => void;
   
@@ -340,7 +387,7 @@ interface AppDataContextType extends AppState {
   deleteLoan: (id: string) => void;
 
   // Loan Repayments CRUD
-  addLoanRepayment: (repayment: LoanRepayment) => void;
+  addLoanRepayment: (repayment: LoanRepayment, cashLink?: LoanRepaymentCashLinkInput) => void;
   updateLoanRepayment: (id: string, updates: Partial<LoanRepayment>) => void;
   deleteLoanRepayment: (id: string) => void;
   getRepaymentsByLoan: (loanId: string) => LoanRepayment[];
@@ -432,6 +479,7 @@ interface AppDataContextType extends AppState {
   addOperationalTicket: (ticket: Ticket) => void;
   updateProjectTimelineForProject: (projectId: string, updates: Partial<ProjectTimelineStatus>) => void;
   getClientPaymentRecordsByProject: (projectId: string) => ClientPaymentRecord[];
+  /** Project-scoped FIFO + ClientPaymentRecord (E10 project_fifo path). */
   addClientPaymentRecord: (record: ClientPaymentRecord) => boolean;
   updateSite: (siteNumericId: number, updates: Partial<SiteRecord>) => void;
   applySiteChecklistFromTemplate: (
@@ -531,6 +579,12 @@ interface AppDataContextType extends AppState {
   // Bank reconciliation (prototype: persist uploaded statements across modal sessions; B13)
   bankReconciliationStatements: unknown[];
   setBankReconciliationStatements: (statements: unknown[]) => void;
+  /** E9 — write `reconciledWith` on matched expenses/incomes/payments from reconciliation results. */
+  syncBankReconciliationLinks: (
+    activeStatementIds: string[],
+    matches: BankReconciliationMatchApplyInput[],
+  ) => void;
+  clearBankReconciliationLinksForStatement: (statementId: string) => void;
 
   // ---- Operations entities CRUD (final-touches plan, Phase 1.2) ----
   addMaterialReservation: (
@@ -574,6 +628,7 @@ interface AppDataContextType extends AppState {
     accrual: Omit<import("@/types/operations").AgentCommissionAccrual, "id" | "accruedAt" | "status">,
   ) => string;
   markAccrualPayable: (id: string) => void;
+  markProjectCommissionAccrualsPayable: (projectId: string, quotationId?: string) => void;
   markAccrualPaid: (id: string, paymentId: string) => void;
   getAccrualsByAgent: (agentId: string) => import("@/types/operations").AgentCommissionAccrual[];
   getAccrualsByProject: (projectId: string) => import("@/types/operations").AgentCommissionAccrual[];
@@ -707,10 +762,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [repositories]);
 
   /**
-   * Client payment ↔ invoice ↔ Payment ledger (single source of truth on boot):
-   * - `addClientPaymentRecord` is the UI write path: FIFO on invoices + CPR row + Payment (`cpr:<id>`).
-   * - `addPayment` is the finance write path when paying a specific invoice (sets `invoiceId`).
-   * Boot replay is idempotent: missing Payment rows, FIFO invoice allocation, project.amountReceived sync.
+   * C3 boot replay — see `customerInflowWritePaths.ts` and `clientPaymentReconciliation.ts`.
+   * Reconciles CPR-derived Payment rows (`cpr:<id>`), FIFO invoice allocation, project.amountReceived.
    */
   useEffect(() => {
     let devToastMessage: string | null = null;
@@ -881,12 +934,24 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           return { ok: false, error: (result as { message: string }).message };
         }
         const projectId = result.result?.projectId;
-        setState((prev) => ({
-          ...prev,
-          projects: (repositories.projectRepository.getAll() as Project[]).map(normalizeProject),
-          quotations: repositories.quotationRepository.getAll() as Quotation[],
-          auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
-        }));
+        setState((prev) => {
+          const nextProjects = (repositories.projectRepository.getAll() as Project[]).map(normalizeProject);
+          const created = projectId ? nextProjects.find((p) => p.id === projectId) : undefined;
+          return {
+            ...prev,
+            projects: nextProjects,
+            quotations: repositories.quotationRepository.getAll() as Quotation[],
+            auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
+            agentCommissionAccruals: created
+              ? linkAccrualsToProject(
+                  prev.agentCommissionAccruals ?? [],
+                  created.id,
+                  created.quotationId ?? project.quotationId,
+                  created.agentId,
+                )
+              : prev.agentCommissionAccruals,
+          };
+        });
         return { ok: true, projectId };
       } catch (e) {
         const message = e instanceof Error ? e.message : "Command failed";
@@ -918,12 +983,24 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           return { ok: false, error: (result as { message: string }).message };
         }
         const projectId = result.result?.projectId;
-        setState((prev) => ({
-          ...prev,
-          projects: (repositories.projectRepository.getAll() as Project[]).map(normalizeProject),
-          quotations: repositories.quotationRepository.getAll() as Quotation[],
-          auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
-        }));
+        setState((prev) => {
+          const nextProjects = (repositories.projectRepository.getAll() as Project[]).map(normalizeProject);
+          const created = projectId ? nextProjects.find((p) => p.id === projectId) : undefined;
+          return {
+            ...prev,
+            projects: nextProjects,
+            quotations: repositories.quotationRepository.getAll() as Quotation[],
+            auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
+            agentCommissionAccruals: created?.quotationId
+              ? linkAccrualsToProject(
+                  prev.agentCommissionAccruals ?? [],
+                  created.id,
+                  created.quotationId,
+                  created.agentId,
+                )
+              : prev.agentCommissionAccruals,
+          };
+        });
         return { ok: true, projectId };
       } catch (e) {
         const message = e instanceof Error ? e.message : "Command failed";
@@ -1088,11 +1165,29 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
       }
 
+      let nextAccruals = prev.agentCommissionAccruals ?? [];
+      const completedProject =
+        updates.lifecycleStatus === "Completed"
+          ? nextProjects.find((p) => p.id === id)
+          : undefined;
+      if (completedProject) {
+        const quotation = completedProject.quotationId
+          ? prev.quotations.find((q) => q.id === completedProject.quotationId)
+          : undefined;
+        nextAccruals = applyAgentCommissionAccrualsOnProjectCompleted(
+          nextAccruals,
+          completedProject,
+          quotation,
+          prev.agents,
+        );
+      }
+
       return {
         ...prev,
         projects: nextProjects,
         customers: nextCustomers,
         auditLogs: auditLogsToAdd.length ? [...auditLogsToAdd, ...prev.auditLogs] : prev.auditLogs,
+        agentCommissionAccruals: nextAccruals,
       };
     });
     return true;
@@ -1211,31 +1306,19 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   
   const deleteProject = useCallback((id: string) => {
     setState((prev) => {
-      const { [id]: _removed, ...restTimelines } = prev.projectTimelineByProjectId;
+      const applied = applyProjectDeletionToState(prev, id);
+      if (!applied) return prev;
+      const auditEntry = buildProjectDeletionAuditEntry(
+        createAuditEntry,
+        applied.project,
+        applied.counts,
+      );
       return {
-        ...prev,
-        projects: prev.projects.filter((p) => p.id !== id),
-        invoices: prev.invoices.filter((i) => i.projectId !== id),
-        saleBills: prev.saleBills.filter((s) => s.projectId !== id),
-        tasks: prev.tasks.filter((t) => t.projectId !== id),
-        expenses: prev.expenses.filter((e) => e.projectId !== id),
-        incomes: prev.incomes.filter((i) => i.projectId !== id),
-        payments: prev.payments.filter((p) => p.projectId !== id),
-        sites: prev.sites.filter((s) => s.projectId !== id),
-        blockages: prev.blockages.filter((b) => b.projectId !== id),
-        operationalTickets: prev.operationalTickets.filter((t) => t.projectId !== id),
-        clientPaymentRecords: prev.clientPaymentRecords.filter((c) => c.projectId !== id),
-        projectTimelineByProjectId: restTimelines,
-        scheduledInstallations: (prev.scheduledInstallations ?? []).filter((s) => s.projectId !== id),
-        siteVisits: (prev.siteVisits ?? []).filter((v) => v.projectId !== id),
-        projectChangeRequests: (prev.projectChangeRequests ?? []).filter((r) => r.projectId !== id),
-        materialReservations: (prev.materialReservations ?? []).filter((r) => r.projectId !== id),
-        agentCommissionAccruals: (prev.agentCommissionAccruals ?? []).filter((a) => a.projectId !== id),
-        materialDamageRecords: (prev.materialDamageRecords ?? []).filter((d) => d.projectId !== id),
-        procurementNeedLines: (prev.procurementNeedLines ?? []).filter((l) => l.projectId !== id),
+        ...applied.next,
+        auditLogs: [auditEntry, ...prev.auditLogs],
       };
     });
-  }, []);
+  }, [createAuditEntry]);
   
   const getProjectById = useCallback((id: string) => {
     const t = id.trim();
@@ -1396,37 +1479,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           const nextQuotations = prev.quotations.map((q) => (q.id === id ? merged : q));
           repositories.quotationRepository.replaceAll(nextQuotations);
 
-          // Phase 1.4: emit AgentCommissionAccrual (status='pending') on approval.
-          // Idempotent: if an accrual already exists for this quotation, skip.
-          let nextAccruals = prev.agentCommissionAccruals ?? [];
-          const isApprovalTransition =
-            prevQuotation.status !== "approved" && merged.status === "approved";
-          if (isApprovalTransition && merged.agentId) {
-            const already = nextAccruals.find(
-              (a) => a.sourceQuotationId === merged.id && a.agentId === merged.agentId,
-            );
-            if (!already) {
-              const agent = prev.agents.find((ag) => ag.id === merged.agentId);
-              const capacityKw = (() => {
-                const m = (merged.capacity ?? "").match(/([\d.]+)/);
-                return m ? parseFloat(m[1]) : 0;
-              })();
-              const expected = agent
-                ? agent.rateType === "per-project"
-                  ? agent.flatRate ?? agent.ratePerKw ?? 0
-                  : (agent.ratePerKw ?? 0) * capacityKw
-                : 0;
-              const accrual: import("@/types/operations").AgentCommissionAccrual = {
-                id: `ACC-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase(),
-                agentId: merged.agentId,
-                expectedAmount: expected,
-                status: "pending",
-                accruedAt: new Date().toISOString(),
-                sourceQuotationId: merged.id,
-              };
-              nextAccruals = [accrual, ...nextAccruals];
-            }
-          }
+          const nextAccruals = appendAccrualIfMissingOnApproval(
+            prev.agentCommissionAccruals ?? [],
+            merged,
+            prev.agents,
+            prevQuotation.status,
+          );
 
           return {
             ...prev,
@@ -2171,7 +2229,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     return state.incomes.filter(i => i.employeeId === employeeId);
   }, [state.incomes]);
   
-  // ============ PAYMENTS CRUD ============
+  // ============ PAYMENTS CRUD (E10: customerInflowWritePaths.ts) ============
+  /** Invoice-targeted path — set `invoiceId` when recording against one invoice/sale-bill. */
   const addPayment = useCallback((payment: Payment) => {
     if (!canPerformActionOrWarn("finance:record_payment")) {
       return;
@@ -2603,30 +2662,72 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [canPerformActionOrWarn, state.expenses, state.payments, state.loanRepayments]);
   
   // ============ LOAN REPAYMENTS CRUD ============
-  const addLoanRepayment = useCallback((repayment: LoanRepayment) => {
-    if (!canPerformActionOrWarn("loan:add_repayment")) return;
-    const auditEntry = createAuditEntry("create", "LoanRepayment", repayment.id, `Repayment for loan ${repayment.loanId}`);
-    setState((prev) => {
-      const loan = prev.loans.find((l) => l.id === repayment.loanId);
-      const nextRepayments = [repayment, ...prev.loanRepayments];
-      if (!loan) {
-        return { ...prev, loanRepayments: nextRepayments, auditLogs: [auditEntry, ...prev.auditLogs] };
-      }
-      const nextOutstanding = Math.max(
-        0,
-        Math.round((loan.outstanding - repayment.principalPaid) * 100) / 100,
+  const addLoanRepayment = useCallback(
+    (repayment: LoanRepayment, cashLink: LoanRepaymentCashLinkInput = { type: "payment" }) => {
+      if (!canPerformActionOrWarn("loan:add_repayment")) return;
+      const auditEntry = createAuditEntry(
+        "create",
+        "LoanRepayment",
+        repayment.id,
+        `Repayment for loan ${repayment.loanId}`,
       );
-      const nextStatus: Loan["status"] = nextOutstanding <= 0 ? "Closed" : loan.status;
-      return {
-        ...prev,
-        loanRepayments: nextRepayments,
-        loans: prev.loans.map((l) =>
-          l.id === repayment.loanId ? { ...l, outstanding: nextOutstanding, status: nextStatus } : l,
-        ),
-        auditLogs: [auditEntry, ...prev.auditLogs],
-      };
-    });
-  }, [canPerformActionOrWarn, createAuditEntry]);
+      setState((prev) => {
+        const loan = prev.loans.find((l) => l.id === repayment.loanId);
+        if (!loan) {
+          return {
+            ...prev,
+            loanRepayments: [repayment, ...prev.loanRepayments],
+            auditLogs: [auditEntry, ...prev.auditLogs],
+          };
+        }
+
+        const linkResult = resolveLoanRepaymentCashLink(
+          {
+            payments: prev.payments,
+            expenses: prev.expenses,
+            vendorPayments: prev.vendorPayments ?? [],
+          },
+          repayment,
+          loan,
+          cashLink,
+          { paymentId: generateId("PAY"), expenseId: generateId("EXP") },
+        );
+
+        const nextOutstanding = Math.max(
+          0,
+          Math.round((loan.outstanding - linkResult.repayment.principalPaid) * 100) / 100,
+        );
+        const nextStatus: Loan["status"] = nextOutstanding <= 0 ? "Closed" : loan.status;
+
+        let payments = prev.payments;
+        let expenses = prev.expenses;
+        let vendorPayments = prev.vendorPayments ?? [];
+
+        if (linkResult.payment) {
+          payments = upsertPaymentRow(payments, linkResult.payment);
+        }
+        if (linkResult.expense) {
+          expenses = upsertExpenseRow(expenses, linkResult.expense);
+        }
+        if (linkResult.vendorPayments) {
+          vendorPayments = linkResult.vendorPayments;
+        }
+
+        return {
+          ...prev,
+          loanRepayments: [linkResult.repayment, ...prev.loanRepayments],
+          loans: prev.loans.map((l) =>
+            l.id === repayment.loanId ? { ...l, outstanding: nextOutstanding, status: nextStatus } : l,
+          ),
+          payments,
+          expenses,
+          vendorPayments,
+          auditLogs: [auditEntry, ...prev.auditLogs],
+        };
+      });
+    },
+    [canPerformActionOrWarn, createAuditEntry, generateId],
+  );
   
   const updateLoanRepayment = useCallback((id: string, updates: Partial<LoanRepayment>) => {
     if (!canPerformActionOrWarn("loan:update")) return;
@@ -2650,10 +2751,44 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
               : l
           )
         : prev.loans;
+
+      const dropLinkedPayment =
+        repayment?.linkedPaymentId &&
+        prev.payments.some(
+          (p) => p.id === repayment.linkedPaymentId && p.loanRepaymentId === repayment.id,
+        );
+      const dropLinkedExpense =
+        repayment?.linkedExpenseId &&
+        prev.expenses.some(
+          (e) => e.id === repayment.linkedExpenseId && e.loanRepaymentId === repayment.id,
+        );
+      const dropLinkedVendorPayment =
+        repayment?.linkedVendorPaymentId &&
+        (prev.vendorPayments ?? []).some(
+          (vp) => vp.id === repayment.linkedVendorPaymentId && vp.loanRepaymentId === repayment.id,
+        );
+
       return {
         ...prev,
         loanRepayments: prev.loanRepayments.filter(r => r.id !== id),
         loans: updatedLoans,
+        payments: dropLinkedPayment
+          ? prev.payments.filter((p) => p.id !== repayment!.linkedPaymentId)
+          : prev.payments.map((p) =>
+              p.loanRepaymentId === id ? { ...p, loanRepaymentId: undefined, loanId: p.loanId } : p,
+            ),
+        expenses: dropLinkedExpense
+          ? prev.expenses.filter((e) => e.id !== repayment!.linkedExpenseId)
+          : prev.expenses.map((e) =>
+              e.loanRepaymentId === id ? { ...e, loanRepaymentId: undefined } : e,
+            ),
+        vendorPayments: dropLinkedVendorPayment
+          ? (prev.vendorPayments ?? []).filter((vp) => vp.id !== repayment!.linkedVendorPaymentId)
+          : (prev.vendorPayments ?? []).map((vp) =>
+              vp.loanRepaymentId === id
+                ? { ...vp, loanRepaymentId: undefined, loanId: undefined }
+                : vp,
+            ),
         auditLogs: [auditEntry, ...prev.auditLogs],
       };
     });
@@ -3097,10 +3232,14 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!exists) {
         return { ok: false, error: "Site not found" };
       }
-      setState((prev) => ({
-        ...prev,
-        sites: prev.sites.filter((s) => String(s.id) !== siteKey),
-      }));
+      setState((prev) => {
+        const removed = prev.sites.find((s) => String(s.id) === siteKey);
+        const sites = prev.sites.filter((s) => String(s.id) !== siteKey);
+        const projects = removed?.projectId
+          ? syncProjectsSiteReadinessFromChecklist(prev.projects, sites, [removed.projectId])
+          : prev.projects;
+        return { ...prev, sites, projects };
+      });
       return { ok: true };
     },
     [state.sites, state.tasks],
@@ -3322,6 +3461,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     [state.clientPaymentRecords],
   );
 
+  /** Project FIFO path — CPR row + FIFO invoices + synthetic Payment (`cpr:<id>`). */
   const addClientPaymentRecord = useCallback((record: ClientPaymentRecord): boolean => {
     const project = state.projects.find((p) => p.id === record.projectId);
     if (!project) {
@@ -3387,10 +3527,36 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     return true;
   }, [state.clientPaymentRecords, state.projects]);
 
+  const recordCustomerInflow = useCallback(
+    (input: RecordCustomerInflowInput): boolean => {
+      if (input.path === "invoice_targeted" && !canPerformActionOrWarn("finance:record_payment")) {
+        return false;
+      }
+      if (input.path === "project_fifo" && !canPerformActionOrWarn("finance:record_payment")) {
+        return false;
+      }
+      const ok = recordCustomerInflowDispatch(input, {
+        addClientPaymentRecord,
+        addPayment,
+      });
+      if (!ok && input.path === "invoice_targeted") {
+        toast({
+          title: "Cannot record payment",
+          description: "Invoice-targeted payment requires invoiceId and direction 'in'.",
+          variant: "destructive",
+        });
+      }
+      return ok;
+    },
+    [addClientPaymentRecord, addPayment, canPerformActionOrWarn],
+  );
+
   const updateSite = useCallback((siteNumericId: number, updates: Partial<SiteRecord>) => {
     setState((prev) => {
+      let affectedProjectId: string | undefined;
       const merged = prev.sites.map((s) => {
         if (s.id !== siteNumericId) return s;
+        affectedProjectId = s.projectId;
         const combined = { ...s, ...updates };
         const stripped = stripOrphanChecklistInventoryRefs(combined.checklistItems, prev.inventoryItems);
         const next = stripped !== combined.checklistItems ? { ...combined, checklistItems: stripped } : combined;
@@ -3402,7 +3568,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
         return next;
       });
-      return { ...prev, sites: merged };
+      const projects =
+        updates.checklistItems !== undefined && affectedProjectId
+          ? syncProjectsSiteReadinessFromChecklist(prev.projects, merged, [affectedProjectId])
+          : prev.projects;
+      return { ...prev, sites: merged, projects };
     });
   }, []);
 
@@ -3489,10 +3659,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
       }
 
-      // Update Site Checklist Status
-      setState((prev) => ({
-        ...prev,
-        sites: prev.sites.map((s) => {
+      // Update Site Checklist Status + E5: derive siteReadiness when all lines dispatched
+      setState((prev) => {
+        const sites = prev.sites.map((s) => {
           if (s.projectId === projectId && s.id === siteNumericId) {
             return {
               ...s,
@@ -3502,8 +3671,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             };
           }
           return s;
-        }),
-      }));
+        });
+        const projects = syncProjectsSiteReadinessFromChecklist(prev.projects, sites, [projectId]);
+        return { ...prev, sites, projects };
+      });
 
       return { ok: true } as const;
     },
@@ -3724,11 +3895,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
   }, [state.materialReservations, state.materialDamageRecords]);
 
-  /** MD31: movement reversal is not on the command bus; super_admin gate only (feature matrix delete = NONE). */
+  /** E4: movement reversal — feature matrix `inventoryMovement` delete (not on command bus). */
   const reverseInventoryMovement = useCallback(
     (itemId: string, movementId: string, reason?: string): { ok: boolean; error?: string } => {
-      if (actorRole !== "super_admin") {
-        return { ok: false, error: "Only super admin can reverse inventory movements" };
+      if (!canReverseInventoryMovement(actorRole, roleMatrixOverride)) {
+        return { ok: false, error: "INVENTORY_MOVEMENT_REVERSE_FORBIDDEN" };
       }
       let didReverse = false;
       let targetItem: InventoryItem | undefined;
@@ -3765,7 +3936,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
       return didReverse ? { ok: true } : { ok: false, error: "Movement not found or already reversed" };
     },
-    [actorRole, createAuditEntry],
+    [actorRole, roleMatrixOverride, createAuditEntry],
   );
 
   const issueItemToSite = useCallback((
@@ -3840,11 +4011,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState(prev => ({ ...prev, tools: prev.tools.filter(t => String(t.id) !== String(id)) }));
   }, []);
 
-  /** MD31: tool movement reversal — same super_admin-only policy as inventory reversal. */
+  /** E4: tool movement reversal — feature matrix `toolMovement` delete. */
   const reverseToolMovement = useCallback(
     (toolId: string, movementId: string, reason?: string): { ok: boolean; error?: string } => {
-      if (actorRole !== "super_admin") {
-        return { ok: false, error: "Only super admin can reverse tool movements" };
+      if (!canReverseToolMovement(actorRole, roleMatrixOverride)) {
+        return { ok: false, error: "TOOL_MOVEMENT_REVERSE_FORBIDDEN" };
       }
       let didReverse = false;
       let targetTool: Tool | undefined;
@@ -3882,7 +4053,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
       return didReverse ? { ok: true } : { ok: false, error: "Movement not found or already reversed" };
     },
-    [actorRole, createAuditEntry],
+    [actorRole, roleMatrixOverride, createAuditEntry],
   );
 
   const issueTool = useCallback((
@@ -4077,9 +4248,38 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     return (state.incGiverCompanies ?? []).find(c => c.id === id);
   }, [state.incGiverCompanies]);
 
-  // ============ BANK RECONCILIATION (B13) ============
+  // ============ BANK RECONCILIATION (B13 + E9) ============
   const setBankReconciliationStatements = useCallback((statements: unknown[]) => {
     setState(prev => ({ ...prev, bankReconciliationStatements: statements }));
+  }, []);
+
+  const syncBankReconciliationLinksHandler = useCallback(
+    (activeStatementIds: string[], matches: BankReconciliationMatchApplyInput[]) => {
+      setState((prev) => {
+        const synced = syncBankReconciliationLinks(
+          {
+            expenses: prev.expenses,
+            incomes: prev.incomes,
+            payments: prev.payments,
+            vendorPayments: prev.vendorPayments,
+          },
+          activeStatementIds,
+          matches,
+        );
+        return { ...prev, ...synced };
+      });
+    },
+    [],
+  );
+
+  const clearBankReconciliationLinksForStatementHandler = useCallback((statementId: string) => {
+    setState((prev) => ({
+      ...prev,
+      expenses: clearBankReconciliationLinksForStatement(prev.expenses, statementId),
+      incomes: clearBankReconciliationLinksForStatement(prev.incomes, statementId),
+      payments: clearBankReconciliationLinksForStatement(prev.payments, statementId),
+      vendorPayments: clearBankReconciliationLinksForStatement(prev.vendorPayments, statementId),
+    }));
   }, []);
 
   // ============ OPERATIONS ENTITIES CRUD (final-touches Phase 1.2) ============
@@ -4631,6 +4831,19 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       ),
     }));
   }, []);
+  const markProjectCommissionAccrualsPayable = useCallback(
+    (projectId: string, quotationId?: string) => {
+      setState((prev) => ({
+        ...prev,
+        agentCommissionAccruals: markProjectAccrualsPayable(
+          prev.agentCommissionAccruals ?? [],
+          projectId,
+          quotationId,
+        ),
+      }));
+    },
+    [],
+  );
   const markAccrualPaid = useCallback((id: string, paymentId: string) => {
     const now = new Date().toISOString();
     setState((prev) => ({
@@ -4718,8 +4931,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     getIncomesByPartner,
     getIncomesByEmployee,
     
-    // Payments
+    // Payments (E10 — customerInflowWritePaths.ts)
     addPayment,
+    recordCustomerInflow,
     updatePayment,
     deletePayment,
     
@@ -4918,8 +5132,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     deleteINCGiverCompany,
     getINCGiverCompanyById,
 
-    // Bank reconciliation (B13)
+    // Bank reconciliation (B13 + E9)
     setBankReconciliationStatements,
+    syncBankReconciliationLinks: syncBankReconciliationLinksHandler,
+    clearBankReconciliationLinksForStatement: clearBankReconciliationLinksForStatementHandler,
 
     // Operations entities (Phase 1.2)
     addMaterialReservation,
@@ -4943,6 +5159,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     getDamageByItem,
     addAgentCommissionAccrual,
     markAccrualPayable,
+    markProjectCommissionAccrualsPayable,
     markAccrualPaid,
     getAccrualsByAgent,
     getAccrualsByProject,

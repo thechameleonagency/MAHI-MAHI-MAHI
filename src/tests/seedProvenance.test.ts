@@ -142,6 +142,18 @@ describe("seed provenance (D1)", () => {
     }
   });
 
+  it("seed loan repayments with linkedPaymentId reference matching payments (E6)", () => {
+    const paymentById = new Map(seedPayments.map((p) => [p.id, p]));
+    for (const lr of seedLoanRepayments) {
+      if (!lr.linkedPaymentId) continue;
+      const pay = paymentById.get(lr.linkedPaymentId);
+      expect(pay, `payment for ${lr.id}`).toBeDefined();
+      expect(pay!.loanRepaymentId).toBe(lr.id);
+      expect(pay!.loanId).toBe(lr.loanId);
+      expect(pay!.amount).toBe(lr.totalPaid);
+    }
+  });
+
   it("enquiries with agentId reference agents", () => {
     for (const e of seedEnquiries) {
       if (e.agentId) expect(agentIds.has(e.agentId)).toBe(true);

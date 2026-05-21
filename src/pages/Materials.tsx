@@ -59,6 +59,7 @@ const Materials = () => {
   const canEditItem = useCan("inventoryItem", "edit");
   const canDeleteItem = useCan("inventoryItem", "delete");
   const canIssueReturn = useCan("inventoryMovement", "create");
+  const canReverseMovement = useCan("inventoryMovement", "delete");
   const { currentRole } = useAppSession();
   const {
     inventoryItems,
@@ -1733,7 +1734,7 @@ const Materials = () => {
                     </p>
                     <p className="text-xs text-muted-foreground">{record.date}</p>
                   </div>
-                  {!record.reversedAt && selectedItemForHistory && (
+                  {!record.reversedAt && selectedItemForHistory && canReverseMovement && (
                     <Button
                       variant="ghost"
                       size="sm"

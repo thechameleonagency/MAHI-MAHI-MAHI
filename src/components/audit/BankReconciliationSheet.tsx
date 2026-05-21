@@ -16,6 +16,7 @@ import {
   buildReconciliationMatchDetailLines,
   reconciliationResultRowKey,
 } from "@/lib/bankReconciliationDisplay";
+import { toBankReconciliationMatchInputs } from "@/lib/bankReconciliationLink";
 import { format, parseISO, isValid } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { fileExceedsLimit, MAX_UPLOAD_BYTES } from "@/lib/fileLimits";
@@ -152,7 +153,16 @@ interface Props {
 }
 
 const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
-  const { expenses, incomes, payments, vendorPayments, bankReconciliationStatements, setBankReconciliationStatements } = useAppData();
+  const {
+    expenses,
+    incomes,
+    payments,
+    vendorPayments,
+    bankReconciliationStatements,
+    setBankReconciliationStatements,
+    syncBankReconciliationLinks,
+    clearBankReconciliationLinksForStatement,
+  } = useAppData();
   const [statements, setStatements] = useState<UploadedStatement[]>(() => (bankReconciliationStatements ?? []) as UploadedStatement[]);
   const [activeTab, setActiveTab] = useState("upload");
   const [searchQuery, setSearchQuery] = useState("");
@@ -169,11 +179,6 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
     },
     [onOpenChange],
   );
-
-  const handleSave = useCallback(() => {
-    setBankReconciliationStatements?.(statements);
-    toast({ title: "Reconciliation saved", description: "Uploaded statements are stored for this session." });
-  }, [statements, setBankReconciliationStatements]);
 
   /** B2.16: min/max statement dates from uploaded CSVs (prototype “period” for sanity checks). */
   const statementDateWindow = useMemo(() => {
@@ -193,7 +198,15 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
 
   // Build ledger entries from all financial data
   const ledgerEntries = useMemo(() => {
-    const entries: { id: string; type: string; description: string; amount: number; date: string; direction: "debit" | "credit" }[] = [];
+    const entries: {
+      id: string;
+      type: string;
+      description: string;
+      amount: number;
+      date: string;
+      direction: "debit" | "credit";
+      reconciledWith?: import("@/types/finance").BankReconciliationLink;
+    }[] = [];
 
     expenses.forEach(e => {
       entries.push({
@@ -203,6 +216,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
         amount: e.amount,
         date: e.date,
         direction: "debit",
+        reconciledWith: e.reconciledWith,
       });
     });
 
@@ -214,6 +228,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
         amount: inc.amount,
         date: inc.date,
         direction: "credit",
+        reconciledWith: inc.reconciledWith,
       });
     });
 
@@ -225,6 +240,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
         amount: p.amount,
         date: p.date,
         direction: p.direction === "in" ? "credit" : "debit",
+        reconciledWith: p.reconciledWith,
       });
     });
 
@@ -236,6 +252,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
         amount: vp.amount,
         date: vp.date,
         direction: "debit",
+        reconciledWith: vp.reconciledWith,
       });
     });
 
@@ -325,7 +342,14 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
             results.push({
               bankTransaction: txn,
               flag: "possible-match",
-              matchedLedgerEntry: { id: possibleMatch.id, type: possibleMatch.type, description: possibleMatch.description, amount: possibleMatch.amount, date: possibleMatch.date },
+              matchedLedgerEntry: {
+                id: possibleMatch.id,
+                type: possibleMatch.type,
+                description: possibleMatch.description,
+                amount: possibleMatch.amount,
+                date: possibleMatch.date,
+                reconciledWith: possibleMatch.reconciledWith,
+              },
               notes: "Amount matches but date differs significantly",
               statementId: stmt.id,
               statementName: stmt.fileName,
@@ -345,6 +369,23 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
 
     return results;
   }, [statements, ledgerEntries]);
+
+  const handleSave = useCallback(() => {
+    setBankReconciliationStatements?.(statements);
+    const matches = toBankReconciliationMatchInputs(reconciliationResults, normalizeDate);
+    syncBankReconciliationLinks?.(
+      statements.map((s) => s.id),
+      matches,
+    );
+    const linkedCount = matches.length;
+    toast({
+      title: "Reconciliation saved",
+      description:
+        linkedCount > 0
+          ? `${linkedCount} ledger row(s) tagged with bank statement links.`
+          : "Uploaded statements are stored for this session.",
+    });
+  }, [reconciliationResults, statements, setBankReconciliationStatements, syncBankReconciliationLinks]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>, type: "bank" | "cash") => {
     const files = e.target.files;
@@ -447,6 +488,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
 
   const removeStatement = (id: string) => {
     setStatements(prev => prev.filter(s => s.id !== id));
+    clearBankReconciliationLinksForStatement?.(id);
   };
 
   const flagCounts = useMemo(() => {
@@ -782,7 +824,11 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
         </Tabs>
 
         <AppSheetFormFooter onCancel={() => handleOpenChange(false)}>
-          <Button type="button" onClick={handleSave} disabled={!setBankReconciliationStatements}>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={!setBankReconciliationStatements || !syncBankReconciliationLinks}
+          >
             Save
           </Button>
         </AppSheetFormFooter>

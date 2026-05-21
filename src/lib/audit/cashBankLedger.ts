@@ -1,6 +1,8 @@
 import type { Expense, Income, Payment } from "@/types/finance";
 import type { LoanRepayment } from "@/types/finance";
 import type { VendorPayment } from "@/types/inventory";
+import { loanRepaymentHasCashLink } from "@/lib/loanRepaymentCashLink";
+import { formatBankReconciliationLinkLabel } from "@/lib/bankReconciliationLink";
 
 export interface CashBankEntry {
   date: string;
@@ -10,6 +12,8 @@ export interface CashBankEntry {
   credit: number;
   reference: string;
   type: string;
+  /** E9 — short label when row is linked to a bank statement line. */
+  bankReconciledNote?: string;
 }
 
 export interface CashBankLedgerInput {
@@ -57,6 +61,9 @@ export function buildCashBankEntries(input: CashBankLedgerInput): CashBankEntry[
         credit: 0,
         reference: p.invoiceId || p.id,
         type: "payment_received",
+        bankReconciledNote: p.reconciledWith
+          ? formatBankReconciliationLinkLabel(p.reconciledWith)
+          : undefined,
       });
     });
 
@@ -71,6 +78,9 @@ export function buildCashBankEntries(input: CashBankLedgerInput): CashBankEntry[
         credit: p.amount,
         reference: p.id,
         type: "payment_paid",
+        bankReconciledNote: p.reconciledWith
+          ? formatBankReconciliationLinkLabel(p.reconciledWith)
+          : undefined,
       });
     });
 
@@ -83,6 +93,9 @@ export function buildCashBankEntries(input: CashBankLedgerInput): CashBankEntry[
       credit: e.amount,
       reference: e.id,
       type: "expense",
+      bankReconciledNote: e.reconciledWith
+        ? formatBankReconciliationLinkLabel(e.reconciledWith)
+        : undefined,
     });
   });
 
@@ -97,6 +110,9 @@ export function buildCashBankEntries(input: CashBankLedgerInput): CashBankEntry[
         credit: 0,
         reference: i.id,
         type: "income",
+        bankReconciledNote: i.reconciledWith
+          ? formatBankReconciliationLinkLabel(i.reconciledWith)
+          : undefined,
       });
     });
 
@@ -123,10 +139,14 @@ export function buildCashBankEntries(input: CashBankLedgerInput): CashBankEntry[
       credit: vp.amount,
       reference: vp.billNumber || vp.id,
       type: "vendor_payment",
+      bankReconciledNote: vp.reconciledWith
+        ? formatBankReconciliationLinkLabel(vp.reconciledWith)
+        : undefined,
     });
   });
 
   input.loanRepayments.forEach((lr) => {
+    if (loanRepaymentHasCashLink(lr)) return;
     entries.push({
       date: lr.date,
       description: `Loan repayment: ${lr.loanSource}`,
