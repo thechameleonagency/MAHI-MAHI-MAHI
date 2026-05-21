@@ -161,7 +161,7 @@ const ProfitLoss = () => {
           <Alert variant="default" className="mx-3 my-3 border-muted-foreground/25 bg-muted/30">
             <AlertTitle className="text-sm">How this prototype computes COGS</AlertTitle>
             <AlertDescription className="text-xs leading-relaxed text-muted-foreground">
-              <strong className="text-foreground">COGS</strong> here is the sum of inventory purchases recorded in the selected period, not materials consumed on projects.
+              <strong className="text-foreground">COGS</strong> here is the sum of bookable vendor bills (non-draft) in the selected period, aligned with Vendor detail payables and PurchaseBillBooked vouchers — not materials consumed on projects.
               It is not a consumption-based cost of sales. Ending inventory is approximated separately as stock on hand × buy price (
               {formatINR(plData.inventoryValue)} in this view); that valuation is informational and is not the same as COGS relief in a full perpetual-inventory model.
             </AlertDescription>

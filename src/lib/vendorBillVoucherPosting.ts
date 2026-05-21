@@ -20,6 +20,35 @@ export function isVendorBillBookable(status: VendorBillStatus): boolean {
   return status !== "draft";
 }
 
+/** Open vendor AP rows (matches Vendor detail payable queue — excludes draft). */
+export function isVendorBillOpenPayable(status: VendorBillStatus): boolean {
+  return isVendorBillBookable(status) && status !== "paid";
+}
+
+export function getVendorBillOpenBalance(
+  bill: Pick<VendorBill, "total" | "amountPaid">,
+): number {
+  return Math.max(0, bill.total - (bill.amountPaid ?? 0));
+}
+
+/** Total outstanding AP across bookable, non-paid vendor bills. */
+export function sumVendorOpenPayables(vendorBills: VendorBill[]): number {
+  return vendorBills
+    .filter((b) => isVendorBillOpenPayable(b.status))
+    .reduce((s, b) => s + getVendorBillOpenBalance(b), 0);
+}
+
+/** Sum bookable vendor bills in period (COGS / input GST — same set as PurchaseBillBooked). */
+export function sumBookableVendorBillsInPeriod(
+  vendorBills: VendorBill[],
+  inPeriod: (dateStr: string) => boolean,
+  amount: (bill: VendorBill) => number = (b) => b.total,
+): number {
+  return vendorBills
+    .filter((b) => isVendorBillBookable(b.status) && inPeriod(b.billDate))
+    .reduce((s, b) => s + amount(b), 0);
+}
+
 /** Whether a purchase bill is already represented in the books (initial booking). */
 export function hasPurchaseBillBookedVoucher(
   vouchers: AccountingVoucher[],

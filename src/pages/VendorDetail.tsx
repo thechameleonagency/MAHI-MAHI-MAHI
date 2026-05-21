@@ -25,6 +25,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { formatINR } from "@/lib/formatCurrency";
+import { isVendorBillOpenPayable } from "@/lib/vendorBillVoucherPosting";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
@@ -292,7 +293,7 @@ const VendorDetail = () => {
   }, [selectedBill?.id]);
 
   const payablePendingBills = useMemo(
-    () => pendingBills.filter((b) => b.status !== "draft"),
+    () => pendingBills.filter((b) => isVendorBillOpenPayable(b.status)),
     [pendingBills],
   );
 

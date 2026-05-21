@@ -19,6 +19,11 @@ import { downloadCSV } from "@/lib/csvExport";
 import { formatINR } from "@/lib/formatCurrency";
 import { getInvoiceAmountReceived, getInvoiceOpenBalance } from "@/lib/billingSelectors";
 import { getOutstandingReceivables } from "@/domain/finance/financialSemantics";
+import {
+  getVendorBillOpenBalance,
+  isVendorBillOpenPayable,
+  sumVendorOpenPayables,
+} from "@/lib/vendorBillVoucherPosting";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -120,14 +125,16 @@ const ChartOfAccounts = () => {
   const balances = useMemo(() => {
     const allInvoices = [...invoices, ...saleBills];
     const receivables = getOutstandingReceivables(invoices, payments, saleBills);
-    const payables = vendorBills.filter(b => b.status !== "paid").reduce((s, b) => s + (b.total - b.amountPaid), 0);
+    const payables = sumVendorOpenPayables(vendorBills);
     const inventoryValue = inventoryItems.reduce((s, item) => s + item.stock * item.buyPrice, 0);
     const toolsValue = tools.reduce((s, t) => s + t.purchaseRate, 0);
     const totalSales = allInvoices.reduce((s, i) => s + i.total, 0);
     const totalPurchases = vendorBills.reduce((s, b) => s + b.total, 0);
     const loanOutstandingTotal = loans.reduce((s, l) => s + l.outstanding, 0);
     const gstCollected = allInvoices.reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
-    const gstInput = vendorBills.reduce((s, b) => s + (b.gst || 0), 0);
+    const gstInput = vendorBills
+      .filter((b) => b.status !== "draft")
+      .reduce((s, b) => s + (b.gst || 0), 0);
     const ownerCapital = ownerInvestments.reduce((s, o) => s + o.amount, 0);
     const partnerCapital = partnerTransactions.filter(t => t.type === "Investment").reduce((s, t) => s + t.amount, 0);
     const customerAdvances = payments.filter(p => p.notes?.toLowerCase().includes("advance")).reduce((s, p) => s + p.amount, 0);
@@ -195,16 +202,22 @@ const ChartOfAccounts = () => {
     }
 
     if (id === "sundry-creditors" || id === "trade-payables") {
-      const unpaid = vendorBills.filter(b => b.status !== "paid");
+      const unpaid = vendorBills.filter((b) => isVendorBillOpenPayable(b.status));
       return {
         title: "Sundry Creditors — Vendor Ledgers",
         kpis: [
-          { label: "Total Payable", value: formatINR(unpaid.reduce((s, b) => s + (b.total - b.amountPaid), 0)) },
+          { label: "Total Payable", value: formatINR(unpaid.reduce((s, b) => s + getVendorBillOpenBalance(b), 0)) },
           { label: "Unpaid Bills", value: unpaid.length.toString() },
           { label: "Vendors", value: new Set(unpaid.map(b => b.vendorName)).size.toString() },
         ],
         columns: ["Vendor", "Bill #", "Total", "Paid", "Outstanding"],
-        rows: unpaid.map(b => [b.vendorName, b.billNumber, formatINR(b.total), formatINR(b.amountPaid), formatINR(b.total - b.amountPaid)]),
+        rows: unpaid.map((b) => [
+          b.vendorName,
+          b.billNumber,
+          formatINR(b.total),
+          formatINR(b.amountPaid ?? 0),
+          formatINR(getVendorBillOpenBalance(b)),
+        ]),
       };
     }
 

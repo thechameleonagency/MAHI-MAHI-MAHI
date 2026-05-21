@@ -16,6 +16,7 @@ import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO
 import { formatINR } from "@/lib/formatCurrency";
 import { computeLedgerTotals } from "@/lib/audit/ledgerTotals";
 import { computeProfitLoss } from "@/lib/audit";
+import { sumBookableVendorBillsInPeriod } from "@/lib/vendorBillVoucherPosting";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/hooks/use-toast";
 import { Info } from "lucide-react";
@@ -66,7 +67,7 @@ const AuditDashboard = () => {
       (dateStr) => inRange(dateStr, range),
     );
     const gstCollected = periodInvoices.reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
-    const gstInput = vendorBills.filter(b => inRange(b.billDate, range)).reduce((s, b) => s + (b.gst || 0), 0);
+    const gstInput = sumBookableVendorBillsInPeriod(vendorBills, (d) => inRange(d, range), (b) => b.gst ?? 0);
     const gstPayable = gstCollected - gstInput;
     const pl = computeProfitLoss(
       {
@@ -236,8 +237,9 @@ const AuditDashboard = () => {
         <Info className="h-4 w-4" />
         <AlertTitle>Operational totals (prototype)</AlertTitle>
         <AlertDescription>
-          KPIs and charts roll up invoices, expenses, and vendor bills directly. Posted accounting vouchers are stored
-          separately and are not included in these figures — use Chart of Accounts for voucher posting rules.
+          KPIs and charts roll up invoices, expenses, and vendor bills directly. Payables and purchase COGS use
+          bookable vendor bills only (non-draft — same as Vendor detail and PurchaseBillBooked vouchers). Posted GL
+          vouchers are stored separately; use Chart of Accounts for voucher drill-down.
         </AlertDescription>
       </Alert>
 

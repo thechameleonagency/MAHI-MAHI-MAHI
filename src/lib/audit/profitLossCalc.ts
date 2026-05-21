@@ -4,6 +4,7 @@ import type { MaterialDamage } from "@/types/operations";
 import type { InventoryItem } from "@/types/project";
 import { expenseToAccountMapping } from "@/data/auditBooksMasters";
 import { getRevenueCashInPeriod } from "@/domain/finance/financialSemantics";
+import { sumBookableVendorBillsInPeriod } from "@/lib/vendorBillVoucherPosting";
 
 export type RevenueBasis = "accrual" | "cash";
 
@@ -110,7 +111,7 @@ export function computeProfitLoss(
     .reduce((s, i) => s + i.amount, 0);
 
   // ============ COGS (vendor bills + material damage) ============
-  const cogs = input.vendorBills.filter((b) => inPeriod(b.billDate)).reduce((s, b) => s + b.total, 0);
+  const cogs = sumBookableVendorBillsInPeriod(input.vendorBills, inPeriod);
   const damageWriteOff = (input.materialDamageRecords ?? [])
     .filter((d) => inPeriod(d.reportedAt))
     .reduce((s, d) => s + (d.costImpact ?? 0), 0);

@@ -1,5 +1,9 @@
 import type { Invoice } from "@/types/finance";
 import type { VendorBill } from "@/types/inventory";
+import {
+  isVendorBillBookable,
+  sumBookableVendorBillsInPeriod,
+} from "@/lib/vendorBillVoucherPosting";
 
 export interface GstSummary {
   outputGST: number;
@@ -27,10 +31,12 @@ export function computeGstSummary(
 ): GstSummary {
   const sales = [...invoices, ...saleBills].filter((inv) => inPeriod(inv.invoiceDate));
   const outputGST = sales.reduce((s, inv) => s + (inv.cgst || 0) + (inv.sgst || 0) + (inv.igst || 0), 0);
-  const purchases = vendorBills.filter((b) => inPeriod(b.billDate));
-  const inputGST = purchases.reduce((s, b) => s + (b.gst || 0), 0);
-  const reverseChargeCount = purchases.filter((b) =>
-    (b.notes ?? "").toLowerCase().includes("reverse charge"),
+  const inputGST = sumBookableVendorBillsInPeriod(vendorBills, inPeriod, (b) => b.gst ?? 0);
+  const reverseChargeCount = vendorBills.filter(
+    (b) =>
+      isVendorBillBookable(b.status) &&
+      inPeriod(b.billDate) &&
+      (b.notes ?? "").toLowerCase().includes("reverse charge"),
   ).length;
   return { outputGST, inputGST, netPayable: outputGST - inputGST, reverseChargeCount };
 }

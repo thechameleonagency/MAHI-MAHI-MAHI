@@ -1,6 +1,10 @@
 import type { Invoice, Payment } from "@/types/finance";
 import type { VendorBill } from "@/types/inventory";
 import { getInvoiceAmountReceived, getInvoiceOpenBalance } from "@/lib/billingSelectors";
+import {
+  getVendorBillOpenBalance,
+  isVendorBillOpenPayable,
+} from "@/lib/vendorBillVoucherPosting";
 import { differenceInDays, parseISO } from "date-fns";
 
 export type AgingBucketKey = "0-30" | "31-60" | "61-90" | "90+";
@@ -46,9 +50,9 @@ export function computeDebtorRows(
 
 export function computeCreditorRows(vendorBills: VendorBill[], asOf = new Date()) {
   return vendorBills
-    .filter((b) => b.status !== "paid")
+    .filter((b) => isVendorBillOpenPayable(b.status))
     .map((bill) => {
-      const outstanding = openBillBalance(bill);
+      const outstanding = getVendorBillOpenBalance(bill);
       const refDate = bill.dueDate ?? bill.billDate;
       const daysOverdue = refDate
         ? Math.max(0, differenceInDays(asOf, parseISO(refDate)))

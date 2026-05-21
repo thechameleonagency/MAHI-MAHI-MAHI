@@ -14,6 +14,7 @@ import {
 import { calculateProjectProfit as derivePartnerProfit } from "@/domain/partners/derivePartnerEconomics";
 import type { Expense, Invoice, Payment } from "@/types/finance";
 import type { VendorBill } from "@/types/inventory";
+import { sumVendorOpenPayables } from "@/lib/vendorBillVoucherPosting";
 import type { Project } from "@/types/project";
 import { resolveContractAmount } from "@/domain/quotation/quotationCommercialAmount";
 
@@ -108,11 +109,9 @@ export function getOutstandingReceivables(
     .reduce((s, inv) => s + getInvoiceOpenBalance(inv, payments), 0);
 }
 
-/** Accounts payable from vendor bills (matches Audit → Debtors & Creditors). */
+/** Accounts payable from bookable vendor bills (matches Vendor detail + GL voucher path). */
 export function getAccountsPayable(vendorBills: VendorBill[]): number {
-  return vendorBills
-    .filter((b) => b.status !== "paid")
-    .reduce((s, b) => s + Math.max(0, b.total - (b.amountPaid ?? 0)), 0);
+  return sumVendorOpenPayables(vendorBills);
 }
 
 /** Cash revenue split by whether the payment references an invoice or sale bill. */

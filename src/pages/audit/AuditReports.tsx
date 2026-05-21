@@ -15,6 +15,10 @@ import {
   debtorCreditorSummary,
 } from "@/lib/audit";
 import { getInvoiceAmountReceived } from "@/lib/billingSelectors";
+import {
+  getVendorBillOpenBalance,
+  isVendorBillOpenPayable,
+} from "@/lib/vendorBillVoucherPosting";
 
 const AuditReports = () => {
   const {
@@ -142,11 +146,11 @@ const AuditReports = () => {
       title: "Creditors Report",
       description: "Outstanding payables to vendors",
       icon: Scale,
-      records: vendorBills.filter(b => b.status !== "paid").length,
+      records: vendorBills.filter((b) => isVendorBillOpenPayable(b.status)).length,
       onExport: () => downloadCSV(
-        vendorBills.filter(b => b.status !== "paid").map(b => ({
+        vendorBills.filter((b) => isVendorBillOpenPayable(b.status)).map((b) => ({
           Vendor: b.vendorName || `Vendor ${b.vendorId}`, "Bill #": b.billNumber,
-          Total: b.total, Paid: b.amountPaid, Outstanding: b.total - b.amountPaid,
+          Total: b.total, Paid: b.amountPaid ?? 0, Outstanding: getVendorBillOpenBalance(b),
           "Due Date": b.dueDate || "", Status: b.status,
         })), "creditors_report"),
     },
