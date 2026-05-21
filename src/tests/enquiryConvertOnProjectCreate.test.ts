@@ -205,6 +205,102 @@ describe("enquiry convert on project create (FC1 / C1)", () => {
     expect(next.enquiries[0].customerId).toBe("C-APP");
   });
 
+  it("CREATE_PROJECT_FROM_QUOTATION closes linked enquiry still in new (fast-track)", async () => {
+    const repositories = emptyRepos();
+    const bus = new CommandBus();
+    const audit = new AuditService({ auditRepository: repositories.auditRepository });
+    registerEnquiryCommands(bus, repositories, new PermissionService(), audit);
+    registerProjectCommands(bus, repositories, new PermissionService(), audit);
+
+    const enquiry: Enquiry = {
+      id: "ENQ-NEW",
+      customerName: "Fast Track",
+      customerPhone: "9000000011",
+      customerEmail: "",
+      customerAddress: "Delhi",
+      customerType: "individual",
+      source: "phone",
+      systemCapacity: "5 kW",
+      estimatedBudget: 250000,
+      requirements: "",
+      status: "new",
+      priority: "medium",
+      assignedTo: "",
+      createdAt: "2026-05-01",
+      updatedAt: "2026-05-01",
+      notes: [],
+    };
+    repositories.enquiryRepository.add(enquiry);
+
+    const quotation: Quotation = {
+      id: "Q-NEW",
+      quotationNumber: "Q-NEW-1",
+      status: "approved",
+      enquiryId: "ENQ-NEW",
+      clientName: enquiry.customerName,
+      clientPhone: enquiry.customerPhone,
+      clientCity: "Delhi",
+      clientState: "DL",
+      systemCapacity: "5",
+      totalAmount: 260000,
+      clientAgreedAmount: 255000,
+      paymentType: "cash",
+      createdAt: "2026-05-03",
+      customerId: "C-new",
+    };
+    repositories.quotationRepository.add(quotation);
+    repositories.customerRepository.add({
+      id: "C-new",
+      name: enquiry.customerName,
+      phone: enquiry.customerPhone,
+      email: "",
+      address: enquiry.customerAddress,
+      type: "individual",
+      itemsBought: [],
+      totalPurchases: 0,
+      createdAt: "2026-05-01",
+    });
+
+    const project: Project = {
+      id: "P-NEW",
+      name: "Fast Track 5kW",
+      client: enquiry.customerName,
+      customerId: "C-new",
+      quotationId: "Q-NEW",
+      lifecycleStatus: "New",
+      projectType: "Residential",
+      projectCategory: "solar",
+      capacity: "5",
+      location: "Delhi",
+      contractAmount: 255000,
+      amountReceived: 0,
+      startDate: "2026-05-10",
+      type: "EPC",
+      projectKind: "SOLO_EPC",
+      assignees: [],
+      onSite: 0,
+      totalCost: 0,
+      photos: 0,
+      createdAt: "2026-05-10",
+    } as Project;
+
+    const result = await bus.execute({
+      type: CREATE_PROJECT_FROM_QUOTATION_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: {
+        quotationId: "Q-NEW",
+        projectName: project.name,
+        intake,
+        project,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(repositories.enquiryRepository.getById("ENQ-NEW")?.status).toBe("converted");
+    expect(repositories.quotationRepository.getById("Q-NEW")?.status).toBe("converted_to_project");
+  });
+
   it("CREATE_PROJECT_INTAKE with quotationId closes linked enquiry", async () => {
     const repositories = emptyRepos();
     const bus = new CommandBus();

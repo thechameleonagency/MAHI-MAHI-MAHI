@@ -25,6 +25,10 @@ export function canConvertEnquiryOnPipelineWin(from: EnquiryStatus): boolean {
   if (from === "meeting_scheduled") {
     return true;
   }
+  // Quotation/project won but enquiry never advanced past "new" (common in fast-track demos).
+  if (from === "new") {
+    return true;
+  }
   return false;
 }
 

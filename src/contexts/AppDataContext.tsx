@@ -64,6 +64,7 @@ import {
   type QuotationShareInput,
 } from "@/lib/quotationShareContinuity";
 import { applyTaskCompletionToTimeline } from "@/lib/progressReportTaskContinuity";
+import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
 import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate, stripOrphanChecklistInventoryRefs } from "@/lib/siteChecklist";
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
 import { resolveAuditActorUserName } from "@/lib/resolveAuditActorUserName";
@@ -1086,7 +1087,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         setState((prev) => {
           const nextProjects = (repositories.projectRepository.getAll() as Project[]).map(normalizeProject);
           const created = projectId ? nextProjects.find((p) => p.id === projectId) : undefined;
-          return {
+          return reconcileEnquiriesConvertedOnProjectLink({
             ...prev,
             projects: nextProjects,
             quotations: repositories.quotationRepository.getAll() as Quotation[],
@@ -1101,7 +1102,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
                   created.agentId,
                 )
               : prev.agentCommissionAccruals,
-          };
+          });
         });
         return { ok: true, projectId };
       } catch (e) {
@@ -1135,7 +1136,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         setState((prev) => {
           const nextProjects = (repositories.projectRepository.getAll() as Project[]).map(normalizeProject);
           const created = projectId ? nextProjects.find((p) => p.id === projectId) : undefined;
-          return {
+          return reconcileEnquiriesConvertedOnProjectLink({
             ...prev,
             projects: nextProjects,
             quotations: repositories.quotationRepository.getAll() as Quotation[],
@@ -1150,7 +1151,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
                   created.agentId,
                 )
               : prev.agentCommissionAccruals,
-          };
+          });
         });
         return { ok: true, projectId };
       } catch (e) {
