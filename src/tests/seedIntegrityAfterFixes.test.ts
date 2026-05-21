@@ -20,6 +20,7 @@ import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive
 import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToGetSync";
 import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
 import { findStaleClientPaymentLedgerLinkage } from "@/lib/clientPaymentReconciliation";
+import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
 
 const DRIFT_EPS = 1;
 
@@ -156,15 +157,12 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(parseFloat(stats.totalKW)).toBeGreaterThan(0);
   });
 
-  it("enquiry assignees use member id and resolved display name", () => {
+  it("enquiry assignees use member id and resolved display name (ER1)", () => {
     const { state } = buildBusinessSeed("smoke");
-    const members = new Map(state.settingsTeamMembers.map((m) => [m.id, m.name]));
-    const bad = state.enquiries.filter((e) => {
-      if (!e.assignedToMemberId?.trim()) return Boolean(e.assignedTo?.trim());
-      const name = members.get(e.assignedToMemberId);
-      return !name || e.assignedTo !== name;
-    });
-    expect(bad.slice(0, 5).map((e) => e.id)).toEqual([]);
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(
+      findStaleEnquiryAssigneeState(hydrated.enquiries, hydrated.settingsTeamMembers),
+    ).toEqual([]);
   });
 
   it("no stale open enquiry after quotation approve on hydrated seed (FC2)", () => {

@@ -173,7 +173,8 @@ import {
 import { validateMaterialDamageForm } from "@/lib/materialDamageValidation";
 import { sanitizePhotoUrlList } from "@/lib/photoUrlLines";
 import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
-import { normalizeEnquiryAssignmentPatch } from "@/lib/enquiryAssignee";
+import { normalizeEnquiryAssignmentPatch, normalizeEnquiryRecord } from "@/lib/enquiryAssignee";
+import { setEnquiryCommandTeamMembers } from "@/lib/enquiryCommandTeamMembers";
 import {
   MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
   WAREHOUSE_INVENTORY_MOVEMENT_COMMAND,
@@ -840,6 +841,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     syncPrototypeRepositoriesFromAppState(state, repositories);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount hydration only
   }, [repositories]);
+
+  useEffect(() => {
+    setEnquiryCommandTeamMembers(state.settingsTeamMembers);
+  }, [state.settingsTeamMembers]);
 
   /**
    * C3 boot replay — see `customerInflowWritePaths.ts` and `clientPaymentReconciliation.ts`.
@@ -3306,11 +3311,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: `Role ${actorRole} is not allowed to create enquiries` };
       }
       try {
+        const normalized = normalizeEnquiryRecord(enquiry, state.settingsTeamMembers);
         const result = await runCommand({
           type: CREATE_ENQUIRY_COMMAND,
           actorUserId,
           actorRole,
-          payload: { enquiry },
+          payload: { enquiry: normalized },
         });
         if (!result.ok) {
           return { ok: false, error: (result as { message: string }).message };
@@ -3326,7 +3332,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: message };
       }
     },
-    [actorRole, commandBus, permissionService, repositories, state.enquiries],
+    [actorRole, commandBus, permissionService, repositories, state.enquiries, state.settingsTeamMembers],
   );
   
   const updateEnquiry = useCallback(

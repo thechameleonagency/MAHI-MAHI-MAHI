@@ -6,6 +6,7 @@ import { createPrototypeRepositoryContext } from "@/infrastructure/repositories/
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
 import { runMigrations } from "@/infrastructure/migrations/migrationManager";
 import { registerEnquiryCommands } from "@/application/commands/enquiry/registerEnquiryCommands";
+import { getEnquiryCommandTeamMembers } from "@/lib/enquiryCommandTeamMembers";
 import { registerQuotationCommands } from "@/application/commands/quotation/registerQuotationCommands";
 import { registerProjectCommands } from "@/application/commands/project/registerProjectCommands";
 import { registerInventoryCommands } from "@/application/commands/inventory/registerInventoryCommands";
@@ -27,7 +28,9 @@ export const FoundationProvider = ({ children }: { children: ReactNode }) => {
     const commandBus = new CommandBus();
     const permissionService = new PermissionService();
     const auditService = new AuditService({ auditRepository: repositories.auditRepository });
-    registerEnquiryCommands(commandBus, repositories, permissionService, auditService);
+    registerEnquiryCommands(commandBus, repositories, permissionService, auditService, {
+      getTeamMembers: getEnquiryCommandTeamMembers,
+    });
     registerQuotationCommands(commandBus, repositories, permissionService, auditService);
     registerProjectCommands(commandBus, repositories, permissionService, auditService);
     registerInventoryCommands(commandBus, repositories, permissionService, auditService);

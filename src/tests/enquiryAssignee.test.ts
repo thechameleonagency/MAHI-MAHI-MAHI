@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { buildBusinessSeed } from "@/data/seed/buildBusinessSeed";
+import { applyAppStateHydrationPipeline } from "@/lib/appDataStorage";
 import {
   buildEnquiryAssignmentFromMemberId,
   getEnquiryAssigneeDisplayName,
   normalizeEnquiryAssignmentPatch,
   reconcileEnquiryAssignees,
+  findStaleEnquiryAssigneeState,
 } from "@/lib/enquiryAssignee";
 import { filterEnquiriesForList } from "@/lib/enquiryListFilters";
 import { isProjectVisibleToSalesperson } from "@/lib/projectActorScope";
@@ -62,6 +65,41 @@ describe("enquiryAssignee (MD2)", () => {
     ];
     const filtered = filterEnquiriesForList(rows, { assigneeFilter: "SAL-001" });
     expect(filtered.map((e) => e.id)).toEqual(["E1"]);
+  });
+
+  it("findStaleEnquiryAssigneeState flags name-only legacy rows", () => {
+    const stale = findStaleEnquiryAssigneeState(
+      [
+        {
+          id: "ENQ-1",
+          customerName: "A",
+          customerPhone: "1",
+          customerEmail: "a@b.com",
+          customerAddress: "x",
+          customerType: "company",
+          systemCapacity: "5 kW",
+          estimatedBudget: 1000,
+          requirements: "",
+          status: "new",
+          source: "phone",
+          priority: "low",
+          assignedTo: "Priya Nair",
+          createdAt: "2026-01-01",
+          updatedAt: "2026-01-01",
+          notes: [],
+        },
+      ],
+      members,
+    );
+    expect(stale).toEqual([{ enquiryId: "ENQ-1", reason: "name_without_member_id" }]);
+  });
+
+  it("hydrated smoke seed has no stale enquiry assignees (ER1)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(
+      findStaleEnquiryAssigneeState(hydrated.enquiries, hydrated.settingsTeamMembers),
+    ).toEqual([]);
   });
 
   it("project scope uses assignedToMemberId", () => {

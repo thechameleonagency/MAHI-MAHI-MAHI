@@ -6,8 +6,10 @@ import type { PermissionService } from "@/application/services/PermissionService
 import { assertCommandPermission } from "@/application/commands/commandPermission";
 import type { AuditService } from "@/application/services/AuditService";
 import type { Command } from "@/application/commands/types";
-import type { Enquiry } from "@/types/project";
+import type { Enquiry, SettingsTeamMember } from "@/types/project";
 import { executeEnquiryConversion } from "@/lib/enquiryConversionAtProjectWin";
+import { normalizeEnquiryAssignmentPatch, normalizeEnquiryRecord } from "@/lib/enquiryAssignee";
+import { getEnquiryCommandTeamMembers } from "@/lib/enquiryCommandTeamMembers";
 import { sanitizeEnquiryPatch } from "@/lib/enquiryPatchPolicy";
 
 type UpdateEnquiryStatusPayload = {
@@ -34,17 +36,23 @@ export const UPDATE_ENQUIRY_COMMAND = "enquiry.update";
 export const CREATE_ENQUIRY_COMMAND = "enquiry.create";
 export const CONVERT_ENQUIRY_COMMAND = "enquiry.convert";
 
+export type EnquiryCommandOptions = {
+  getTeamMembers?: () => SettingsTeamMember[];
+};
+
 export const registerEnquiryCommands = (
   commandBus: CommandBus,
   repositories: AppRepositoryContext,
   permissionService: PermissionService,
   auditService: AuditService,
+  options?: EnquiryCommandOptions,
 ): void => {
+  const resolveMembers = () => options?.getTeamMembers?.() ?? getEnquiryCommandTeamMembers();
   commandBus.register<Command<CreateEnquiryPayload>, { enquiryId: string }>(
     CREATE_ENQUIRY_COMMAND,
     (command) => {
       assertCommandPermission(permissionService, command, "enquiry:create");
-      const { enquiry } = command.payload;
+      const enquiry = normalizeEnquiryRecord(command.payload.enquiry, resolveMembers());
       if (repositories.enquiryRepository.getById(enquiry.id)) {
         return {
           ok: false,
@@ -91,10 +99,13 @@ export const registerEnquiryCommands = (
         };
       }
 
-      const patch = {
-        ...sanitized.patch,
-        updatedAt: sanitized.patch.updatedAt ?? new Date().toISOString(),
-      };
+      const patch = normalizeEnquiryAssignmentPatch(
+        {
+          ...sanitized.patch,
+          updatedAt: sanitized.patch.updatedAt ?? new Date().toISOString(),
+        },
+        resolveMembers(),
+      );
 
       repositories.enquiryRepository.update(enquiry.id, patch);
 

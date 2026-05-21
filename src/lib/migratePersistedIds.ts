@@ -77,7 +77,12 @@ function walk(obj: unknown): unknown {
       out[key] = typeof val === "number" ? `V${pad(val)}` : val;
       continue;
     }
-    if (key === "memberIds" || key === "assignees" || key === "teamMealEmployeeIds" || key === "assignedTo") {
+    if (key === "memberIds" || key === "assignees" || key === "teamMealEmployeeIds") {
+      out[key] = mapArray(val, (v) => mapId(v, "emp"));
+      continue;
+    }
+    // Project.assignees is string[]; enquiry.assignedTo is a display name string (ER1).
+    if (key === "assignedTo" && Array.isArray(val)) {
       out[key] = mapArray(val, (v) => mapId(v, "emp"));
       continue;
     }

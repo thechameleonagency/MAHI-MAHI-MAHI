@@ -123,11 +123,15 @@ describe("Enquiry commands", () => {
   it("UpdateEnquiry writes field-diff audit rows and rejects status in patch", async () => {
     const repositories = emptyRepos();
     const bus = new CommandBus();
+    const teamMembers = [
+      { id: "SAL-001", name: "Priya Nair", email: "p@mss.solar", role: "salesperson", status: "Active" },
+    ];
     registerEnquiryCommands(
       bus,
       repositories,
       new PermissionService(),
       new AuditService({ auditRepository: repositories.auditRepository }),
+      { getTeamMembers: () => teamMembers },
     );
     repositories.enquiryRepository.add(baseEnquiry({ assignedTo: "", priority: "low" }));
 

@@ -20,6 +20,7 @@ import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinui
 import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
 import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToGetSync";
 import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
+import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 
@@ -196,6 +197,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleProcurementNeedLines(state)) {
     errors.push(`FC9: procurement line ${stale.lineKey} — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleEnquiryAssigneeState(state.enquiries, state.settingsTeamMembers)) {
+    errors.push(`ER1: enquiry ${stale.enquiryId} — ${stale.reason}`);
   }
 
   for (const stale of findStaleClientPaymentLedgerLinkage({

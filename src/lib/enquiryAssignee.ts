@@ -109,17 +109,12 @@ export function reconcileEnquiryAssignees(state: AppState): AppState {
   const members = state.settingsTeamMembers;
   if (!members.length) return state;
 
-  const salesMembers = getActiveSalesTeamMembers(members);
   let changed = false;
 
-  const enquiries = state.enquiries.map((enquiry, i) => {
+  const enquiries = state.enquiries.map((enquiry) => {
     let memberId =
       enquiry.assignedToMemberId?.trim() ||
       resolveMemberIdFromLegacyValue(enquiry.assignedTo, members);
-
-    if (!memberId && salesMembers.length > 0) {
-      memberId = salesMembers[i % salesMembers.length]?.id;
-    }
 
     const assignment = memberId
       ? buildEnquiryAssignmentFromMemberId(memberId, members)
@@ -135,4 +130,63 @@ export function reconcileEnquiryAssignees(state: AppState): AppState {
   });
 
   return changed ? { ...state, enquiries } : state;
+}
+
+export type StaleEnquiryAssignee = {
+  enquiryId: string;
+  reason:
+    | "name_without_member_id"
+    | "display_name_mismatch"
+    | "unknown_member_id"
+    | "legacy_name_unresolvable";
+};
+
+/** ER1 — enquiry↔salesperson must use assignedToMemberId + denormalized display name. */
+export function findStaleEnquiryAssigneeState(
+  enquiries: Enquiry[],
+  members: SettingsTeamMember[],
+): StaleEnquiryAssignee[] {
+  const stale: StaleEnquiryAssignee[] = [];
+  const memberById = new Map(members.map((m) => [m.id, m]));
+
+  for (const enquiry of enquiries) {
+    const memberId = enquiry.assignedToMemberId?.trim();
+    const display = enquiry.assignedTo?.trim();
+
+    if (!memberId && display) {
+      const resolved = resolveMemberIdFromLegacyValue(display, members);
+      if (!resolved) {
+        stale.push({ enquiryId: enquiry.id, reason: "legacy_name_unresolvable" });
+      } else {
+        stale.push({ enquiryId: enquiry.id, reason: "name_without_member_id" });
+      }
+      continue;
+    }
+
+    if (memberId && !memberById.has(memberId)) {
+      stale.push({ enquiryId: enquiry.id, reason: "unknown_member_id" });
+      continue;
+    }
+
+    if (memberId) {
+      const expected = memberById.get(memberId)?.name ?? "";
+      if (display && display !== expected) {
+        stale.push({ enquiryId: enquiry.id, reason: "display_name_mismatch" });
+      }
+      if (!display && expected) {
+        stale.push({ enquiryId: enquiry.id, reason: "display_name_mismatch" });
+      }
+    }
+  }
+
+  return stale;
+}
+
+/** Normalize assignment fields on a full enquiry row before persistence. */
+export function normalizeEnquiryRecord(
+  enquiry: Enquiry,
+  members: SettingsTeamMember[],
+): Enquiry {
+  const patch = normalizeEnquiryAssignmentPatch(enquiry, members);
+  return { ...enquiry, ...patch };
 }
