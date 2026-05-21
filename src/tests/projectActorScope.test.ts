@@ -75,8 +75,18 @@ describe("projectActorScope", () => {
         { id: "Q-2", enquiryId: "E-2" } as import("@/types/project").Quotation,
       ],
       enquiries: [
-        { id: "E-1", assignedTo: "SAL-001", customerName: "A" } as import("@/types/project").Enquiry,
-        { id: "E-2", assignedTo: "SAL-002", customerName: "B" } as import("@/types/project").Enquiry,
+        {
+          id: "E-1",
+          assignedToMemberId: "SAL-001",
+          assignedTo: "Priya Nair",
+          customerName: "A",
+        } as import("@/types/project").Enquiry,
+        {
+          id: "E-2",
+          assignedToMemberId: "SAL-002",
+          assignedTo: "Deepa Sharma",
+          customerName: "B",
+        } as import("@/types/project").Enquiry,
       ],
       teams,
       employees,

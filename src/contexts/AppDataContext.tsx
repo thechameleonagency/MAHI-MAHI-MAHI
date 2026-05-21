@@ -162,6 +162,7 @@ import {
 import { validateMaterialDamageForm } from "@/lib/materialDamageValidation";
 import { sanitizePhotoUrlList } from "@/lib/photoUrlLines";
 import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
+import { normalizeEnquiryAssignmentPatch } from "@/lib/enquiryAssignee";
 import {
   MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
   WAREHOUSE_INVENTORY_MOVEMENT_COMMAND,
@@ -3228,12 +3229,14 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
       repositories.enquiryRepository.replaceAll(state.enquiries);
 
+      const patch = normalizeEnquiryAssignmentPatch(updates, state.settingsTeamMembers);
+
       try {
         const result = await runCommand({
           type: UPDATE_ENQUIRY_COMMAND,
           actorUserId,
           actorRole,
-          payload: { enquiryId: id, patch: updates },
+          payload: { enquiryId: id, patch },
         });
 
         if (!result.ok) {
@@ -3245,7 +3248,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           ...prev,
           enquiries: updated
             ? prev.enquiries.map((e) => (e.id === id ? (updated as Enquiry) : e))
-            : prev.enquiries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+            : prev.enquiries.map((e) => (e.id === id ? { ...e, ...patch } : e)),
           auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
         }));
 
@@ -3264,6 +3267,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       roleMatrixOverride,
       runCommand,
       state.enquiries,
+      state.settingsTeamMembers,
     ],
   );
   

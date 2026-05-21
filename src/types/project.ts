@@ -783,7 +783,10 @@ export interface Enquiry {
   requirements: string;
   status: "new" | "meeting_scheduled" | "quotation_sent" | "quotation_rejected" | "converted" | "lost";
   priority: "low" | "medium" | "high";
+  /** Denormalized salesperson display name (resolved from `assignedToMemberId`). */
   assignedTo: string;
+  /** FK to settingsTeamMembers.id for lead ownership and row-level project scope. */
+  assignedToMemberId?: string;
   meetingDate?: string;
   meetingNotes?: string;
   followUpDate?: string;

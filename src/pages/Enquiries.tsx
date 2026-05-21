@@ -63,6 +63,12 @@ import {
   isEnquiryOpenPipelineFilterActive,
 } from "@/lib/enquiryListFilters";
 import {
+  buildEnquiryAssignmentFromMemberId,
+  enquiryHasAssignee,
+  getActiveSalesTeamMembers,
+  getEnquiryAssigneeDisplayName,
+} from "@/lib/enquiryAssignee";
+import {
   buildAgentToEnquiryDraft,
   buildEnquiryToQuotationDraft,
   parseCreateFromParam,
@@ -115,6 +121,7 @@ const Enquiries = () => {
     transitionEnquiryStatus,
     convertEnquiryToCustomer,
     employees,
+    settingsTeamMembers,
     agents,
     generateId: _generateId,
     customers,
@@ -125,6 +132,11 @@ const Enquiries = () => {
   const canUpdateEnquiry = useCan("enquiry", "create");
   const canCreateQuotation = useCan("quotation", "create");
   const canReopenLost = canReopenLostEnquiry(currentRole);
+
+  const salesAssignees = useMemo(
+    () => getActiveSalesTeamMembers(settingsTeamMembers),
+    [settingsTeamMembers],
+  );
 
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
   // Default to open pipeline so converted/lost enquiries don't clutter the list (audit B12).
@@ -251,9 +263,6 @@ const Enquiries = () => {
       return n;
     }, { replace: true });
   }, [searchParams, agents, setSearchParams]);
-
-  // Get employee list for assignment
-  const _assignableEmployees = employees.map(e => ({ id: e.id, name: e.name }));
 
   const resetCreateForm = () => {
     clearCreateDraft();
@@ -485,9 +494,9 @@ const formatCapacityInput = (capacity: string) => {
   const handleAssign = async () => {
     if (!selectedEnquiry || !assignTo) return;
     
-    const result = await updateEnquiry(selectedEnquiry.id, { 
-      assignedTo: assignTo, 
-      updatedAt: new Date().toISOString().split('T')[0] 
+    const result = await updateEnquiry(selectedEnquiry.id, {
+      ...buildEnquiryAssignmentFromMemberId(assignTo, settingsTeamMembers),
+      updatedAt: new Date().toISOString().split("T")[0],
     });
     if (!result.ok) {
       toast({
@@ -503,7 +512,11 @@ const formatCapacityInput = (capacity: string) => {
     
     setIsAssignOpen(false);
     setAssignTo("");
-    toast({ title: "Assigned", description: `Enquiry assigned to ${assignTo}` });
+    const assigneeName = getEnquiryAssigneeDisplayName(
+      buildEnquiryAssignmentFromMemberId(assignTo, settingsTeamMembers),
+      settingsTeamMembers,
+    );
+    toast({ title: "Assigned", description: `Enquiry assigned to ${assigneeName || assignTo}` });
   };
 
   const handleAddNote = async () => {
@@ -799,8 +812,8 @@ const formatCapacityInput = (capacity: string) => {
                 <SelectContent>
                   <SelectItem value="all">All Assignees</SelectItem>
                   <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {employees.map(emp => (
-                    <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
+                  {salesAssignees.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -970,7 +983,9 @@ const formatCapacityInput = (capacity: string) => {
                   <TableCell className="font-medium">{enquiry.systemCapacity || "—"}</TableCell>
                   <TableCell className="text-primary font-medium">{formatCurrency(enquiry.estimatedBudget)}</TableCell>
                   <TableCell >
-                    {enquiry.assignedTo || <span className="text-warning">Unassigned</span>}
+                    {getEnquiryAssigneeDisplayName(enquiry, settingsTeamMembers) || (
+                      <span className="text-warning">Unassigned</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground whitespace-nowrap">
                     {enquiry.followUpDate
@@ -1539,10 +1554,13 @@ const formatCapacityInput = (capacity: string) => {
                       variant="outline"
                       size="sm"
                       disabled={selectedEnquiry.status === "converted" || selectedEnquiry.status === "lost"}
-                      onClick={() => setIsAssignOpen(true)}
+                      onClick={() => {
+                        setAssignTo(selectedEnquiry.assignedToMemberId ?? "");
+                        setIsAssignOpen(true);
+                      }}
                     >
                       <UserPlus className="h-4 w-4 mr-2" />
-                      {selectedEnquiry.assignedTo ? "Reassign" : "Assign Lead"}
+                      {enquiryHasAssignee(selectedEnquiry) ? "Reassign" : "Assign Lead"}
                     </Button>
                     {(selectedEnquiry.status === "new" || selectedEnquiry.status === "meeting_scheduled") && (
                       <Button
@@ -1765,8 +1783,8 @@ const formatCapacityInput = (capacity: string) => {
                   <SelectValue placeholder="Select person" />
                 </SelectTrigger>
                 <SelectContent>
-                  {employees.map(emp => (
-                    <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
+                  {salesAssignees.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

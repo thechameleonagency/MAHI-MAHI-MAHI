@@ -53,8 +53,9 @@ export function filterEnquiriesForList(
     const matchesPriority = priorityFilter === "all" || e.priority === priorityFilter;
     const matchesAssignee =
       assigneeFilter === "all" ||
+      e.assignedToMemberId === assigneeFilter ||
       e.assignedTo === assigneeFilter ||
-      (assigneeFilter === "unassigned" && !e.assignedTo);
+      (assigneeFilter === "unassigned" && !e.assignedToMemberId && !e.assignedTo?.trim());
     const hideArchived = statusFilter === "all" ? !e.archivedAt : true;
     const matchesFollowUp =
       followUpFilter !== "overdue" || matchesEnquiryFollowUpOverdue(e);

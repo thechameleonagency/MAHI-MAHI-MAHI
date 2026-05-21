@@ -137,12 +137,17 @@ describe("Enquiry commands", () => {
       actorRole: "admin",
       payload: {
         enquiryId: "ENQ-TEST-001",
-        patch: { assignedTo: "SAL-001", priority: "high" },
+        patch: {
+          assignedToMemberId: "SAL-001",
+          assignedTo: "Priya Nair",
+          priority: "high",
+        },
       },
     });
     expect(updated.ok).toBe(true);
     const stored = repositories.enquiryRepository.getById("ENQ-TEST-001");
-    expect(stored?.assignedTo).toBe("SAL-001");
+    expect(stored?.assignedToMemberId).toBe("SAL-001");
+    expect(stored?.assignedTo).toBe("Priya Nair");
     expect(stored?.priority).toBe("high");
     const audits = repositories.auditRepository.getAll();
     expect(audits.some((a) => a.field === "assignedTo")).toBe(true);

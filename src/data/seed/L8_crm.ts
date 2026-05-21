@@ -5,6 +5,7 @@ import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt, SEED_REFERENCE_TODAY } from "./seedTimeModel";
 import { phoneNumber, emailFor, addressAt, companyName, personName } from "./seedNames";
 import { CAPACITIES_KW, contractForCapacity, countFor, pushAudit, roundInr } from "./seedHelpers";
+import { buildEnquiryAssignmentFromMemberId } from "@/lib/enquiryAssignee";
 import { normalizeTeamMemberStatus } from "@/lib/seedSessionBootstrap";
 
 const ENQUIRY_STATUSES: Enquiry["status"][] = [
@@ -50,7 +51,10 @@ export function buildL8Crm(state: AppState, profile: SeedProfile): AppState {
       status,
       source: (["website", "phone", "referral", "walk-in", "social-media", "other"] as const)[i % 6],
       priority: (["high", "medium", "low"] as const)[i % 3],
-      assignedTo: salesMembers[i % Math.max(salesMembers.length, 1)]?.id ?? "SAL-001",
+      ...buildEnquiryAssignmentFromMemberId(
+        salesMembers[i % Math.max(salesMembers.length, 1)]?.id ?? "SAL-001",
+        state.settingsTeamMembers,
+      ),
       followUpDate:
         status === "quotation_sent" && i % 5 === 0
           ? seedDayAt(0.75)

@@ -86,6 +86,17 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(Math.abs(ledger.revenueCollected - cashIn)).toBeLessThanOrEqual(DRIFT_EPS);
   });
 
+  it("enquiry assignees use member id and resolved display name", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const members = new Map(state.settingsTeamMembers.map((m) => [m.id, m.name]));
+    const bad = state.enquiries.filter((e) => {
+      if (!e.assignedToMemberId?.trim()) return Boolean(e.assignedTo?.trim());
+      const name = members.get(e.assignedToMemberId);
+      return !name || e.assignedTo !== name;
+    });
+    expect(bad.slice(0, 5).map((e) => e.id)).toEqual([]);
+  });
+
   it("no open enquiry remains when linked quotation is approved with customer", () => {
     const { state } = buildBusinessSeed("smoke");
     const mismatches = state.quotations

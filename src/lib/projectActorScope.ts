@@ -73,8 +73,13 @@ function enquiryOwnedByActor(
   actorMemberId: string,
   actorDisplayName?: string,
 ): boolean {
-  if (!enquiry?.assignedTo?.trim()) return false;
-  const assigned = enquiry.assignedTo.trim();
+  if (!enquiry) return false;
+  const memberId = enquiry.assignedToMemberId?.trim();
+  if (memberId) {
+    return memberId === actorMemberId;
+  }
+  const assigned = enquiry.assignedTo?.trim();
+  if (!assigned) return false;
   if (assigned === actorMemberId) return true;
   if (actorDisplayName && assigned === actorDisplayName) return true;
   return false;
