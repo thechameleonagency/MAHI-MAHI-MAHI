@@ -72,7 +72,7 @@ import {
   filterProjectsForActor,
 } from "@/lib/projectActorScope";
 import {
-  countProjectsByLifecycle,
+  buildProjectsListKpiStats,
   matchesProjectLifecycleFilter,
   parseProjectStatusFilterFromUrl,
   PROJECT_LIFECYCLE_FILTER_OPTIONS,
@@ -318,20 +318,10 @@ const Projects = () => {
   );
   const canAccessActiveSites = permissionService.canAccessPath(currentRole, "/active-sites");
 
-  const lifecycleCounts = useMemo(
-    () => countProjectsByLifecycle(scopedProjects),
+  const stats = useMemo(
+    () => buildProjectsListKpiStats(scopedProjects),
     [scopedProjects],
   );
-
-  const stats = {
-    total: lifecycleCounts.all,
-    new: lifecycleCounts.New,
-    inProgress: lifecycleCounts["In Progress"],
-    completed: lifecycleCounts.Completed,
-    onHold: lifecycleCounts["On Hold"],
-    closed: lifecycleCounts.Closed,
-    totalKW: scopedProjects.reduce((sum, p) => sum + (parseFloat(p.capacity) || 0), 0).toFixed(1),
-  };
 
   const resetDirectExForm = () => {
     setDexName("");

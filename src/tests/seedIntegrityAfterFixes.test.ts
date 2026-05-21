@@ -5,7 +5,11 @@ import { projectBillingDrift } from "@/lib/billingSelectors";
 import { getOutstandingReceivables } from "@/domain/finance/financialSemantics";
 import { computeLedgerTotals } from "@/lib/audit/ledgerTotals";
 import { getCashRevenue } from "@/lib/billingSelectors";
-import { matchesProjectLifecycleFilter } from "@/lib/projectListFilters";
+import {
+  buildProjectsListKpiStats,
+  countProjectsByLifecycle,
+  matchesProjectLifecycleFilter,
+} from "@/lib/projectListFilters";
 
 const DRIFT_EPS = 1;
 
@@ -107,6 +111,20 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(newProjects.length).toBeGreaterThan(0);
     expect(newProjects.every((p) => matchesProjectLifecycleFilter(p, "New"))).toBe(true);
     expect(newProjects.every((p) => !p.startedAt)).toBe(true);
+  });
+
+  it("projects list KPI stats match lifecycle buckets on hydrated seed (MN2)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const counts = countProjectsByLifecycle(hydrated.projects);
+    const stats = buildProjectsListKpiStats(hydrated.projects);
+    expect(stats.total).toBe(counts.all);
+    expect(stats.new).toBe(counts.New);
+    expect(stats.inProgress).toBe(counts["In Progress"]);
+    expect(stats.onHold).toBe(counts["On Hold"]);
+    expect(stats.completed).toBe(counts.Completed);
+    expect(stats.closed).toBe(counts.Closed);
+    expect(parseFloat(stats.totalKW)).toBeGreaterThan(0);
   });
 
   it("enquiry assignees use member id and resolved display name", () => {

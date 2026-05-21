@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildProjectsListKpiStats,
   countProjectsByLifecycle,
   matchesProjectLifecycleFilter,
   parseProjectStatusFilterFromUrl,
@@ -80,5 +81,27 @@ describe("projectListFilters (MD3)", () => {
     expect(counts["In Progress"]).toBe(1);
     expect(counts["On Hold"]).toBe(1);
     expect(counts.all).toBe(3);
+  });
+
+  it("buildProjectsListKpiStats ignores stale legacy Ongoing status on New intake (MN2)", () => {
+    const rows = [
+      base({ id: "P-NEW", lifecycleStatus: "New", status: "Ongoing", capacity: "10" }),
+      base({
+        id: "P-IP",
+        lifecycleStatus: "In Progress",
+        status: "Ongoing",
+        startedAt: "2026-02-01",
+        progressStage: "work-in-progress",
+        capacity: "5",
+      }),
+    ];
+    const stats = buildProjectsListKpiStats(rows);
+    expect(stats.new).toBe(1);
+    expect(stats.inProgress).toBe(1);
+    expect(stats.total).toBe(2);
+    expect(stats.totalKW).toBe("15.0");
+    expect(
+      rows.filter((p) => p.status === "Ongoing").length,
+    ).toBe(2);
   });
 });

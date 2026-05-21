@@ -70,3 +70,17 @@ export function countProjectsByLifecycle(
   }
   return counts;
 }
+
+/** Projects list KPI strip — always derived from canonical lifecycle, never legacy `status`. */
+export function buildProjectsListKpiStats(projects: Project[]) {
+  const lifecycleCounts = countProjectsByLifecycle(projects);
+  return {
+    total: lifecycleCounts.all,
+    new: lifecycleCounts.New,
+    inProgress: lifecycleCounts["In Progress"],
+    onHold: lifecycleCounts["On Hold"],
+    completed: lifecycleCounts.Completed,
+    closed: lifecycleCounts.Closed,
+    totalKW: projects.reduce((sum, p) => sum + (parseFloat(p.capacity) || 0), 0).toFixed(1),
+  };
+}
