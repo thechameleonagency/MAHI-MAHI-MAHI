@@ -49,6 +49,11 @@ function emitNotificationDismissalsChanged(): void {
   for (const listener of dismissalListeners) listener();
 }
 
+/** EC2 — force badge/list hooks to reload dismissals after actor or role changes in-session. */
+export function notifySessionActorChanged(): void {
+  emitNotificationDismissalsChanged();
+}
+
 /**
  * Stable snapshot for useSyncExternalStore — new Set only when storage or active ids change.
  */

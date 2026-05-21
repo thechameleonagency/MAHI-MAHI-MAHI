@@ -155,6 +155,13 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
   } = useAppData();
 
   useEffect(() => {
+    setQuery("");
+    setResults([]);
+    setSelectedIndex(0);
+    setIsOpen(false);
+  }, [currentRole, sessionUserId]);
+
+  useEffect(() => {
     if (!query.trim()) {
       setResults([]);
       return;

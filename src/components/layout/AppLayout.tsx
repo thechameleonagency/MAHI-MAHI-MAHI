@@ -7,12 +7,14 @@ import RouteAccessGate, { RouteAccessBoundary } from "./RouteAccessGate";
 import { PageHeaderStickyProvider } from "@/contexts/PageHeaderStickyContext";
 import { PageErrorBoundary } from "@/app/shell/PageErrorBoundary";
 import { resolvePageErrorRecovery } from "@/lib/routeErrorRecovery";
+import { useSessionActorTransition } from "@/hooks/useSessionActorTransition";
 
 interface AppLayoutProps {
   children?: ReactNode;
 }
 
 const AppLayout = ({ children }: AppLayoutProps) => {
+  useSessionActorTransition();
   const content = children ?? <Outlet />;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();

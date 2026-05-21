@@ -1,5 +1,4 @@
 import { useMemo, useState, useEffect } from "react";
-import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -16,14 +15,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
-import { useAppData } from "@/contexts/AppDataContext";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DEFAULT_TABLE_PAGE_SIZE, listTableViewportMaxHeight } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
-import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/businessAlerts";
-import { useDismissedAlertIds } from "@/hooks/useDismissedAlertIds";
+import type { BusinessAlertKind } from "@/lib/businessAlerts";
+import { useBusinessAlertsForSession } from "@/hooks/useBusinessAlertsForSession";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 type _LiveAlert = {
@@ -58,63 +56,21 @@ function iconForAlertKind(kind: BusinessAlertKind): typeof Bell {
 }
 
 const Notifications = () => {
-  const { sessionUserId } = useAppSession();
-  const {
-    invoices,
-    loans,
-    lowStockItems,
-    blockages,
-    quotations,
-    projects,
-    projectTimelineByProjectId,
-    vendorBills,
-    vendors,
-    deletionRequests,
-  } = useAppData();
+  const { visible, dismissed, dismissOne, dismissAll, restoreAll, descriptors } =
+    useBusinessAlertsForSession();
 
-  const vendorNamesById = useMemo(
-    () => new Map(vendors.map((v) => [String(v.id), v.name] as const)),
-    [vendors],
+  const alerts = useMemo(
+    () =>
+      visible.map((r) => ({
+        id: r.id,
+        severity: r.severity,
+        title: r.title,
+        detail: r.detail,
+        href: r.href,
+        icon: iconForAlertKind(r.kind),
+      })),
+    [visible],
   );
-
-  const alerts = useMemo(() => {
-    const rows = deriveBusinessAlertDescriptors({
-      invoices,
-      loans,
-      lowStockItems: lowStockItems ?? [],
-      blockages,
-      quotations,
-      projects,
-      projectTimelineByProjectId,
-      vendorBills,
-      vendorNamesById,
-    });
-    return rows.map((r) => ({
-      id: r.id,
-      severity: r.severity,
-      title: r.title,
-      detail: r.detail,
-      href: r.href,
-      icon: iconForAlertKind(r.kind),
-    }));
-  }, [
-    invoices,
-    loans,
-    lowStockItems,
-    blockages,
-    quotations,
-    projects,
-    projectTimelineByProjectId,
-    vendorBills,
-    vendorNamesById,
-  ]);
-
-  const activeAlertIds = useMemo(() => alerts.map((a) => a.id), [alerts]);
-  const { dismissed, dismissOne, dismissAll, restoreAll } = useDismissedAlertIds(
-    sessionUserId,
-    activeAlertIds,
-  );
-  const visible = useMemo(() => alerts.filter((a) => !dismissed.has(a.id)), [alerts, dismissed]);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -124,7 +80,7 @@ const Notifications = () => {
 
   const { pagedItems: pagedAlerts, safePage } = usePagedSlice(visible, page, pageSize);
 
-  const handleDismissAll = () => dismissAll(activeAlertIds);
+  const handleDismissAll = () => dismissAll(descriptors.map((d) => d.id));
 
   return (
     <PageShell>

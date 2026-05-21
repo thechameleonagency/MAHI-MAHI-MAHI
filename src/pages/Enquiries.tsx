@@ -134,7 +134,7 @@ const Enquiries = () => {
     generateId: _generateId,
     customers,
   } = useAppData();
-  const { currentRole, sessionUserId, demoUserName } = useAppSession();
+  const { currentRole, sessionUserId, demoUserName, memberId } = useAppSession();
   const canCreateEnquiry = useCan("enquiry", "create");
   const canEditEnquiry = useCan("enquiry", "edit");
   const canUpdateEnquiry = useCan("enquiry", "create");
@@ -152,15 +152,27 @@ const Enquiries = () => {
     () => searchParams.get("status") ?? DEFAULT_ENQUIRY_STATUS_FILTER,
   );
   const [priorityFilter, setPriorityFilter] = useState(() => searchParams.get("priority") ?? "all");
+  const salesActorId = memberId.trim() || sessionUserId;
   const [assigneeFilter, setAssigneeFilter] = useState(() => {
     const fromUrl = searchParams.get("assignee");
     if (fromUrl) return fromUrl;
-    if (currentRole === "salesperson" && sessionUserId) return sessionUserId;
+    if (currentRole === "salesperson" && salesActorId) return salesActorId;
     return "all";
   });
   const [followUpFilter, setFollowUpFilter] = useState<"all" | "overdue">(() =>
     searchParams.get("followUp") === "overdue" ? "overdue" : "all",
   );
+
+  useEffect(() => {
+    if (currentRole === "salesperson" && salesActorId) {
+      setAssigneeFilter(salesActorId);
+      return;
+    }
+    setAssigneeFilter((prev) => {
+      if (prev === salesActorId || prev === sessionUserId) return "all";
+      return prev;
+    });
+  }, [currentRole, salesActorId, sessionUserId]);
 
   useEffect(() => {
     setSearchParams(
