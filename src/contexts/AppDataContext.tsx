@@ -58,6 +58,7 @@ import {
   entityDisplayNameForDeletion,
   reconcileDeletionRequests,
 } from "@/lib/deletionRequestContinuity";
+import { validateDeletionRequestApproval } from "@/lib/deletionRequestResolution";
 import {
   historyEntryToShareDetails,
   reconcileQuotationShareDetails,
@@ -385,6 +386,8 @@ interface AppDataContextType extends AppState {
     entityType: DeletionRequest["entityType"],
     entityId: string,
   ) => DeletionRequest[];
+  approveDeletionRequest: (id: string, actorName: string) => { ok: boolean; error?: string };
+  rejectDeletionRequest: (id: string, rejectionReason: string, actorName: string) => void;
   
   // Customers CRUD
   addCustomer: (customer: Customer) => boolean;
@@ -2096,7 +2099,14 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         nextInvoices,
         prev.saleBills,
       );
-      return { ...prev, invoices: nextInvoices, projects: updatedProjects };
+      return {
+        ...prev,
+        invoices: nextInvoices,
+        projects: updatedProjects,
+        deletionRequests: (prev.deletionRequests ?? []).filter(
+          (r) => !(r.entityType === "invoice" && r.entityId === id),
+        ),
+      };
     });
   }, []);
   
@@ -2249,9 +2259,109 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         prev.invoices,
         nextSaleBills,
       );
-      return { ...prev, saleBills: nextSaleBills, projects: updatedProjects };
+      return {
+        ...prev,
+        saleBills: nextSaleBills,
+        projects: updatedProjects,
+        deletionRequests: (prev.deletionRequests ?? []).filter(
+          (r) => !(r.entityType === "sale-bill" && r.entityId === id),
+        ),
+      };
     });
   }, []);
+
+  const approveDeletionRequest = useCallback(
+    (id: string, actorName: string): { ok: boolean; error?: string } => {
+      if (!canFeature(actorRole, "settingsDeletionQueue", "edit", roleMatrixOverride)) {
+        showPermissionDeniedToast("Your role cannot approve deletion requests.");
+        return { ok: false, error: "Permission denied" };
+      }
+
+      const req = (state.deletionRequests ?? []).find((r) => r.id === id);
+      if (!req) return { ok: false, error: "Deletion request not found" };
+
+      const validation = validateDeletionRequestApproval(state, req);
+      if (!validation.ok) return validation;
+
+      const entityLabel = req.entityName || req.entityId;
+      const auditEntry = createAuditEntry(
+        "delete",
+        req.entityType === "sale-bill"
+          ? "SaleBill"
+          : req.entityType === "quotation"
+            ? "Quotation"
+            : req.entityType === "project"
+              ? "Project"
+              : "Invoice",
+        req.entityId,
+        entityLabel,
+        "deletion_request_approved",
+        req.reason,
+      );
+
+      if (req.entityType === "quotation") {
+        const result = deleteQuotation(req.entityId);
+        if (!result.ok) return result;
+      } else if (req.entityType === "project") {
+        deleteProject(req.entityId);
+      } else if (req.entityType === "invoice") {
+        deleteInvoice(req.entityId);
+      } else if (req.entityType === "sale-bill") {
+        deleteSaleBill(req.entityId);
+      }
+
+      setState((prev) => {
+        const stillPending = (prev.deletionRequests ?? []).some((r) => r.id === id);
+        const approvedAt = new Date().toISOString();
+        const nextRequests = stillPending
+          ? (prev.deletionRequests ?? []).map((r) =>
+              r.id === id
+                ? {
+                    ...r,
+                    status: "approved" as const,
+                    approvedBy: actorName,
+                    approvedAt,
+                  }
+                : r,
+            )
+          : (prev.deletionRequests ?? []);
+
+        return reconcileDeletionRequests({
+          ...prev,
+          deletionRequests: nextRequests,
+          auditLogs: [auditEntry, ...prev.auditLogs],
+        });
+      });
+
+      return { ok: true };
+    },
+    [
+      actorRole,
+      createAuditEntry,
+      deleteInvoice,
+      deleteProject,
+      deleteQuotation,
+      deleteSaleBill,
+      roleMatrixOverride,
+      state,
+    ],
+  );
+
+  const rejectDeletionRequest = useCallback(
+    (id: string, rejectionReason: string, actorName: string) => {
+      if (!canFeature(actorRole, "settingsDeletionQueue", "edit", roleMatrixOverride)) {
+        showPermissionDeniedToast("Your role cannot reject deletion requests.");
+        return;
+      }
+      updateDeletionRequest(id, {
+        status: "rejected",
+        rejectionReason: rejectionReason.trim(),
+        approvedBy: actorName,
+        approvedAt: new Date().toISOString(),
+      });
+    },
+    [actorRole, roleMatrixOverride, updateDeletionRequest],
+  );
   
   // ============ EXPENSES CRUD ============
   const addExpense = useCallback((expense: Expense): boolean => {
@@ -5653,6 +5763,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     addDeletionRequest,
     updateDeletionRequest,
     getDeletionRequestsForEntity,
+    approveDeletionRequest,
+    rejectDeletionRequest,
 
     // Customers
     addCustomer,

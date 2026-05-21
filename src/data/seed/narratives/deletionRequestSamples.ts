@@ -2,13 +2,14 @@ import type { NarrativeApply } from "./shared";
 import { seedDateAt } from "../seedTimeModel";
 import { seedId, SEED_ID_PREFIX } from "../seedIdRegistry";
 import { collectRelatedEntitiesForDeletion } from "@/lib/deletionRequestContinuity";
+import { canDeleteQuotationRecord } from "@/lib/quotationProjectConversionPolicy";
 
 /** ER7 — sample deletion requests wired to real seeded entities. */
 export const applyDeletionRequestSamples: NarrativeApply = (state) => {
   const withdrawn = state.quotations.find((q) => q.status === "withdrawn");
   const rejected = state.quotations.find((q) => q.status === "rejected");
-  const draft = state.quotations.find((q) => q.status === "draft");
   const salesperson = state.employees.find((e) => e.role.toLowerCase().includes("sales"));
+  const usedQuotationIds = new Set<string>();
 
   if (withdrawn) {
     const id = seedId(SEED_ID_PREFIX.deletionRequest);
@@ -27,6 +28,7 @@ export const applyDeletionRequestSamples: NarrativeApply = (state) => {
       approvedAt: seedDateAt(0.22),
       relatedEntities: collectRelatedEntitiesForDeletion(state, "quotation", withdrawn.id),
     });
+    usedQuotationIds.add(withdrawn.id);
   }
 
   if (rejected) {
@@ -45,20 +47,30 @@ export const applyDeletionRequestSamples: NarrativeApply = (state) => {
       rejectionReason: "Retain rejected quotes for pipeline analytics",
       relatedEntities: collectRelatedEntitiesForDeletion(state, "quotation", rejected.id),
     });
+    usedQuotationIds.add(rejected.id);
   }
 
-  if (draft) {
+  const pendingQuotation = state.quotations.find((q) => {
+    if (usedQuotationIds.has(q.id)) return false;
+    return canDeleteQuotationRecord(q, {
+      projects: state.projects,
+      accruals: state.agentCommissionAccruals ?? [],
+      invoices: state.invoices,
+    }).ok;
+  });
+
+  if (pendingQuotation) {
     const id = seedId(SEED_ID_PREFIX.deletionRequest);
     state.deletionRequests.push({
       id,
       entityType: "quotation",
-      entityId: draft.id,
-      entityName: draft.quotationNumber ?? draft.id,
-      reason: "Test draft entered on wrong customer — pending admin purge",
+      entityId: pendingQuotation.id,
+      entityName: pendingQuotation.quotationNumber ?? pendingQuotation.id,
+      reason: "Entered on wrong customer — pending admin purge",
       requestedBy: "Karthik Rao",
       requestedAt: seedDateAt(0.4),
       status: "pending",
-      relatedEntities: collectRelatedEntitiesForDeletion(state, "quotation", draft.id),
+      relatedEntities: collectRelatedEntitiesForDeletion(state, "quotation", pendingQuotation.id),
     });
   }
 };

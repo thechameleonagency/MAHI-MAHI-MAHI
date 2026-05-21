@@ -103,6 +103,7 @@ const DOMAIN_GROUPS: { id: string; label: string; features: Feature[] }[] = [
       "settingsData",
       "settingsMasters",
       "settingsRoleMatrix",
+      "settingsDeletionQueue",
       "resetPrototype",
     ],
   },
@@ -166,6 +167,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   settingsData: "Settings — Data reset",
   settingsMasters: "Settings — Masters",
   settingsRoleMatrix: "Settings — Role matrix",
+  settingsDeletionQueue: "Settings — Deletion queue",
   resetPrototype: "Reset prototype data",
 };
 

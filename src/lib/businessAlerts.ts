@@ -241,14 +241,7 @@ export function deriveBusinessAlertDescriptors(input: BusinessAlertsInput): Busi
 
   for (const req of input.deletionRequests ?? []) {
     if (req.status !== "pending") continue;
-    const href =
-      req.entityType === "quotation"
-        ? `/quotations?open=${req.entityId}`
-        : req.entityType === "project"
-          ? `/projects/${req.entityId}`
-          : req.entityType === "invoice" || req.entityType === "sale-bill"
-            ? `/invoices?invoice=${req.entityId}`
-            : "/notifications";
+    const href = "/settings?tab=deletion-queue";
     out.push({
       id: `del-req-${req.id}`,
       severity: "medium",

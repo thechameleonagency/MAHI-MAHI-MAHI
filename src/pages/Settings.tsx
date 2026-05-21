@@ -19,9 +19,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { User, Building2, Shield, Palette, Users, Mail, Phone, MapPin, Globe, Camera, Database, Check, AlertCircle, RotateCcw, Layout, Boxes, KeyRound } from "lucide-react";
+import { User, Building2, Shield, Palette, Users, Mail, Phone, MapPin, Globe, Camera, Database, Check, AlertCircle, RotateCcw, Layout, Boxes, KeyRound, Trash2 } from "lucide-react";
 import { MastersTab } from "@/components/settings/MastersTab";
 import { RoleMatrixTab } from "@/components/settings/RoleMatrixTab";
+import { DeletionQueueTab } from "@/components/settings/DeletionQueueTab";
 import { QuotationStaticSectionsTab } from "@/components/settings/QuotationStaticSectionsTab";
 import { useCan } from "@/hooks/useCan";
 import { ToastAction } from "@/components/ui/toast";
@@ -67,6 +68,7 @@ const Settings = () => {
   } = useAppData();
   const canViewMasters = useCan("settingsMasters", "view");
   const canViewRoleMatrix = useCan("settingsRoleMatrix", "view");
+  const canViewDeletionQueue = useCan("settingsDeletionQueue", "view");
   const canViewCompany = useCan("settingsCompany", "view");
   const canViewTeam = useCan("settingsTeam", "view");
   const canViewTheme = useCan("settingsTheme", "view");
@@ -88,7 +90,10 @@ const Settings = () => {
     if (tabParam === "data" && canViewData) {
       setActiveTab("data");
     }
-  }, [location.search, canViewTheme, canViewData, navigate]);
+    if (tabParam === "deletion-queue" && canViewDeletionQueue) {
+      setActiveTab("deletion-queue");
+    }
+  }, [location.search, canViewTheme, canViewData, canViewDeletionQueue, navigate]);
 
   useEffect(() => {
     const restricted: Record<string, boolean> = {
@@ -101,6 +106,7 @@ const Settings = () => {
       masters: !canViewMasters,
       roles: !canViewRoleMatrix,
       "quotation-sections": !canViewMasters,
+      "deletion-queue": !canViewDeletionQueue,
     };
     if (restricted[activeTab]) {
       setActiveTab("profile");
@@ -114,6 +120,7 @@ const Settings = () => {
     canViewData,
     canViewMasters,
     canViewRoleMatrix,
+    canViewDeletionQueue,
   ]);
 
   const handleTabChange = (v: string) => {
@@ -310,6 +317,7 @@ const Settings = () => {
     data: "Data",
     masters: "Masters",
     roles: "Role Matrix",
+    "deletion-queue": "Deletion queue",
   };
 
   return (
@@ -389,6 +397,12 @@ const Settings = () => {
             <TabsTrigger value="roles" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
               <KeyRound className="h-4 w-4" />
               Role matrix
+            </TabsTrigger>
+          )}
+          {canViewDeletionQueue && (
+            <TabsTrigger value="deletion-queue" className="w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-muted">
+              <Trash2 className="h-4 w-4" />
+              Deletion queue
             </TabsTrigger>
           )}
           {canViewMasters && (
@@ -804,6 +818,12 @@ const Settings = () => {
           {canViewRoleMatrix && (
             <TabsContent value="roles" className="mt-0 h-[calc(100vh-14rem)] overflow-y-auto">
               <RoleMatrixTab />
+            </TabsContent>
+          )}
+
+          {canViewDeletionQueue && (
+            <TabsContent value="deletion-queue" className="mt-0 h-[calc(100vh-14rem)] overflow-y-auto">
+              <DeletionQueueTab />
             </TabsContent>
           )}
 

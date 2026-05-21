@@ -39,6 +39,7 @@ export type Feature =
   // Settings sub-areas
   | "settingsProfile" | "settingsCompany" | "settingsTheme" | "settingsSecurity"
   | "settingsTeam" | "settingsData" | "settingsMasters" | "settingsRoleMatrix"
+  | "settingsDeletionQueue"
   | "resetPrototype";
 
 export type Crud = "view" | "create" | "edit" | "delete";
@@ -268,6 +269,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
   settingsData: r(NONE, NONE, NONE, NONE), // super_admin only
   settingsMasters: r(["admin", "management"], ADMIN_ONLY, ADMIN_ONLY, ADMIN_ONLY),
   settingsRoleMatrix: r(NONE, NONE, NONE, NONE), // super_admin only
+  settingsDeletionQueue: r(ADMIN_MGMT_CEO_VIEW, NONE, ADMIN_ONLY, NONE),
   resetPrototype: r(NONE, NONE, NONE, NONE), // super_admin only
 };
 

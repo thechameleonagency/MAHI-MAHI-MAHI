@@ -117,6 +117,7 @@ const FEATURE_DOMAINS: { domain: string; features: { key: Feature; label: string
       { key: "settingsData", label: "Settings — Data reset" },
       { key: "settingsMasters", label: "Settings — Masters" },
       { key: "settingsRoleMatrix", label: "Settings — Role Matrix editor" },
+      { key: "settingsDeletionQueue", label: "Settings — Deletion queue" },
       { key: "resetPrototype", label: "Reset prototype data" },
     ],
   },
