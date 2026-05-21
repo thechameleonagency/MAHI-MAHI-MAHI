@@ -182,6 +182,13 @@ export function reconcileAgentCommissionAccruals(input: {
         project.agentId,
       );
     }
+    if (
+      project.startedAt &&
+      project.lifecycleStatus !== "Completed" &&
+      project.lifecycleStatus !== "Closed"
+    ) {
+      next = markProjectAccrualsPayable(next, project.id, project.quotationId);
+    }
     if (project.lifecycleStatus === "Completed") {
       const quotation = project.quotationId
         ? input.quotations.find((q) => q.id === project.quotationId)

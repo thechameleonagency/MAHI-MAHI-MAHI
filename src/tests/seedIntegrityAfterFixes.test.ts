@@ -14,6 +14,7 @@ import { isBankReconciliationStatement } from "@/lib/bankReconciliationStatement
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
+import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 
 const DRIFT_EPS = 1;
 
@@ -179,6 +180,16 @@ describe("seed & hydration integrity after audit fixes", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+  });
+
+  it("started projects flip agent commission accruals to payable on hydrated seed (FC5)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleProjectStartContinuity(hydrated)).toEqual([]);
+    const started = hydrated.projects.filter(
+      (p) => p.startedAt && (p.lifecycleStatus === "In Progress" || p.lifecycleStatus === "On Hold"),
+    );
+    expect(started.length).toBeGreaterThan(0);
   });
 
   it("bookable vendor bills post PurchaseBillBooked on hydrated seed (FC4)", () => {

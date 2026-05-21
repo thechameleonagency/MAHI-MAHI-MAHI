@@ -134,4 +134,33 @@ describe("agentCommissionAccrualPolicy", () => {
     });
     expect(next.some((a) => a.sourceQuotationId === "Q007" && a.agentId === "A006")).toBe(true);
   });
+
+  it("reconcileAgentCommissionAccruals marks payable when project has startedAt (FC5)", () => {
+    const next = reconcileAgentCommissionAccruals({
+      accruals: [
+        {
+          id: "ACC-1",
+          agentId: "A006",
+          expectedAmount: 36400,
+          status: "pending",
+          accruedAt: "2026-04-18",
+          sourceQuotationId: "Q007",
+          projectId: "PROJ-START",
+        },
+      ],
+      quotations: [quotationQ007],
+      projects: [
+        {
+          id: "PROJ-START",
+          quotationId: "Q007",
+          agentId: "A006",
+          lifecycleStatus: "In Progress",
+          startedAt: "2026-05-10T00:00:00.000Z",
+        } as import("@/types/project").Project,
+      ],
+      agents: [agentA006],
+    });
+    expect(next[0].status).toBe("payable");
+    expect(next[0].payableAt).toBeTruthy();
+  });
 });

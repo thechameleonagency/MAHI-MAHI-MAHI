@@ -2,7 +2,7 @@ import type { AppState } from "@/contexts/AppDataContext";
 import { normalizeAppState } from "@/data/appSeedBuilder";
 import { applyAppStateHydrationPipeline } from "@/lib/appDataStorage";
 import { reconcileAllEnquiryQuotationHistories } from "@/lib/enquiryQuotationHistory";
-import { linkAccrualsToProject } from "@/lib/agentCommissionAccrualPolicy";
+import { reconcileProjectAgentCommissionState } from "@/lib/projectStartContinuity";
 import { reconcileClientPaymentLedger } from "@/lib/clientPaymentReconciliation";
 import { syncBankReconciliationLinks } from "@/lib/bankReconciliationLink";
 import { evaluateAutoArchive, applyAutoArchive } from "@/domain/customer/customerArchive";
@@ -31,7 +31,7 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
     projects: syncProjectsSiteReadinessFromChecklist(s.projects),
   };
 
-  s = linkAccrualsToProject(s);
+  s = reconcileProjectAgentCommissionState(s);
 
   const activeStatementIds = s.bankReconciliationStatements.map((st) => st.id);
   const bankMatches = buildBankReconciliationMatches(s);

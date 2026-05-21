@@ -85,7 +85,7 @@ export function normalizeProject(p: Project): Project {
             : undefined),
   );
   const isIntakeUnstarted =
-    !p.startedAt &&
+    !p.startedAt?.trim() &&
     (p.progressStage === "new" ||
       p.executionPhase === "Intake" ||
       p.executionPhase === "intake");

@@ -75,6 +75,7 @@ import {
   linkAccrualsToProject,
   markProjectAccrualsPayable,
 } from "@/lib/agentCommissionAccrualPolicy";
+import { applyCommissionAccrualsOnProjectStart } from "@/lib/projectStartContinuity";
 import type { BankReconciliationMatchApplyInput } from "@/lib/bankReconciliationLink";
 import {
   clearBankReconciliationLinksForStatement,
@@ -1263,9 +1264,19 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
 
       let nextAccruals = prev.agentCommissionAccruals ?? [];
+      const updatedProject = nextProjects.find((p) => p.id === id);
+      const startedNow =
+        Boolean(updates.startedAt?.trim()) && !before?.startedAt?.trim();
+      if (startedNow && updatedProject) {
+        nextAccruals = applyCommissionAccrualsOnProjectStart(
+          nextAccruals,
+          updatedProject,
+          updates.startedAt,
+        );
+      }
       const completedProject =
         updates.lifecycleStatus === "Completed"
-          ? nextProjects.find((p) => p.id === id)
+          ? updatedProject
           : undefined;
       if (completedProject) {
         const quotation = completedProject.quotationId
