@@ -30,6 +30,7 @@ import {
   ACCOUNTING_REVIEW_RETRY_HELP,
   FINANCE_ACCOUNTING_REVIEW_QUEUE_PATH,
 } from "@/lib/accountingReviewQueueGuidance";
+import { DUAL_PERSISTENCE_SUMMARY, DUAL_PERSISTENCE_DIVERGENCE_RULE } from "@/lib/dualPersistenceModel";
 
 // ============ DATA STRUCTURES ============
 
@@ -484,6 +485,18 @@ const AuditDataFlow = () => {
           Expense and income flow trees below are illustrative. They are not generated from live Settings masters or{" "}
           <code className="text-xs bg-muted px-1 rounded">auditBooksMasters</code> — use Chart of Accounts and Profit
           &amp; Loss for current mappings.
+        </AlertDescription>
+      </Alert>
+
+      <Alert className="border-primary/20 bg-primary/5">
+        <GitBranch className="h-4 w-4 text-primary" />
+        <AlertTitle className="text-sm">Training: Dual persistence (AR1)</AlertTitle>
+        <AlertDescription className="space-y-2 text-sm text-muted-foreground">
+          <p>{DUAL_PERSISTENCE_SUMMARY}</p>
+          <p>{DUAL_PERSISTENCE_DIVERGENCE_RULE}</p>
+          <p>
+            Settings → App data includes the full command-bus vs direct AppState module matrix.
+          </p>
         </AlertDescription>
       </Alert>
 

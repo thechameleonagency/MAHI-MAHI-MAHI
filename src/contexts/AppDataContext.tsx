@@ -38,6 +38,7 @@ import {
 } from "@/lib/appDataStorage";
 import { isPrototypeRepositoryStorageKey } from "@/infrastructure/repositories/prototypeRepositoryManifest";
 import { syncPrototypeRepositoriesFromAppState } from "@/infrastructure/repositories/syncPrototypeRepositories";
+import { createRepositorySyncedSetState } from "@/lib/appStateRepositorySync";
 import { createId, createNextCustomerId, ensureSequentialCustomerId } from "@/lib/idFactory";
 import { isQuotationConverted } from "@/lib/quotationSelectors";
 import {
@@ -784,7 +785,7 @@ const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
 // ============ PROVIDER COMPONENT ============
 export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { override: roleMatrixOverride } = useRoleMatrix();
-  const [state, setState] = useState<AppState>(() => {
+  const [state, setStateRaw] = useState<AppState>(() => {
     try {
       return getInitialState();
     } catch (e) {
@@ -794,6 +795,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   });
   const lastPersistedSnapshotRef = useRef<string | null>(null);
   const { permissionService, commandBus, repositories } = useFoundation();
+  const setState = useMemo(
+    () => createRepositorySyncedSetState(setStateRaw, repositories),
+    [repositories],
+  );
   const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
   const billingDirectionGuardService = useMemo(() => new BillingDirectionGuardService(), []);

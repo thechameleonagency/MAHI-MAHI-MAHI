@@ -6,7 +6,8 @@ import type { AppState } from "@/contexts/AppDataContext";
  * - **Canonical store:** `mahi_solar_app_data` via `AppDataContext` / `readPersistedAppState`.
  * - **Command-bus mirrors:** `mss.repo.*` JSON repos — scratch copies for handlers only.
  * - **Single-writer:** UI and CRUD mutate `AppState` first; mirrors are refreshed from that
- *   snapshot before every command and on persist / cross-tab reload.
+ *   snapshot before every command, immediately after every AppState commit (AR1), and on persist /
+ *   cross-tab reload.
  *
  * Slices listed in `APP_STATE_CONTEXT_ONLY_SLICES` are not mirrored yet; command handlers
  * must not read them from localStorage repos (use in-memory state merged after commands).
