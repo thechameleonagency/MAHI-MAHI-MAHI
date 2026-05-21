@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Check, Plus, ChevronDown, ChevronRight, Calendar, ClipboardList, Users, User } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useSessionActorDisplayName } from "@/hooks/useSessionActorDisplayName";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { formatUiDate } from "@/lib/formatUiDate";
@@ -294,7 +295,7 @@ export function TaskAssignmentSheet({
         workDate,
         originalDate: workDate,
         status: "sent",
-        createdBy: (() => { try { return JSON.parse(localStorage.getItem("mss.settings.profile") || "{}").firstName || "Manager"; } catch { return "Manager"; } })(),
+        createdBy: sessionActorDisplayName,
         workItems: [{
           stageKey: workItem.stageKey,
           stageName: workItem.stageName,

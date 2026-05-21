@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { useSessionActorDisplayName } from "@/hooks/useSessionActorDisplayName";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Plus, Search, Package, AlertTriangle, History, Edit, ArrowRight, Trash2, Check, RotateCcw, AlertCircle, Eye, Truck, User, CheckCircle2, Recycle, Download, Printer } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
@@ -61,6 +62,7 @@ const Materials = () => {
   const canIssueReturn = useCan("inventoryMovement", "create");
   const canReverseMovement = useCan("inventoryMovement", "delete");
   const { currentRole } = useAppSession();
+  const sessionActorDisplayName = useSessionActorDisplayName();
   const {
     inventoryItems,
     projects,
@@ -511,7 +513,7 @@ const Materials = () => {
         workDate: issueTaskDate,
         originalDate: issueTaskDate,
         status: "sent",
-        createdBy: "Admin",
+        createdBy: sessionActorDisplayName,
         workItems: [{ stageKey: "material-transport", stageName: "Material Transport", subItems: [] }]
       });
       

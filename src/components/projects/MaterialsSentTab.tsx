@@ -30,6 +30,7 @@ import { format } from "date-fns";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { useSessionActorDisplayName } from "@/hooks/useSessionActorDisplayName";
 import type { ExecutionLineItem, ProjectSiteChecklistItem } from "@/types/project";
 import { findInventoryItemForMaterial, findPresetForMaterial } from "@/lib/inventoryPresetMatch";
 import { inferTransportWorkKind, resolveSiteForMaterialIssue } from "@/lib/materialIssueTransportTask";
@@ -158,6 +159,7 @@ export default function MaterialsSentTab({
 }: MaterialsSentTabProps) {
   const { employees, addTask, generateId, sites, inventoryItems: globalInventoryItems, getDamageByItem, siteChecklistTemplates = [] } = useAppData();
   const { currentRole } = useAppSession();
+  const sessionActorDisplayName = useSessionActorDisplayName();
   const [damageSheet, setDamageSheet] = useState<{ itemId: string; itemName: string; unitPrice: number } | null>(null);
   const [isAddChecklistItemOpen, setIsAddChecklistItemOpen] = useState(false);
   const [newChecklistName, setNewChecklistName] = useState("");
@@ -378,7 +380,7 @@ export default function MaterialsSentTab({
           workDate: taskDate,
           originalDate: taskDate,
           status: "sent",
-          createdBy: "Admin",
+          createdBy: sessionActorDisplayName,
           workItems: [{ stageKey, stageName: workType, subItems: [] }],
         });
 
