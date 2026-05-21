@@ -217,7 +217,7 @@ const Sidebar = ({
             onClick={() => onMobileClose()}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              location.pathname === "/settings" || location.pathname.startsWith("/settings/")
+              location.pathname === "/settings"
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent/50",
             )}

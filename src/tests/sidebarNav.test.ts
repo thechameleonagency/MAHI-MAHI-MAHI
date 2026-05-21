@@ -10,6 +10,13 @@ describe("sidebarNav", () => {
     expect(item?.label).toBe("Notifications");
   });
 
+  it("includes design system in system section for demo discoverability (DS3)", () => {
+    const system = sidebarNavSections.find((s) => s.id === "system");
+    expect(system?.items.some((i) => i.path === "/settings/design-system")).toBe(true);
+    const item = getSidebarNavItemByPath("/settings/design-system");
+    expect(item?.label).toBe("Design system");
+  });
+
   it("resolves pinned /notifications path to a nav item", () => {
     const pinned = togglePinnedPath("/notifications", []);
     expect(pinned).toEqual(["/notifications"]);

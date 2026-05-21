@@ -29,6 +29,7 @@ import {
   LayoutTemplate,
   FileStack,
   HardHat,
+  Palette,
 } from "lucide-react";
 
 export type SidebarNavItem = {
@@ -122,7 +123,10 @@ export const sidebarNavSections: SidebarNavSection[] = [
   {
     id: "system",
     title: "System",
-    items: [{ label: "Notifications", icon: Bell, path: "/notifications" }],
+    items: [
+      { label: "Notifications", icon: Bell, path: "/notifications" },
+      { label: "Design system", icon: Palette, path: "/settings/design-system" },
+    ],
   },
 ];
 
