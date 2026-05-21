@@ -9,6 +9,7 @@ import {
   serializeAppState,
 } from "@/lib/appDataStorage";
 import { APP_DATA_RESET_EPOCH_KEY } from "@/lib/clearAppStorage";
+import { isPrototypeRepositoryStorageKey } from "@/infrastructure/repositories/prototypeRepositoryManifest";
 
 describe("appDataStorage cross-tab helpers", () => {
   beforeEach(() => {
@@ -21,6 +22,8 @@ describe("appDataStorage cross-tab helpers", () => {
     expect(isAppDataStorageSyncKey(APP_DATA_RESET_EPOCH_KEY)).toBe(true);
     expect(isAppDataStorageSyncKey("mss.roleMatrix.v1")).toBe(false);
     expect(isAppDataStorageSyncKey(null)).toBe(false);
+    expect(isPrototypeRepositoryStorageKey("mss.repo.quotations")).toBe(true);
+    expect(isPrototypeRepositoryStorageKey(APP_DATA_STORAGE_KEY)).toBe(false);
   });
 
   it("round-trips serialize and readPersistedAppState", () => {

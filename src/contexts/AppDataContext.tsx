@@ -36,6 +36,7 @@ import {
   readPersistedAppState,
   serializeAppState,
 } from "@/lib/appDataStorage";
+import { isPrototypeRepositoryStorageKey } from "@/infrastructure/repositories/prototypeRepositoryManifest";
 import { syncPrototypeRepositoriesFromAppState } from "@/infrastructure/repositories/syncPrototypeRepositories";
 import { createId, createNextCustomerId, ensureSequentialCustomerId } from "@/lib/idFactory";
 import { isQuotationConverted } from "@/lib/quotationSelectors";
@@ -767,8 +768,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 
   const runCommand = useCallback(
-    <TResult,>(command: Command): Promise<CommandResult<TResult>> =>
-      commandBus.execute<TResult>({
+    <TResult,>(command: Command): Promise<CommandResult<TResult>> => {
+      syncPrototypeRepositoriesFromAppState(state, repositories);
+      return commandBus.execute<TResult>({
         ...command,
         actorUserId: command.actorUserId ?? actorUserId,
         actorRole: command.actorRole ?? actorRole,
@@ -780,14 +782,17 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             demoUserName: demoUserName,
           }),
         matrixOverride: roleMatrixOverride,
-      }),
+      });
+    },
     [
       commandBus,
+      repositories,
       roleMatrixOverride,
       actorUserId,
       actorRole,
       actorDisplayName,
       demoUserName,
+      state,
       state.settingsTeamMembers,
     ],
   );
@@ -795,7 +800,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   // ============ CROSS-TAB SYNC (storage events from other windows) ============
   useEffect(() => {
     function onStorage(e: StorageEvent) {
-      if (!isAppDataStorageSyncKey(e.key)) return;
+      if (!isAppDataStorageSyncKey(e.key) && !isPrototypeRepositoryStorageKey(e.key)) return;
       const loaded = readPersistedAppState();
       const serialized = serializeAppState(loaded);
       if (lastPersistedSnapshotRef.current === serialized) return;
@@ -1010,10 +1015,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           internalCostEstimate: 0,
         },
       };
-      repositories.projectRepository.replaceAll(state.projects);
-      repositories.quotationRepository.replaceAll(state.quotations);
-      repositories.enquiryRepository.replaceAll(state.enquiries);
-      repositories.customerRepository.replaceAll(state.customers);
       try {
         const result = await runCommand<{ projectId: string }>({
           type: CREATE_PROJECT_FROM_QUOTATION_COMMAND,
@@ -1068,10 +1069,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!permissionService.canPerformAction(actorRole, "project:create_from_quote", roleMatrixOverride)) {
         return { ok: false, error: `Role ${actorRole} cannot create projects` };
       }
-      repositories.projectRepository.replaceAll(state.projects);
-      repositories.quotationRepository.replaceAll(state.quotations);
-      repositories.enquiryRepository.replaceAll(state.enquiries);
-      repositories.customerRepository.replaceAll(state.customers);
       try {
         const result = await runCommand<{ projectId: string }>({
           type: CREATE_PROJECT_INTAKE_COMMAND,
@@ -1119,8 +1116,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       reason: string;
       customerId?: string;
     }): Promise<{ ok: boolean; error?: string; projectId?: string }> => {
-      repositories.projectRepository.replaceAll(state.projects);
-      repositories.quotationRepository.replaceAll(state.quotations);
       try {
         const result = await runCommand<{ projectId: string }>({
           type: CREATE_DIRECT_PROJECT_EXCEPTION_COMMAND,
@@ -1309,9 +1304,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: "Permission denied for inventory movement" };
       }
 
-      repositories.projectRepository.replaceAll(state.projects);
-      repositories.inventoryItemRepository.replaceAll(state.inventoryItems);
-
       try {
         const result = await runCommand({
           type: MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
@@ -1381,7 +1373,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!permissionService.canPerformAction(actorRole, "inventory:material_movement")) {
         return { ok: false, error: "Permission denied for inventory movement" };
       }
-      repositories.inventoryItemRepository.replaceAll(state.inventoryItems);
       try {
         const result = await runCommand({
           type: WAREHOUSE_INVENTORY_MOVEMENT_COMMAND,
@@ -1434,7 +1425,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!permissionService.canPerformAction(actorRole, "quotation:create")) {
         return { ok: false, error: `Role ${actorRole} is not allowed to create quotations` };
       }
-      repositories.quotationRepository.replaceAll(state.quotations);
       try {
         const result = await runCommand({
           type: CREATE_QUOTATION_COMMAND,
@@ -1465,7 +1455,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!permissionService.canPerformAction(actorRole, "quotation:create")) {
         return { ok: false, error: `Role ${actorRole} is not allowed to update quotations` };
       }
-      repositories.quotationRepository.replaceAll(state.quotations);
       try {
         const result = await runCommand({
           type: UPDATE_QUOTATION_COMMAND,
@@ -1590,9 +1579,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           return { ok: false, error: paymentCheck.message };
         }
       }
-
-      repositories.quotationRepository.replaceAll(state.quotations);
-      repositories.enquiryRepository.replaceAll(state.enquiries);
 
       try {
         const result = await runCommand({
@@ -3247,7 +3233,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!permissionService.canPerformAction(actorRole, "enquiry:create")) {
         return { ok: false, error: `Role ${actorRole} is not allowed to create enquiries` };
       }
-      repositories.enquiryRepository.replaceAll(state.enquiries);
       try {
         const result = await runCommand({
           type: CREATE_ENQUIRY_COMMAND,
@@ -3281,8 +3266,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!state.enquiries.some((e) => e.id === id)) {
         return { ok: false, error: "Enquiry not found" };
       }
-
-      repositories.enquiryRepository.replaceAll(state.enquiries);
 
       const patch = normalizeEnquiryAssignmentPatch(updates, state.settingsTeamMembers);
 
@@ -3364,8 +3347,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
       }
 
-      repositories.enquiryRepository.replaceAll(state.enquiries);
-
       try {
         const result = await runCommand({
           type: UPDATE_ENQUIRY_STATUS_COMMAND,
@@ -3407,9 +3388,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!state.enquiries.some((e) => e.id === enquiryId)) {
         return { ok: false, error: "Enquiry not found" };
       }
-
-      repositories.enquiryRepository.replaceAll(state.enquiries);
-      repositories.customerRepository.replaceAll(state.customers);
 
       try {
         const result = await runCommand<{ enquiryId: string; customerId: string }>({
