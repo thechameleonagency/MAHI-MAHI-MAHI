@@ -10,6 +10,7 @@ import { syncProjectsSiteReadinessFromChecklist } from "@/lib/siteReadinessFromC
 import { syncSitesChecklistFromProjects } from "@/lib/siteChecklistNeedToGetSync";
 import { buildBankReconciliationMatches } from "./ops_bankReconciliation";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
+import { reconcileVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
 import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
 import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScopeSeed";
 import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
@@ -69,7 +70,7 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
     }),
   };
 
-  s = reconcileVendorBillVouchers(s);
+  s = reconcileVendorBillInventoryReceipt(reconcileVendorBillVouchers(s));
   s = reconcileProjectActorScopeSeed(s);
   s = reconcileChangeRequestDeltaInvoices(s);
 

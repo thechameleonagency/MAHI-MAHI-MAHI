@@ -14,6 +14,7 @@ import { isBankReconciliationStatement } from "@/lib/bankReconciliationStatement
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
+import { findStaleVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
 import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
@@ -251,6 +252,20 @@ describe("seed & hydration integrity after audit fixes", () => {
       (p) => p.startedAt && (p.lifecycleStatus === "In Progress" || p.lifecycleStatus === "On Hold"),
     );
     expect(started.length).toBeGreaterThan(0);
+  });
+
+  it("bookable vendor bills have warehouse receipt applied on hydrated seed (ER6)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleVendorBillInventoryReceipt(hydrated)).toEqual([]);
+    const withInventory = hydrated.vendorBills.filter((b) =>
+      (b.items ?? []).some((line) => line.inventoryItemId),
+    );
+    expect(withInventory.length).toBeGreaterThan(0);
+    for (const bill of withInventory) {
+      if (bill.status === "draft") continue;
+      expect(bill.warehouseReceiptApplied, bill.billNumber).toBe(true);
+    }
   });
 
   it("bookable vendor bills post PurchaseBillBooked on hydrated seed (FC4)", () => {

@@ -323,6 +323,7 @@ const VendorDetail = () => {
   const [acquireTarget, setAcquireTarget] = useState<ProcurementNeedLine | null>(null);
   const [acquireQty, setAcquireQty] = useState("");
   const [acquireRate, setAcquireRate] = useState("");
+  const [vendorBillSubmitting, setVendorBillSubmitting] = useState(false);
 
   const openAcquireSheet = (line: ProcurementNeedLine) => {
     setAcquireTarget(line);
@@ -330,8 +331,8 @@ const VendorDetail = () => {
     setAcquireRate(String(line.lastPurchaseRate ?? 0));
   };
 
-  const confirmMarkAcquired = () => {
-    if (!acquireTarget || !vendor) return;
+  const confirmMarkAcquired = async () => {
+    if (!acquireTarget || !vendor || vendorBillSubmitting) return;
     const qty = Number.parseFloat(acquireQty);
     const rate = Number.parseFloat(acquireRate);
     if (!Number.isFinite(qty) || qty <= 0) {
@@ -385,19 +386,32 @@ const VendorDetail = () => {
       notes: `Procurement line ${acquireTarget.lineKey}`,
     };
 
-    addVendorBill(newBill);
-    updateProcurementNeedLine(acquireTarget.lineKey, {
-      status: "acquired",
-      acquiredAt: new Date().toISOString(),
-      acquiredQty: qty,
-      acquiredRate: rate,
-      vendorBillId: newBill.id,
-    });
-    toast({
-      title: "Acquired & bill recorded",
-      description: `${acquireTarget.materialName} — ${billNumber} (${formatINR(total)})`,
-    });
-    setAcquireTarget(null);
+    setVendorBillSubmitting(true);
+    try {
+      const result = await addVendorBill(newBill);
+      if (!result.ok) {
+        toast({
+          title: "Bill not recorded",
+          description: result.error ?? "Warehouse receipt failed",
+          variant: "destructive",
+        });
+        return;
+      }
+      updateProcurementNeedLine(acquireTarget.lineKey, {
+        status: "acquired",
+        acquiredAt: new Date().toISOString(),
+        acquiredQty: qty,
+        acquiredRate: rate,
+        vendorBillId: newBill.id,
+      });
+      toast({
+        title: "Acquired & bill recorded",
+        description: `${acquireTarget.materialName} — ${billNumber} (${formatINR(total)})`,
+      });
+      setAcquireTarget(null);
+    } finally {
+      setVendorBillSubmitting(false);
+    }
   };
 
   // FIFO payment breakdown
@@ -545,7 +559,8 @@ const VendorDetail = () => {
     }
   };
 
-  const handleAddPurchase = () => {
+  const handleAddPurchase = async () => {
+    if (vendorBillSubmitting) return;
     if (!purchaseBillNumber) {
       toast({ title: "Bill number required", variant: "destructive" });
       return;
@@ -593,38 +608,49 @@ const VendorDetail = () => {
       purchaseOrderRef: purchaseOrderRef.trim() || undefined,
     };
 
-    addVendorBill(newBill);
+    setVendorBillSubmitting(true);
+    try {
+      const result = await addVendorBill(newBill);
+      if (!result.ok) {
+        toast({
+          title: "Purchase not recorded",
+          description: result.error ?? "Warehouse receipt failed",
+          variant: "destructive",
+        });
+        return;
+      }
 
-    // If there's an initial payment, record it
-    if (paidAmount > 0) {
-      addVendorPayment({
-        id: generateId('VP'),
-        vendorId: vendorIdStr,
-        vendorName: vendor?.name || "",
-        billId: newBill.id,
-        billNumber: purchaseBillNumber,
-        date: purchaseBillDate,
-        amount: paidAmount,
-        paymentMode: purchasePaymentMode,
-        notes: "Initial payment on purchase",
+      if (paidAmount > 0) {
+        addVendorPayment({
+          id: generateId('VP'),
+          vendorId: vendorIdStr,
+          vendorName: vendor?.name || "",
+          billId: newBill.id,
+          billNumber: purchaseBillNumber,
+          date: purchaseBillDate,
+          amount: paidAmount,
+          paymentMode: purchasePaymentMode,
+          notes: "Initial payment on purchase",
+        });
+      }
+
+      toast({
+        title: "Purchase recorded",
+        description: `Bill ${purchaseBillNumber} for ${formatINR(purchaseTotal)} added`,
       });
+
+      setIsPurchaseModalOpen(false);
+      setPurchaseBillNumber("");
+      setPurchaseBillDate(format(new Date(), "yyyy-MM-dd"));
+      setPurchaseDueDate("");
+      setPurchaseProject("");
+      setPurchaseNotes("");
+      setPurchasePaidAmount("");
+      setPurchaseOrderRef("");
+      setPurchaseItems([{ description: "", quantity: 1, rate: 0, isFromInventory: false }]);
+    } finally {
+      setVendorBillSubmitting(false);
     }
-
-    toast({
-      title: "Purchase recorded",
-      description: `Bill ${purchaseBillNumber} for ${formatINR(purchaseTotal)} added`,
-    });
-
-    // Reset form
-    setIsPurchaseModalOpen(false);
-    setPurchaseBillNumber("");
-    setPurchaseBillDate(format(new Date(), "yyyy-MM-dd"));
-    setPurchaseDueDate("");
-    setPurchaseProject("");
-    setPurchaseNotes("");
-    setPurchasePaidAmount("");
-    setPurchaseOrderRef("");
-    setPurchaseItems([{ description: "", quantity: 1, rate: 0, isFromInventory: false }]);
   };
 
   if (!vendor) {
@@ -1408,9 +1434,14 @@ const VendorDetail = () => {
             <Button variant="outline" onClick={() => setIsPurchaseModalOpen(false)}>Cancel</Button>
             <Button 
               onClick={handleAddPurchase} 
-              disabled={!canDo("vendor:record_bill") || !purchaseBillNumber || purchaseItems.some(i => !i.description)}
+              disabled={
+                vendorBillSubmitting ||
+                !canDo("vendor:record_bill") ||
+                !purchaseBillNumber ||
+                purchaseItems.some(i => !i.description)
+              }
             >
-              Add Purchase
+              {vendorBillSubmitting ? "Recording…" : "Add Purchase"}
             </Button>
           </SheetFooter>
         </AppSheetContent>
@@ -1739,7 +1770,9 @@ const VendorDetail = () => {
                 Record bill
               </Button>
             ) : null}
-            <Button onClick={confirmMarkAcquired}>Save acquired</Button>
+            <Button onClick={confirmMarkAcquired} disabled={vendorBillSubmitting}>
+              {vendorBillSubmitting ? "Recording…" : "Save acquired"}
+            </Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
@@ -1832,9 +1865,9 @@ const VendorDetail = () => {
         title={`Delete bill ${deleteBillTarget?.billNumber}?`}
         description="This will permanently remove the bill and cannot be undone."
         confirmLabel="Delete"
-        onConfirm={() => {
+        onConfirm={async () => {
           if (deleteBillTarget) {
-            deleteVendorBill(deleteBillTarget.id);
+            await deleteVendorBill(deleteBillTarget.id);
             toast({ title: "Bill deleted" });
             setDeleteBillTarget(null);
           }

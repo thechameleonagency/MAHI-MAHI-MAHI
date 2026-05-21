@@ -15,6 +15,7 @@ import {
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
+import { findStaleVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
 import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
@@ -169,6 +170,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleVendorBillBooks(state)) {
     errors.push(`FC4: vendor bill ${stale.vendorBillId} (${stale.billNumber}) — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleVendorBillInventoryReceipt(state)) {
+    errors.push(`ER6: vendor bill ${stale.vendorBillId} (${stale.billNumber}) — ${stale.reason}`);
   }
 
   for (const stale of findStaleProjectStartContinuity(state)) {

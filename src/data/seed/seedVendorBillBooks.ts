@@ -1,4 +1,5 @@
 import type { AppState } from "@/contexts/AppDataContext";
+import { vendorBillInventoryReceiptLines } from "@/lib/vendorBillInventoryLinkage";
 import {
   isVendorBillBookable,
   postVendorBillVoucher,
@@ -53,5 +54,6 @@ export function seedPushVendorBillWithBooks(state: AppState, bill: VendorBill): 
     }
   }
   seedApplyVendorBillInventoryReceipt(state, bill);
+  bill.warehouseReceiptApplied = vendorBillInventoryReceiptLines(bill).length > 0 ? true : bill.warehouseReceiptApplied;
   return bill;
 }

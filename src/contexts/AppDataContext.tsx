@@ -153,6 +153,11 @@ import {
   vendorBillUpdateAffectsBooks,
   vendorBillUpdateIsDocumentOnly,
 } from "@/lib/vendorBillVoucherPosting";
+import {
+  vendorBillInventoryReceiptLines,
+  type VendorBillInventoryLine,
+} from "@/lib/vendorBillInventoryLinkage";
+import { enqueueWarehouseMovement } from "@/lib/warehouseMovementQueue";
 
 /**
  * Customer payment writers (E10) — see `src/lib/customerInflowWritePaths.ts`.
@@ -439,9 +444,9 @@ interface AppDataContextType extends AppState {
   ) => void;
 
   // Vendor Bills CRUD
-  addVendorBill: (bill: VendorBill) => Promise<void>;
-  updateVendorBill: (id: string, updates: Partial<VendorBill>) => void;
-  deleteVendorBill: (id: string) => void;
+  addVendorBill: (bill: VendorBill) => Promise<{ ok: boolean; error?: string }>;
+  updateVendorBill: (id: string, updates: Partial<VendorBill>) => Promise<void>;
+  deleteVendorBill: (id: string) => Promise<void>;
   getVendorBillsByVendor: (vendorId: string) => VendorBill[];
 
   // Vendor Payments CRUD
@@ -1418,32 +1423,33 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       itemId: string;
       movementType: WarehouseOnlyMovementType;
       quantity: number;
-    }): Promise<{ ok: boolean; error?: string }> => {
-      if (!permissionService.canPerformAction(actorRole, "inventory:material_movement")) {
-        return { ok: false, error: "Permission denied for inventory movement" };
-      }
-      try {
-        const result = await runCommand({
-          type: WAREHOUSE_INVENTORY_MOVEMENT_COMMAND,
-          actorUserId,
-          actorRole,
-          payload: input,
-        });
-        if (!result.ok) {
-          return { ok: false, error: (result as { message: string }).message };
+    }): Promise<{ ok: boolean; error?: string }> =>
+      enqueueWarehouseMovement(async () => {
+        if (!permissionService.canPerformAction(actorRole, "inventory:material_movement")) {
+          return { ok: false, error: "Permission denied for inventory movement" };
         }
-        setState((prev) => ({
-          ...prev,
-          inventoryItems: repositories.inventoryItemRepository.getAll() as InventoryItem[],
-          auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
-        }));
-        return { ok: true };
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "Command failed";
-        return { ok: false, error: message };
-      }
-    },
-    [actorRole, commandBus, permissionService, repositories, state.inventoryItems],
+        try {
+          const result = await runCommand({
+            type: WAREHOUSE_INVENTORY_MOVEMENT_COMMAND,
+            actorUserId,
+            actorRole,
+            payload: input,
+          });
+          if (!result.ok) {
+            return { ok: false, error: (result as { message: string }).message };
+          }
+          setState((prev) => ({
+            ...prev,
+            inventoryItems: repositories.inventoryItemRepository.getAll() as InventoryItem[],
+            auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
+          }));
+          return { ok: true };
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "Command failed";
+          return { ok: false, error: message };
+        }
+      }),
+    [actorRole, commandBus, permissionService, repositories],
   );
   
   const deleteProject = useCallback((id: string) => {
@@ -4072,40 +4078,56 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   // ============ VENDOR BILLS CRUD ============
-  const addVendorBill = useCallback(async (bill: VendorBill) => {
-    if (!canPerformActionOrWarn("vendor:record_bill")) return;
+  const addVendorBill = useCallback(async (bill: VendorBill): Promise<{ ok: boolean; error?: string }> => {
+    if (!canPerformActionOrWarn("vendor:record_bill")) {
+      return { ok: false, error: "Permission denied" };
+    }
+
+    const receiptLines = vendorBillInventoryReceiptLines(bill);
+    const appliedReceipts: VendorBillInventoryLine[] = [];
+
+    for (const { itemId, qty } of receiptLines) {
+      const movement = await recordWarehouseInventoryMovement({
+        itemId,
+        movementType: "PurchaseIn",
+        quantity: qty,
+      });
+      if (!movement.ok) {
+        for (const applied of [...appliedReceipts].reverse()) {
+          await recordWarehouseInventoryMovement({
+            itemId: applied.itemId,
+            movementType: "ScrapWarehouse",
+            quantity: applied.qty,
+          });
+        }
+        return { ok: false, error: movement.error ?? "Warehouse receipt failed" };
+      }
+      appliedReceipts.push({ itemId, qty });
+    }
+
     const postingResult = postVendorBillVoucher(bill, voucherPostingService);
     const reviewQueueItem = postingResult
       ? createReviewQueueItem(postingResult, bill.projectId)
       : null;
     const auditEntry = createAuditEntry("create", "VendorBill", bill.id, bill.billNumber || bill.id);
-    setState((prev) => {
-      return {
-        ...prev,
-        vendorBills: [bill, ...prev.vendorBills],
-        vendors: prev.vendors,
-        accountingVouchers:
-          postingResult?.ok
-            ? [postingResult.voucher, ...prev.accountingVouchers]
-            : prev.accountingVouchers,
-        accountingReviewQueue: reviewQueueItem
-          ? [reviewQueueItem, ...prev.accountingReviewQueue]
-          : prev.accountingReviewQueue,
-        auditLogs: [auditEntry, ...prev.auditLogs],
-      };
-    });
+    const billWithReceipt: VendorBill = {
+      ...bill,
+      warehouseReceiptApplied: receiptLines.length > 0 ? true : bill.warehouseReceiptApplied,
+    };
 
-    // FC4: PurchaseIn after GL booking so stock and vouchers stay aligned in the UI.
-    for (const line of bill.items ?? []) {
-      const itemId = line.inventoryItemId;
-      const qty = Number(line.quantity);
-      if (!itemId || !Number.isFinite(qty) || qty <= 0) continue;
-      await recordWarehouseInventoryMovement({
-        itemId,
-        movementType: "PurchaseIn",
-        quantity: qty,
-      });
-    }
+    setState((prev) => ({
+      ...prev,
+      vendorBills: [billWithReceipt, ...prev.vendorBills],
+      vendors: prev.vendors,
+      accountingVouchers:
+        postingResult?.ok ? [postingResult.voucher, ...prev.accountingVouchers] : prev.accountingVouchers,
+      accountingReviewQueue: reviewQueueItem
+        ? [reviewQueueItem, ...prev.accountingReviewQueue]
+        : prev.accountingReviewQueue,
+      auditLogs: [auditEntry, ...prev.auditLogs],
+    }));
+
+    return { ok: true };
   }, [
     canPerformActionOrWarn,
     createAuditEntry,
@@ -4114,104 +4136,134 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     voucherPostingService,
   ]);
   
-  const updateVendorBill = useCallback((id: string, updates: Partial<VendorBill>) => {
-    if (
-      vendorBillUpdateAffectsBooks(updates) &&
-      !vendorBillUpdateIsDocumentOnly(updates) &&
-      !canPerformActionOrWarn("vendor:record_bill")
-    ) {
-      return;
-    }
-
-    let inventoryDeltas: ReturnType<typeof planVendorBillAccountingUpdate>["inventoryDeltas"] = [];
-
-    setState((prev) => {
-      const existing = prev.vendorBills.find((b) => b.id === id);
-      if (!existing) return prev;
-
-      const merged: VendorBill = { ...existing, ...updates };
-      const auditLogs = auditFieldDiff(
-        createAuditEntry,
-        "VendorBill",
-        id,
-        existing.billNumber || id,
-        existing as unknown as Record<string, unknown>,
-        updates as unknown as Record<string, unknown>,
-      );
-
-      const plan = planVendorBillAccountingUpdate(
-        { vouchers: prev.accountingVouchers, before: existing, after: merged },
-        voucherPostingService,
-      );
-      inventoryDeltas = plan.inventoryDeltas;
-
-      let accountingVouchers = prev.accountingVouchers;
-      let accountingReviewQueue = prev.accountingReviewQueue;
-
-      if (plan.stripExisting) {
-        const stripped = stripVendorBillAccounting(prev, id);
-        accountingVouchers = stripped.accountingVouchers;
-        accountingReviewQueue = stripped.accountingReviewQueue;
+  const updateVendorBill = useCallback(
+    async (id: string, updates: Partial<VendorBill>) => {
+      if (
+        vendorBillUpdateAffectsBooks(updates) &&
+        !vendorBillUpdateIsDocumentOnly(updates) &&
+        !canPerformActionOrWarn("vendor:record_bill")
+      ) {
+        return;
       }
 
-      for (const postingResult of plan.postings) {
-        const reviewQueueItem = createReviewQueueItem(postingResult, merged.projectId);
-        if (postingResult.ok) {
-          accountingVouchers = [postingResult.voucher, ...accountingVouchers];
-        } else if (reviewQueueItem) {
-          accountingReviewQueue = [reviewQueueItem, ...accountingReviewQueue];
+      let inventoryDeltas: ReturnType<typeof planVendorBillAccountingUpdate>["inventoryDeltas"] = [];
+      let mergedBill: VendorBill | undefined;
+
+      setState((prev) => {
+        const existing = prev.vendorBills.find((b) => b.id === id);
+        if (!existing) return prev;
+
+        const merged: VendorBill = { ...existing, ...updates };
+        mergedBill = merged;
+        const auditLogs = auditFieldDiff(
+          createAuditEntry,
+          "VendorBill",
+          id,
+          existing.billNumber || id,
+          existing as unknown as Record<string, unknown>,
+          updates as unknown as Record<string, unknown>,
+        );
+
+        const plan = planVendorBillAccountingUpdate(
+          { vouchers: prev.accountingVouchers, before: existing, after: merged },
+          voucherPostingService,
+        );
+        inventoryDeltas = plan.inventoryDeltas;
+
+        let accountingVouchers = prev.accountingVouchers;
+        let accountingReviewQueue = prev.accountingReviewQueue;
+
+        if (plan.stripExisting) {
+          const stripped = stripVendorBillAccounting(prev, id);
+          accountingVouchers = stripped.accountingVouchers;
+          accountingReviewQueue = stripped.accountingReviewQueue;
+        }
+
+        for (const postingResult of plan.postings) {
+          const reviewQueueItem = createReviewQueueItem(postingResult, merged.projectId);
+          if (postingResult.ok) {
+            accountingVouchers = [postingResult.voucher, ...accountingVouchers];
+          } else if (reviewQueueItem) {
+            accountingReviewQueue = [reviewQueueItem, ...accountingReviewQueue];
+          }
+        }
+
+        const receiptLines = vendorBillInventoryReceiptLines(merged);
+        const warehouseReceiptApplied =
+          merged.warehouseReceiptApplied === false && receiptLines.length > 0
+            ? true
+            : merged.warehouseReceiptApplied;
+
+        return {
+          ...prev,
+          vendorBills: prev.vendorBills.map((b) =>
+            b.id === id ? { ...merged, warehouseReceiptApplied } : b,
+          ),
+          accountingVouchers,
+          accountingReviewQueue,
+          auditLogs: auditLogs.length > 0 ? [...auditLogs, ...prev.auditLogs] : prev.auditLogs,
+        };
+      });
+
+      if (!mergedBill) return;
+
+      for (const { itemId, deltaQty } of inventoryDeltas) {
+        if (deltaQty > 0) {
+          await recordWarehouseInventoryMovement({
+            itemId,
+            movementType: "PurchaseIn",
+            quantity: deltaQty,
+          });
+        } else if (deltaQty < 0) {
+          await recordWarehouseInventoryMovement({
+            itemId,
+            movementType: "ScrapWarehouse",
+            quantity: Math.abs(deltaQty),
+          });
+        }
+      }
+    },
+    [
+      canPerformActionOrWarn,
+      createAuditEntry,
+      createReviewQueueItem,
+      recordWarehouseInventoryMovement,
+      voucherPostingService,
+    ],
+  );
+  
+  const deleteVendorBill = useCallback(
+    async (id: string) => {
+      if (!canFeature(actorRole, "vendorBill", "delete", roleMatrixOverride)) {
+        showPermissionDeniedToast("Your role cannot delete vendor bills.");
+        return;
+      }
+
+      const bill = state.vendorBills.find((b) => b.id === id);
+      if (bill?.warehouseReceiptApplied === true) {
+        for (const { itemId, qty } of vendorBillInventoryReceiptLines(bill)) {
+          await recordWarehouseInventoryMovement({
+            itemId,
+            movementType: "ScrapWarehouse",
+            quantity: qty,
+          });
         }
       }
 
-      return {
-        ...prev,
-        vendorBills: prev.vendorBills.map((b) => (b.id === id ? merged : b)),
-        accountingVouchers,
-        accountingReviewQueue,
-        auditLogs: auditLogs.length > 0 ? [...auditLogs, ...prev.auditLogs] : prev.auditLogs,
-      };
-    });
-
-    for (const { itemId, deltaQty } of inventoryDeltas) {
-      if (deltaQty > 0) {
-        void recordWarehouseInventoryMovement({
-          itemId,
-          movementType: "PurchaseIn",
-          quantity: deltaQty,
-        });
-      } else if (deltaQty < 0) {
-        void recordWarehouseInventoryMovement({
-          itemId,
-          movementType: "ScrapWarehouse",
-          quantity: Math.abs(deltaQty),
-        });
-      }
-    }
-  }, [
-    canPerformActionOrWarn,
-    createAuditEntry,
-    createReviewQueueItem,
-    recordWarehouseInventoryMovement,
-    voucherPostingService,
-  ]);
-  
-  const deleteVendorBill = useCallback((id: string) => {
-    if (!canFeature(actorRole, "vendorBill", "delete", roleMatrixOverride)) {
-      showPermissionDeniedToast("Your role cannot delete vendor bills.");
-      return;
-    }
-    setState((prev) => {
-      const stripped = stripVendorBillAccounting(prev, id);
-      return {
-        ...prev,
-        ...stripped,
-        vendorBills: prev.vendorBills.filter((b) => b.id !== id),
-        procurementNeedLines: (prev.procurementNeedLines ?? []).map((l) =>
-          l.vendorBillId === id ? { ...l, vendorBillId: undefined } : l,
-        ),
-      };
-    });
-  }, [actorRole, roleMatrixOverride]);
+      setState((prev) => {
+        const stripped = stripVendorBillAccounting(prev, id);
+        return {
+          ...prev,
+          ...stripped,
+          vendorBills: prev.vendorBills.filter((b) => b.id !== id),
+          procurementNeedLines: (prev.procurementNeedLines ?? []).map((l) =>
+            l.vendorBillId === id ? { ...l, vendorBillId: undefined } : l,
+          ),
+        };
+      });
+    },
+    [actorRole, recordWarehouseInventoryMovement, roleMatrixOverride, state.vendorBills],
+  );
   
   const getVendorBillsByVendor = useCallback((vendorId: string) => {
     return state.vendorBills.filter(b => String(b.vendorId) === String(vendorId));

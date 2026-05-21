@@ -41,8 +41,16 @@ describe("M5 — finance mutation audit coverage", () => {
   it("updateVendorBill plans GL adjustments via planVendorBillAccountingUpdate (MD7)", () => {
     expect(source).toContain("planVendorBillAccountingUpdate");
     expect(source).toMatch(
-      /updateVendorBill[\s\S]*?recordWarehouseInventoryMovement/,
+      /updateVendorBill[\s\S]*?await recordWarehouseInventoryMovement/,
     );
+  });
+
+  it("addVendorBill awaits warehouse receipt before persisting bill (ER6)", () => {
+    expect(source).toMatch(
+      /addVendorBill[\s\S]*?recordWarehouseInventoryMovement[\s\S]*?setState/,
+    );
+    expect(source).toContain("warehouseReceiptApplied");
+    expect(source).toContain("enqueueWarehouseMovement");
   });
 
   it("resolveBlockage logs status transition", () => {

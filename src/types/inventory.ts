@@ -23,6 +23,11 @@ export interface VendorBill {
   /** Local blob URL or data URL from uploaded bill document (prototype). */
   documentUrl?: string;
   documentFileName?: string;
+  /**
+   * ER6 — warehouse PurchaseIn applied for this bill's inventory lines.
+   * `false` = booked but receipt pending (hydrate will repair); `undefined` = legacy (do not re-apply).
+   */
+  warehouseReceiptApplied?: boolean;
 }
 
 export interface VendorPayment {
