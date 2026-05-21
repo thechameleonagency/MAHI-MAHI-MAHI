@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
+import { formatINR } from "@/lib/formatCurrency";
 import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { resolveChangeRequestDeltaAmount } from "@/lib/changeRequestApproval";
 import { parseMaterialDeltaFromLines } from "@/lib/changeRequestMaterialDelta";
@@ -108,7 +109,7 @@ export function ChangeRequestSheet({
 
     toast({
       title: "Change request logged",
-      description: `Draft saved — estimated delta ₹${previewDelta.toLocaleString("en-IN")}`,
+      description: `Draft saved — estimated delta ${formatINR(previewDelta)}`,
     });
     reset();
     onOpenChange(false);
@@ -171,7 +172,7 @@ export function ChangeRequestSheet({
           )}
 
           <p className="text-sm text-muted-foreground rounded-md border bg-muted/30 px-3 py-2">
-            Estimated commercial delta: <strong>₹{previewDelta.toLocaleString("en-IN")}</strong>
+            Estimated commercial delta: <strong>{formatINR(previewDelta)}</strong>
           </p>
 
           <div className="space-y-2">

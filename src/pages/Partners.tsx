@@ -36,8 +36,6 @@ import { useCan } from "@/hooks/useCan";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getPartnerSettlementPendingAging } from "@/lib/agingHelpers";
 
-const formatCurrency = (amount: number) => formatINR(Math.round(amount || 0));
-
 const Partners = () => {
   const { partners, projects, partnerTransactions, addPartner, updatePartner, deletePartner, generateId } = useAppData();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -200,10 +198,10 @@ const Partners = () => {
               className="ml-auto flex-wrap"
               items={[
                 { label: "Partners", value: partners.length },
-                { label: "Lifetime earned", value: formatCurrency(totals.earned) },
-                { label: `Earned (FY ${fyLabel})`, value: formatCurrency(totals.earnedFy) },
-                { label: "Paid to partners", value: formatCurrency(totals.paid) },
-                { label: "Pending amount", value: formatCurrency(totals.pending) },
+                { label: "Lifetime earned", value: formatINR(totals.earned) },
+                { label: `Earned (FY ${fyLabel})`, value: formatINR(totals.earnedFy) },
+                { label: "Paid to partners", value: formatINR(totals.paid) },
+                { label: "Pending amount", value: formatINR(totals.pending) },
               ]}
             />
           </div>
@@ -306,10 +304,10 @@ const Partners = () => {
                   )}
                 </div>
               </TableCell>
-              <TableCell className="text-right">{formatCurrency(earned)}</TableCell>
-              <TableCell className="text-right">{formatCurrency(earnedFy)}</TableCell>
-              <TableCell className="text-right">{formatCurrency(paid)}</TableCell>
-              <TableCell className="text-right font-semibold">{formatCurrency(pending)}</TableCell>
+              <TableCell className="text-right">{formatINR(earned)}</TableCell>
+              <TableCell className="text-right">{formatINR(earnedFy)}</TableCell>
+              <TableCell className="text-right">{formatINR(paid)}</TableCell>
+              <TableCell className="text-right font-semibold">{formatINR(pending)}</TableCell>
               <TableCell className="text-right">
                 <div className="flex items-center justify-end gap-1">
                   {pending > 0.5 && (

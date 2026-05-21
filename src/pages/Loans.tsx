@@ -375,8 +375,6 @@ const Loans = () => {
     toast({ title: "Exported", description: "CSV matches the current filtered list." });
   };
 
-  const formatCurrency = (amount: number) => formatINR(amount);
-
   // Stats - only count EMI loans for monthly EMI calculation
   const totalPrincipal = loans.reduce((sum, l) => sum + l.principal, 0);
   const totalOutstanding = loans.reduce((sum, l) => sum + l.outstanding, 0);
@@ -394,7 +392,7 @@ const Loans = () => {
   const getPaymentTypeDisplay = (loan: Loan) => {
     switch (loan.paymentType) {
       case "emi":
-        return <span className="font-medium">{formatCurrency(loan.emiAmount)}/mo</span>;
+        return <span className="font-medium">{formatINR(loan.emiAmount)}/mo</span>;
       case "one-time":
         return (
           <div className="flex items-center gap-1 text-warning">
@@ -464,9 +462,9 @@ const Loans = () => {
               className="ml-auto flex-wrap"
               items={[
                 { label: "Active", value: activeLoans },
-                { label: "Principal", value: formatCurrency(totalPrincipal) },
-                { label: "Outstanding", value: formatCurrency(totalOutstanding) },
-                { label: "EMI / mo", value: formatCurrency(monthlyEmi) },
+                { label: "Principal", value: formatINR(totalPrincipal) },
+                { label: "Outstanding", value: formatINR(totalOutstanding) },
+                { label: "EMI / mo", value: formatINR(monthlyEmi) },
               ]}
             />
           </div>
@@ -536,10 +534,10 @@ const Loans = () => {
                   </div>
                 </TableCell>
                 <TableCell>{getPaymentTypeBadge(loan.paymentType)}</TableCell>
-                <TableCell className="text-right">{formatCurrency(loan.principal)}</TableCell>
+                <TableCell className="text-right">{formatINR(loan.principal)}</TableCell>
                 <TableCell className="text-right">{loan.interestRate > 0 ? `${loan.interestRate}%` : '-'}</TableCell>
                 <TableCell className="text-right">{getPaymentTypeDisplay(loan)}</TableCell>
-                <TableCell className="text-right text-warning">{formatCurrency(loan.outstanding)}</TableCell>
+                <TableCell className="text-right text-warning">{formatINR(loan.outstanding)}</TableCell>
                 <TableCell className="text-right tabular-nums">
                   {overdueDays > 0 ? (
                     <span className="font-medium text-destructive">{overdueDays}</span>
@@ -663,7 +661,7 @@ const Loans = () => {
                     <p className="text-xs text-muted-foreground">#{rep.emiNumber} • {new Date(rep.date).toLocaleDateString('en-IN')}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-primary">{formatCurrency(rep.totalPaid)}</span>
+                    <span className="font-semibold text-primary">{formatINR(rep.totalPaid)}</span>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -841,7 +839,7 @@ const Loans = () => {
           <div className="space-y-4 py-4">
             <div className="p-3 bg-muted/30 rounded-lg">
               <p className="text-sm text-muted-foreground">Loan: {selectedLoan?.source}</p>
-              <p className="font-semibold mt-1">Outstanding: {formatCurrency(selectedLoan?.outstanding || 0)}</p>
+              <p className="font-semibold mt-1">Outstanding: {formatINR(selectedLoan?.outstanding || 0)}</p>
               {selectedLoan?.paymentType === "one-time" && selectedLoan?.dueDate && (
                 <p className="text-sm text-warning mt-1">
                   <AlertCircle className="h-3 w-3 inline mr-1" />

@@ -43,6 +43,7 @@ import {
   countPendingTransportSubItems,
   sumTransportedQtyForStage,
 } from "@/lib/progressReportTransport";
+import { formatINR } from "@/lib/formatCurrency";
 
 // Timeline steps for site status card (now 7 steps)
 const TIMELINE_STEPS = [
@@ -417,11 +418,8 @@ export function ProgressReportTab({
     }
     setCashPaymentAmount("");
     setCashPaymentNotes("");
-    toast({ title: "Payment Recorded", description: `₹${amount.toLocaleString("en-IN")} cash payment recorded` });
+    toast({ title: "Payment Recorded", description: `${formatINR(amount)} cash payment recorded` });
   };
-
-  // Format currency helper
-  const formatCurrency = (amount: number) => `₹${amount.toLocaleString("en-IN")}`;
 
   const activeBlockages = blockages.filter(b => b.status === "active");
   const resolvedBlockages = blockages.filter(b => b.status === "resolved");
@@ -1366,15 +1364,15 @@ export function ProgressReportTab({
                 </div>
                 {projectContractAmount && (
                   <div className="text-2xs text-muted-foreground space-y-0.5 pl-1">
-                    <p>Contract: {formatCurrency(projectContractAmount)}</p>
-                    <p>Received: {formatCurrency(totalCashReceived)}</p>
+                    <p>Contract: {formatINR(projectContractAmount)}</p>
+                    <p>Received: {formatINR(totalCashReceived)}</p>
                   </div>
                 )}
               </div>
             ) : bankFileType === "loan" ? (
               <div className="space-y-1.5">
                 {projectBankDocAmount && (
-                  <p className="text-2xs text-muted-foreground pl-1">Bank Doc: {formatCurrency(projectBankDocAmount)}</p>
+                  <p className="text-2xs text-muted-foreground pl-1">Bank Doc: {formatINR(projectBankDocAmount)}</p>
                 )}
                 {LOAN_STAGES.map((stage, idx) => {
                   const currentIndex = LOAN_STAGES.findIndex(s => s.value === loanStage);
@@ -1414,7 +1412,7 @@ export function ProgressReportTab({
                   <span className="text-success font-medium">Cash + Loan</span>
                 </div>
                 {projectContractAmount && (
-                  <p className="text-2xs text-muted-foreground pl-1">Contract: {formatCurrency(projectContractAmount)}</p>
+                  <p className="text-2xs text-muted-foreground pl-1">Contract: {formatINR(projectContractAmount)}</p>
                 )}
               </div>
             ) : (
@@ -1517,9 +1515,9 @@ export function ProgressReportTab({
                 </div>
                 {projectContractAmount && (
                   <div className="text-2xs text-muted-foreground space-y-0.5 pl-5">
-                    <p>Total: {formatCurrency(projectContractAmount)}</p>
-                    <p>Received: {formatCurrency(totalCashReceived)}</p>
-                    <p>Remaining: {formatCurrency(Math.max(0, projectContractAmount - totalCashReceived))}</p>
+                    <p>Total: {formatINR(projectContractAmount)}</p>
+                    <p>Received: {formatINR(totalCashReceived)}</p>
+                    <p>Remaining: {formatINR(Math.max(0, projectContractAmount - totalCashReceived))}</p>
                   </div>
                 )}
                 {cashToMahiConfirmed && (
@@ -1538,7 +1536,7 @@ export function ProgressReportTab({
                     <Circle className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
                   )}
                   <span className={firstInstallmentPaid ? 'text-foreground' : 'text-muted-foreground'}>
-                    1st: {firstInstalmentAmount ? formatCurrency(firstInstalmentAmount) : "1st Installment"}
+                    1st: {firstInstalmentAmount ? formatINR(firstInstalmentAmount) : "1st Installment"}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
@@ -1548,7 +1546,7 @@ export function ProgressReportTab({
                     <Circle className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
                   )}
                   <span className={secondInstallmentPaid ? 'text-foreground' : 'text-muted-foreground'}>
-                    2nd: {secondInstalmentAmount ? formatCurrency(secondInstalmentAmount) : "2nd Installment"}
+                    2nd: {secondInstalmentAmount ? formatINR(secondInstalmentAmount) : "2nd Installment"}
                   </span>
                 </div>
               </div>
@@ -1660,11 +1658,11 @@ export function ProgressReportTab({
             </div>
             <div>
               <p className="text-2xs uppercase tracking-wide text-muted-foreground">Rate</p>
-              <p className="font-medium tabular-nums">₹{outsource.rateValue.toLocaleString("en-IN")}</p>
+              <p className="font-medium tabular-nums">{formatINR(outsource.rateValue)}</p>
             </div>
             <div>
               <p className="text-2xs uppercase tracking-wide text-muted-foreground">Total</p>
-              <p className="font-medium tabular-nums">₹{outsource.total.toLocaleString("en-IN")}</p>
+              <p className="font-medium tabular-nums">{formatINR(outsource.total)}</p>
             </div>
             {outsource.notes && (
               <div className="col-span-full">
@@ -2461,15 +2459,15 @@ export function ProgressReportTab({
                         <div className="p-3 bg-muted/30 rounded-lg border border-muted-foreground/10 space-y-2">
                           <div className="flex justify-between text-xs">
                             <span className="text-muted-foreground">Contract Amount</span>
-                            <span className="font-semibold text-foreground">{formatCurrency(projectContractAmount)}</span>
+                            <span className="font-semibold text-foreground">{formatINR(projectContractAmount)}</span>
                           </div>
                           <div className="flex justify-between text-xs">
                             <span className="text-muted-foreground">Received</span>
-                            <span className="font-medium text-foreground">{formatCurrency(totalCashReceived)}</span>
+                            <span className="font-medium text-foreground">{formatINR(totalCashReceived)}</span>
                           </div>
                           <div className="flex justify-between text-xs border-t border-muted-foreground/10 pt-1.5">
                             <span className="text-muted-foreground">Remaining</span>
-                            <span className="font-semibold text-warning">{formatCurrency(Math.max(0, projectContractAmount - totalCashReceived))}</span>
+                            <span className="font-semibold text-warning">{formatINR(Math.max(0, projectContractAmount - totalCashReceived))}</span>
                           </div>
                         </div>
                       )}
@@ -2508,11 +2506,11 @@ export function ProgressReportTab({
                           <div className="p-2.5 bg-muted/30 rounded-lg border border-muted-foreground/10 space-y-1.5">
                             <div className="flex justify-between text-xs">
                               <span className="text-muted-foreground">Contract</span>
-                              <span className="font-semibold text-foreground">{formatCurrency(projectContractAmount)}</span>
+                              <span className="font-semibold text-foreground">{formatINR(projectContractAmount)}</span>
                             </div>
                             <div className="flex justify-between text-xs">
                               <span className="text-muted-foreground">Received</span>
-                              <span className="font-medium text-foreground">{formatCurrency(totalCashReceived)}</span>
+                              <span className="font-medium text-foreground">{formatINR(totalCashReceived)}</span>
                             </div>
                           </div>
                         )}
@@ -2539,7 +2537,7 @@ export function ProgressReportTab({
                         {projectBankDocAmount && (
                           <div className="flex justify-between text-xs px-1">
                             <span className="text-muted-foreground">Bank Documentation</span>
-                            <span className="font-semibold text-foreground">{formatCurrency(projectBankDocAmount)}</span>
+                            <span className="font-semibold text-foreground">{formatINR(projectBankDocAmount)}</span>
                           </div>
                         )}
                         {LOAN_STAGES.map((stage, idx) => {
@@ -2595,7 +2593,7 @@ export function ProgressReportTab({
                       {projectBankDocAmount && (
                         <div className="flex justify-between text-xs p-2 bg-muted/30 rounded-lg border border-muted-foreground/10 mb-2">
                           <span className="text-muted-foreground">Bank Documentation</span>
-                          <span className="font-semibold text-foreground">{formatCurrency(projectBankDocAmount)}</span>
+                          <span className="font-semibold text-foreground">{formatINR(projectBankDocAmount)}</span>
                         </div>
                       )}
                       {LOAN_STAGES.map((stage, idx) => {
@@ -3171,15 +3169,15 @@ export function ProgressReportTab({
                         <div className="p-3 bg-muted/30 rounded-lg border border-muted-foreground/10 space-y-2">
                           <div className="flex justify-between text-xs">
                             <span className="text-muted-foreground">Total Amount</span>
-                            <span className="font-semibold text-foreground">{formatCurrency(projectContractAmount)}</span>
+                            <span className="font-semibold text-foreground">{formatINR(projectContractAmount)}</span>
                           </div>
                           <div className="flex justify-between text-xs">
                             <span className="text-muted-foreground">Received</span>
-                            <span className="font-medium text-foreground">{formatCurrency(totalCashReceived)}</span>
+                            <span className="font-medium text-foreground">{formatINR(totalCashReceived)}</span>
                           </div>
                           <div className="flex justify-between text-xs border-t border-muted-foreground/10 pt-1.5">
                             <span className="text-muted-foreground">Remaining</span>
-                            <span className="font-semibold text-warning">{formatCurrency(Math.max(0, projectContractAmount - totalCashReceived))}</span>
+                            <span className="font-semibold text-warning">{formatINR(Math.max(0, projectContractAmount - totalCashReceived))}</span>
                           </div>
                         </div>
                       )}
@@ -3250,7 +3248,7 @@ export function ProgressReportTab({
                           </div>
                           {projectContractAmount && (
                             <p className="text-2xs text-muted-foreground text-right">
-                              Total: {formatCurrency(firstInstalmentAmount + secondInstalmentAmount)} / {formatCurrency(projectContractAmount)}
+                              Total: {formatINR(firstInstalmentAmount + secondInstalmentAmount)} / {formatINR(projectContractAmount)}
                             </p>
                           )}
                         </div>
@@ -3273,7 +3271,7 @@ export function ProgressReportTab({
                           </label>
                           {firstInstalmentAmount > 0 && (
                             <span className={`text-xs font-semibold ${firstInstallmentPaid ? 'text-foreground' : 'text-foreground'}`}>
-                              {formatCurrency(firstInstalmentAmount)}
+                              {formatINR(firstInstalmentAmount)}
                             </span>
                           )}
                         </div>
@@ -3307,7 +3305,7 @@ export function ProgressReportTab({
                           </label>
                           {secondInstalmentAmount > 0 && (
                             <span className={`text-xs font-semibold ${secondInstallmentPaid ? 'text-foreground' : !firstInstallmentPaid ? 'text-muted-foreground/40' : 'text-foreground'}`}>
-                              {formatCurrency(secondInstalmentAmount)}
+                              {formatINR(secondInstalmentAmount)}
                             </span>
                           )}
                         </div>

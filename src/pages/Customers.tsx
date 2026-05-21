@@ -292,8 +292,6 @@ const Customers = () => {
     return arr;
   }, [filteredCustomers, sortKey, invoices, saleBills]);
 
-  const formatCurrency = (amount: number) => formatINR(Math.round(amount || 0));
-
   return (
     <PageShell className="space-y-4 md:space-y-5">
       <StickyPageHeader
@@ -359,7 +357,7 @@ const Customers = () => {
                 { label: "Total", value: customers.length },
                 { label: "Companies", value: customers.filter((c) => c.type === "company").length },
                 { label: "Individuals", value: customers.filter((c) => c.type === "individual").length },
-                { label: "Volume", value: formatCurrency(customers.reduce((s, c) => s + c.totalPurchases, 0)) },
+                { label: "Volume", value: formatINR(customers.reduce((s, c) => s + c.totalPurchases, 0)) },
                 { label: showArchived ? "Archived" : "Active", value: sortedCustomers.length },
                 ...(archivedCount > 0 && !showArchived
                   ? [{ label: "Archived (hidden)", value: archivedCount }]
@@ -436,7 +434,7 @@ const Customers = () => {
                     )}
                     {pendingAmount > 0 ? (
                       <Badge className="bg-warning/10 text-warning border-0 text-xs">
-                        ₹{pendingAmount.toLocaleString()} Due
+                        {formatINR(pendingAmount)} Due
                       </Badge>
                     ) : (
                       <Badge className="bg-primary/10 text-primary border-0 text-xs">
@@ -514,12 +512,12 @@ const Customers = () => {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Pending:</span>
                       <span className={`font-medium ${pendingAmount > 0 ? 'text-warning' : 'text-primary'}`}>
-                        ₹{pendingAmount.toLocaleString()}
+                        {formatINR(pendingAmount)}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Received:</span>
-                      <span className="font-medium text-primary">₹{totalReceived.toLocaleString()}</span>
+                      <span className="font-medium text-primary">{formatINR(totalReceived)}</span>
                     </div>
                   </div>
                 </div>

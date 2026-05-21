@@ -43,7 +43,7 @@ import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { formatCurrency } from "@/lib/formatCurrency";
+import { formatINR } from "@/lib/formatCurrency";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { ListSkeleton } from "@/components/ui/ListSkeleton";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
@@ -364,7 +364,7 @@ const Invoices = () => {
       if (typeof cap === "number" && cap > 0 && invoice.total > cap + 0.01) {
         toast({
           title: "Exceeds project contract",
-          description: `Invoice total ${formatCurrency(invoice.total)} is above project contract ${formatCurrency(cap)}.`,
+          description: `Invoice total ${formatINR(invoice.total)} is above project contract ${formatINR(cap)}.`,
           variant: "destructive",
         });
         return;
@@ -493,7 +493,7 @@ const Invoices = () => {
         type: "Customer Paid Partner",
         direction: "received",
         projectId: selectedInvoice.projectId || undefined,
-        notes: `Client paid ${formatCurrency(partnerPortion)} to partner for invoice ${selectedInvoice.invoiceNumber}`,
+        notes: `Client paid ${formatINR(partnerPortion)} to partner for invoice ${selectedInvoice.invoiceNumber}`,
       });
     }
 
@@ -506,10 +506,10 @@ const Invoices = () => {
       variant: "success",
       title: "Payment recorded",
       description: paymentSource === "mss"
-        ? `${formatCurrency(amount)} received`
+        ? `${formatINR(amount)} received`
         : paymentSource === "partner"
-          ? `${formatCurrency(amount)} → partner ledger (Customer Paid Partner)`
-          : `${formatCurrency(mssPortion)} to MSS + ${formatCurrency(partnerPortion)} → partner`,
+          ? `${formatINR(amount)} → partner ledger (Customer Paid Partner)`
+          : `${formatINR(mssPortion)} to MSS + ${formatINR(partnerPortion)} → partner`,
     });
   };
 
@@ -728,9 +728,9 @@ const Invoices = () => {
               className="w-full sm:w-auto sm:justify-end"
               items={[
                 { label: "Docs", value: allBillingDocuments.length },
-                { label: "Billed", value: formatCurrency(totalInvoiced) },
-                { label: "Received", value: formatCurrency(totalReceived) },
-                { label: "Pending", value: formatCurrency(pendingAmount) },
+                { label: "Billed", value: formatINR(totalInvoiced) },
+                { label: "Received", value: formatINR(totalReceived) },
+                { label: "Pending", value: formatINR(pendingAmount) },
                 { label: "Open", value: pendingCount },
                 {
                   label: "Overpaid",
@@ -840,8 +840,8 @@ const Invoices = () => {
                     invoice.customerName
                   )}
                 </TableCell>
-                <TableCell className="text-right">{formatCurrency(invoice.total)}</TableCell>
-                <TableCell className="text-right text-primary">{formatCurrency(invoice.amountReceived)}</TableCell>
+                <TableCell className="text-right">{formatINR(invoice.total)}</TableCell>
+                <TableCell className="text-right text-primary">{formatINR(invoice.amountReceived)}</TableCell>
                 <TableCell
                   className={`text-right ${
                     invoice.status === "overpaid" || invoice.total - (invoice.amountReceived || 0) < -0.01
@@ -852,10 +852,10 @@ const Invoices = () => {
                   {formatInvoiceBalanceLabel(invoice.total, invoice.amountReceived || 0, invoice.status)}
                 </TableCell>
                 <TableCell className="text-right text-muted-foreground text-xs">
-                  {formatCurrency(invoice.cgst || 0)} / {formatCurrency(invoice.sgst || 0)} / {formatCurrency(invoice.igst || 0)}
+                  {formatINR(invoice.cgst || 0)} / {formatINR(invoice.sgst || 0)} / {formatINR(invoice.igst || 0)}
                 </TableCell>
                 <TableCell className="text-right text-destructive">
-                  {invoiceOverdueAmount(invoice) > 0 ? formatCurrency(invoiceOverdueAmount(invoice)) : "—"}
+                  {invoiceOverdueAmount(invoice) > 0 ? formatINR(invoiceOverdueAmount(invoice)) : "—"}
                 </TableCell>
                 <TableCell>{getStatusBadge(invoice.status)}</TableCell>
                 <TableCell>{formatInvoiceRowDate(invoice.invoiceDate)}</TableCell>
@@ -1040,9 +1040,9 @@ const Invoices = () => {
                       <TableCell>{item.description}</TableCell>
                       <TableCell>{item.hsn}</TableCell>
                       <TableCell className="text-center">{item.quantity}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(item.rate)}</TableCell>
+                      <TableCell className="text-right">{formatINR(item.rate)}</TableCell>
                       <TableCell className="text-right">{item.gstRate}%</TableCell>
-                      <TableCell className="text-right">{formatCurrency(item.quantity * item.rate)}</TableCell>
+                      <TableCell className="text-right">{formatINR(item.quantity * item.rate)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1075,34 +1075,34 @@ const Invoices = () => {
                 <div className="w-64 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Subtotal:</span>
-                    <span>{formatCurrency(selectedInvoice.subtotal)}</span>
+                    <span>{formatINR(selectedInvoice.subtotal)}</span>
                   </div>
                   {selectedInvoice.cgst > 0 && (
                     <div className="flex justify-between text-sm">
                       <span>CGST:</span>
-                      <span>{formatCurrency(selectedInvoice.cgst)}</span>
+                      <span>{formatINR(selectedInvoice.cgst)}</span>
                     </div>
                   )}
                   {selectedInvoice.sgst > 0 && (
                     <div className="flex justify-between text-sm">
                       <span>SGST:</span>
-                      <span>{formatCurrency(selectedInvoice.sgst)}</span>
+                      <span>{formatINR(selectedInvoice.sgst)}</span>
                     </div>
                   )}
                   {selectedInvoice.igst > 0 && (
                     <div className="flex justify-between text-sm">
                       <span>IGST:</span>
-                      <span>{formatCurrency(selectedInvoice.igst)}</span>
+                      <span>{formatINR(selectedInvoice.igst)}</span>
                     </div>
                   )}
                   <Separator />
                   <div className="flex justify-between font-semibold">
                     <span>Total:</span>
-                    <span>{formatCurrency(selectedInvoice.total)}</span>
+                    <span>{formatINR(selectedInvoice.total)}</span>
                   </div>
                   <div className="flex justify-between text-sm text-primary">
                     <span>Received:</span>
-                    <span>{formatCurrency(selectedInvoice.amountReceived)}</span>
+                    <span>{formatINR(selectedInvoice.amountReceived)}</span>
                   </div>
                   <div
                     className={`flex justify-between font-semibold ${
@@ -1186,7 +1186,7 @@ const Invoices = () => {
               <p className="text-sm text-muted-foreground">Invoice: {selectedInvoice?.invoiceNumber}</p>
               <p className="text-sm text-muted-foreground">Customer: {selectedInvoice?.customerName}</p>
               <p className="font-semibold mt-2">
-                Balance: {formatCurrency((selectedInvoice?.total || 0) - (selectedInvoice?.amountReceived || 0))}
+                Balance: {formatINR((selectedInvoice?.total || 0) - (selectedInvoice?.amountReceived || 0))}
               </p>
             </div>
             <div className="space-y-2">

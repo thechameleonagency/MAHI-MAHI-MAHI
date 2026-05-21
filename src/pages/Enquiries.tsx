@@ -384,8 +384,6 @@ const Enquiries = () => {
     highPriority: enquiries.filter(e => e.priority === "high" && e.status !== "converted" && e.status !== "lost").length,
   };
 
-const formatCurrency = (amount: number) => formatINR(amount);
-
 const formatCapacityInput = (capacity: string) => {
   const trimmed = capacity.trim();
   if (!trimmed) return trimmed;
@@ -1060,7 +1058,7 @@ const formatCapacityInput = (capacity: string) => {
                   <TableCell>{getStatusBadge(enquiry.status)}</TableCell>
                   <TableCell>{getPriorityBadge(enquiry.priority)}</TableCell>
                   <TableCell className="font-medium">{enquiry.systemCapacity || "—"}</TableCell>
-                  <TableCell className="text-primary font-medium">{formatCurrency(enquiry.estimatedBudget)}</TableCell>
+                  <TableCell className="text-primary font-medium">{formatINR(enquiry.estimatedBudget)}</TableCell>
                   <TableCell >
                     {getEnquiryAssigneeDisplayName(enquiry, settingsTeamMembers) || (
                       <span className="text-warning">Unassigned</span>
@@ -1467,7 +1465,7 @@ const formatCapacityInput = (capacity: string) => {
                       </div>
                       <div>
                         <p className="text-2xs text-muted-foreground uppercase tracking-wider">Budget Estimate</p>
-                        <p className="text-sm font-semibold">{formatCurrency(selectedEnquiry.estimatedBudget)}</p>
+                        <p className="text-sm font-semibold">{formatINR(selectedEnquiry.estimatedBudget)}</p>
                       </div>
                     </div>
 

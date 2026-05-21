@@ -13,7 +13,7 @@ import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import BankReconciliationSheet from "@/components/audit/BankReconciliationSheet";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO } from "date-fns";
-import { formatINR } from "@/lib/formatCurrency";
+import { formatINR, formatINRChartAxis } from "@/lib/formatCurrency";
 import { computeLedgerTotals } from "@/lib/audit/ledgerTotals";
 import { computeProfitLoss } from "@/lib/audit";
 import { sumBookableVendorBillsInPeriod } from "@/lib/vendorBillVoucherPosting";
@@ -254,7 +254,7 @@ const AuditDashboard = () => {
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                 <XAxis dataKey="month" className="text-xs" />
-                <YAxis className="text-xs" tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
+                <YAxis className="text-xs" tickFormatter={formatINRChartAxis} />
                 <Tooltip formatter={(v: number) => formatINR(v)} />
                 <Legend />
                 <Bar dataKey="Revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
@@ -273,7 +273,7 @@ const AuditDashboard = () => {
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                 <XAxis dataKey="month" className="text-xs" />
-                <YAxis className="text-xs" tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
+                <YAxis className="text-xs" tickFormatter={formatINRChartAxis} />
                 <Tooltip formatter={(v: number) => formatINR(v)} />
                 <Line type="monotone" dataKey="Profit" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ fill: "hsl(var(--primary))" }} />
               </LineChart>

@@ -13,7 +13,7 @@ import { ChevronDown, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { downloadCSV } from "@/lib/csvExport";
 import { toast } from "@/hooks/use-toast";
-import { formatINR, formatINR as fmt } from "@/lib/formatCurrency";
+import { formatINR, formatINRChartAxis } from "@/lib/formatCurrency";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 import type { Expense } from "@/types/finance";
@@ -27,11 +27,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 function CategoryExpenseLinesTable({
   entries,
-  fmt: _fmt,
   onProjectClick,
 }: {
   entries: Expense[];
-  fmt: (v: number) => string;
   onProjectClick: (projectId: string) => void;
 }) {
   const [page, setPage] = useState(1);
@@ -241,7 +239,7 @@ const ExpenseAudit = () => {
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={chartData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis type="number" tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} className="text-xs" />
+              <XAxis type="number" tickFormatter={formatINRChartAxis} className="text-xs" />
               <YAxis type="category" dataKey="category" className="text-xs" width={100} />
               <Tooltip formatter={(v: number) => formatINR(v)} />
               <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
@@ -288,7 +286,6 @@ const ExpenseAudit = () => {
                       <CardContent className="p-0 pt-2">
                         <CategoryExpenseLinesTable
                           entries={exps}
-                          fmt={fmt}
                           onProjectClick={(pid) => navigate(`/projects/${pid}`)}
                         />
                       </CardContent>

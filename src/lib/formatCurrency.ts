@@ -16,8 +16,18 @@ export function formatINR(amount: number): string {
 }
 
 /**
- * Generic alias for {@link formatINR}. Prefer importing `formatINR` directly; this re-export
- * exists so legacy callsites that did `import { formatCurrency } ...` keep compiling.
+ * Compact axis label for charts (e.g. audit dashboards). Uses Indian grouping via {@link formatINRCompact}
+ * for large values; sub-thousand values use full {@link formatINR}.
+ */
+export function formatINRChartAxis(value: number): string {
+  if (isNaN(value) || value == null) return "₹0";
+  const abs = Math.abs(value);
+  if (abs >= 1000) return formatINRCompact(value);
+  return formatINR(value);
+}
+
+/**
+ * @deprecated Import {@link formatINR} instead — same behaviour; alias kept for legacy imports only.
  */
 export const formatCurrency = formatINR;
 

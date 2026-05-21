@@ -18,7 +18,7 @@ import { Download, IndianRupee } from "lucide-react";
 import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { downloadCSV } from "@/lib/csvExport";
 import { toast } from "@/hooks/use-toast";
-import { formatINR } from "@/lib/formatCurrency";
+import { formatINR, formatINRChartAxis } from "@/lib/formatCurrency";
 import { debtorCreditorSummary } from "@/lib/audit";
 
 const DebtorsCreditors = () => {
@@ -164,7 +164,7 @@ const DebtorsCreditors = () => {
             <BarChart data={agingData}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
               <XAxis dataKey="bucket" className="text-xs" />
-              <YAxis className="text-xs" tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
+              <YAxis className="text-xs" tickFormatter={formatINRChartAxis} />
               <Tooltip formatter={(v: number) => formatINR(v)} />
               <Legend />
               <Bar dataKey="Receivables" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />

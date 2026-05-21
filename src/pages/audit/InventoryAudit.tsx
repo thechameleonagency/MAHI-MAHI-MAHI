@@ -13,7 +13,7 @@ import { Download, Package } from "lucide-react";
 import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { downloadCSV } from "@/lib/csvExport";
 import { toast } from "@/hooks/use-toast";
-import { formatINR, formatINR as fmt } from "@/lib/formatCurrency";
+import { formatINR } from "@/lib/formatCurrency";
 import { DataTableShell } from "@/components/data-table/DataTableShell";
 import { TablePaginationBar } from "@/components/data-table/TablePaginationBar";
 import { dataTableClasses, listTableViewportMaxHeight, DEFAULT_TABLE_PAGE_SIZE } from "@/lib/tableConstants";
@@ -55,13 +55,11 @@ function fifoStockValueForItem(item: InventoryItem, movements: MovementRow[]): n
 function StockCategoryTable({
   category,
   items,
-  fmt: _fmt,
   valuation,
   movements,
 }: {
   category: string;
   items: InventoryItem[];
-  fmt: (v: number) => string;
   valuation: "weighted" | "fifo";
   movements: MovementRow[];
 }) {
@@ -394,7 +392,6 @@ const InventoryAudit = () => {
                   key={category}
                   category={category}
                   items={items}
-                  fmt={fmt}
                   valuation={valuation}
                   movements={movements}
                 />

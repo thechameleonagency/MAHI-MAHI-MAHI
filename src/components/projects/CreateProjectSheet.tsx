@@ -36,6 +36,7 @@ import {
 } from "@/lib/projectTeamAssignment";
 import { filterActiveCustomers } from "@/lib/customerListFilters";
 import { resolveContractAmount } from "@/domain/quotation/quotationCommercialAmount";
+import { formatINR } from "@/lib/formatCurrency";
 
 interface CreateProjectSheetProps {
   open: boolean;
@@ -894,7 +895,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                         <div><span className="text-muted-foreground block">Client</span><span className="font-medium">{target.client}</span></div>
                         <div><span className="text-muted-foreground block">Capacity</span><span className="font-medium">{target.capacity || "—"}</span></div>
                         <div><span className="text-muted-foreground block">Location</span><span className="font-medium">{target.location || "—"}</span></div>
-                        <div><span className="text-muted-foreground block">Contract</span><span className="font-medium">₹{(target.contractAmount || 0).toLocaleString("en-IN")}</span></div>
+                        <div><span className="text-muted-foreground block">Contract</span><span className="font-medium">{formatINR(target.contractAmount || 0)}</span></div>
                       </div>
                     );
                   })()}
@@ -1036,7 +1037,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                       >
                         <div>
                           <p className="text-sm font-medium">{q.clientName}</p>
-                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{resolveContractAmount(q).toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · {formatINR(resolveContractAmount(q))}</p>
                         </div>
                         {selectedQuotationId === q.id
                           ? <Check className="h-4 w-4 text-primary" />
@@ -1189,7 +1190,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                         <SelectTrigger><SelectValue placeholder="Select loan" /></SelectTrigger>
                         <SelectContent>
                           {loans.filter((l) => l.status === "Active").map((l) => (
-                            <SelectItem key={l.id} value={l.id}>{l.source} — {l.personName || "—"} (₹{l.outstanding?.toLocaleString?.() ?? l.outstanding})</SelectItem>
+                            <SelectItem key={l.id} value={l.id}>{l.source} — {l.personName || "—"} ({formatINR(l.outstanding ?? 0)})</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -1315,7 +1316,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                       >
                         <div>
                           <p className="text-sm font-medium">{q.clientName}</p>
-                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{resolveContractAmount(q).toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · {formatINR(resolveContractAmount(q))}</p>
                         </div>
                         {selectedQuotationId === q.id ? <Check className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                       </div>
@@ -1505,7 +1506,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                       >
                         <div>
                           <p className="text-sm font-medium">{q.clientName}</p>
-                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · ₹{resolveContractAmount(q).toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{q.quotationNumber} · {q.systemCapacity}kW · {formatINR(resolveContractAmount(q))}</p>
                         </div>
                         {selectedQuotationId === q.id ? <Check className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                       </div>
@@ -1574,7 +1575,7 @@ export const CreateProjectSheet = ({ open, onOpenChange, prefillQuotationId, pre
                 {incTotalAmount > 0 && (
                   <div className="flex items-center gap-2 px-4 py-2.5 bg-primary/5 border border-primary/20 rounded-lg text-sm">
                     <Zap className="h-4 w-4 text-primary" />
-                    <span className="font-medium">Total to collect: ₹{incTotalAmount.toLocaleString()}</span>
+                    <span className="font-medium">Total to collect: {formatINR(incTotalAmount)}</span>
                   </div>
                 )}
               </div>

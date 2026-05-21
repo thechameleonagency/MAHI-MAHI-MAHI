@@ -112,8 +112,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const formatCurrency = (amount: number) => formatINR(Math.round(amount || 0));
-
 function TabCard({
   title,
   icon,
@@ -816,10 +814,10 @@ const ProjectDetail = () => {
               <InlineKpiStrip
                 className="w-full min-w-0 flex-wrap justify-start"
                 items={[
-                  { label: "Contract", value: formatCurrency(project.contractAmount) },
-                  { label: "Actual cost", value: formatCurrency(actualCost) },
-                  { label: "Profit", value: formatCurrency(projectProfit) },
-                  { label: "Collected", value: formatCurrency(collected) },
+                  { label: "Contract", value: formatINR(project.contractAmount) },
+                  { label: "Actual cost", value: formatINR(actualCost) },
+                  { label: "Profit", value: formatINR(projectProfit) },
+                  { label: "Collected", value: formatINR(collected) },
                 ]}
               />
               {hasFinancialDetail && canViewCommercial && (
@@ -835,14 +833,14 @@ const ProjectDetail = () => {
             </div>
             {hasFinancialDetail && canViewCommercial && showFinancialDetail && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground border-t pt-3">
-                {project.bankDocumentationAmount != null && (<div><span className="block text-2xs uppercase">Bank Doc Amount</span><span className="text-foreground font-medium">{formatCurrency(project.bankDocumentationAmount)}</span></div>)}
-                {project.totalPartnerInvestment != null && (<div><span className="block text-2xs uppercase">Partner Investment</span><span className="text-foreground font-medium">{formatCurrency(project.totalPartnerInvestment)}</span></div>)}
-                {project.mssBackendAmount != null && (<div><span className="block text-2xs uppercase">MSS Backend</span><span className="text-foreground font-medium">{formatCurrency(project.mssBackendAmount)}</span></div>)}
+                {project.bankDocumentationAmount != null && (<div><span className="block text-2xs uppercase">Bank Doc Amount</span><span className="text-foreground font-medium">{formatINR(project.bankDocumentationAmount)}</span></div>)}
+                {project.totalPartnerInvestment != null && (<div><span className="block text-2xs uppercase">Partner Investment</span><span className="text-foreground font-medium">{formatINR(project.totalPartnerInvestment)}</span></div>)}
+                {project.mssBackendAmount != null && (<div><span className="block text-2xs uppercase">MSS Backend</span><span className="text-foreground font-medium">{formatINR(project.mssBackendAmount)}</span></div>)}
                 {project.externalVendorshipEntity && (<div><span className="block text-2xs uppercase">External Vendorship</span><span className="text-foreground font-medium">{project.externalVendorshipEntity}</span></div>)}
                 {project.loanReceiptHandling && (<div><span className="block text-2xs uppercase">Loan Receipt</span><span className="text-foreground font-medium">{project.loanReceiptHandling}</span></div>)}
                 {project.cashHandling && (<div><span className="block text-2xs uppercase">Cash Handling</span><span className="text-foreground font-medium">{project.cashHandling}</span></div>)}
                 {project.incScope && (<div><span className="block text-2xs uppercase">INC Scope</span><span className="text-foreground font-medium">{project.incScope}</span></div>)}
-                {project.vendorNetworkCommissionType && (<div><span className="block text-2xs uppercase">Network Commission</span><span className="text-foreground font-medium">{project.vendorNetworkCommissionType}{project.vendorNetworkFeePerKw ? ` (₹${project.vendorNetworkFeePerKw}/kW)` : project.vendorNetworkFlatFee ? ` (${formatCurrency(project.vendorNetworkFlatFee)})` : ""}</span></div>)}
+                {project.vendorNetworkCommissionType && (<div><span className="block text-2xs uppercase">Network Commission</span><span className="text-foreground font-medium">{project.vendorNetworkCommissionType}{project.vendorNetworkFeePerKw ? ` (₹${project.vendorNetworkFeePerKw}/kW)` : project.vendorNetworkFlatFee ? ` (${formatINR(project.vendorNetworkFlatFee)})` : ""}</span></div>)}
                 {project.commercialBaseline?.capturedAt && (<div><span className="block text-2xs uppercase">Baseline Locked</span><span className="text-foreground font-medium">{new Date(project.commercialBaseline.capturedAt).toLocaleDateString()}</span></div>)}
               </div>
             )}
@@ -1260,7 +1258,7 @@ const ProjectDetail = () => {
                         <TableCell className="capitalize">{dmg.stage}</TableCell>
                         <TableCell className="text-right">{dmg.qty}</TableCell>
                         <TableCell className="text-right">
-                          {dmg.costImpact != null ? formatCurrency(dmg.costImpact) : "—"}
+                          {dmg.costImpact != null ? formatINR(dmg.costImpact) : "—"}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate text-muted-foreground text-sm" title={dmg.notes}>
                           {dmg.notes?.trim() || "—"}
@@ -1293,12 +1291,12 @@ const ProjectDetail = () => {
             )}
             <div className="grid gap-4 md:grid-cols-4">
               <MiniMetric label="Lead Origin" value={project.scope?.leadSource === "PARTNER" ? "Partner Network" : "Direct / Other"} />
-              <MiniMetric label="Vendorship Fee" value={formatCurrency(project.scope?.vendorshipFeeAmount || 0)} />
+              <MiniMetric label="Vendorship Fee" value={formatINR(project.scope?.vendorshipFeeAmount || 0)} />
               <MiniMetric
                 label="Billing Fee (%)"
                 value={forbidChannelFee ? "—" : `${project.scope?.partnerBillingFeePercentage || 0}%`}
               />
-              <MiniMetric label="Partner Earning" value={formatCurrency(partnerEarning)} />
+              <MiniMetric label="Partner Earning" value={formatINR(partnerEarning)} />
             </div>
             
             {project.scope?.leadSource === "PARTNER" && (
@@ -1338,9 +1336,9 @@ const ProjectDetail = () => {
           <TabCard title="Company to Customer Billing" icon={<ReceiptText className="h-4 w-4 text-primary" />}>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div className="grid flex-1 gap-3 md:grid-cols-3">
-              <MiniMetric label="Contract value" value={formatCurrency(project.contractAmount)} />
-              <MiniMetric label="Billed so far" value={formatCurrency(billed)} />
-              <MiniMetric label="Collected so far" value={formatCurrency(collected)} />
+              <MiniMetric label="Contract value" value={formatINR(project.contractAmount)} />
+              <MiniMetric label="Billed so far" value={formatINR(billed)} />
+              <MiniMetric label="Collected so far" value={formatINR(collected)} />
               </div>
               <Button type="button" size="sm" className="shrink-0" onClick={handleOpenNewInvoiceForProject}>
                 <Plus className="mr-1 h-4 w-4" />
@@ -1366,8 +1364,8 @@ const ProjectDetail = () => {
                     <TableCell>
                       <Badge variant="outline">{invoice.status}</Badge>
                     </TableCell>
-                    <TableCell className="text-right">{formatCurrency(invoice.total)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(invoice.amountReceived)}</TableCell>
+                    <TableCell className="text-right">{formatINR(invoice.total)}</TableCell>
+                    <TableCell className="text-right">{formatINR(invoice.amountReceived)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1393,7 +1391,7 @@ const ProjectDetail = () => {
                       <PaymentRecipient payment={payment} />
                     </TableCell>
                     <TableCell>{payment.paymentMode}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(payment.amount)}</TableCell>
+                    <TableCell className="text-right">{formatINR(payment.amount)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1405,10 +1403,10 @@ const ProjectDetail = () => {
           <TabCard title="Actual Cost" icon={<IndianRupee className="h-4 w-4 text-primary" />}>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
               <div className="grid flex-1 gap-3 md:grid-cols-4">
-              <MiniMetric label="Material" value={formatCurrency(projectExpenses.filter((e) => e.category === "Material").reduce((sum, e) => sum + e.amount, 0))} />
-              <MiniMetric label="Labour" value={formatCurrency(projectExpenses.filter((e) => e.category === "Labour").reduce((sum, e) => sum + e.amount, 0))} />
-              <MiniMetric label="Transport" value={formatCurrency(projectExpenses.filter((e) => e.category === "Transport").reduce((sum, e) => sum + e.amount, 0))} />
-              <MiniMetric label="Total cost" value={formatCurrency(actualCost)} />
+              <MiniMetric label="Material" value={formatINR(projectExpenses.filter((e) => e.category === "Material").reduce((sum, e) => sum + e.amount, 0))} />
+              <MiniMetric label="Labour" value={formatINR(projectExpenses.filter((e) => e.category === "Labour").reduce((sum, e) => sum + e.amount, 0))} />
+              <MiniMetric label="Transport" value={formatINR(projectExpenses.filter((e) => e.category === "Transport").reduce((sum, e) => sum + e.amount, 0))} />
+              <MiniMetric label="Total cost" value={formatINR(actualCost)} />
               </div>
               <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => setIsAddExpenseOpen(true)}>
                 <Plus className="mr-1 h-4 w-4" />
@@ -1434,7 +1432,7 @@ const ProjectDetail = () => {
                       {expense.subCategory ? <span className="text-muted-foreground"> / {expense.subCategory}</span> : null}
                     </TableCell>
                     <TableCell className="max-w-md text-muted-foreground">{expense.notes ?? expense.description ?? ""}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(expense.amount)}</TableCell>
+                    <TableCell className="text-right">{formatINR(expense.amount)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1460,7 +1458,7 @@ const ProjectDetail = () => {
                   {(project.materialsSent ?? []).slice(0, 5).map((item) => (
                     <div key={`${item.itemId}-${item.dateIssued}`} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
                       <span>{item.itemName}</span>
-                      <span className="font-medium">{item.quantity} - {formatCurrency(item.quantity * item.unitPrice)}</span>
+                      <span className="font-medium">{item.quantity} - {formatINR(item.quantity * item.unitPrice)}</span>
                     </div>
                   ))}
                   {(project.materialsSent ?? []).length > 5 && <p className="text-xs text-muted-foreground text-center pt-1">+ {(project.materialsSent ?? []).length - 5} more items (see Materials Sent tab)</p>}
@@ -1625,12 +1623,12 @@ const ProjectDetail = () => {
                       <TableCell className="text-right">{row.employees || "-"}</TableCell>
                       <TableCell className="text-right">{row.days || "-"}</TableCell>
                       <TableCell className="text-right">{row.ratePerDay ? `₹${row.ratePerDay}` : "-"}</TableCell>
-                      <TableCell className="text-right font-medium">{formatCurrency(row.total)}</TableCell>
+                      <TableCell className="text-right font-medium">{formatINR(row.total)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </DataTableShell>
-              <div className="mt-2 text-right text-sm font-semibold">Total Outsourced: {formatCurrency(outsourcedTotal)}</div>
+              <div className="mt-2 text-right text-sm font-semibold">Total Outsourced: {formatINR(outsourcedTotal)}</div>
             </TabCard>
           )}
         </TabsContent>
@@ -1808,11 +1806,11 @@ const ProjectDetail = () => {
         {/* â•â•â• Financials (merged Billing + Costs) â•â•â• */}
         <TabsContent value="financials" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-5">
-            <MiniMetric label="Contract" value={formatCurrency(project.contractAmount)} />
-            <MiniMetric label="Billed" value={formatCurrency(billed)} />
-            <MiniMetric label="Collected" value={formatCurrency(collected)} />
-            <MiniMetric label="Actual Cost" value={formatCurrency(actualCost)} />
-            <MiniMetric label="Profit" value={formatCurrency(projectProfit)} />
+            <MiniMetric label="Contract" value={formatINR(project.contractAmount)} />
+            <MiniMetric label="Billed" value={formatINR(billed)} />
+            <MiniMetric label="Collected" value={formatINR(collected)} />
+            <MiniMetric label="Actual Cost" value={formatINR(actualCost)} />
+            <MiniMetric label="Profit" value={formatINR(projectProfit)} />
           </div>
 
           <TabCard title="Change requests" icon={<FileText className="h-4 w-4 text-primary" />}>
@@ -1856,8 +1854,8 @@ const ProjectDetail = () => {
                         <TableCell className="capitalize">{cr.type.replace("-", " ")}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {cr.deltaKw ? `${cr.deltaKw} kW` : null}
-                          {cr.deltaAmount ? ` ₹${cr.deltaAmount.toLocaleString("en-IN")}` : null}
-                          {!cr.deltaAmount && est > 0 ? ` ~₹${est.toLocaleString("en-IN")}` : null}
+                          {cr.deltaAmount ? ` ${formatINR(cr.deltaAmount)}` : null}
+                          {!cr.deltaAmount && est > 0 ? ` ~${formatINR(est)}` : null}
                           {cr.materialDelta?.length ? ` · ${cr.materialDelta.length} material line(s)` : null}
                         </TableCell>
                         <TableCell>
@@ -1977,7 +1975,7 @@ const ProjectDetail = () => {
                       <TableRow key={line.id}>
                         <TableCell>{line.description}</TableCell>
                         <TableCell className="capitalize">{line.basis.replace("_", " ")}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(line.total)}</TableCell>
+                        <TableCell className="text-right">{formatINR(line.total)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -2010,8 +2008,8 @@ const ProjectDetail = () => {
                       <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
                       <TableCell>{invoice.invoiceDate}</TableCell>
                       <TableCell><Badge variant="outline">{invoice.status}</Badge></TableCell>
-                      <TableCell className="text-right">{formatCurrency(invoice.total)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(invoice.amountReceived ?? 0)}</TableCell>
+                      <TableCell className="text-right">{formatINR(invoice.total)}</TableCell>
+                      <TableCell className="text-right">{formatINR(invoice.amountReceived ?? 0)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -2036,7 +2034,7 @@ const ProjectDetail = () => {
                           <TableCell>{payment.reference ?? "other"}</TableCell>
                           <TableCell><PaymentRecipient payment={payment} /></TableCell>
                           <TableCell>{payment.paymentMode}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(payment.amount)}</TableCell>
+                          <TableCell className="text-right">{formatINR(payment.amount)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -2050,9 +2048,9 @@ const ProjectDetail = () => {
           <TabCard title="Expenses" icon={<IndianRupee className="h-4 w-4 text-primary" />}>
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <div className="grid flex-1 gap-3 md:grid-cols-3">
-                <MiniMetric label="Material" value={formatCurrency(projectExpenses.filter((e) => e.category === "Material").reduce((s, e) => s + e.amount, 0))} />
-                <MiniMetric label="Labour" value={formatCurrency(projectExpenses.filter((e) => e.category === "Labour").reduce((s, e) => s + e.amount, 0))} />
-                <MiniMetric label="Total" value={formatCurrency(actualCost)} />
+                <MiniMetric label="Material" value={formatINR(projectExpenses.filter((e) => e.category === "Material").reduce((s, e) => s + e.amount, 0))} />
+                <MiniMetric label="Labour" value={formatINR(projectExpenses.filter((e) => e.category === "Labour").reduce((s, e) => s + e.amount, 0))} />
+                <MiniMetric label="Total" value={formatINR(actualCost)} />
               </div>
               <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => setIsAddExpenseOpen(true)}>
                 <Plus className="mr-1 h-4 w-4" />Add expense
@@ -2073,7 +2071,7 @@ const ProjectDetail = () => {
                     <TableCell>{expense.date}</TableCell>
                     <TableCell>{expense.category}{expense.subCategory ? <span className="text-muted-foreground"> / {expense.subCategory}</span> : null}</TableCell>
                     <TableCell className="max-w-md text-muted-foreground">{expense.notes ?? expense.description ?? ""}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(expense.amount)}</TableCell>
+                    <TableCell className="text-right">{formatINR(expense.amount)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

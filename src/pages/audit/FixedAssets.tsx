@@ -63,8 +63,6 @@ const FixedAssets = () => {
     return { totalCost, totalDepreciation, netBookValue, count: assetsWithDepreciation.length };
   }, [assetsWithDepreciation]);
 
-  const _fmt = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-
   const { pagedItems: pagedAssets, safePage } = usePagedSlice(assetsWithDepreciation, page, pageSize);
 
   return (

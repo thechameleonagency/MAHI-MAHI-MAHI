@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
+import { formatINR } from "@/lib/formatCurrency";
 import { computeAdditionalWorkTotal } from "@/lib/changeRequestApproval";
 import type { Project } from "@/types/project";
 
@@ -71,7 +72,7 @@ export function AdditionalWorkSheet({
 
     toast({
       title: "Additional work added",
-      description: `Contract increased by ₹${previewTotal.toLocaleString("en-IN")}`,
+      description: `Contract increased by ${formatINR(previewTotal)}`,
     });
     setDescription("");
     setRate("");
@@ -121,7 +122,7 @@ export function AdditionalWorkSheet({
             )}
           </div>
           <p className="text-sm rounded-md border bg-muted/30 px-3 py-2 text-muted-foreground">
-            Line total: <strong className="text-foreground">₹{previewTotal.toLocaleString("en-IN")}</strong>
+            Line total: <strong className="text-foreground">{formatINR(previewTotal)}</strong>
           </p>
         </div>
 
