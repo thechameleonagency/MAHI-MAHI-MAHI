@@ -49,6 +49,10 @@ import html2canvas from "html2canvas";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
+import {
+  buildProjectActorScopeContext,
+  filterQuotationsForActor,
+} from "@/lib/projectActorScope";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
 import { validateQuotationCreateSource } from "@/lib/quotationCreateSource";
 import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
@@ -172,7 +176,7 @@ const presetMaterials: Record<string, QuotationMaterial[]> = {
 
 const Quotations = () => {
   const projectKindService = new ProjectKindService();
-  const { currentRole } = useAppSession();
+  const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -203,6 +207,9 @@ const Quotations = () => {
     projects,
     invoices,
     agentCommissionAccruals = [],
+    teams,
+    settingsTeamMembers,
+    scheduledInstallations,
   } = useAppData();
   const canCreateQuotation = useCan("quotation", "create");
   const canEditQuotation = useCan("quotation", "edit");
@@ -861,8 +868,41 @@ const Quotations = () => {
     setSaveAmountsQuotationId(null);
   };
 
+  const quotationScopeCtx = useMemo(
+    () =>
+      buildProjectActorScopeContext({
+        role: currentRole,
+        actorMemberId: sessionUserId,
+        actorDisplayName: demoUserName,
+        quotations: savedQuotations,
+        enquiries,
+        teams,
+        employees,
+        settingsTeamMembers,
+        scheduledInstallations,
+        projects,
+      }),
+    [
+      currentRole,
+      sessionUserId,
+      demoUserName,
+      savedQuotations,
+      enquiries,
+      teams,
+      employees,
+      settingsTeamMembers,
+      scheduledInstallations,
+      projects,
+    ],
+  );
+
+  const scopedQuotations = useMemo(
+    () => filterQuotationsForActor(savedQuotations, quotationScopeCtx),
+    [savedQuotations, quotationScopeCtx],
+  );
+
   const listStatusCounts = useMemo(() => {
-    const all = savedQuotations;
+    const all = scopedQuotations;
     return {
       total: all.length,
       draft: all.filter((q) => q.status === "draft").length,
@@ -871,10 +911,10 @@ const Quotations = () => {
       rejected: all.filter((q) => q.status === "rejected").length,
       converted: all.filter((q) => isQuotationConverted(q)).length,
     };
-  }, [savedQuotations]);
+  }, [scopedQuotations]);
 
   // Filter quotations (solar only) by status + list search
-  const displayedQuotations = savedQuotations.filter((q) => {
+  const displayedQuotations = scopedQuotations.filter((q) => {
     const qsearch = listSearchQuery.trim().toLowerCase();
     if (qsearch) {
       const ref = (q.quotationNumber || "").toLowerCase();

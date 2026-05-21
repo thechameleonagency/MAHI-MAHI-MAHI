@@ -127,7 +127,15 @@ export const registerQuotationCommands = (
         ? { ...quotationToPersist, customerId: enquiryLink.enquiry.customerId }
         : quotationToPersist;
 
-    repositories.quotationRepository.add(quotationWithCustomerLink);
+    const salesOwnerMemberId =
+      quotationWithCustomerLink.salesOwnerMemberId?.trim() ||
+      enquiryLink?.enquiry.assignedToMemberId?.trim() ||
+      command.actorUserId;
+
+    repositories.quotationRepository.add({
+      ...quotationWithCustomerLink,
+      salesOwnerMemberId,
+    });
 
     if (enquiryLink) {
       repositories.enquiryRepository.update(enquiryLink.enquiryId, {

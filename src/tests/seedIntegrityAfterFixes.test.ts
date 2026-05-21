@@ -29,6 +29,12 @@ import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToG
 import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
 import { findStaleClientPaymentLedgerLinkage } from "@/lib/clientPaymentReconciliation";
 import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
+import { findStaleQuotationSalesOwners } from "@/lib/reconcileQuotationSalesOwner";
+import {
+  filterProjectsForActor,
+  buildProjectActorScopeContext,
+} from "@/lib/projectActorScope";
+import { DEMO_LOGIN_USERS } from "@/domain/demoCredentials";
 import { findStaleProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 import { findStaleProgressReportTaskLinkage } from "@/lib/progressReportTaskContinuity";
 import { findStaleDiscomCheckOrder } from "@/lib/progressReportDiscom";
@@ -339,6 +345,45 @@ describe("seed & hydration integrity after audit fixes", () => {
       expect(inv?.status).not.toBe("draft");
       expect(inv?.projectId).toBe(cr.projectId);
     }
+  });
+
+  it("role-scoped seed: salesperson and installer see subset of projects (V5)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleQuotationSalesOwners(hydrated)).toEqual([]);
+
+    const sal = DEMO_LOGIN_USERS.find((u) => u.memberId === "SAL-001")!;
+    const salCtx = buildProjectActorScopeContext({
+      role: "salesperson",
+      actorMemberId: sal.memberId,
+      actorDisplayName: sal.name,
+      quotations: hydrated.quotations,
+      enquiries: hydrated.enquiries,
+      teams: hydrated.teams,
+      employees: hydrated.employees,
+      settingsTeamMembers: hydrated.settingsTeamMembers,
+      scheduledInstallations: hydrated.scheduledInstallations,
+      projects: hydrated.projects,
+    });
+    const salProjects = filterProjectsForActor(hydrated.projects, salCtx);
+    expect(salProjects.length).toBeGreaterThan(0);
+    expect(salProjects.length).toBeLessThan(hydrated.projects.length);
+
+    const inst = DEMO_LOGIN_USERS.find((u) => u.memberId === "INST-001")!;
+    const instCtx = buildProjectActorScopeContext({
+      role: "installation_team",
+      actorMemberId: inst.memberId,
+      quotations: hydrated.quotations,
+      enquiries: hydrated.enquiries,
+      teams: hydrated.teams,
+      employees: hydrated.employees,
+      settingsTeamMembers: hydrated.settingsTeamMembers,
+      scheduledInstallations: hydrated.scheduledInstallations,
+      projects: hydrated.projects,
+    });
+    const instProjects = filterProjectsForActor(hydrated.projects, instCtx);
+    expect(instProjects.length).toBeGreaterThan(0);
+    expect(instProjects.length).toBeLessThan(hydrated.projects.length);
   });
 
   it("scope-reduction change request has no delta invoice and releases material reservations (V4)", () => {

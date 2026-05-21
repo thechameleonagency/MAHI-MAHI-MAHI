@@ -152,7 +152,12 @@ const Enquiries = () => {
     () => searchParams.get("status") ?? DEFAULT_ENQUIRY_STATUS_FILTER,
   );
   const [priorityFilter, setPriorityFilter] = useState(() => searchParams.get("priority") ?? "all");
-  const [assigneeFilter, setAssigneeFilter] = useState(() => searchParams.get("assignee") ?? "all");
+  const [assigneeFilter, setAssigneeFilter] = useState(() => {
+    const fromUrl = searchParams.get("assignee");
+    if (fromUrl) return fromUrl;
+    if (currentRole === "salesperson" && sessionUserId) return sessionUserId;
+    return "all";
+  });
   const [followUpFilter, setFollowUpFilter] = useState<"all" | "overdue">(() =>
     searchParams.get("followUp") === "overdue" ? "overdue" : "all",
   );

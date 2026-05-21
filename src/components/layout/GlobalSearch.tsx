@@ -28,7 +28,10 @@ import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import {
   buildProjectActorScopeContext,
+  filterEnquiriesForActor,
   filterProjectsForActor,
+  filterQuotationsForActor,
+  roleHasFullProjectAccess,
 } from "@/lib/projectActorScope";
 import { normalizeLoanPersonKey } from "@/lib/loanPerson";
 import { ICON_CLASS_NAV } from "@/lib/iconSizes";
@@ -160,21 +163,30 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
     const searchQuery = query.toLowerCase().trim();
     const searchResults: SearchResult[] = [];
 
-    const scopedProjects = filterProjectsForActor(
+    const scopeCtx = buildProjectActorScopeContext({
+      role: currentRole,
+      actorMemberId: sessionUserId,
+      actorDisplayName: demoUserName,
+      quotations,
+      enquiries,
+      teams,
+      employees,
+      settingsTeamMembers,
+      scheduledInstallations,
       projects,
-      buildProjectActorScopeContext({
-        role: currentRole,
-        actorMemberId: sessionUserId,
-        actorDisplayName: demoUserName,
-        quotations,
-        enquiries,
-        teams,
-        employees,
-        settingsTeamMembers,
-        scheduledInstallations,
-      }),
-    );
+    });
+    const scopedProjects = filterProjectsForActor(projects, scopeCtx);
+    const scopedEnquiries = filterEnquiriesForActor(enquiries, scopeCtx);
+    const scopedQuotations = filterQuotationsForActor(quotations, scopeCtx);
     const scopedProjectIds = new Set(scopedProjects.map((p) => p.id));
+    const scopedCustomerIds = new Set(
+      [
+        ...scopedProjects.map((p) => p.customerId),
+        ...scopedEnquiries.map((e) => e.customerId),
+        ...scopedQuotations.map((q) => q.customerId),
+      ].filter((id): id is string => Boolean(id?.trim())),
+    );
+    const fieldRoleScoped = !roleHasFullProjectAccess(currentRole);
 
     scopedProjects.forEach((p) => {
       pushSearchMatch(
@@ -194,6 +206,8 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
 
     customers.forEach((c) => {
       if (c.archivedAt) return;
+      if (fieldRoleScoped && currentRole === "salesperson" && !scopedCustomerIds.has(c.id)) return;
+      if (fieldRoleScoped && currentRole === "installation_team") return;
       pushSearchMatch(
         searchResults,
         searchQuery,
@@ -226,6 +240,8 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
     });
 
     [...invoices, ...saleBills].forEach((i) => {
+      if (fieldRoleScoped && i.projectId && !scopedProjectIds.has(i.projectId)) return;
+      if (fieldRoleScoped && currentRole === "installation_team") return;
       pushSearchMatch(
         searchResults,
         searchQuery,
@@ -241,7 +257,7 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
       );
     });
 
-    quotations.forEach((q) => {
+    scopedQuotations.forEach((q) => {
       const qNum = q.quotationNumber || `QUO-${q.id}`;
       pushSearchMatch(
         searchResults,
@@ -258,37 +274,39 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
       );
     });
 
-    partners.forEach((p) => {
-      pushSearchMatch(
-        searchResults,
-        searchQuery,
-        [p.name, p.phone],
-        {
-          id: p.id,
-          name: p.name,
-          type: "partner",
-          subtitle: p.phone,
-          path: `/partners/${p.id}`,
-        },
-        false,
-      );
-    });
+    if (!fieldRoleScoped) {
+      partners.forEach((p) => {
+        pushSearchMatch(
+          searchResults,
+          searchQuery,
+          [p.name, p.phone],
+          {
+            id: p.id,
+            name: p.name,
+            type: "partner",
+            subtitle: p.phone,
+            path: `/partners/${p.id}`,
+          },
+          false,
+        );
+      });
 
-    vendors.forEach((v) => {
-      pushSearchMatch(
-        searchResults,
-        searchQuery,
-        [v.name, v.category?.join(", ")],
-        {
-          id: String(v.id),
-          name: v.name,
-          type: "vendor",
-          subtitle: v.category?.join(", ") || "",
-          path: `/vendors/${v.id}`,
-        },
-        false,
-      );
-    });
+      vendors.forEach((v) => {
+        pushSearchMatch(
+          searchResults,
+          searchQuery,
+          [v.name, v.category?.join(", ")],
+          {
+            id: String(v.id),
+            name: v.name,
+            type: "vendor",
+            subtitle: v.category?.join(", ") || "",
+            path: `/vendors/${v.id}`,
+          },
+          false,
+        );
+      });
+    }
 
     inventoryItems.forEach((it) => {
       pushSearchMatch(
@@ -322,23 +340,25 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
       );
     });
 
-    agents.forEach((a) => {
-      pushSearchMatch(
-        searchResults,
-        searchQuery,
-        [a.name, a.phone],
-        {
-          id: a.id,
-          name: a.name,
-          type: "agent",
-          subtitle: a.phone,
-          path: `/agents/${a.id}`,
-        },
-        false,
-      );
-    });
+    if (!fieldRoleScoped) {
+      agents.forEach((a) => {
+        pushSearchMatch(
+          searchResults,
+          searchQuery,
+          [a.name, a.phone],
+          {
+            id: a.id,
+            name: a.name,
+            type: "agent",
+            subtitle: a.phone,
+            path: `/agents/${a.id}`,
+          },
+          false,
+        );
+      });
+    }
 
-    enquiries.forEach((e) => {
+    scopedEnquiries.forEach((e) => {
       pushSearchMatch(
         searchResults,
         searchQuery,
@@ -370,22 +390,24 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
       );
     });
 
-    loans.forEach((loan) => {
-      const personKey = normalizeLoanPersonKey(loan);
-      pushSearchMatch(
-        searchResults,
-        searchQuery,
-        [loan.personName, loan.source, personKey],
-        {
-          id: loan.id,
-          name: loan.personName?.trim() || loan.source,
-          type: "loan",
-          subtitle: loan.sourceType ? `${loan.sourceType} · ${loan.source}` : loan.source,
-          path: `/loans/person/${encodeURIComponent(personKey)}`,
-        },
-        false,
-      );
-    });
+    if (!fieldRoleScoped) {
+      loans.forEach((loan) => {
+        const personKey = normalizeLoanPersonKey(loan);
+        pushSearchMatch(
+          searchResults,
+          searchQuery,
+          [loan.personName, loan.source, personKey],
+          {
+            id: loan.id,
+            name: loan.personName?.trim() || loan.source,
+            type: "loan",
+            subtitle: loan.sourceType ? `${loan.sourceType} · ${loan.source}` : loan.source,
+            path: `/loans/person/${encodeURIComponent(personKey)}`,
+          },
+          false,
+        );
+      });
+    }
 
     tasks.forEach((task) => {
       if (task.projectId && !scopedProjectIds.has(task.projectId)) return;
@@ -404,7 +426,8 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
       );
     });
 
-    (vendorshipCompanies ?? []).forEach((c) => {
+    if (!fieldRoleScoped) {
+      (vendorshipCompanies ?? []).forEach((c) => {
       pushSearchMatch(
         searchResults,
         searchQuery,
@@ -418,9 +441,9 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
         },
         false,
       );
-    });
+      });
 
-    (incGiverCompanies ?? []).forEach((c) => {
+      (incGiverCompanies ?? []).forEach((c) => {
       pushSearchMatch(
         searchResults,
         searchQuery,
@@ -434,7 +457,8 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
         },
         false,
       );
-    });
+      });
+    }
 
     sites.forEach((s) => {
       if (s.projectId && !scopedProjectIds.has(s.projectId)) return;
@@ -453,7 +477,8 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
       );
     });
 
-    quotationTemplates.forEach((t) => {
+    if (!fieldRoleScoped) {
+      quotationTemplates.forEach((t) => {
       pushSearchMatch(
         searchResults,
         searchQuery,
@@ -467,7 +492,8 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
         },
         false,
       );
-    });
+      });
+    }
 
     const allowed = searchResults.filter((r) => {
       const base = r.path.split("?")[0].split("#")[0];

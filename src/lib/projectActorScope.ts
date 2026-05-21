@@ -27,6 +27,8 @@ export type ProjectActorScopeContext = {
   employees: Employee[];
   settingsTeamMembers?: SettingsTeamMember[];
   scheduledInstallations?: ScheduledInstallation[];
+  /** Optional — resolves quotation→project links for salesperson scope without enquiry. */
+  projects?: Project[];
 };
 
 export function roleHasFullProjectAccess(role: UserRole): boolean {
@@ -109,13 +111,82 @@ function resolveEnquiryForProject(
   return enquiries.find((e) => e.quotationId === quotation?.id);
 }
 
+export function isQuotationOwnedBySalesActor(
+  quotation: Quotation | undefined,
+  ctx: Pick<ProjectActorScopeContext, "actorMemberId" | "actorDisplayName" | "enquiries">,
+): boolean {
+  if (!quotation) return false;
+  const ownerId = quotation.salesOwnerMemberId?.trim();
+  if (ownerId && ownerId === ctx.actorMemberId) return true;
+  if (quotation.enquiryId) {
+    const enquiry = ctx.enquiries.find((e) => e.id === quotation.enquiryId);
+    if (enquiryOwnedByActor(enquiry, ctx.actorMemberId, ctx.actorDisplayName)) return true;
+  }
+  return false;
+}
+
+export function isEnquiryVisibleToActor(
+  enquiry: Enquiry,
+  ctx: Pick<ProjectActorScopeContext, "role" | "actorMemberId" | "actorDisplayName">,
+): boolean {
+  if (roleHasFullProjectAccess(ctx.role)) return true;
+  if (!ctx.actorMemberId?.trim()) return false;
+  if (ctx.role === "salesperson") {
+    return enquiryOwnedByActor(enquiry, ctx.actorMemberId, ctx.actorDisplayName);
+  }
+  if (ctx.role === "installation_team") return false;
+  return true;
+}
+
+export function isQuotationVisibleToActor(
+  quotation: Quotation,
+  ctx: ProjectActorScopeContext,
+): boolean {
+  if (roleHasFullProjectAccess(ctx.role)) return true;
+  if (!ctx.actorMemberId?.trim()) return false;
+
+  if (ctx.role === "salesperson") {
+    if (isQuotationOwnedBySalesActor(quotation, ctx)) return true;
+    const projectId = quotation.linkedProjectId ?? quotation.convertedToProjectId;
+    if (projectId && ctx.projects?.length) {
+      const project = ctx.projects.find((p) => p.id === projectId);
+      if (project && isProjectVisibleToSalesperson(project, ctx)) return true;
+    }
+    return false;
+  }
+
+  if (ctx.role === "installation_team") {
+    const projectId = quotation.linkedProjectId ?? quotation.convertedToProjectId;
+    if (!projectId || !ctx.projects?.length) return false;
+    const project = ctx.projects.find((p) => p.id === projectId);
+    return project ? isProjectVisibleToInstallationTeam(project, ctx) : false;
+  }
+
+  return true;
+}
+
 export function isProjectVisibleToSalesperson(
   project: Project,
   ctx: Pick<ProjectActorScopeContext, "actorMemberId" | "actorDisplayName" | "quotations" | "enquiries">,
 ): boolean {
   const quotation = resolveQuotationForProject(project, ctx.quotations);
+  if (isQuotationOwnedBySalesActor(quotation, ctx)) return true;
   const enquiry = resolveEnquiryForProject(project, quotation, ctx.enquiries);
   return enquiryOwnedByActor(enquiry, ctx.actorMemberId, ctx.actorDisplayName);
+}
+
+export function filterEnquiriesForActor(
+  enquiries: Enquiry[],
+  ctx: Pick<ProjectActorScopeContext, "role" | "actorMemberId" | "actorDisplayName">,
+): Enquiry[] {
+  return enquiries.filter((e) => isEnquiryVisibleToActor(e, ctx));
+}
+
+export function filterQuotationsForActor(
+  quotations: Quotation[],
+  ctx: ProjectActorScopeContext,
+): Quotation[] {
+  return quotations.filter((q) => isQuotationVisibleToActor(q, ctx));
 }
 
 export function isProjectVisibleToInstallationTeam(
@@ -183,6 +254,7 @@ export function buildProjectActorScopeContext(input: {
   employees: Employee[];
   settingsTeamMembers?: SettingsTeamMember[];
   scheduledInstallations?: ScheduledInstallation[];
+  projects?: Project[];
 }): ProjectActorScopeContext {
   return {
     role: input.role,
@@ -194,5 +266,6 @@ export function buildProjectActorScopeContext(input: {
     employees: input.employees,
     settingsTeamMembers: input.settingsTeamMembers,
     scheduledInstallations: input.scheduledInstallations,
+    projects: input.projects,
   };
 }

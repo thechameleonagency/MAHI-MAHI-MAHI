@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterEnquiriesForActor,
   filterProjectsForActor,
+  filterQuotationsForActor,
+  isEnquiryVisibleToActor,
   isProjectVisibleToActor,
+  isQuotationVisibleToActor,
   resolveActorCrewEmployeeIds,
   resolveActorEmployeeId,
 } from "@/lib/projectActorScope";
@@ -119,6 +123,68 @@ describe("projectActorScope", () => {
     expect(isProjectVisibleToActor(projects[0], ctx)).toBe(true);
     expect(isProjectVisibleToActor(projects[1], ctx)).toBe(false);
     expect(filterProjectsForActor(projects, ctx).map((p) => p.id)).toEqual(["P-CREW"]);
+  });
+
+  it("salesperson sees quotation by salesOwnerMemberId without enquiry assignee drift", () => {
+    const ctx = {
+      role: "salesperson" as const,
+      actorMemberId: "SAL-001",
+      quotations: [
+        {
+          id: "Q-ORPHAN",
+          salesOwnerMemberId: "SAL-001",
+          clientName: "X",
+        } as import("@/types/project").Quotation,
+      ],
+      enquiries: [],
+      teams,
+      employees,
+      settingsTeamMembers,
+    };
+    expect(isQuotationVisibleToActor(ctx.quotations[0], ctx)).toBe(true);
+    expect(filterQuotationsForActor(ctx.quotations, ctx)).toHaveLength(1);
+  });
+
+  it("filterEnquiriesForActor limits salesperson to owned enquiries", () => {
+    const enquiries = [
+      {
+        id: "E-1",
+        assignedToMemberId: "SAL-001",
+        assignedTo: "Priya Nair",
+        customerName: "A",
+      } as import("@/types/project").Enquiry,
+      {
+        id: "E-2",
+        assignedToMemberId: "SAL-002",
+        assignedTo: "Deepa Sharma",
+        customerName: "B",
+      } as import("@/types/project").Enquiry,
+    ];
+    const ctx = {
+      role: "salesperson" as const,
+      actorMemberId: "SAL-001",
+      quotations: [],
+      enquiries,
+      teams,
+      employees,
+      settingsTeamMembers,
+    };
+    expect(filterEnquiriesForActor(enquiries, ctx).map((e) => e.id)).toEqual(["E-1"]);
+    expect(isEnquiryVisibleToActor(enquiries[1], ctx)).toBe(false);
+  });
+
+  it("installation_team does not see enquiries in actor scope", () => {
+    const enquiry = {
+      id: "E-1",
+      assignedToMemberId: "SAL-001",
+      customerName: "A",
+    } as import("@/types/project").Enquiry;
+    expect(
+      isEnquiryVisibleToActor(enquiry, {
+        role: "installation_team",
+        actorMemberId: "INST-001",
+      }),
+    ).toBe(false);
   });
 
   it("admin sees all projects", () => {

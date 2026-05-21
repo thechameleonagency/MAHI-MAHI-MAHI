@@ -91,6 +91,7 @@ export function buildL8Crm(state: AppState, profile: SeedProfile): AppState {
       status,
       quotationType: "solar",
       enquiryId: enquiry?.id,
+      salesOwnerMemberId: enquiry?.assignedToMemberId,
       customerId: customer?.id,
       clientName: customer?.name ?? enquiry?.customerName ?? companyName(i),
       clientPhone: customer?.phone ?? enquiry?.customerPhone ?? phoneNumber(900 + i),

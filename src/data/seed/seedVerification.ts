@@ -20,6 +20,7 @@ import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive
 import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToGetSync";
 import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
 import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
+import { findStaleQuotationSalesOwners } from "@/lib/reconcileQuotationSalesOwner";
 import { findStaleProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 import { findStaleIncGiverLedger } from "@/lib/incGiverLedgerContinuity";
 import {
@@ -210,6 +211,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleEnquiryAssigneeState(state.enquiries, state.settingsTeamMembers)) {
     errors.push(`ER1: enquiry ${stale.enquiryId} — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleQuotationSalesOwners(state)) {
+    errors.push(`V5: quotation ${stale.quotationId} (enquiry ${stale.enquiryId}) — ${stale.reason}`);
   }
 
   for (const stale of findStaleProjectCustomerLinkage(state)) {

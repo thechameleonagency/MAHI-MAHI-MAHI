@@ -65,7 +65,9 @@ import { DashboardTodaysSiteActivity } from "@/components/dashboard/DashboardTod
 import { buildTodaysSiteActivitySnapshot } from "@/lib/todaysSiteActivity";
 import {
   buildProjectActorScopeContext,
+  filterEnquiriesForActor,
   filterProjectsForActor,
+  filterQuotationsForActor,
 } from "@/lib/projectActorScope";
 import { buildEnquiryToQuotationDraft, quickCreatePath, saveCreateDraft } from "@/lib/createFromContext";
 import {
@@ -175,36 +177,52 @@ const Dashboard = () => {
     return () => window.cancelAnimationFrame(id);
   }, []);
 
-  const openPipelineEnquiries = useMemo(
-    () => enquiries.filter((e) => e.status !== "converted" && e.status !== "lost"),
-    [enquiries],
-  );
-
-  const scopedProjects = useMemo(() => {
-    const ctx = buildProjectActorScopeContext({
-      role: currentRole,
-      actorMemberId: sessionUserId,
-      actorDisplayName: demoUserName,
+  const actorScopeCtx = useMemo(
+    () =>
+      buildProjectActorScopeContext({
+        role: currentRole,
+        actorMemberId: sessionUserId,
+        actorDisplayName: demoUserName,
+        quotations,
+        enquiries,
+        teams,
+        employees,
+        settingsTeamMembers,
+        scheduledInstallations,
+        projects,
+      }),
+    [
+      currentRole,
+      sessionUserId,
+      demoUserName,
       quotations,
       enquiries,
       teams,
       employees,
       settingsTeamMembers,
       scheduledInstallations,
-    });
-    return filterProjectsForActor(projects, ctx);
-  }, [
-    projects,
-    quotations,
-    enquiries,
-    teams,
-    employees,
-    settingsTeamMembers,
-    scheduledInstallations,
-    currentRole,
-    sessionUserId,
-    demoUserName,
-  ]);
+      projects,
+    ],
+  );
+
+  const openPipelineEnquiries = useMemo(
+    () =>
+      filterEnquiriesForActor(
+        enquiries.filter((e) => e.status !== "converted" && e.status !== "lost"),
+        actorScopeCtx,
+      ),
+    [enquiries, actorScopeCtx],
+  );
+
+  const scopedProjects = useMemo(
+    () => filterProjectsForActor(projects, actorScopeCtx),
+    [projects, actorScopeCtx],
+  );
+
+  const scopedQuotations = useMemo(
+    () => filterQuotationsForActor(quotations, actorScopeCtx),
+    [quotations, actorScopeCtx],
+  );
 
   const ongoingProjectIds = useMemo(
     () =>
@@ -242,7 +260,9 @@ const Dashboard = () => {
     const pendingInvoices = openBillingDocs.filter((inv) => getInvoiceOpenBalance(inv, payments) > 0.01);
     const pendingAmount = getOutstandingReceivables(invoices, payments, saleBills);
 
-    const pendingQuotations = quotations.filter((q) => q.status === "draft" || q.status === "sent");
+    const pendingQuotations = scopedQuotations.filter(
+      (q) => q.status === "draft" || q.status === "sent",
+    );
 
     const activeBlockages = scopedProjects.filter((p) => isProjectLifecycleOnHold(p)).length;
 
@@ -264,7 +284,16 @@ const Dashboard = () => {
       upcomingEmiAmount,
       openOpsBlockagesCount: activeOpsBlockages.length,
     };
-  }, [scopedProjects, employees, invoices, saleBills, payments, quotations, loans, activeOpsBlockages]);
+  }, [
+    scopedProjects,
+    employees,
+    invoices,
+    saleBills,
+    payments,
+    scopedQuotations,
+    loans,
+    activeOpsBlockages,
+  ]);
 
   const lowStockItems = useMemo(
     () =>

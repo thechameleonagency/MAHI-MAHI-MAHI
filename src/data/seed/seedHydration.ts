@@ -14,6 +14,7 @@ import { reconcileVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLi
 import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
 import { reconcileVendorPaymentVouchers } from "@/lib/vendorPaymentVoucherPosting";
 import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScopeSeed";
+import { reconcileQuotationSalesOwnerState } from "@/lib/reconcileQuotationSalesOwner";
 import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
 import { reconcileIncGiverTransactions } from "@/lib/reconcileIncGiverTransactions";
 import { reconcileProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
@@ -71,6 +72,7 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
     reconcileVendorPaymentVouchers(reconcileVendorBillVouchers(s)),
   );
   s = reconcileProjectActorScopeSeed(s);
+  s = reconcileQuotationSalesOwnerState(s);
   s = reconcileChangeRequestDeltaInvoices(s);
 
   s = reconcileIncGiverTransactions(s);

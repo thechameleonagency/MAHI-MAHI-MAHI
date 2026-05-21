@@ -537,6 +537,11 @@ export interface Quotation {
    * Do not write this field; use `buildQuotationProjectLinkPatch` at convert time.
    */
   convertedToProjectId?: string;
+  /**
+   * Internal salesperson owner (settingsTeamMembers.id) for row-level scope.
+   * Set on create from session actor; backfilled from enquiry assignee on hydrate.
+   */
+  salesOwnerMemberId?: string;
   /** Canonical project id after quotation → project conversion. */
   linkedProjectId?: string;
   convertedToInvoiceId?: string;
