@@ -158,6 +158,10 @@ import {
   type VendorBillInventoryLine,
 } from "@/lib/vendorBillInventoryLinkage";
 import { enqueueWarehouseMovement } from "@/lib/warehouseMovementQueue";
+import {
+  applyIncGiverLedgerToProjects,
+  projectIdsAffectedByIncTransaction,
+} from "@/lib/incGiverLedgerContinuity";
 
 /**
  * Customer payment writers (E10) — see `src/lib/customerInflowWritePaths.ts`.
@@ -4748,33 +4752,63 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       transaction.id,
       `${transaction.type} — ${transaction.incGiverCompanyId}`,
     );
-    setState((prev) => ({
-      ...prev,
-      incGiverTransactions: [transaction, ...(prev.incGiverTransactions ?? [])],
-      auditLogs: [auditEntry, ...prev.auditLogs],
-    }));
+    setState((prev) => {
+      const incGiverTransactions = [transaction, ...(prev.incGiverTransactions ?? [])];
+      const projectIds = projectIdsAffectedByIncTransaction(undefined, transaction);
+      return {
+        ...prev,
+        incGiverTransactions,
+        projects: applyIncGiverLedgerToProjects(
+          { ...prev, incGiverTransactions },
+          prev.projects,
+          projectIds,
+        ),
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      };
+    });
   }, [canPerformActionOrWarn, createAuditEntry]);
 
   const updateINCGiverTransaction = useCallback((id: string, updates: Partial<INCGiverTransaction>) => {
     if (!canPerformActionOrWarn("partner:update")) return;
     const auditEntry = createAuditEntry("update", "INCGiverTransaction", id, id);
-    setState((prev) => ({
-      ...prev,
-      incGiverTransactions: (prev.incGiverTransactions ?? []).map((t) =>
+    setState((prev) => {
+      const before = (prev.incGiverTransactions ?? []).find((t) => t.id === id);
+      const incGiverTransactions = (prev.incGiverTransactions ?? []).map((t) =>
         t.id === id ? { ...t, ...updates } : t,
-      ),
-      auditLogs: [auditEntry, ...prev.auditLogs],
-    }));
+      );
+      const after = incGiverTransactions.find((t) => t.id === id);
+      const projectIds = projectIdsAffectedByIncTransaction(before, after);
+      return {
+        ...prev,
+        incGiverTransactions,
+        projects: applyIncGiverLedgerToProjects(
+          { ...prev, incGiverTransactions },
+          prev.projects,
+          projectIds,
+        ),
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      };
+    });
   }, [canPerformActionOrWarn, createAuditEntry]);
 
   const deleteINCGiverTransaction = useCallback((id: string) => {
     if (!canPerformActionOrWarn("partner:delete")) return;
     const auditEntry = createAuditEntry("delete", "INCGiverTransaction", id, id);
-    setState((prev) => ({
-      ...prev,
-      incGiverTransactions: (prev.incGiverTransactions ?? []).filter((t) => t.id !== id),
-      auditLogs: [auditEntry, ...prev.auditLogs],
-    }));
+    setState((prev) => {
+      const before = (prev.incGiverTransactions ?? []).find((t) => t.id === id);
+      const incGiverTransactions = (prev.incGiverTransactions ?? []).filter((t) => t.id !== id);
+      const projectIds = projectIdsAffectedByIncTransaction(before, undefined);
+      return {
+        ...prev,
+        incGiverTransactions,
+        projects: applyIncGiverLedgerToProjects(
+          { ...prev, incGiverTransactions },
+          prev.projects,
+          projectIds,
+        ),
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      };
+    });
   }, [canPerformActionOrWarn, createAuditEntry]);
 
   const getTransactionsByIncGiverCompany = useCallback(

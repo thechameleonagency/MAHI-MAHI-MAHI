@@ -1,4 +1,8 @@
-import type { Customer, Expense, Income, Invoice, Payment } from "@/types/finance";
+import type { Customer, Expense, Income, Invoice, INCGiverTransaction, Payment } from "@/types/finance";
+import {
+  isIncGivenProject,
+  resolveIncGivenProjectAmountReceived,
+} from "@/lib/incGiverLedgerContinuity";
 import type { Project } from "@/types/project";
 
 type BillDoc = Pick<Invoice, "id" | "total" | "status" | "amountReceived" | "customerId" | "projectId" | "invoiceDate">;
@@ -204,13 +208,16 @@ export function projectBillingDrift(
   expenses: Expense[],
   saleBills: Invoice[] = [],
   incomes: Income[] = [],
+  incGiverTransactions: INCGiverTransaction[] = [],
 ): {
   amountInvoicedDrift: number;
   amountReceivedDrift: number;
   totalCostDrift: number;
 } {
   const derivedInvoiced = getProjectAmountInvoiced(project.id, invoices, saleBills);
-  const derivedReceived = getProjectAmountReceived(project.id, payments, incomes);
+  const derivedReceived = isIncGivenProject(project)
+    ? resolveIncGivenProjectAmountReceived(project, incGiverTransactions, payments, incomes)
+    : getProjectAmountReceived(project.id, payments, incomes);
   const derivedCost = getProjectTotalCost(project.id, expenses);
   return {
     amountInvoicedDrift: Math.abs((project.amountInvoiced ?? 0) - derivedInvoiced),

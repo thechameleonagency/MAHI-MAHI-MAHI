@@ -23,6 +23,7 @@ import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToG
 import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
 import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
 import { findStaleProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
+import { findStaleIncGiverLedger } from "@/lib/incGiverLedgerContinuity";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 import { findSeedForeignKeyViolations, formatSeedForeignKeyErrors } from "./seedForeignKeyMatrix";
@@ -194,6 +195,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleProjectCustomerLinkage(state)) {
     errors.push(`ER3: project ${stale.projectId} — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleIncGiverLedger(state)) {
+    errors.push(`ER4: ${stale.entity} ${stale.id} — ${stale.reason}`);
   }
 
   for (const stale of findStaleClientPaymentLedgerLinkage({

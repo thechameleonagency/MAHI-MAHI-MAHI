@@ -1,5 +1,6 @@
 import { resolveIncGiverCompanyIdForProject } from "@/lib/incGiverProjectLink";
-import { sumIncGiverCollections } from "@/lib/deriveIncGiverEconomics";
+import { applyIncGiverLedgerToProjects, isIncGivenProject } from "@/lib/incGiverLedgerContinuity";
+import { sumIncGiverCollections as sumCollections } from "@/lib/deriveIncGiverEconomics";
 import type { AppState } from "@/contexts/AppDataContext";
 import type { Customer, INCGiverTransaction } from "@/types/finance";
 import type { Project } from "@/types/project";
@@ -12,10 +13,6 @@ const defaultIncScope = (giverId: string): NonNullable<Project["scope"]> => ({
   billingParty: "MSS",
   incGiverCompanyId: giverId,
 });
-
-function isIncGivenProject(project: Project): boolean {
-  return project.projectKind === "INC_GIVEN" || project.projectMode === "INC_GIVEN_TO_US";
-}
 
 function seedTransactionId(projectId: string, suffix: string): string {
   return `IGT-SEED-${projectId}-${suffix}`;
@@ -64,7 +61,8 @@ export function reconcileIncGiverTransactions(state: AppState): AppState {
     if (idx >= 0) {
       if (
         transactions[idx].amount === tx.amount &&
-        transactions[idx].incGiverCompanyId === tx.incGiverCompanyId
+        transactions[idx].incGiverCompanyId === tx.incGiverCompanyId &&
+        transactions[idx].projectId === tx.projectId
       ) {
         return;
       }
@@ -116,7 +114,7 @@ export function reconcileIncGiverTransactions(state: AppState): AppState {
 
     const received = project.amountReceived ?? 0;
     const projectTxns = transactions.filter((t) => t.projectId === project.id);
-    const ledgerCollected = sumIncGiverCollections(projectTxns);
+    const ledgerCollected = sumCollections(projectTxns);
 
     if (received > ledgerCollected + 0.01) {
       upsertTx({
@@ -130,20 +128,27 @@ export function reconcileIncGiverTransactions(state: AppState): AppState {
         notes: "Aligned with project cash received",
       });
     } else if (received <= 0 && (project.contractAmount ?? 0) > 0 && projectTxns.length === 0) {
-      const fraction =
-        project.lifecycleStatus === "Completed" || project.status === "Completed" ? 0.85 : 0.35;
       upsertTx({
         id: seedTransactionId(project.id, "demo"),
         incGiverCompanyId: giverId,
         projectId: project.id,
         projectName: project.name,
         date: project.startDate || project.createdAt?.slice(0, 10) || "2026-03-01",
-        amount: Math.round((project.contractAmount ?? 0) * fraction),
+        amount: Math.round(
+          (project.contractAmount ?? 0) *
+            (project.lifecycleStatus === "Completed" || project.status === "Completed" ? 0.85 : 0.35),
+        ),
         type: "collection",
         notes: "Demo collection against INC job contract",
       });
-      changed = true;
     }
+  }
+
+  const ledgerState: AppState = { ...state, projects, customers, incGiverTransactions: transactions };
+  const syncedProjects = applyIncGiverLedgerToProjects(ledgerState, projects);
+  if (syncedProjects !== projects) {
+    projects = syncedProjects;
+    changed = true;
   }
 
   if (!changed) return state;

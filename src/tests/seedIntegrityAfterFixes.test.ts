@@ -19,6 +19,7 @@ import {
   findSeedForeignKeyViolations,
   formatSeedForeignKeyErrors,
 } from "@/data/seed/seedForeignKeyMatrix";
+import { findStaleIncGiverLedger } from "@/lib/incGiverLedgerContinuity";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
 import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
@@ -60,6 +61,7 @@ describe("seed & hydration integrity after audit fixes", () => {
         hydrated.expenses,
         hydrated.saleBills,
         hydrated.incomes,
+        hydrated.incGiverTransactions ?? [],
       );
       if (drift.amountInvoicedDrift > DRIFT_EPS) {
         invoicedDrifts.push(`${project.id}:${drift.amountInvoicedDrift}`);
@@ -85,6 +87,7 @@ describe("seed & hydration integrity after audit fixes", () => {
           state.expenses,
           state.saleBills,
           state.incomes,
+          state.incGiverTransactions ?? [],
         ).amountReceivedDrift,
       }))
       .filter((x) => x.drift > DRIFT_EPS);
@@ -115,10 +118,11 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(Math.abs(ledger.revenueCollected - cashIn)).toBeLessThanOrEqual(DRIFT_EPS);
   });
 
-  it("inc giver transactions reference valid companies and INC_GIVEN projects", () => {
+  it("inc giver ledger aligns with INC_GIVEN projects on hydrated seed (ER4)", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect((hydrated.incGiverTransactions ?? []).length).toBeGreaterThan(0);
+    expect(findStaleIncGiverLedger(hydrated)).toEqual([]);
     for (const tx of hydrated.incGiverTransactions) {
       expect(hydrated.incGiverCompanies.some((c) => c.id === tx.incGiverCompanyId)).toBe(true);
       if (tx.projectId) {

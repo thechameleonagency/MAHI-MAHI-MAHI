@@ -1,4 +1,5 @@
 import type { AppState } from "@/contexts/AppDataContext";
+import { deriveIncGiverProjectCollected } from "@/lib/deriveIncGiverEconomics";
 import type { SeedProfile } from "./seedLayerOrder";
 import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt } from "./seedTimeModel";
@@ -190,6 +191,12 @@ export function buildL10Capital(state: AppState, profile: SeedProfile): AppState
       type: i % 7 === 0 ? "adjustment" : "collection",
       notes: "INC giver settlement (seed)",
     });
+    if (project?.id) {
+      const ledger = deriveIncGiverProjectCollected(project.id, state.incGiverTransactions);
+      state.projects = state.projects.map((p) =>
+        p.id === project.id ? { ...p, amountReceived: ledger } : p,
+      );
+    }
     if (giver && project) {
       pushAudit(state, {
         action: "create",
