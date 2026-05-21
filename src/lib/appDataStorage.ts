@@ -18,10 +18,7 @@ import {
 } from "@/lib/defaultAppBoot";
 import { migrateOpaqueCustomerIds } from "@/lib/migrateCustomerIds";
 import { migratePersistedState } from "@/lib/migratePersistedIds";
-import {
-  reconcileProjectsAmountInvoiced,
-  reconcileProjectsAmountReceived,
-} from "@/lib/billingSelectors";
+import { reconcileBillingAmountReceivedState } from "@/lib/billingAmountReceivedContinuity";
 import { reconcileAuditLogUserNames } from "@/lib/resolveAuditActorUserName";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
 import { reconcileVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
@@ -95,33 +92,30 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
       "saleBills",
     ),
   );
-  const reconciledProjects = reconcileProjectsAmountReceived(
-    reconcileProjectsAmountInvoiced(projects, invoices, saleBills),
-    migrated.payments,
-    migrated.incomes,
-  );
   const auditLogs = reconcileAuditLogUserNames(migrated.auditLogs, migrated.settingsTeamMembers);
   const linked = reconcileEnquiriesConvertedOnProjectLink({
     ...migrated,
-    projects: reconciledProjects,
+    projects,
     quotations,
     invoices,
     saleBills,
     auditLogs,
   });
 
+  const withBilling = reconcileBillingAmountReceivedState(linked);
+
   const withSites = {
-    ...linked,
+    ...withBilling,
     customers: reconcileCustomersAutoArchive({
-      customers: linked.customers,
-      projects: linked.projects,
-      quotations: linked.quotations,
-      enquiries: linked.enquiries,
+      customers: withBilling.customers,
+      projects: withBilling.projects,
+      quotations: withBilling.quotations,
+      enquiries: withBilling.enquiries,
     }),
     sites: syncSitesChecklistFromProjects(
-      linked.projects,
-      linked.sites,
-      linked.inventoryItems,
+      withBilling.projects,
+      withBilling.sites,
+      withBilling.inventoryItems,
     ),
   };
 

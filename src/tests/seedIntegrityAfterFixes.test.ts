@@ -20,6 +20,7 @@ import {
   formatSeedForeignKeyErrors,
 } from "@/data/seed/seedForeignKeyMatrix";
 import { findStaleIncGiverLedger } from "@/lib/incGiverLedgerContinuity";
+import { findStaleBillingAmountReceived } from "@/lib/billingAmountReceivedContinuity";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
 import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
@@ -214,6 +215,12 @@ describe("seed & hydration integrity after audit fixes", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+  });
+
+  it("invoice, sale bill, and project amountReceived align on hydrated seed (ER5)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleBillingAmountReceived(hydrated)).toEqual([]);
   });
 
   it("client payment ledger linkage is consistent on hydrated seed (FC10)", () => {

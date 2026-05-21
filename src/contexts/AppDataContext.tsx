@@ -869,6 +869,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         clientPaymentRecords: prev.clientPaymentRecords,
         payments: prev.payments,
         invoices: prev.invoices,
+        saleBills: prev.saleBills,
         projects: prev.projects,
         incomes: prev.incomes,
       });
@@ -878,7 +879,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           invoices: prev.invoices,
           projects: prev.projects,
         },
-        next,
+        {
+          payments: next.payments,
+          invoices: next.invoices,
+          projects: next.projects,
+        },
         prev.clientPaymentRecords.length,
       );
       if (!summary.changed) {
@@ -888,7 +893,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (import.meta.env.DEV) {
         devToastMessage = formatClientPaymentLedgerReconcileDevMessage(summary);
       }
-      return { ...prev, ...next };
+      return { ...prev, ...next, saleBills: next.saleBills };
     });
 
     if (import.meta.env.DEV) {

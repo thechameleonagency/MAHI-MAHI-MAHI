@@ -3,7 +3,7 @@ import { normalizeAppState } from "@/data/appSeedBuilder";
 import { applyAppStateHydrationPipeline } from "@/lib/appDataStorage";
 import { reconcileAllEnquiryQuotationHistories } from "@/lib/enquiryQuotationHistory";
 import { reconcileProjectAgentCommissionState } from "@/lib/projectStartContinuity";
-import { reconcileClientPaymentLedger } from "@/lib/clientPaymentReconciliation";
+import { reconcileBillingAmountReceivedState } from "@/lib/billingAmountReceivedContinuity";
 import { syncBankReconciliationLinks } from "@/lib/bankReconciliationLink";
 import { reconcileCustomersAutoArchive } from "@/domain/customer/customerArchive";
 import { syncProjectsSiteReadinessFromChecklist } from "@/lib/siteReadinessFromChecklist";
@@ -14,7 +14,6 @@ import { reconcileVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLi
 import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
 import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScopeSeed";
 import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
-import { reconcileProjectsAmountReceived } from "@/lib/billingSelectors";
 import { reconcileIncGiverTransactions } from "@/lib/reconcileIncGiverTransactions";
 import { reconcileProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 
@@ -51,14 +50,7 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
   );
   s = { ...s, ...bankSynced };
 
-  const ledger = reconcileClientPaymentLedger({
-    clientPaymentRecords: s.clientPaymentRecords,
-    payments: s.payments,
-    invoices: s.invoices,
-    projects: s.projects,
-    incomes: s.incomes,
-  });
-  s = { ...s, ...ledger };
+  s = reconcileBillingAmountReceivedState(s);
 
   s = {
     ...s,
@@ -73,11 +65,6 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
   s = reconcileVendorBillInventoryReceipt(reconcileVendorBillVouchers(s));
   s = reconcileProjectActorScopeSeed(s);
   s = reconcileChangeRequestDeltaInvoices(s);
-
-  s = {
-    ...s,
-    projects: reconcileProjectsAmountReceived(s.projects, s.payments, s.incomes),
-  };
 
   s = reconcileIncGiverTransactions(s);
 

@@ -8,10 +8,7 @@ import { serializeAppState } from "@/lib/appDataStorage";
 import { buildCalendarEvents, type CalendarEventSource } from "@/lib/calendarSources";
 import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/businessAlerts";
 
-import {
-  findStaleClientPaymentLedgerLinkage,
-  reconcileClientPaymentLedger,
-} from "@/lib/clientPaymentReconciliation";
+import { findStaleClientPaymentLedgerLinkage } from "@/lib/clientPaymentReconciliation";
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
@@ -24,6 +21,10 @@ import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinui
 import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
 import { findStaleProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 import { findStaleIncGiverLedger } from "@/lib/incGiverLedgerContinuity";
+import {
+  findStaleBillingAmountReceived,
+  formatStaleBillingAmountReceivedErrors,
+} from "@/lib/billingAmountReceivedContinuity";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 import { findSeedForeignKeyViolations, formatSeedForeignKeyErrors } from "./seedForeignKeyMatrix";
@@ -201,52 +202,14 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
     errors.push(`ER4: ${stale.entity} ${stale.id} — ${stale.reason}`);
   }
 
+  errors.push(...formatStaleBillingAmountReceivedErrors(findStaleBillingAmountReceived(state)));
+
   for (const stale of findStaleClientPaymentLedgerLinkage({
     clientPaymentRecords: state.clientPaymentRecords,
     payments: state.payments,
   })) {
     const label = stale.recordId ?? stale.paymentId ?? "unknown";
     errors.push(`FC10: client payment ${label} — ${stale.reason}`);
-  }
-
-
-
-  const before = {
-
-    payments: state.payments,
-
-    invoices: state.invoices,
-
-    projects: state.projects,
-
-  };
-
-  const after = reconcileClientPaymentLedger({
-
-    clientPaymentRecords: state.clientPaymentRecords,
-
-    payments: state.payments,
-
-    invoices: state.invoices,
-
-    projects: state.projects,
-
-    incomes: state.incomes,
-
-  });
-
-  if (JSON.stringify(before) !== JSON.stringify({
-
-    payments: after.payments,
-
-    invoices: after.invoices,
-
-    projects: after.projects,
-
-  })) {
-
-    warnings.push("CPR FIFO replay would mutate state — ensure amounts align post-hydration");
-
   }
 
 

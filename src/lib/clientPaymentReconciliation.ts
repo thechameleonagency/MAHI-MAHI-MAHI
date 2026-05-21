@@ -2,6 +2,7 @@ import type { ClientPaymentRecord } from "@/types/blockage";
 import type { Customer, Income, Invoice, Payment } from "@/types/finance";
 import type { Project } from "@/types/project";
 import { getProjectAmountReceived, isActiveBill } from "@/lib/billingSelectors";
+import { isIncGivenProject } from "@/lib/incGiverLedgerContinuity";
 
 /**
  * Payment rows emitted from {@link addClientPaymentRecord} use this id/reference prefix.
@@ -38,37 +39,71 @@ export function fifoApplyClientPaymentToInvoices(
   amount: number,
   paymentDate: string,
   paymentMode: string,
+  saleBills: Invoice[] = [],
 ): Invoice[] {
-  let remaining = amount;
-  const sortedProjectInvoices = invoices
-    .filter((inv) => inv.projectId === projectId && isActiveBill(inv))
-    .sort(
-      (a, b) =>
-        new Date(a.invoiceDate || a.dueDate || 0).getTime() -
-        new Date(b.invoiceDate || b.dueDate || 0).getTime(),
-    );
+  const applied = fifoApplyClientPaymentToBilling(
+    invoices,
+    saleBills,
+    projectId,
+    amount,
+    paymentDate,
+    paymentMode,
+  );
+  return applied.invoices;
+}
 
-  const updates = new Map<string, Invoice>();
-  for (const inv of sortedProjectInvoices) {
+/** FIFO-apply CPR/client payment across invoices and sale bills for one project (ER5). */
+export function fifoApplyClientPaymentToBilling(
+  invoices: Invoice[],
+  saleBills: Invoice[],
+  projectId: string,
+  amount: number,
+  paymentDate: string,
+  paymentMode: string,
+): { invoices: Invoice[]; saleBills: Invoice[] } {
+  let remaining = amount;
+  type Tagged = { collection: "invoices" | "saleBills"; doc: Invoice };
+  const queue: Tagged[] = [
+    ...invoices
+      .filter((inv) => inv.projectId === projectId && isActiveBill(inv))
+      .map((doc) => ({ collection: "invoices" as const, doc })),
+    ...saleBills
+      .filter((inv) => inv.projectId === projectId && isActiveBill(inv))
+      .map((doc) => ({ collection: "saleBills" as const, doc })),
+  ].sort(
+    (a, b) =>
+      new Date(a.doc.invoiceDate || a.doc.dueDate || 0).getTime() -
+      new Date(b.doc.invoiceDate || b.doc.dueDate || 0).getTime(),
+  );
+
+  const invoiceUpdates = new Map<string, Invoice>();
+  const saleBillUpdates = new Map<string, Invoice>();
+
+  for (const { collection, doc } of queue) {
     if (remaining <= 0) break;
-    const due = (inv.total || 0) - (inv.amountReceived || 0);
+    const due = (doc.total || 0) - (doc.amountReceived || 0);
     if (due <= 0) continue;
     const pay = Math.min(due, remaining);
     remaining -= pay;
-    const nextReceived = (inv.amountReceived || 0) + pay;
-    updates.set(inv.id, {
-      ...inv,
+    const nextReceived = (doc.amountReceived || 0) + pay;
+    const nextDoc = {
+      ...doc,
       amountReceived: nextReceived,
-      status: invoiceStatusFromReceived(inv.total || 0, nextReceived),
+      status: invoiceStatusFromReceived(doc.total || 0, nextReceived),
       receivedDate: paymentDate,
       receivedIn: paymentMode,
-    });
+    };
+    if (collection === "invoices") invoiceUpdates.set(doc.id, nextDoc);
+    else saleBillUpdates.set(doc.id, nextDoc);
   }
 
-  return invoices.map((inv) => updates.get(inv.id) ?? inv);
+  return {
+    invoices: invoices.map((inv) => invoiceUpdates.get(inv.id) ?? inv),
+    saleBills: saleBills.map((inv) => saleBillUpdates.get(inv.id) ?? inv),
+  };
 }
 
-function paymentReceivedOnInvoice(payments: Payment[], invoiceId: string): number {
+export function paymentReceivedOnInvoice(payments: Payment[], invoiceId: string): number {
   return payments
     .filter(
       (p) =>
@@ -109,12 +144,14 @@ export function reconcileClientPaymentLedger(input: {
   clientPaymentRecords: ClientPaymentRecord[];
   payments: Payment[];
   invoices: Invoice[];
+  saleBills?: Invoice[];
   projects: Project[];
   /** Standalone project incomes (excludes rows linked to payments — see `incomeCountsTowardProjectReceived`). */
   incomes?: Income[];
 }): {
   payments: Payment[];
   invoices: Invoice[];
+  saleBills: Invoice[];
   projects: Project[];
 } {
   const { clientPaymentRecords } = input;
@@ -135,27 +172,22 @@ export function reconcileClientPaymentLedger(input: {
   }
 
   const projectIds = new Set(clientPaymentRecords.map((r) => r.projectId));
-  let invoices = input.invoices.map((inv) => {
+  const saleBillsIn = input.saleBills ?? [];
+
+  const baselineBillingRow = (inv: Invoice): Invoice => {
     if (!isActiveBill(inv)) {
-      return {
-        ...inv,
-        amountReceived: 0,
-      };
+      return { ...inv, amountReceived: 0 };
     }
     const baseReceived = paymentReceivedOnInvoice(payments, inv.id);
-    if (!inv.projectId || !projectIds.has(inv.projectId)) {
-      return {
-        ...inv,
-        amountReceived: baseReceived,
-        status: invoiceStatusFromReceived(inv.total || 0, baseReceived),
-      };
-    }
     return {
       ...inv,
       amountReceived: baseReceived,
       status: invoiceStatusFromReceived(inv.total || 0, baseReceived),
     };
-  });
+  };
+
+  let invoices = input.invoices.map(baselineBillingRow);
+  let saleBills = saleBillsIn.map(baselineBillingRow);
 
   const recordsByProject = new Map<string, ClientPaymentRecord[]>();
   for (const record of clientPaymentRecords) {
@@ -169,23 +201,28 @@ export function reconcileClientPaymentLedger(input: {
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
     for (const record of sorted) {
-      invoices = fifoApplyClientPaymentToInvoices(
+      const applied = fifoApplyClientPaymentToBilling(
         invoices,
+        saleBills,
         record.projectId,
         record.amount,
         record.date,
         record.paymentMode,
       );
+      invoices = applied.invoices;
+      saleBills = applied.saleBills;
     }
   }
 
   const incomes = input.incomes ?? [];
   const projects = input.projects.map((project) => ({
     ...project,
-    amountReceived: getProjectAmountReceived(project.id, payments, incomes),
+    amountReceived: isIncGivenProject(project)
+      ? (project.amountReceived ?? 0)
+      : getProjectAmountReceived(project.id, payments, incomes),
   }));
 
-  return { payments, invoices, projects };
+  return { payments, invoices, saleBills, projects };
 }
 
 export type ClientPaymentLedgerReconcileSummary = {
@@ -359,7 +396,7 @@ export function findStaleClientPaymentLedgerLinkage(input: {
   return stale;
 }
 
-function syncCustomersAmountReceivedFromProjects(
+export function syncCustomersAmountReceivedFromProjects(
   customers: Customer[],
   projects: Project[],
 ): Customer[] {
@@ -422,27 +459,14 @@ export function applyPaymentDeletionToLedger(input: {
     clientPaymentRecords,
     payments,
     invoices: input.invoices,
+    saleBills: input.saleBills,
     projects: input.projects,
     incomes,
   });
   payments = ledger.payments;
-  let invoices = ledger.invoices;
-  let projects = ledger.projects;
-
-  const inInvoices = payment.invoiceId
-    ? input.invoices.some((i) => i.id === payment.invoiceId)
-    : false;
-  let saleBills = input.saleBills;
-  if (payment.invoiceId && !inInvoices) {
-    saleBills = saleBills.map((doc) =>
-      doc.id === payment.invoiceId
-        ? {
-            ...doc,
-            amountReceived: Math.max(0, (doc.amountReceived ?? 0) - payment.amount),
-          }
-        : doc,
-    );
-  }
+  const invoices = ledger.invoices;
+  const saleBills = ledger.saleBills;
+  const projects = ledger.projects;
 
   const customers = syncCustomersAmountReceivedFromProjects(input.customers, projects);
 
