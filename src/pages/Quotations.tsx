@@ -18,7 +18,6 @@ import { toast } from "@/hooks/use-toast";
 import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { ToastAction } from "@/components/ui/toast";
 import { InlineConfirmBanner } from "@/components/ui/InlineConfirmBanner";
-import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { LifecycleTermHint } from "@/components/ui/LifecycleTermHint";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { lifecycleTermSummary } from "@/lib/lifecycleTerminology";
@@ -56,11 +55,7 @@ import {
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
 import { validateQuotationCreateSource } from "@/lib/quotationCreateSource";
 import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
-import {
-  canDeleteQuotationRecord,
-  PROJECT_SCOPE_CHANGE_GUIDANCE,
-  QUOTATION_ONE_SHOT_CONVERSION_HELP,
-} from "@/lib/quotationProjectConversionPolicy";
+import { canDeleteQuotationRecord } from "@/lib/quotationProjectConversionPolicy";
 import type { QuotationStatus } from "@/domain/stateMachines/quotationStateMachine";
 import {
   formatQuotationStatusLabel,
@@ -93,6 +88,15 @@ import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { QuotationCommercialAmountDisplay } from "@/components/quotations/QuotationCommercialAmountDisplay";
+import {
+  QuotationTerminalLifecycleBanner,
+  QuotationTerminalListCue,
+} from "@/components/quotations/QuotationTerminalLifecycle";
+import {
+  getQuotationTerminalKind,
+  quotationTerminalRowClassName,
+} from "@/lib/quotationTerminalUi";
+import { cn } from "@/lib/utils";
 import {
   hasDistinctClientAgreedAmount,
   hasPositiveQuotationAmount,
@@ -2216,10 +2220,15 @@ const Quotations = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              pagedQuotations.map((quotation) => (
+              pagedQuotations.map((quotation) => {
+              const terminalKind = getQuotationTerminalKind(quotation);
+              return (
               <TableRow
                 key={quotation.id}
-                className="cursor-pointer hover:bg-muted/50 group"
+                className={cn(
+                  "cursor-pointer hover:bg-muted/50 group",
+                  quotationTerminalRowClassName(terminalKind),
+                )}
                 onClick={() => {
                   setSelectedQuotation(quotation);
                   setIsViewQuotationOpen(true);
@@ -2231,6 +2240,14 @@ const Quotations = () => {
                     <span>{quotation.quotationNumber}</span>
                     <AgingChip signal={getQuotationNoResponseAging(quotation)} />
                   </div>
+                  <QuotationTerminalListCue
+                    quotation={quotation}
+                    onClone={() => handleCloneQuotation(quotation)}
+                    onViewProject={() => {
+                      const pid = quotationLinkedProjectId(quotation);
+                      if (pid) navigate(`/projects/${pid}`);
+                    }}
+                  />
                 </TableCell>
                 )}
                 {quoteListColVis.client && (
@@ -2283,7 +2300,8 @@ const Quotations = () => {
                   <ChevronDown className="h-4 w-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
                 </TableCell>
               </TableRow>
-            ))
+            );
+            })
             )}
           </TableBody>
         </DataTableShell>
@@ -2321,42 +2339,16 @@ const Quotations = () => {
               </SheetTitle>
             </SheetHeader>
 
-            {selectedQuotation && (selectedQuotation.status === "withdrawn" || selectedQuotation.status === "rejected") && (
-              <div className="mt-4">
-                <LifecycleTerminalBanner
-                  variant={selectedQuotation.status === "withdrawn" ? "withdrawn" : "rejected"}
-                  title={`Quotation ${selectedQuotation.status}`}
-                  description={
-                    selectedQuotation.status === "withdrawn"
-                      ? `${lifecycleTermSummary("quotationWithdraw")} It cannot be revised — clone it to start a new draft for re-quoting.`
-                      : `${lifecycleTermSummary("quotationReject")} Clone it to revise pricing and re-quote.`
-                  }
-                  primaryActionLabel="Clone & re-quote"
-                  onPrimaryAction={() => handleCloneQuotation(selectedQuotation)}
-                />
-              </div>
-            )}
-
-            {selectedQuotation && isQuotationConverted(selectedQuotation) && (
-              <div className="mt-4">
-                <LifecycleTerminalBanner
-                  variant="completed"
-                  title="Converted to project — one-shot"
-                  description={
-                    <>
-                      <p>{QUOTATION_ONE_SHOT_CONVERSION_HELP}</p>
-                      <p className="mt-1">{PROJECT_SCOPE_CHANGE_GUIDANCE}</p>
-                    </>
-                  }
-                  primaryActionLabel="View project"
-                  onPrimaryAction={() => {
-                    const pid = quotationLinkedProjectId(selectedQuotation);
-                    if (pid) navigate(`/projects/${pid}`);
-                  }}
-                  secondaryActionLabel="Clone for new quote"
-                  onSecondaryAction={() => handleCloneQuotation(selectedQuotation)}
-                />
-              </div>
+            {selectedQuotation && (
+              <QuotationTerminalLifecycleBanner
+                className="mt-4"
+                quotation={selectedQuotation}
+                onClone={() => handleCloneQuotation(selectedQuotation)}
+                onViewProject={() => {
+                  const pid = quotationLinkedProjectId(selectedQuotation);
+                  if (pid) navigate(`/projects/${pid}`);
+                }}
+              />
             )}
 
             {selectedQuotation && (
@@ -2829,17 +2821,20 @@ const Quotations = () => {
         />
       )}
 
-      {(status === "withdrawn" || status === "rejected") && (
-        <LifecycleTerminalBanner
-          variant={status === "withdrawn" ? "withdrawn" : "rejected"}
-          title={`Quotation ${formatQuotationStatus(status)}`}
-          description={
-            status === "withdrawn"
-              ? `${lifecycleTermSummary("quotationWithdraw")} Clone it to start a new draft for re-quoting.`
-              : `${lifecycleTermSummary("quotationReject")} Revise or clone from the list to create a new draft.`
-          }
-        />
-      )}
+      {editingQuotationId && (() => {
+        const editingQuotation = savedQuotations.find((q) => q.id === editingQuotationId);
+        if (!editingQuotation || !getQuotationTerminalKind(editingQuotation)) return null;
+        return (
+          <QuotationTerminalLifecycleBanner
+            quotation={editingQuotation}
+            onClone={() => handleCloneQuotation(editingQuotation)}
+            onViewProject={() => {
+              const pid = quotationLinkedProjectId(editingQuotation);
+              if (pid) navigate(`/projects/${pid}`);
+            }}
+          />
+        );
+      })()}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="flex items-center gap-3 border-b border-border pb-3">
