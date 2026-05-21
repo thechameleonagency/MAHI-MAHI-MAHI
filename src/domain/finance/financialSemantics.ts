@@ -4,7 +4,9 @@
 import {
   getAccrualRevenue,
   getCashRevenue,
+  getCashRevenueInPeriod,
   getInvoiceOpenBalance,
+  isActiveBill,
   getProjectAmountInvoiced,
   getProjectAmountReceived,
   getProjectTotalCost,
@@ -63,9 +65,27 @@ export function getRevenueCash(payments: Payment[], fromDate?: string, toDate?: 
   return getCashRevenue({ payments, fromDate, toDate });
 }
 
+/** Cash-basis revenue with a custom period predicate (audit charts, ledger KPIs). */
+export function getRevenueCashInPeriod(
+  payments: Payment[],
+  inPeriod: (dateStr: string) => boolean,
+): number {
+  return getCashRevenueInPeriod(payments, inPeriod);
+}
+
 /** Accrual-basis revenue (active invoice totals). */
 export function getRevenueAccrual(invoices: Invoice[]): number {
   return getAccrualRevenue(invoices);
+}
+
+/** Accrual-basis revenue for invoices whose invoiceDate passes `inPeriod`. */
+export function getRevenueAccrualInPeriod(
+  invoices: Invoice[],
+  inPeriod: (dateStr: string) => boolean,
+): number {
+  return invoices
+    .filter((i) => inPeriod(i.invoiceDate) && isActiveBill(i))
+    .reduce((s, i) => s + i.total, 0);
 }
 
 /** @alias Explicit export for cross-module KPI wiring. */

@@ -1,3 +1,4 @@
+import { getCustomerTotalReceived } from "@/lib/billingSelectors";
 import type { AnalyticsSlices, MetricRow } from "./types";
 
 export interface CustomerMetrics {
@@ -8,7 +9,7 @@ export interface CustomerMetrics {
 }
 
 export function computeCustomerMetrics(slices: AnalyticsSlices): CustomerMetrics {
-  const { customers, projects, invoices } = slices;
+  const { customers, projects, invoices, payments } = slices;
   const byKind: Record<string, number> = { project: 0, inventory: 0, both: 0 };
   let archived = 0;
 
@@ -29,9 +30,7 @@ export function computeCustomerMetrics(slices: AnalyticsSlices): CustomerMetrics
   const repeatCustomers = [...projectCountByCustomer.values()].filter((n) => n > 1).length;
 
   const ltvSample = customers.slice(0, 20).map((c) => {
-    const rev = invoices
-      .filter((i) => i.customerId === c.id && i.status !== "voided")
-      .reduce((s, i) => s + (i.amountReceived ?? 0), 0);
+    const rev = getCustomerTotalReceived(c.id, invoices, payments);
     return { id: c.id, name: c.name, revenue: rev };
   });
 

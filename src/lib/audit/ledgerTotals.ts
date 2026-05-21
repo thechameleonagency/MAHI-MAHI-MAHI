@@ -2,7 +2,11 @@ import type { Expense, Invoice, Payment } from "@/types/finance";
 import type { VendorBill } from "@/types/inventory";
 import type { InventoryItem } from "@/types/project";
 import type { MaterialDamage } from "@/types/operations";
-import { getAccountsPayable, getOutstandingReceivables } from "@/domain/finance/financialSemantics";
+import {
+  getAccountsPayable,
+  getOutstandingReceivables,
+  getRevenueCashInPeriod,
+} from "@/domain/finance/financialSemantics";
 
 export interface LedgerTotalsInput {
   invoices: Invoice[];
@@ -33,9 +37,7 @@ export function computeLedgerTotals(
   const revenueAccrual = allInvoices
     .filter((i) => inPeriod(i.invoiceDate) && i.status !== "voided" && i.status !== "draft")
     .reduce((s, i) => s + i.total, 0);
-  const revenueCollected = payments
-    .filter((p) => p.direction === "in" && inPeriod(p.date))
-    .reduce((s, p) => s + p.amount, 0);
+  const revenueCollected = getRevenueCashInPeriod(payments, inPeriod);
   const receivablesOpen = getOutstandingReceivables(input.invoices, payments, input.saleBills);
   const payablesOpen = getAccountsPayable(input.vendorBills);
   const inventoryValueCost = input.inventoryItems.reduce(

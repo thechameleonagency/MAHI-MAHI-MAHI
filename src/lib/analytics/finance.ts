@@ -1,6 +1,7 @@
 import { getInvoiceOpenBalance } from "@/lib/billingSelectors";
+import { getRevenueAccrualInPeriod, getRevenueCash } from "@/domain/finance/financialSemantics";
 import type { AnalyticsDateRange, AnalyticsSlices, MetricRow } from "./types";
-import { inAnalyticsRange } from "./dateRange";
+import { analyticsRangeToIsoBounds, inAnalyticsRange } from "./dateRange";
 
 export interface DebtorBucket {
   bucket: "0-30" | "31-60" | "61-90" | "90+";
@@ -25,18 +26,11 @@ export function computeFinanceMetrics(
 ): FinanceMetrics {
   const { invoices, payments, expenses, vendorBills = [], loans = [] } = slices;
 
-  const revenueCash = payments
-    .filter((p) => p.direction === "in" && inAnalyticsRange(p.date, range))
-    .reduce((s, p) => s + p.amount, 0);
-
-  const revenueAccrual = invoices
-    .filter(
-      (i) =>
-        inAnalyticsRange(i.invoiceDate, range) &&
-        i.status !== "voided" &&
-        i.status !== "draft",
-    )
-    .reduce((s, i) => s + i.total, 0);
+  const { fromDate, toDate } = analyticsRangeToIsoBounds(range, now);
+  const revenueCash = getRevenueCash(payments, fromDate, toDate);
+  const revenueAccrual = getRevenueAccrualInPeriod(invoices, (d) =>
+    inAnalyticsRange(d, range, now),
+  );
 
   const expenseTotal = expenses
     .filter((e) => inAnalyticsRange(e.date, range))

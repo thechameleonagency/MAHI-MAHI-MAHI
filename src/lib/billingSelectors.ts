@@ -179,6 +179,16 @@ export function getCashRevenue(input: CashRevenueInput): number {
     .reduce((s, p) => s + p.amount, 0);
 }
 
+/** Cash revenue for an arbitrary period predicate (audit P&L, ledger totals). */
+export function getCashRevenueInPeriod(
+  payments: Payment[],
+  inPeriod: (dateStr: string) => boolean,
+): number {
+  return payments
+    .filter((p) => p.direction === "in" && inPeriod(p.date))
+    .reduce((s, p) => s + p.amount, 0);
+}
+
 export function getAccrualRevenue(invoices: Invoice[]): number {
   return invoices
     .filter(isActiveBill)

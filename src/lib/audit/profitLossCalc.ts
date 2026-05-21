@@ -3,6 +3,7 @@ import type { VendorBill } from "@/types/inventory";
 import type { MaterialDamage } from "@/types/operations";
 import type { InventoryItem } from "@/types/project";
 import { expenseToAccountMapping } from "@/data/auditBooksMasters";
+import { getRevenueCashInPeriod } from "@/domain/finance/financialSemantics";
 
 export type RevenueBasis = "accrual" | "cash";
 
@@ -83,9 +84,7 @@ export function computeProfitLoss(
     revenueTotal = periodInvoices.reduce((s, inv) => s + inv.total, 0);
   } else {
     // Cash basis = payments-in only (never add invoice.amountReceived — double-counts with CPR rows).
-    revenueTotal = (input.payments ?? [])
-      .filter((p) => p.direction === "in" && inPeriod(p.date))
-      .reduce((s, p) => s + p.amount, 0);
+    revenueTotal = getRevenueCashInPeriod(input.payments ?? [], inPeriod);
   }
 
   const solarSales = periodInvoices.reduce(

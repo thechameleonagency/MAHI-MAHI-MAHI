@@ -14,6 +14,7 @@ import {
   computeProfitLoss,
   debtorCreditorSummary,
 } from "@/lib/audit";
+import { getInvoiceAmountReceived } from "@/lib/billingSelectors";
 
 const AuditReports = () => {
   const {
@@ -66,7 +67,7 @@ const AuditReports = () => {
           "Invoice #": inv.invoiceNumber, Date: inv.invoiceDate, Customer: inv.customerName,
           GSTIN: inv.customerGstin || "", "Place of Supply": inv.customerState || "",
           Subtotal: inv.subtotal, CGST: inv.cgst, SGST: inv.sgst, IGST: inv.igst, Total: inv.total,
-          "Amount Received": inv.amountReceived, Status: inv.status,
+          "Amount Received": getInvoiceAmountReceived(inv.id, payments, inv), Status: inv.status,
         })), "sales_register"),
     },
     {
@@ -128,7 +129,7 @@ const AuditReports = () => {
             Customer: inv.customerName,
             "Invoice #": inv.invoiceNumber,
             Total: inv.total,
-            Received: inv.amountReceived ?? 0,
+            Received: inv.amountReceived,
             Outstanding: inv.outstanding,
             "Days overdue": inv.daysOverdue,
             Status: inv.status,

@@ -31,9 +31,12 @@ import {
   computeInventoryMetrics,
   computeCustomerMetrics,
   computePeopleMetrics,
+  analyticsRangeToIsoBounds,
   type AnalyticsDateRange,
   type MetricRow,
 } from "@/lib/analytics";
+import { getInvoiceAmountReceived } from "@/lib/billingSelectors";
+import { getRevenueCash } from "@/domain/finance/financialSemantics";
 
 function MetricGrid({ rows }: { rows: MetricRow[] }) {
   if (rows.length === 0) {
@@ -258,26 +261,8 @@ const Analytics = () => {
   
   // Compute KPIs from context, filtered by selected date range
   const kpiValues = useMemo(() => {
-    const now = new Date();
-    const filterByRange = (dateStr: string | undefined) => {
-      if (!dateStr) return true;
-      const d = new Date(dateStr);
-      if (analyticsDateRange === "month") return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-      if (analyticsDateRange === "quarter") {
-        const q = Math.floor(now.getMonth() / 3);
-        return d.getFullYear() === now.getFullYear() && Math.floor(d.getMonth() / 3) === q;
-      }
-      if (analyticsDateRange === "year") return d.getFullYear() === now.getFullYear();
-      return true;
-    };
-
-    const filteredInvoices = invoices.filter(i => filterByRange(i.invoiceDate));
-    const filteredSaleBills = (saleBills || []).filter(b => filterByRange(b.invoiceDate));
-    const filteredPayments = payments.filter(p => filterByRange(p.date));
-
-    const totalRevenue = filteredPayments
-      .filter((p) => p.direction === "in")
-      .reduce((s, p) => s + p.amount, 0);
+    const { fromDate, toDate } = analyticsRangeToIsoBounds(analyticsDateRange);
+    const totalRevenue = getRevenueCash(payments, fromDate, toDate);
     const activeProjects = projects.filter((p) => isProjectActiveForOperations(p)).length;
     const totalEmployees = employees.length;
     const stockValue = inventoryItems.reduce((sum, item) => sum + ((item.stock || 0) * (item.salePrice || 0)), 0);
@@ -305,7 +290,7 @@ const Analytics = () => {
           id: inv.id,
           customer: inv.customerName,
           total: inv.total,
-          received: inv.amountReceived,
+          received: getInvoiceAmountReceived(inv.id, payments, inv),
           status: inv.status,
         });
       });
