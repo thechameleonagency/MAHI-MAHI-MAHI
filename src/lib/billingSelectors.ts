@@ -98,11 +98,36 @@ export function reconcileProjectsAmountInvoiced(
   }));
 }
 
-/** Whether a non-invoice income row should bump stored `project.amountReceived`. */
+/**
+ * Whether a standalone income row should bump stored `project.amountReceived`.
+ * Only project-category client collections count — partner/employee-linked rows may
+ * carry `projectId` for attribution but are not client cash received (M6 / V9).
+ */
 export function incomeCountsTowardProjectReceived(
-  income: Pick<Income, "projectId" | "isOutgoing" | "linkedPaymentId">,
+  income: Pick<Income, "projectId" | "mainCategory" | "isOutgoing" | "linkedPaymentId">,
 ): boolean {
-  return Boolean(income.projectId?.trim()) && income.isOutgoing !== true && !income.linkedPaymentId;
+  return (
+    income.mainCategory === "project" &&
+    Boolean(income.projectId?.trim()) &&
+    income.isOutgoing !== true &&
+    !income.linkedPaymentId
+  );
+}
+
+/** Apply income create/update/delete deltas to stored project `amountReceived`. */
+export function applyIncomeUpdateToProjects(
+  projects: Project[],
+  oldIncome: Income | undefined,
+  nextIncome: Income | undefined,
+): Project[] {
+  let result = projects;
+  if (oldIncome && incomeCountsTowardProjectReceived(oldIncome)) {
+    result = applyProjectReceivedFromIncomeDelta(result, oldIncome.projectId, -oldIncome.amount);
+  }
+  if (nextIncome && incomeCountsTowardProjectReceived(nextIncome)) {
+    result = applyProjectReceivedFromIncomeDelta(result, nextIncome.projectId, nextIncome.amount);
+  }
+  return result;
 }
 
 /** Apply a signed delta to one project's stored `amountReceived`. */

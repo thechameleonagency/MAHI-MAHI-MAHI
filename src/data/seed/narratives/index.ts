@@ -16,6 +16,7 @@ import { applyRichTimeline } from "./richTimeline";
 import { applyDirectExceptionProject } from "./directExceptionProject";
 import { applyDirectExceptionProjectComplete } from "./directExceptionProjectComplete";
 import { applyPartnerSplitPayment } from "./partnerSplitPayment";
+import { applyPartnerSiteProjectIncome } from "./partnerSiteProjectIncome";
 import { applyCustomerBulkInflow } from "./customerBulkInflow";
 import { applyReopenLostEnquiry } from "./reopenLostEnquiry";
 import { applyRescheduledTask } from "./rescheduledTask";
@@ -56,6 +57,7 @@ const NARRATIVES = [
   applyDirectExceptionProject,
   applyDirectExceptionProjectComplete,
   applyPartnerSplitPayment,
+  applyPartnerSiteProjectIncome,
   applyCustomerBulkInflow,
   applyReopenLostEnquiry,
   applyRescheduledTask,

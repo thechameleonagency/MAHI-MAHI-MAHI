@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { buildBusinessSeed } from "@/data/seed/buildBusinessSeed";
+import { applyAppStateHydrationPipeline } from "@/lib/appDataStorage";
 import {
+  applyIncomeUpdateToProjects,
   applyProjectReceivedFromIncomeDelta,
   getProjectAmountReceived,
   incomeCountsTowardProjectReceived,
@@ -34,6 +37,7 @@ describe("M6 — income ↔ project.amountReceived", () => {
     expect(
       incomeCountsTowardProjectReceived({
         projectId: "P1",
+        mainCategory: "project",
         isOutgoing: false,
         linkedPaymentId: undefined,
       }),
@@ -41,6 +45,7 @@ describe("M6 — income ↔ project.amountReceived", () => {
     expect(
       incomeCountsTowardProjectReceived({
         projectId: "P1",
+        mainCategory: "project",
         isOutgoing: false,
         linkedPaymentId: "pay-1",
       }),
@@ -48,10 +53,67 @@ describe("M6 — income ↔ project.amountReceived", () => {
     expect(
       incomeCountsTowardProjectReceived({
         projectId: "P1",
+        mainCategory: "project",
         isOutgoing: true,
         linkedPaymentId: undefined,
       }),
     ).toBe(false);
+  });
+
+  it("partner/employee-linked incomes with projectId do not count toward amountReceived", () => {
+    expect(
+      incomeCountsTowardProjectReceived({
+        projectId: "P1",
+        mainCategory: "partner",
+        isOutgoing: false,
+      }),
+    ).toBe(false);
+    expect(
+      incomeCountsTowardProjectReceived({
+        projectId: "P1",
+        mainCategory: "employee-payment",
+        isOutgoing: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("applyIncomeUpdateToProjects ignores partner income edits", () => {
+    const projects = [project("P1", 100000)];
+    const partnerIncome: Income = {
+      id: "inc-partner",
+      date: "2026-05-01",
+      amount: 50000,
+      mainCategory: "partner",
+      category: "partner-site-investment",
+      projectId: "P1",
+      partnerId: "PTR-1",
+      paymentMode: "Bank Transfer",
+      createdAt: "2026-05-01",
+    };
+    const next = applyIncomeUpdateToProjects(projects, partnerIncome, {
+      ...partnerIncome,
+      amount: 80000,
+    });
+    expect(next[0].amountReceived).toBe(100000);
+  });
+
+  it("applyIncomeUpdateToProjects syncs project-category income amount changes", () => {
+    const projects = [project("P1", 20000)];
+    const oldIncome: Income = {
+      id: "inc-proj",
+      date: "2026-05-01",
+      amount: 20000,
+      mainCategory: "project",
+      category: "client-payment",
+      projectId: "P1",
+      paymentMode: "Cash",
+      createdAt: "2026-05-01",
+    };
+    const next = applyIncomeUpdateToProjects(projects, oldIncome, {
+      ...oldIncome,
+      amount: 35000,
+    });
+    expect(next[0].amountReceived).toBe(35000);
   });
 
   it("getProjectAmountReceived avoids double-count when income links a payment", () => {
@@ -120,16 +182,33 @@ describe("M6 — income ↔ project.amountReceived", () => {
     expect(next[1].amountReceived).toBe(20000);
   });
 
-  it("updateIncome adjusts project.amountReceived in AppDataContext", () => {
+  it("updateIncome uses applyIncomeUpdateToProjects in AppDataContext", () => {
     const source = readFileSync(
       resolve(process.cwd(), "src/contexts/AppDataContext.tsx"),
       "utf8",
     );
     expect(source).toMatch(
-      /const updateIncome = useCallback[\s\S]*?incomeCountsTowardProjectReceived\(old\)[\s\S]*?applyProjectReceivedFromIncomeDelta/,
+      /const updateIncome = useCallback[\s\S]*?applyIncomeUpdateToProjects\(prev\.projects, old, next\)/,
     );
-    expect(source).toMatch(
-      /const updateIncome = useCallback[\s\S]*?incomeCountsTowardProjectReceived\(next\)[\s\S]*?applyProjectReceivedFromIncomeDelta/,
+    expect(source).toContain("applyIncomeUpdateToProjects(prev.projects, removedIncome, undefined)");
+  });
+
+  it("hydrated seed: partner site income on project does not inflate amountReceived", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const partnerOnProject = hydrated.incomes.find(
+      (i) => i.mainCategory === "partner" && i.category === "partner-site-investment" && i.amount === 75000,
     );
+    expect(partnerOnProject?.projectId).toBeTruthy();
+    const projectId = partnerOnProject!.projectId!;
+    const withPartner = getProjectAmountReceived(projectId, hydrated.payments, hydrated.incomes);
+    const withoutPartner = getProjectAmountReceived(
+      projectId,
+      hydrated.payments,
+      hydrated.incomes.filter((i) => i.id !== partnerOnProject!.id),
+    );
+    expect(withPartner).toBe(withoutPartner);
+    const project = hydrated.projects.find((p) => p.id === projectId);
+    expect(Math.abs((project?.amountReceived ?? 0) - withPartner)).toBeLessThan(0.02);
   });
 });

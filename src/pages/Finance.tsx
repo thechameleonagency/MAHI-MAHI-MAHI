@@ -33,6 +33,7 @@ import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
 import { UnifiedIncomeSheet } from "@/components/income/UnifiedIncomeSheet";
 import { toast } from "@/hooks/use-toast";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import type { Income } from "@/types/finance";
 import {
   getRevenueCash,
   getOutstandingReceivables,
@@ -96,6 +97,7 @@ const Finance = () => {
     addInvoice,
     generateId,
     addOwnerInvestment,
+    incomes: contextIncomes,
     accountingReviewQueue,
     dismissAccountingReviewItem,
     retryAccountingReviewPosting,
@@ -113,6 +115,7 @@ const Finance = () => {
   const canCreateIncome = useCan("income", "create");
   const canCreateInvoice = useCan("invoice", "create");
   const canManageAccountingReview = useCanAction("finance:record_expense_income");
+  const canUpdateIncome = useCanAction("finance:update_income");
 
   const [txnTablePage, setTxnTablePage] = useState(1);
   const [txnTablePageSize, setTxnTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -419,6 +422,7 @@ const Finance = () => {
   
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isAddIncomeOpen, setIsAddIncomeOpen] = useState(false);
+  const [editingIncome, setEditingIncome] = useState<Income | null>(null);
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = useState(false);
   const [isInvoiceDetailOpen, setIsInvoiceDetailOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -980,6 +984,66 @@ const Finance = () => {
         </Card>
       )}
 
+      {canViewIncome && contextIncomes.length > 0 && (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-medium">Income records</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Project-category rows update project collections; partner/employee rows do not.
+            </p>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <DataTableShell maxHeight={listTableViewportMaxHeight(6)}>
+              <TableHeader>
+                <TableRow className={dataTableClasses.headRow}>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Main</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  {canUpdateIncome ? <TableHead className="w-20" /> : null}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...contextIncomes]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .slice(0, 12)
+                  .map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>{row.date}</TableCell>
+                      <TableCell className="max-w-[10rem] truncate">{row.category}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="capitalize text-xs">
+                          {row.mainCategory}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[8rem] truncate text-muted-foreground text-sm">
+                        {row.projectName || row.partnerName || row.employeeName || "—"}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {formatINR(row.amount)}
+                      </TableCell>
+                      {canUpdateIncome ? (
+                        <TableCell className="text-right">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => setEditingIncome(row)}
+                          >
+                            Edit
+                          </Button>
+                        </TableCell>
+                      ) : null}
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </DataTableShell>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="mt-4 space-y-4 md:mt-6 md:space-y-6">
         {!hasAnyPanel ? (
           <ListEmptyState
@@ -1114,8 +1178,12 @@ const Finance = () => {
       {/* Unified Income Modal */}
       {canViewIncome && (
       <UnifiedIncomeSheet
-        isOpen={isAddIncomeOpen}
-        onClose={() => setIsAddIncomeOpen(false)}
+        isOpen={isAddIncomeOpen || editingIncome != null}
+        editingIncome={editingIncome}
+        onClose={() => {
+          setIsAddIncomeOpen(false);
+          setEditingIncome(null);
+        }}
       />
       )}
 

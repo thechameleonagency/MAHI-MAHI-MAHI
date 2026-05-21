@@ -160,6 +160,7 @@ import {
   stripVolatileDocumentTypeFields,
 } from "@/lib/invoiceDocumentType";
 import {
+  applyIncomeUpdateToProjects,
   applyProjectReceivedFromIncomeDelta,
   incomeCountsTowardProjectReceived,
   reconcileProjectsAmountInvoiced,
@@ -2505,13 +2506,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         };
       }
       const next: Income = { ...old, ...updates };
-      let projects = prev.projects;
-      if (incomeCountsTowardProjectReceived(old)) {
-        projects = applyProjectReceivedFromIncomeDelta(projects, old.projectId, -old.amount);
-      }
-      if (incomeCountsTowardProjectReceived(next)) {
-        projects = applyProjectReceivedFromIncomeDelta(projects, next.projectId, next.amount);
-      }
+      const projects = applyIncomeUpdateToProjects(prev.projects, old, next);
       return {
         ...prev,
         incomes: prev.incomes.map((i) => (i.id === id ? next : i)),
@@ -2526,10 +2521,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     const auditEntry = createAuditEntry("delete", "Income", id, id);
     setState(prev => {
       const removedIncome = prev.incomes.find(i => i.id === id);
-      const updatedProjects =
-        removedIncome && incomeCountsTowardProjectReceived(removedIncome)
-          ? applyProjectReceivedFromIncomeDelta(prev.projects, removedIncome.projectId, -removedIncome.amount)
-          : prev.projects;
+      const updatedProjects = applyIncomeUpdateToProjects(prev.projects, removedIncome, undefined);
       return {
         ...prev,
         incomes: prev.incomes.filter(i => i.id !== id),

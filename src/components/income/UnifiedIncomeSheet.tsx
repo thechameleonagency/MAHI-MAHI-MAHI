@@ -41,12 +41,21 @@ interface UnifiedIncomeSheetProps {
   onClose: () => void;
   projectId?: string;
   projectName?: string;
+  /** When set, sheet edits an existing income row (M6 / V9). */
+  editingIncome?: Income | null;
 }
 
 type Step = "main-category" | "category" | "details" | "confirm";
 
-export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectId, projectName: prefillProjectName }: UnifiedIncomeSheetProps) {
-  const { projects, partners, employees, loans, addIncome, generateId } = useAppData();
+export function UnifiedIncomeSheet({
+  isOpen,
+  onClose,
+  projectId: prefillProjectId,
+  projectName: prefillProjectName,
+  editingIncome = null,
+}: UnifiedIncomeSheetProps) {
+  const { projects, partners, employees, loans, addIncome, updateIncome, generateId } = useAppData();
+  const isEdit = Boolean(editingIncome?.id);
   const financeValidationService = useMemo(() => new UnifiedFinanceValidationService(), []);
 
   const [step, setStep] = useState<Step>("main-category");
@@ -130,7 +139,24 @@ export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectI
   }, [autoFillClient]);
 
   useEffect(() => {
-    if (!isOpen || prefillProjectId) return;
+    if (!isOpen || !editingIncome) return;
+    setStep("details");
+    setMainCategory(editingIncome.mainCategory);
+    setCategory(editingIncome.category);
+    setSubCategory(editingIncome.subCategory ?? "");
+    setAmount(String(editingIncome.amount));
+    setDate(editingIncome.date.slice(0, 10));
+    setPaymentMode(editingIncome.paymentMode);
+    setReference(editingIncome.reference ?? "");
+    setNotes(editingIncome.notes ?? "");
+    setSelectedProjectId(editingIncome.projectId ?? "");
+    setSelectedPartnerId(editingIncome.partnerId ?? "");
+    setSelectedEmployeeId(editingIncome.employeeId ?? "");
+    setSelectedLoanId(editingIncome.loanId ?? "");
+  }, [isOpen, editingIncome]);
+
+  useEffect(() => {
+    if (!isOpen || prefillProjectId || editingIncome) return;
     const d = loadFormDraft<{
       v: 1;
       step?: Step;
@@ -145,10 +171,10 @@ export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectI
     if (d.amount != null) setAmount(d.amount);
     if (d.date != null) setDate(d.date);
     if (d.notes != null) setNotes(d.notes);
-  }, [isOpen, prefillProjectId]);
+  }, [isOpen, prefillProjectId, editingIncome]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || editingIncome) return;
     saveFormDraft(INCOME_MODAL_DRAFT_KEY, {
       v: 1,
       step,
@@ -261,8 +287,22 @@ export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectI
       return;
     }
 
-    const income: Income = {
-      id: generateId("INC"),
+    const composedNotes = [
+      notes,
+      udharPersonName && `Person: ${udharPersonName}`,
+      udharContact && `Contact: ${udharContact}`,
+      udharRelationship && `Relationship: ${udharRelationship}`,
+      udharExpectedReturnDate && `Expected Return: ${udharExpectedReturnDate}`,
+      bankName && `Bank: ${bankName}`,
+      loanAccount && `Account: ${loanAccount}`,
+      interestRate && `Interest: ${interestRate}%`,
+      tenure && `Tenure: ${tenure} months`,
+      receivedFrom && `Received From: ${receivedFrom}`,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    const payload: Partial<Income> = {
       date,
       amount: parseFloat(amount),
       mainCategory: mainCategory as MainIncomeCategory,
@@ -271,30 +311,36 @@ export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectI
       projectId: selectedProjectId || undefined,
       projectName: selectedProject?.name || prefillProjectName || undefined,
       partnerId: selectedPartnerId || undefined,
-      partnerName: partners.find(p => p.id === selectedPartnerId)?.name || undefined,
+      partnerName: partners.find((p) => p.id === selectedPartnerId)?.name || undefined,
       employeeId: selectedEmployeeId || undefined,
       employeeName: employees.find((e) => String(e.id) === String(selectedEmployeeId))?.name || undefined,
       loanId: selectedLoanId || undefined,
       paymentMode,
       reference: reference || undefined,
-      notes: [
-        notes,
-        udharPersonName && `Person: ${udharPersonName}`,
-        udharContact && `Contact: ${udharContact}`,
-        udharRelationship && `Relationship: ${udharRelationship}`,
-        udharExpectedReturnDate && `Expected Return: ${udharExpectedReturnDate}`,
-        bankName && `Bank: ${bankName}`,
-        loanAccount && `Account: ${loanAccount}`,
-        interestRate && `Interest: ${interestRate}%`,
-        tenure && `Tenure: ${tenure} months`,
-        receivedFrom && `Received From: ${receivedFrom}`,
-      ].filter(Boolean).join(" | ") || undefined,
+      notes: composedNotes || undefined,
       isOutgoing,
-      createdAt: new Date().toISOString(),
     };
 
-    addIncome(income);
-    toast({ title: isOutgoing ? "Outgoing Recorded" : "Income Added", description: `₹${parseFloat(amount).toLocaleString()} recorded as ${categoryInfo?.label || category}` });
+    if (isEdit && editingIncome) {
+      updateIncome(editingIncome.id, payload);
+      toast({
+        title: "Income updated",
+        description: `₹${parseFloat(amount).toLocaleString()} — ${categoryInfo?.label || category}`,
+      });
+    } else {
+      addIncome({
+        id: generateId("INC"),
+        ...payload,
+        mainCategory: payload.mainCategory!,
+        category: payload.category!,
+        paymentMode: payload.paymentMode!,
+        createdAt: new Date().toISOString(),
+      } as Income);
+      toast({
+        title: isOutgoing ? "Outgoing Recorded" : "Income Added",
+        description: `₹${parseFloat(amount).toLocaleString()} recorded as ${categoryInfo?.label || category}`,
+      });
+    }
     resetForm();
     onClose();
   };
@@ -303,7 +349,7 @@ export function UnifiedIncomeSheet({ isOpen, onClose, projectId: prefillProjectI
     <Sheet open={isOpen} onOpenChange={(open) => { if (!open) { resetForm(); onClose(); } }}>
       <AppSheetContent layout="form" size="lg">
         <SheetHeader>
-          <SheetTitle className="text-xl font-semibold">Add Income</SheetTitle>
+          <SheetTitle className="text-xl font-semibold">{isEdit ? "Edit Income" : "Add Income"}</SheetTitle>
           <SheetDescription>
             Step {steps.indexOf(step) + 1} of 4
             {mainCategory && <Badge variant="outline" className="ml-2">{INCOME_MAIN_CATEGORIES.find(c => c.value === mainCategory)?.label}</Badge>}
