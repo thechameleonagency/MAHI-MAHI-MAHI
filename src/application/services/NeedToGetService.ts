@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { canonicalizeProjectLifecycleStatus } from "@/domain/stateMachines/projectStateMachine";
 import {
   attributeDamageToShortfall,
   buildDamageQtyIndex,
@@ -315,8 +316,11 @@ export class NeedToGetService {
         continue;
       }
       const proj = site.projectId ? projectById.get(site.projectId) : undefined;
-      if (site.projectId && proj && proj.status !== "Ongoing") {
-        continue;
+      if (site.projectId && proj) {
+        const lifecycle = canonicalizeProjectLifecycleStatus(proj.lifecycleStatus ?? proj.status);
+        if (lifecycle === "Completed" || lifecycle === "Closed") {
+          continue;
+        }
       }
       if (!site.checklistItems?.length) {
         continue;

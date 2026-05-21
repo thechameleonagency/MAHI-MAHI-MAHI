@@ -31,6 +31,7 @@ import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeReques
 import { reconcileProjectAgentCommissionState } from "@/lib/projectStartContinuity";
 import { normalizeNonCollectibleBillingDocuments } from "@/lib/clientPaymentReconciliation";
 import { reconcileCustomersAutoArchive } from "@/domain/customer/customerArchive";
+import { syncSitesChecklistFromProjects } from "@/lib/siteChecklistNeedToGetSync";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import type { AppState } from "@/contexts/AppDataContext";
 
@@ -107,20 +108,25 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
     auditLogs,
   });
 
+  const withSites = {
+    ...linked,
+    customers: reconcileCustomersAutoArchive({
+      customers: linked.customers,
+      projects: linked.projects,
+      quotations: linked.quotations,
+      enquiries: linked.enquiries,
+    }),
+    sites: syncSitesChecklistFromProjects(
+      linked.projects,
+      linked.sites,
+      linked.inventoryItems,
+    ),
+  };
+
   return reconcileProjectAgentCommissionState(
     reconcileIncGiverTransactions(
       reconcileChangeRequestDeltaInvoices(
-        reconcileProjectActorScopeSeed(
-          reconcileVendorBillVouchers({
-            ...linked,
-            customers: reconcileCustomersAutoArchive({
-              customers: linked.customers,
-              projects: linked.projects,
-              quotations: linked.quotations,
-              enquiries: linked.enquiries,
-            }),
-          }),
-        ),
+        reconcileProjectActorScopeSeed(reconcileVendorBillVouchers(withSites)),
       ),
     ),
   );

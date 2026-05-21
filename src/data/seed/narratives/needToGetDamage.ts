@@ -1,7 +1,9 @@
 import type { NarrativeApply } from "./shared";
 import { seedId, SEED_ID_PREFIX } from "../seedIdRegistry";
-import { seedDateAt, seedDayAt } from "../seedTimeModel";
+import { seedDateAt } from "../seedTimeModel";
 import { panelItem } from "../seedInventoryCatalog";
+import { resolveProcurementNeedByDate } from "@/lib/procurementNeedByDate";
+import { syncSitesChecklistFromProjects } from "@/lib/siteChecklistNeedToGetSync";
 
 export const applyNeedToGetDamage: NarrativeApply = (state) => {
   const project = state.projects.find((p) => p.lifecycleStatus === "In Progress" && p.siteChecklist?.length);
@@ -9,15 +11,25 @@ export const applyNeedToGetDamage: NarrativeApply = (state) => {
   const item = panelItem(state.inventoryItems);
   if (!project || !site) return;
   item.stock = Math.max(2, item.minStock - 5);
+  const needBy = resolveProcurementNeedByDate({
+    workStartDate: site.workStartDate,
+    projectStartDate: project.startDate,
+  });
+  state.sites = syncSitesChecklistFromProjects(
+    state.projects,
+    state.sites,
+    state.inventoryItems,
+    [project.id],
+  );
   state.procurementNeedLines.push({
     id: seedId(SEED_ID_PREFIX.procurement),
-    lineKey: `${project.id}|${site.id}|${item.id}|${seedDayAt(0.66)}`,
+    lineKey: `${project.id}|${site.id}|${item.id}|${needBy}`,
     projectId: project.id,
     siteId: site.id,
     materialId: item.id,
     materialName: item.name,
     qtyNeeded: 12,
-    needByDate: seedDayAt(0.66),
+    needByDate: needBy,
     lastPurchaseRate: item.buyPrice,
     status: "pending",
   });

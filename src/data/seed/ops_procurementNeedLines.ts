@@ -26,10 +26,7 @@ export function buildOpsProcurementNeedLines(state: AppState, profile: SeedProfi
       needByDate: needBy,
       lastPurchaseRate: item.buyPrice,
       vendorId: vendor?.id,
-      status: i % 3 === 0 ? "acquired" : "pending",
-      acquiredAt: i % 3 === 0 ? seedDayAt(0.7 + i * 0.004) : undefined,
-      acquiredQty: i % 3 === 0 ? 3 + (i % 6) : undefined,
-      acquiredRate: item.buyPrice,
+      status: "pending",
     });
     i++;
   }

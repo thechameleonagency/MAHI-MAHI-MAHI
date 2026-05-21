@@ -15,6 +15,8 @@ import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
 import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
+import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToGetSync";
+import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 
@@ -179,6 +181,18 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
     enquiries: state.enquiries,
   })) {
     errors.push(`FC7: customer ${stale.customerId} — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleSiteChecklistNeedToGetDrift(
+    state.projects,
+    state.sites,
+    state.inventoryItems,
+  )) {
+    errors.push(`FC9: site ${stale.siteId} (project ${stale.projectId}) — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleProcurementNeedLines(state)) {
+    errors.push(`FC9: procurement line ${stale.lineKey} — ${stale.reason}`);
   }
 
 

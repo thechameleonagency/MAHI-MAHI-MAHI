@@ -7,6 +7,7 @@ import { reconcileClientPaymentLedger } from "@/lib/clientPaymentReconciliation"
 import { syncBankReconciliationLinks } from "@/lib/bankReconciliationLink";
 import { reconcileCustomersAutoArchive } from "@/domain/customer/customerArchive";
 import { syncProjectsSiteReadinessFromChecklist } from "@/lib/siteReadinessFromChecklist";
+import { syncSitesChecklistFromProjects } from "@/lib/siteChecklistNeedToGetSync";
 import { buildBankReconciliationMatches } from "./ops_bankReconciliation";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
 import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
@@ -29,6 +30,7 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
   s = {
     ...s,
     projects: syncProjectsSiteReadinessFromChecklist(s.projects),
+    sites: syncSitesChecklistFromProjects(s.projects, s.sites, s.inventoryItems),
   };
 
   s = reconcileProjectAgentCommissionState(s);

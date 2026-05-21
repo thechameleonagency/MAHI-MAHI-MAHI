@@ -22,6 +22,7 @@ import { applyRescheduledTask } from "./rescheduledTask";
 import { applyAttendanceInconsistency } from "./attendanceInconsistency";
 import { applyLowStockProcurement } from "./lowStockProcurement";
 import { applyVendorDelayBill } from "./vendorDelayBill";
+import { applyProcurementNeedAcquired } from "./procurementNeedAcquired";
 import { applyChangeRequestApproved } from "./changeRequestApproved";
 import { applyChangeRequestDeltaPayment } from "./changeRequestDeltaPayment";
 import { applyChangeRequestRejected } from "./changeRequestRejected";
@@ -59,6 +60,7 @@ const NARRATIVES = [
   applyAttendanceInconsistency,
   applyLowStockProcurement,
   applyVendorDelayBill,
+  applyProcurementNeedAcquired,
   applyChangeRequestApproved,
   applyChangeRequestDeltaPayment,
   applyChangeRequestRejected,

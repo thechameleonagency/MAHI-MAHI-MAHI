@@ -17,6 +17,8 @@ import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
 import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
+import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToGetSync";
+import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
 
 const DRIFT_EPS = 1;
 
@@ -182,6 +184,19 @@ describe("seed & hydration integrity after audit fixes", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+  });
+
+  it("site checklist syncs to Need-to-Get on hydrated seed (FC9)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(
+      findStaleSiteChecklistNeedToGetDrift(
+        hydrated.projects,
+        hydrated.sites,
+        hydrated.inventoryItems,
+      ),
+    ).toEqual([]);
+    expect(findStaleProcurementNeedLines(hydrated)).toEqual([]);
   });
 
   it("customers auto-archive when all projects complete on hydrated seed (FC7)", () => {

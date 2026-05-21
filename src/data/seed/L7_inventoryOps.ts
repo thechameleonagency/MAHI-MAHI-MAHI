@@ -74,10 +74,7 @@ export function buildL7InventoryOps(state: AppState, profile: SeedProfile): AppS
       needByDate: seedDayAt(0.65 + i * 0.01),
       lastPurchaseRate: item.buyPrice,
       vendorId: state.vendors[i % state.vendors.length]?.id,
-      status: i % 2 === 0 ? "acquired" : "pending",
-      acquiredAt: i % 2 === 0 ? seedDayAt(0.7 + i * 0.01) : undefined,
-      acquiredQty: i % 2 === 0 ? 5 + i : undefined,
-      acquiredRate: item.buyPrice,
+      status: "pending",
     });
   }
 

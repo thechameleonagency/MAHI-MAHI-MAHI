@@ -59,6 +59,7 @@ import {
   canReverseToolMovement,
 } from "@/lib/inventoryMovementReversalPolicy";
 import { syncProjectsSiteReadinessFromChecklist } from "@/lib/siteReadinessFromChecklist";
+import { syncSitesChecklistFromProjects } from "@/lib/siteChecklistNeedToGetSync";
 import {
   type LoanRepaymentCashLinkInput,
   resolveLoanRepaymentCashLink,
@@ -1290,9 +1291,39 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         );
       }
 
+      let nextSites = prev.sites;
+      if (updates.siteChecklist !== undefined) {
+        nextSites = syncSitesChecklistFromProjects(
+          nextProjects,
+          prev.sites,
+          prev.inventoryItems,
+          [id],
+        );
+      }
+
+      if (
+        before &&
+        updatedProject &&
+        updates.siteChecklist !== undefined &&
+        JSON.stringify(before.siteChecklist) !== JSON.stringify(updatedProject.siteChecklist)
+      ) {
+        auditLogsToAdd.push(
+          createAuditEntry(
+            "update",
+            "Project",
+            id,
+            before.name,
+            "siteChecklist",
+            String(beforeProject.siteChecklist?.length ?? 0),
+            String(updatedProject.siteChecklist?.length ?? 0),
+          ),
+        );
+      }
+
       return {
         ...prev,
         projects: nextProjects,
+        sites: nextSites,
         customers: nextCustomers,
         auditLogs: auditLogsToAdd.length ? [...auditLogsToAdd, ...prev.auditLogs] : prev.auditLogs,
         agentCommissionAccruals: nextAccruals,
@@ -3074,25 +3105,70 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   const upsertProcurementNeedLine = useCallback((line: import("@/types/operations").ProcurementNeedLine) => {
     setState((prev) => {
       const idx = prev.procurementNeedLines.findIndex((l) => l.lineKey === line.lineKey);
+      const before = idx >= 0 ? prev.procurementNeedLines[idx] : null;
+      const auditLogs: AuditLogEntry[] = [];
+      if (!before) {
+        auditLogs.push(
+          createAuditEntry(
+            "create",
+            "ProcurementNeedLine",
+            line.id,
+            `${line.materialName} × ${line.qtyNeeded}`,
+          ),
+        );
+      } else {
+        auditLogs.push(
+          ...auditFieldDiff(
+            createAuditEntry,
+            "ProcurementNeedLine",
+            line.id,
+            line.materialName,
+            before as Record<string, unknown>,
+            line as Record<string, unknown>,
+          ),
+        );
+      }
       if (idx >= 0) {
         const next = [...prev.procurementNeedLines];
         next[idx] = { ...next[idx], ...line };
-        return { ...prev, procurementNeedLines: next };
+        return {
+          ...prev,
+          procurementNeedLines: next,
+          auditLogs: auditLogs.length ? [...auditLogs, ...prev.auditLogs] : prev.auditLogs,
+        };
       }
-      return { ...prev, procurementNeedLines: [line, ...prev.procurementNeedLines] };
+      return {
+        ...prev,
+        procurementNeedLines: [line, ...prev.procurementNeedLines],
+        auditLogs: [...auditLogs, ...prev.auditLogs],
+      };
     });
-  }, []);
+  }, [createAuditEntry]);
 
   const updateProcurementNeedLine = useCallback(
     (lineKey: string, updates: Partial<import("@/types/operations").ProcurementNeedLine>) => {
-      setState((prev) => ({
-        ...prev,
-        procurementNeedLines: prev.procurementNeedLines.map((l) =>
-          l.lineKey === lineKey ? { ...l, ...updates } : l,
-        ),
-      }));
+      setState((prev) => {
+        const before = prev.procurementNeedLines.find((l) => l.lineKey === lineKey);
+        if (!before) return prev;
+        const after = { ...before, ...updates };
+        const auditLogs = auditFieldDiff(
+          createAuditEntry,
+          "ProcurementNeedLine",
+          after.id,
+          after.materialName,
+          before as Record<string, unknown>,
+          updates as Record<string, unknown>,
+        );
+        return {
+          ...prev,
+          procurementNeedLines: prev.procurementNeedLines.map((l) =>
+            l.lineKey === lineKey ? after : l,
+          ),
+          auditLogs: auditLogs.length ? [...auditLogs, ...prev.auditLogs] : prev.auditLogs,
+        };
+      });
     },
-    [],
+    [createAuditEntry],
   );
   
   // ============ SERVICE PRESETS CRUD ============
