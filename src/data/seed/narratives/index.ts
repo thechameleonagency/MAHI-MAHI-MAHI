@@ -14,6 +14,7 @@ import { applyBankReconMixed } from "./bankReconMixed";
 import { applyNeedToGetDamage } from "./needToGetDamage";
 import { applyRichTimeline } from "./richTimeline";
 import { applyDirectExceptionProject } from "./directExceptionProject";
+import { applyDirectExceptionProjectComplete } from "./directExceptionProjectComplete";
 import { applyPartnerSplitPayment } from "./partnerSplitPayment";
 import { applyCustomerBulkInflow } from "./customerBulkInflow";
 import { applyReopenLostEnquiry } from "./reopenLostEnquiry";
@@ -50,6 +51,7 @@ const NARRATIVES = [
   applyNeedToGetDamage,
   applyRichTimeline,
   applyDirectExceptionProject,
+  applyDirectExceptionProjectComplete,
   applyPartnerSplitPayment,
   applyCustomerBulkInflow,
   applyReopenLostEnquiry,

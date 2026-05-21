@@ -16,6 +16,7 @@ import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContin
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
+import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
 
 const DRIFT_EPS = 1;
 
@@ -181,6 +182,19 @@ describe("seed & hydration integrity after audit fixes", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+  });
+
+  it("customers auto-archive when all projects complete on hydrated seed (FC7)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleCustomerArchiveState(hydrated)).toEqual([]);
+    const dex = hydrated.projects.find((p) =>
+      p.directCreationReason?.includes("Urgent hospital backup power"),
+    );
+    if (dex?.customerId) {
+      const customer = hydrated.customers.find((c) => c.id === dex.customerId);
+      expect(customer?.archivedAt).toBeTruthy();
+    }
   });
 
   it("voided and draft invoices have no CPR FIFO allocation on hydrated seed (FC6)", () => {

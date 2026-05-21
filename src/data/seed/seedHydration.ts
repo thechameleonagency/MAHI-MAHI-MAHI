@@ -5,7 +5,7 @@ import { reconcileAllEnquiryQuotationHistories } from "@/lib/enquiryQuotationHis
 import { reconcileProjectAgentCommissionState } from "@/lib/projectStartContinuity";
 import { reconcileClientPaymentLedger } from "@/lib/clientPaymentReconciliation";
 import { syncBankReconciliationLinks } from "@/lib/bankReconciliationLink";
-import { evaluateAutoArchive, applyAutoArchive } from "@/domain/customer/customerArchive";
+import { reconcileCustomersAutoArchive } from "@/domain/customer/customerArchive";
 import { syncProjectsSiteReadinessFromChecklist } from "@/lib/siteReadinessFromChecklist";
 import { buildBankReconciliationMatches } from "./ops_bankReconciliation";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
@@ -58,15 +58,11 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
 
   s = {
     ...s,
-    customers: s.customers.map((customer) => {
-      const decision = evaluateAutoArchive({
-        customer,
-        projects: s.projects,
-        quotations: s.quotations,
-        enquiries: s.enquiries,
-      });
-      const patch = applyAutoArchive(customer, decision);
-      return patch ? { ...customer, ...patch } : customer;
+    customers: reconcileCustomersAutoArchive({
+      customers: s.customers,
+      projects: s.projects,
+      quotations: s.quotations,
+      enquiries: s.enquiries,
     }),
   };
 

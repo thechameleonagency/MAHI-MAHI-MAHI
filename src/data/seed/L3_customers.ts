@@ -36,7 +36,7 @@ export function buildL3Customers(state: AppState, profile: SeedProfile): AppStat
       amountReceived: 0,
       customerKind: i % 7 === 0 ? "both" : i % 11 === 0 ? "inventory" : "project",
       createdAt,
-      archivedAt: i >= count - 3 ? seedDayAt(0.92 + (i - count + 3) * 0.01) : null,
+      archivedAt: null,
     });
   }
 

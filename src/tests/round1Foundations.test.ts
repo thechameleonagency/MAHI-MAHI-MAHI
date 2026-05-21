@@ -177,6 +177,27 @@ describe("customerArchive — Phase 1.4 evaluator", () => {
     expect(decision.shouldArchive).toBe(false);
   });
 
+  it("does NOT archive while a New lifecycle project exists (FC7)", () => {
+    const decision = evaluateAutoArchive({
+      customer: baseCustomer,
+      projects: [
+        // @ts-expect-error — partial
+        {
+          id: "P1",
+          customerId: "C1",
+          lifecycleStatus: "Completed",
+          status: "Completed",
+          endDate: "2025-06-01",
+        },
+        // @ts-expect-error — partial
+        { id: "P2", customerId: "C1", lifecycleStatus: "New", status: "Ongoing" },
+      ],
+      quotations: [],
+      enquiries: [],
+    });
+    expect(decision.shouldArchive).toBe(false);
+  });
+
   it("archives when last project is Completed and no open enquiries/quotations", () => {
     const decision = evaluateAutoArchive({
       customer: baseCustomer,

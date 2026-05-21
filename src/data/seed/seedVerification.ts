@@ -14,6 +14,7 @@ import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContin
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
 import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
+import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 
@@ -169,6 +170,15 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleCprFifoVoidedAllocations(state)) {
     errors.push(`FC6: invoice ${stale.invoiceId} (${stale.status}) — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleCustomerArchiveState({
+    customers: state.customers,
+    projects: state.projects,
+    quotations: state.quotations,
+    enquiries: state.enquiries,
+  })) {
+    errors.push(`FC7: customer ${stale.customerId} — ${stale.reason}`);
   }
 
 
