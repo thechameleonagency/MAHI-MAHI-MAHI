@@ -4,6 +4,7 @@ import type { SeedProfile } from "./seedLayerOrder";
 import { seedDateAt } from "./seedTimeModel";
 import { pushAudit } from "./seedHelpers";
 import { DEMO_LOGIN_USERS } from "@/domain/demoCredentials";
+import { SEED_DEMO_INVITE_TOKEN } from "@/lib/inviteAcceptPrototype";
 
 /** L0 — settings team directory (§7 role activity map + demo login roster). */
 export function buildL0SettingsTeam(state: AppState, _profile: SeedProfile): AppState {
@@ -21,7 +22,7 @@ export function buildL0SettingsTeam(state: AppState, _profile: SeedProfile): App
     email: "pending.invite@mss.solar",
     role: "salesperson",
     status: "Pending",
-    inviteToken: "demo-invite-token-sales",
+    inviteToken: SEED_DEMO_INVITE_TOKEN,
     invitedAt: seedDateAt(0.02),
   });
 

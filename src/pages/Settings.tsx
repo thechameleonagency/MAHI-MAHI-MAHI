@@ -8,7 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { DEMO_INVITE_PROTOTYPE_LABEL, SEED_DEMO_INVITE_PATH } from "@/lib/inviteAcceptPrototype";
 import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -821,6 +822,11 @@ const Settings = () => {
         <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Invite Team Member</SheetTitle>
+            <SheetDescription>
+              {DEMO_INVITE_PROTOTYPE_LABEL} — invite links are saved in this browser only. After sending,
+              open the copied link in the same browser to activate. Try the seeded demo:{" "}
+              <span className="font-mono text-xs">{SEED_DEMO_INVITE_PATH}</span>
+            </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">

@@ -4,11 +4,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InvitePrototypeNotice } from "@/components/auth/InvitePrototypeNotice";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
+import { findPendingInviteMember } from "@/lib/inviteAcceptPrototype";
 import { normalizeTeamMemberStatus } from "@/lib/seedSessionBootstrap";
 import { persistInvitePassword } from "@/lib/sessionActorStorage";
 import { toast } from "@/hooks/use-toast";
+
 export default function InviteAccept() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
@@ -16,7 +19,7 @@ export default function InviteAccept() {
   const { login } = useAppSession();
 
   const member = useMemo(
-    () => settingsTeamMembers.find((m) => m.inviteToken === token),
+    () => findPendingInviteMember(settingsTeamMembers, token),
     [settingsTeamMembers, token],
   );
 
@@ -28,10 +31,16 @@ export default function InviteAccept() {
     return (
       <div className="min-h-screen bg-canvas flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
-          <CardHeader>
+          <CardHeader className="space-y-3">
             <CardTitle>Invalid invitation</CardTitle>
-            <CardDescription>This invite link is expired or was not found.</CardDescription>
+            <CardDescription>This invite link is expired or was not found in local team data.</CardDescription>
+            <InvitePrototypeNotice variant="invalid" />
           </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={() => navigate("/login")}>
+              Go to login
+            </Button>
+          </CardContent>
         </Card>
       </div>
     );
@@ -41,9 +50,10 @@ export default function InviteAccept() {
     return (
       <div className="min-h-screen bg-canvas flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
-          <CardHeader>
+          <CardHeader className="space-y-3">
             <CardTitle>Already active</CardTitle>
             <CardDescription>This account is already active. Sign in from the login page.</CardDescription>
+            <InvitePrototypeNotice />
           </CardHeader>
           <CardContent>
             <Button onClick={() => navigate("/login")}>Go to login</Button>
@@ -95,11 +105,12 @@ export default function InviteAccept() {
   return (
     <div className="min-h-screen bg-canvas flex items-center justify-center p-4">
       <Card className="max-w-md w-full border-border">
-        <CardHeader>
+        <CardHeader className="space-y-3">
           <CardTitle>Accept invitation</CardTitle>
           <CardDescription>
             Join MSS Solar as <strong>{member.role}</strong> — {member.email}
           </CardDescription>
+          <InvitePrototypeNotice />
         </CardHeader>
         <CardContent>
           <form onSubmit={handleAccept} className="space-y-4">
