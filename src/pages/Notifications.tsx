@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -22,6 +23,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 import { DEFAULT_TABLE_PAGE_SIZE, listTableViewportMaxHeight } from "@/lib/tableConstants";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/businessAlerts";
+import { useDismissedAlertIds } from "@/hooks/useDismissedAlertIds";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 type _LiveAlert = {
@@ -55,6 +57,7 @@ function iconForAlertKind(kind: BusinessAlertKind): typeof Bell {
 }
 
 const Notifications = () => {
+  const { sessionUserId } = useAppSession();
   const {
     invoices,
     loans,
@@ -104,8 +107,12 @@ const Notifications = () => {
     vendorNamesById,
   ]);
 
-  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
-  const visible = alerts.filter((a) => !dismissed.has(a.id));
+  const activeAlertIds = useMemo(() => alerts.map((a) => a.id), [alerts]);
+  const { dismissed, dismissOne, dismissAll, restoreAll } = useDismissedAlertIds(
+    sessionUserId,
+    activeAlertIds,
+  );
+  const visible = useMemo(() => alerts.filter((a) => !dismissed.has(a.id)), [alerts, dismissed]);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -115,12 +122,7 @@ const Notifications = () => {
 
   const { pagedItems: pagedAlerts, safePage } = usePagedSlice(visible, page, pageSize);
 
-  const dismissAll = () => {
-    setDismissed(new Set(alerts.map((a) => a.id)));
-  };
-  const restoreAll = () => {
-    setDismissed(new Set());
-  };
+  const handleDismissAll = () => dismissAll(activeAlertIds);
 
   return (
     <PageShell>
@@ -142,7 +144,7 @@ const Notifications = () => {
             variant="outline"
             size="sm"
             type="button"
-            onClick={dismissAll}
+            onClick={handleDismissAll}
             disabled={visible.length === 0}
           >
             Mark all read
@@ -210,7 +212,7 @@ const Notifications = () => {
                           <Button variant="outline" size="sm" asChild>
                             <Link to={a.href}>Open</Link>
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => setDismissed((s) => new Set(s).add(a.id))}>
+                          <Button variant="ghost" size="sm" onClick={() => dismissOne(a.id)}>
                             Dismiss
                           </Button>
                         </TableCell>
@@ -223,7 +225,7 @@ const Notifications = () => {
           </CardContent>
         </Card>
         <p className="text-xs text-muted-foreground">
-          Derived from invoices, loans, inventory, blockages, vendor bills, quotations, and work-status approvals. Dismissals are session-only.
+          Derived from invoices, loans, inventory, blockages, vendor bills, quotations, and work-status approvals. Acknowledged alerts stay hidden for your user until the underlying issue clears.
         </p>
       </div>
     </PageShell>

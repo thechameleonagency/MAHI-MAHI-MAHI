@@ -1,9 +1,12 @@
 import { useMemo } from "react";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useAppData } from "@/contexts/AppDataContext";
-import { deriveBusinessAlertDescriptors } from "@/lib/businessAlerts";
+import { countUndismissedBusinessAlerts, deriveBusinessAlertDescriptors } from "@/lib/businessAlerts";
+import { useDismissedAlertIds } from "@/hooks/useDismissedAlertIds";
 
-/** Count of actionable business alerts (matches TopHeader / notification hub intent). */
+/** Count of actionable business alerts (matches Notifications page; excludes per-actor dismissals). */
 export function useDerivedAlertCount(): number {
+  const { sessionUserId } = useAppSession();
   const {
     invoices,
     loans,
@@ -21,27 +24,37 @@ export function useDerivedAlertCount(): number {
     [vendors],
   );
 
-  return useMemo(() => {
-    return deriveBusinessAlertDescriptors({
+  const descriptors = useMemo(
+    () =>
+      deriveBusinessAlertDescriptors({
+        invoices,
+        loans,
+        lowStockItems: lowStockItems ?? [],
+        blockages: blockages ?? [],
+        quotations,
+        projects,
+        projectTimelineByProjectId,
+        vendorBills,
+        vendorNamesById,
+      }),
+    [
       invoices,
       loans,
-      lowStockItems: lowStockItems ?? [],
-      blockages: blockages ?? [],
+      lowStockItems,
+      blockages,
       quotations,
       projects,
       projectTimelineByProjectId,
       vendorBills,
       vendorNamesById,
-    }).length;
-  }, [
-    invoices,
-    loans,
-    lowStockItems,
-    blockages,
-    quotations,
-    projects,
-    projectTimelineByProjectId,
-    vendorBills,
-    vendorNamesById,
-  ]);
+    ],
+  );
+
+  const activeAlertIds = useMemo(() => descriptors.map((d) => d.id), [descriptors]);
+  const { dismissed } = useDismissedAlertIds(sessionUserId, activeAlertIds);
+
+  return useMemo(
+    () => countUndismissedBusinessAlerts(descriptors, dismissed),
+    [descriptors, dismissed],
+  );
 }

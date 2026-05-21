@@ -52,6 +52,22 @@ function vendorLabel(bill: VendorBill, names?: Map<string, string>): string {
   return bill.vendorName?.trim() || names?.get(id) || `Vendor #${id}`;
 }
 
+/** Exclude actor-acknowledged alerts (persisted per session user). */
+export function filterDismissedBusinessAlerts(
+  descriptors: readonly BusinessAlertDescriptor[],
+  dismissedIds: ReadonlySet<string>,
+): BusinessAlertDescriptor[] {
+  if (dismissedIds.size === 0) return [...descriptors];
+  return descriptors.filter((d) => !dismissedIds.has(d.id));
+}
+
+export function countUndismissedBusinessAlerts(
+  descriptors: readonly BusinessAlertDescriptor[],
+  dismissedIds: ReadonlySet<string>,
+): number {
+  return filterDismissedBusinessAlerts(descriptors, dismissedIds).length;
+}
+
 /** Single source of truth for Notifications page and header alert count. */
 export function deriveBusinessAlertDescriptors(input: BusinessAlertsInput): BusinessAlertDescriptor[] {
   const out: BusinessAlertDescriptor[] = [];
