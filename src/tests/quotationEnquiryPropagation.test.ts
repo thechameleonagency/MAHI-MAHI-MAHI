@@ -3,6 +3,7 @@ import { CommandBus } from "@/application/commands/CommandBus";
 import {
   CREATE_QUOTATION_COMMAND,
   TRANSITION_QUOTATION_STATUS_COMMAND,
+  UPDATE_QUOTATION_COMMAND,
   registerQuotationCommands,
 } from "@/application/commands/quotation/registerQuotationCommands";
 import { PermissionService } from "@/application/services/PermissionService";
@@ -62,7 +63,7 @@ const sentQuotation = (): Quotation => ({
   presetSnapshot: [{ id: "line-1", name: "Panel", quantity: 1, unitPrice: 100000 }],
 });
 
-describe("Quotation approve → enquiry converted (MD1)", () => {
+describe("Quotation approve → enquiry converted (FC2 / MD1)", () => {
   beforeEach(() => {
     localStorage.clear();
   });
@@ -95,6 +96,57 @@ describe("Quotation approve → enquiry converted (MD1)", () => {
     expect(updated?.status).toBe("converted");
     expect(updated?.customerId).toBeTruthy();
     expect(repositories.quotationRepository.getById("Q-1")?.status).toBe("approved");
+  });
+
+  it("converts meeting_scheduled enquiry when quotation is approved", async () => {
+    const enquiry = baseEnquiry("meeting_scheduled");
+    const quotation = {
+      ...sentQuotation(),
+      status: "sent" as const,
+      customerId: undefined,
+    };
+    const repositories = emptyRepos(enquiry, quotation);
+    const bus = new CommandBus();
+    registerQuotationCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+
+    const result = await bus.execute({
+      type: TRANSITION_QUOTATION_STATUS_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { quotationId: "Q-1", nextStatus: "approved" },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(repositories.enquiryRepository.getById("ENQ-1")?.status).toBe("converted");
+  });
+
+  it("rejects status change via update_fields so enquiry conversion cannot be skipped", async () => {
+    const enquiry = baseEnquiry("quotation_sent");
+    const quotation = { ...sentQuotation(), status: "sent" as const };
+    const repositories = emptyRepos(enquiry, quotation);
+    const bus = new CommandBus();
+    registerQuotationCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+
+    const result = await bus.execute({
+      type: UPDATE_QUOTATION_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { quotationId: "Q-1", updates: { status: "approved" } },
+    });
+
+    expect(result.ok).toBe(false);
+    expect((result as { errorCode?: string }).errorCode).toBe("QUOTATION_STATUS_USE_TRANSITION");
+    expect(repositories.enquiryRepository.getById("ENQ-1")?.status).toBe("quotation_sent");
   });
 
   it("does not convert enquiry when already lost", async () => {

@@ -333,6 +333,13 @@ export const registerQuotationCommands = (
 
   commandBus.register<Command<UpdateQuotationPayload>, { quotationId: string }>(UPDATE_QUOTATION_COMMAND, (command) => {
     assertCommandPermission(permissionService, command, "quotation:create");
+    if (command.payload.updates.status !== undefined) {
+      return {
+        ok: false,
+        errorCode: "QUOTATION_STATUS_USE_TRANSITION",
+        message: "Use quotation.transition_status to change quotation status (enquiry pipeline sync)",
+      };
+    }
     const existing = repositories.quotationRepository.getById(command.payload.quotationId);
     if (!existing) {
       return { ok: false, errorCode: "QUOTATION_NOT_FOUND", message: "Quotation not found" };

@@ -159,6 +159,20 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(bad.slice(0, 5).map((e) => e.id)).toEqual([]);
   });
 
+  it("no stale open enquiry after quotation approve on hydrated seed (FC2)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const approvedWithEnquiry = hydrated.quotations.filter(
+      (q) => q.status === "approved" && q.enquiryId && q.customerId,
+    );
+    expect(approvedWithEnquiry.length).toBeGreaterThan(0);
+    for (const q of approvedWithEnquiry) {
+      const enquiry = hydrated.enquiries.find((e) => e.id === q.enquiryId);
+      expect(enquiry?.status).toBe("converted");
+    }
+    expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+  });
+
   it("no stale open enquiry after quotation project win on hydrated seed (FC1)", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
