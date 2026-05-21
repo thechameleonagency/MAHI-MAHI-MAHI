@@ -13,6 +13,7 @@ import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineCont
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
+import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 
@@ -164,6 +165,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleProjectStartContinuity(state)) {
     errors.push(`FC5: project ${stale.projectId} — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleCprFifoVoidedAllocations(state)) {
+    errors.push(`FC6: invoice ${stale.invoiceId} (${stale.status}) — ${stale.reason}`);
   }
 
 

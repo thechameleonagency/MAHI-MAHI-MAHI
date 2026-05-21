@@ -29,6 +29,7 @@ import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScope
 import { reconcileIncGiverTransactions } from "@/lib/reconcileIncGiverTransactions";
 import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
 import { reconcileProjectAgentCommissionState } from "@/lib/projectStartContinuity";
+import { normalizeNonCollectibleBillingDocuments } from "@/lib/clientPaymentReconciliation";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import type { AppState } from "@/contexts/AppDataContext";
 
@@ -78,13 +79,17 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
   const customers = migrated.customers;
   const projects = hydrateProjectLinkage(migrated.projects, customers);
   const quotations = hydrateQuotationLinkage(migrated.quotations, customers);
-  const invoices = sanitizeBillingDocuments(
-    hydrateInvoiceLinkage(migrated.invoices, customers, projects),
-    "invoices",
+  const invoices = normalizeNonCollectibleBillingDocuments(
+    sanitizeBillingDocuments(
+      hydrateInvoiceLinkage(migrated.invoices, customers, projects),
+      "invoices",
+    ),
   );
-  const saleBills = sanitizeBillingDocuments(
-    hydrateInvoiceLinkage(migrated.saleBills, customers, projects),
-    "saleBills",
+  const saleBills = normalizeNonCollectibleBillingDocuments(
+    sanitizeBillingDocuments(
+      hydrateInvoiceLinkage(migrated.saleBills, customers, projects),
+      "saleBills",
+    ),
   );
   const reconciledProjects = reconcileProjectsAmountReceived(
     reconcileProjectsAmountInvoiced(projects, invoices, saleBills),

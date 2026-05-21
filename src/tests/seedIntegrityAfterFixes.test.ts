@@ -15,6 +15,7 @@ import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineCont
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
 import { findStaleProjectStartContinuity } from "@/lib/projectStartContinuity";
+import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinuity";
 
 const DRIFT_EPS = 1;
 
@@ -180,6 +181,12 @@ describe("seed & hydration integrity after audit fixes", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+  });
+
+  it("voided and draft invoices have no CPR FIFO allocation on hydrated seed (FC6)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleCprFifoVoidedAllocations(hydrated)).toEqual([]);
   });
 
   it("started projects flip agent commission accruals to payable on hydrated seed (FC5)", () => {

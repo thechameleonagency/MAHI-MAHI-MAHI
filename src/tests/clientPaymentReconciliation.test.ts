@@ -11,6 +11,7 @@ import {
   summarizeClientPaymentLedgerReconcile,
   validateClientPaymentRecord,
 } from "@/lib/clientPaymentReconciliation";
+import { getInvoiceOpenBalance } from "@/lib/billingSelectors";
 
 const baseProject = (id: string): Project =>
   ({
@@ -158,6 +159,78 @@ describe("clientPaymentReconciliation", () => {
 
     expect(clientPaymentRemainingDue(100000, 96000)).toBe(4000);
     expect(clientPaymentRemainingDue(100000, 100000)).toBe(0);
+  });
+
+  it("FIFO skips voided and draft invoices (FC6)", () => {
+    const invoices: Invoice[] = [
+      {
+        id: "INV-VOID",
+        projectId: "P1",
+        total: 100000,
+        amountReceived: 0,
+        invoiceDate: "2026-01-01",
+        status: "voided",
+      } as Invoice,
+      {
+        id: "INV-OPEN",
+        projectId: "P1",
+        total: 50000,
+        amountReceived: 0,
+        invoiceDate: "2026-02-01",
+        status: "pending",
+      } as Invoice,
+    ];
+
+    const next = fifoApplyClientPaymentToInvoices(
+      invoices,
+      "P1",
+      30000,
+      "2026-03-01",
+      "bank_transfer",
+    );
+
+    expect(next.find((i) => i.id === "INV-VOID")?.amountReceived ?? 0).toBe(0);
+    expect(next.find((i) => i.id === "INV-OPEN")?.amountReceived).toBe(30000);
+    expect(getInvoiceOpenBalance(next.find((i) => i.id === "INV-VOID")!, [])).toBe(0);
+  });
+
+  it("reconcile clears FIFO allocation on voided invoices", () => {
+    const record: ClientPaymentRecord = {
+      id: "CPR-VOID",
+      projectId: "P1",
+      amount: 20000,
+      date: "2026-03-01",
+      paymentMode: "cash",
+      recordedAt: "2026-03-01T10:00:00Z",
+    };
+    const invoices: Invoice[] = [
+      {
+        id: "INV-VOID",
+        projectId: "P1",
+        total: 100000,
+        amountReceived: 20000,
+        invoiceDate: "2026-01-01",
+        status: "voided",
+      } as Invoice,
+      {
+        id: "INV-OPEN",
+        projectId: "P1",
+        total: 80000,
+        amountReceived: 0,
+        invoiceDate: "2026-02-01",
+        status: "pending",
+      } as Invoice,
+    ];
+
+    const result = reconcileClientPaymentLedger({
+      clientPaymentRecords: [record],
+      payments: [],
+      invoices,
+      projects: [baseProject("P1")],
+    });
+
+    expect(result.invoices.find((i) => i.id === "INV-VOID")?.amountReceived).toBe(0);
+    expect(result.invoices.find((i) => i.id === "INV-OPEN")?.amountReceived).toBe(20000);
   });
 
   it("keeps direct invoice payments when replaying CPR FIFO", () => {

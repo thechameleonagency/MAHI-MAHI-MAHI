@@ -3,7 +3,8 @@ import type { Project } from "@/types/project";
 
 type BillDoc = Pick<Invoice, "id" | "total" | "status" | "amountReceived" | "customerId" | "projectId" | "invoiceDate">;
 
-function isActiveBill(inv: BillDoc): boolean {
+/** Bills that participate in collections, FIFO, and open-balance (excludes voided + draft). */
+export function isActiveBill(inv: BillDoc): boolean {
   return inv.status !== "voided" && inv.status !== "draft";
 }
 
@@ -24,6 +25,7 @@ export function getInvoiceOpenBalance(
   invoice: BillDoc,
   payments?: Payment[],
 ): number {
+  if (!isActiveBill(invoice)) return 0;
   const received =
     payments != null
       ? getInvoiceAmountReceived(invoice.id, payments, invoice)

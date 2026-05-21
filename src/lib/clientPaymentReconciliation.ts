@@ -1,7 +1,7 @@
 import type { ClientPaymentRecord } from "@/types/blockage";
 import type { Income, Invoice, Payment } from "@/types/finance";
 import type { Project } from "@/types/project";
-import { getProjectAmountReceived } from "@/lib/billingSelectors";
+import { getProjectAmountReceived, isActiveBill } from "@/lib/billingSelectors";
 
 /**
  * Payment rows emitted from {@link addClientPaymentRecord} use this id/reference prefix.
@@ -26,6 +26,11 @@ function invoiceStatusFromReceived(total: number, received: number): Invoice["st
   return "partial";
 }
 
+/** Strip erroneous `amountReceived` on voided/draft billing documents (FC6). */
+export function normalizeNonCollectibleBillingDocuments<T extends Invoice>(docs: T[]): T[] {
+  return docs.map((inv) => (isActiveBill(inv) ? inv : { ...inv, amountReceived: 0 }));
+}
+
 /** FIFO-apply a client payment amount against a project's open invoices (oldest invoice date first). */
 export function fifoApplyClientPaymentToInvoices(
   invoices: Invoice[],
@@ -36,7 +41,7 @@ export function fifoApplyClientPaymentToInvoices(
 ): Invoice[] {
   let remaining = amount;
   const sortedProjectInvoices = invoices
-    .filter((inv) => inv.projectId === projectId)
+    .filter((inv) => inv.projectId === projectId && isActiveBill(inv))
     .sort(
       (a, b) =>
         new Date(a.invoiceDate || a.dueDate || 0).getTime() -
@@ -131,6 +136,12 @@ export function reconcileClientPaymentLedger(input: {
 
   const projectIds = new Set(clientPaymentRecords.map((r) => r.projectId));
   let invoices = input.invoices.map((inv) => {
+    if (!isActiveBill(inv)) {
+      return {
+        ...inv,
+        amountReceived: 0,
+      };
+    }
     if (!inv.projectId || !projectIds.has(inv.projectId)) return inv;
     const baseReceived = paymentReceivedOnInvoice(payments, inv.id);
     return {
