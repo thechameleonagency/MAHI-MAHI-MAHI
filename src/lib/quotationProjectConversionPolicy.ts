@@ -12,7 +12,9 @@
  */
 
 import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationProjectLink";
-import type { Quotation } from "@/types/project";
+import type { Quotation, QuotationStatus } from "@/types/project";
+import type { AgentCommissionAccrual } from "@/types/operations";
+import type { Invoice } from "@/types/finance";
 
 export const QUOTATION_ONE_SHOT_CONVERSION_HELP =
   "Each quotation converts to one project only. The quotation becomes read-only after conversion.";
@@ -60,4 +62,96 @@ export function rejectSecondProjectFromQuotation(
       ? `${QUOTATION_RECONVERT_MESSAGE} Linked project: ${pid}.`
       : QUOTATION_RECONVERT_MESSAGE,
   };
+}
+
+export const QUOTATION_DELETE_USE_WITHDRAW_MESSAGE =
+  "This quotation cannot be deleted. Withdraw it to retire the quote while keeping history.";
+
+export const QUOTATION_DELETE_LINKED_PROJECT_MESSAGE =
+  "This quotation created a project and cannot be deleted. Use Change requests on the project for scope changes.";
+
+export type QuotationDeleteBlockCode =
+  | "LINKED_PROJECT"
+  | "PROJECT_REFERENCE"
+  | "INVOICE_LINKED"
+  | "COMMISSION_ACCRUAL"
+  | "ACTIVE_STATUS";
+
+const DELETABLE_QUOTATION_STATUSES = new Set<QuotationStatus>(["draft", "rejected", "withdrawn"]);
+
+export type QuotationDeleteContext = {
+  projects: ReadonlyArray<{ id: string; quotationId?: string }>;
+  accruals?: ReadonlyArray<Pick<AgentCommissionAccrual, "sourceQuotationId">>;
+  invoices?: ReadonlyArray<Pick<Invoice, "quotationId">>;
+};
+
+/** Whether a quotation row may be permanently removed (MD8). */
+export function canDeleteQuotationRecord(
+  quotation: Quotation,
+  ctx: QuotationDeleteContext,
+): { ok: true } | { ok: false; code: QuotationDeleteBlockCode; message: string } {
+  const linkedPid = quotationLinkedProjectId(quotation);
+  if (linkedPid || quotation.status === "converted_to_project" || isQuotationTerminalConverted(quotation)) {
+    return {
+      ok: false,
+      code: "LINKED_PROJECT",
+      message: linkedPid
+        ? `${QUOTATION_DELETE_LINKED_PROJECT_MESSAGE} (${linkedPid}).`
+        : QUOTATION_DELETE_LINKED_PROJECT_MESSAGE,
+    };
+  }
+
+  const projectRef = ctx.projects.find((p) => p.quotationId === quotation.id);
+  if (projectRef) {
+    return {
+      ok: false,
+      code: "PROJECT_REFERENCE",
+      message: `Project ${projectRef.id} still references this quotation. Withdraw the quote instead of deleting.`,
+    };
+  }
+
+  if (quotation.convertedToInvoiceId?.trim()) {
+    return {
+      ok: false,
+      code: "INVOICE_LINKED",
+      message: "This quotation was invoiced and cannot be deleted.",
+    };
+  }
+
+  const hasAccrual = (ctx.accruals ?? []).some((a) => a.sourceQuotationId === quotation.id);
+  if (hasAccrual) {
+    return {
+      ok: false,
+      code: "COMMISSION_ACCRUAL",
+      message: "Agent commission is accrued on this quotation. Withdraw it instead of deleting.",
+    };
+  }
+
+  if (!DELETABLE_QUOTATION_STATUSES.has(quotation.status as QuotationStatus)) {
+    return {
+      ok: false,
+      code: "ACTIVE_STATUS",
+      message: QUOTATION_DELETE_USE_WITHDRAW_MESSAGE,
+    };
+  }
+
+  return { ok: true };
+}
+
+/** Remove a deleted quotation id from enquiry quote history (does not touch projects). */
+export function unlinkQuotationFromEnquiries<
+  T extends { quotationId?: string; quotationIds?: string[] },
+>(enquiries: T[], quotationId: string): T[] {
+  return enquiries.map((enquiry) => {
+    const ids = (enquiry.quotationIds ?? []).filter((qid) => qid !== quotationId);
+    let nextQuotationId = enquiry.quotationId;
+    if (enquiry.quotationId === quotationId) {
+      nextQuotationId = ids.length > 0 ? ids[ids.length - 1] : undefined;
+    }
+    return {
+      ...enquiry,
+      quotationIds: ids.length > 0 ? ids : undefined,
+      quotationId: nextQuotationId,
+    };
+  });
 }

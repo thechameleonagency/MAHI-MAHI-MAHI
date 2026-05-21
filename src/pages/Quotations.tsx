@@ -53,6 +53,7 @@ import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreate
 import { validateQuotationCreateSource } from "@/lib/quotationCreateSource";
 import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
 import {
+  canDeleteQuotationRecord,
   PROJECT_SCOPE_CHANGE_GUIDANCE,
   QUOTATION_ONE_SHOT_CONVERSION_HELP,
 } from "@/lib/quotationProjectConversionPolicy";
@@ -198,6 +199,9 @@ const Quotations = () => {
     quotationTemplates = [],
     addQuotationTemplate,
     inventoryItems = [],
+    projects,
+    invoices,
+    agentCommissionAccruals = [],
   } = useAppData();
   const canCreateQuotation = useCan("quotation", "create");
   const canEditQuotation = useCan("quotation", "edit");
@@ -248,9 +252,15 @@ const Quotations = () => {
   // Delete Confirmation Modal
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [quotationToDelete, setQuotationToDelete] = useState<Quotation | null>(null);
-  const [deleteReason, setDeleteReason] = useState("");
-  const [deleteHasRelations, setDeleteHasRelations] = useState(false);
-  const [deleteRelatedEntities, setDeleteRelatedEntities] = useState<{type: string; id: string; name: string}[]>([]);
+
+  const quotationDeleteContext = useMemo(
+    () => ({
+      projects,
+      accruals: agentCommissionAccruals,
+      invoices,
+    }),
+    [projects, agentCommissionAccruals, invoices],
+  );
   
   // Quotation state
   const [quotationNumber, setQuotationNumber] = useState(`Q-2024-${String(savedQuotations.length + 1).padStart(3, '0')}`);
@@ -1629,67 +1639,43 @@ const Quotations = () => {
     ) : null;
 
   const handleDeleteQuotation = (quotation: Quotation) => {
-    // Check for related entities
-    const relatedEntities: {type: string; id: string; name: string}[] = [];
-    
-    // Check if converted to project
-    const linkedPid = quotationLinkedProjectId(quotation);
-    if (linkedPid) {
-      relatedEntities.push({
-        type: "project",
-        id: linkedPid,
-        name: `Project from ${quotation.quotationNumber}`
+    const gate = canDeleteQuotationRecord(quotation, quotationDeleteContext);
+    if (!gate.ok) {
+      toast({
+        title: "Cannot delete quotation",
+        description: gate.message,
+        variant: "destructive",
       });
+      return;
     }
-    
-    // Check for related invoices (would need invoice context in full impl)
-    // For now, we check if quotation is linked to any known entities
-    
-    if (relatedEntities.length > 0) {
-      // Has relations - show deletion request modal
-      setQuotationToDelete(quotation);
-      setDeleteHasRelations(true);
-      setDeleteRelatedEntities(relatedEntities);
-      setDeleteReason("");
-      setIsDeleteConfirmOpen(true);
-    } else {
-      // No relations - show simple confirmation
-      setQuotationToDelete(quotation);
-      setDeleteHasRelations(false);
-      setDeleteRelatedEntities([]);
-      setDeleteReason("");
-      setIsDeleteConfirmOpen(true);
-    }
+    setQuotationToDelete(quotation);
+    setIsDeleteConfirmOpen(true);
   };
 
   const confirmDeleteQuotation = () => {
     if (!quotationToDelete) return;
-    
-    if (deleteHasRelations && !deleteReason.trim()) {
+
+    const result = deleteQuotation(quotationToDelete.id);
+    if (!result.ok) {
       toast({
-        title: "Error",
-        description: "Please provide a reason for deletion",
-        variant: "destructive"
+        title: "Cannot delete quotation",
+        description: result.error ?? "Deletion was blocked.",
+        variant: "destructive",
       });
       return;
     }
-    
-    // If has relations, this would go to Super Admin approval queue
-    // For now, we show a toast about the request
-    if (deleteHasRelations) {
-      toast({
-        title: "Deletion Request Submitted",
-        description: "Your request has been sent to Super Admin for approval"
-      });
-    } else {
-      // Direct delete for quotations without relations
-      deleteQuotation(quotationToDelete.id);
-      toast({ title: "Quotation Deleted", description: "Quotation has been permanently removed" });
-    }
-    
+
+    toast({
+      title: "Quotation deleted",
+      description: `${quotationToDelete.quotationNumber} was permanently removed.`,
+    });
+
     setIsDeleteConfirmOpen(false);
     setQuotationToDelete(null);
-    setDeleteReason("");
+    if (selectedQuotation?.id === quotationToDelete.id) {
+      setSelectedQuotation(null);
+      setIsViewQuotationOpen(false);
+    }
   };
 
   // Create Project from Quotation
@@ -2656,7 +2642,8 @@ const Quotations = () => {
                             </span>
                           </Button>
                         )}
-                      {canDeleteQuotation && !quotationLinkedProjectId(selectedQuotation) && (
+                      {canDeleteQuotation &&
+                        canDeleteQuotationRecord(selectedQuotation, quotationDeleteContext).ok && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -4452,7 +4439,7 @@ const Quotations = () => {
       </Sheet>
 
       <DestructiveConfirmDialog
-        open={isDeleteConfirmOpen && !deleteHasRelations}
+        open={isDeleteConfirmOpen}
         onOpenChange={(open) => {
           setIsDeleteConfirmOpen(open);
           if (!open) {
@@ -4473,69 +4460,6 @@ const Quotations = () => {
         confirmLabel="Delete permanently"
         onConfirm={confirmDeleteQuotation}
       />
-
-      {/* Delete with related entities — requires reason + admin queue */}
-      <Sheet open={isDeleteConfirmOpen && deleteHasRelations} onOpenChange={setIsDeleteConfirmOpen}>
-        <AppSheetContent layout="scroll" size="xl" className="border-l-destructive/30">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              Deletion Request Required
-            </SheetTitle>
-            <SheetDescription>
-              {deleteHasRelations ? (
-                <div className="space-y-3">
-                  <p>This quotation has related entities and requires Super Admin approval to delete.</p>
-                  
-                  {/* Related Entities */}
-                  <div className="p-3 bg-muted/50 rounded-lg border space-y-2">
-                    <p className="text-sm font-medium text-foreground">Related Items:</p>
-                    {deleteRelatedEntities.map((entity, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-sm">
-                        <Briefcase className="h-4 w-4 text-primary" />
-                        <span className="capitalize">{entity.type}:</span>
-                        <span className="font-medium">{entity.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
-                    <p className="text-sm text-warning">
-                      Before deleting, please verify that related data will not be affected. 
-                      Deleting this quotation may affect the linked project and any invoices.
-                    </p>
-                  </div>
-                </div>
-              ) : null}
-            </SheetDescription>
-          </SheetHeader>
-          
-          {deleteHasRelations && (
-            <div className="space-y-2 py-2">
-              <Label>Reason for Deletion *</Label>
-              <Textarea
-                placeholder="Please explain why this quotation should be deleted..."
-                value={deleteReason}
-                onChange={(e) => setDeleteReason(e.target.value)}
-                className="min-h-[80px]"
-              />
-            </div>
-          )}
-          
-          <SheetFooter className="mt-6 flex gap-2 sm:justify-end">
-            <Button variant="outline" onClick={() => {
-              setIsDeleteConfirmOpen(false);
-              setQuotationToDelete(null);
-              setDeleteReason("");
-            }}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmDeleteQuotation}>
-              Submit Deletion Request
-            </Button>
-          </SheetFooter>
-        </AppSheetContent>
-      </Sheet>
 
       {renderApproveCustomerDialog()}
 

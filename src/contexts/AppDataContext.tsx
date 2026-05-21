@@ -39,6 +39,10 @@ import {
 import { syncPrototypeRepositoriesFromAppState } from "@/infrastructure/repositories/syncPrototypeRepositories";
 import { createId, createNextCustomerId, ensureSequentialCustomerId } from "@/lib/idFactory";
 import { isQuotationConverted } from "@/lib/quotationSelectors";
+import {
+  canDeleteQuotationRecord,
+  unlinkQuotationFromEnquiries,
+} from "@/lib/quotationProjectConversionPolicy";
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
 import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany, INCGiverTransaction } from "@/types/finance";
 import type { Blockage, Ticket, ProjectTimelineStatus, ClientPaymentRecord } from "@/types/blockage";
@@ -321,7 +325,7 @@ interface AppDataContextType extends AppState {
   // Quotations CRUD
   addQuotation: (quotation: Quotation) => Promise<{ ok: boolean; error?: string }>;
   updateQuotation: (id: string, updates: Partial<Quotation>) => Promise<{ ok: boolean; error?: string }>;
-  deleteQuotation: (id: string) => void;
+  deleteQuotation: (id: string) => { ok: boolean; error?: string };
   getQuotationById: (id: string) => Quotation | undefined;
   getApprovedQuotations: () => Quotation[];
   getProjectEligibleQuotations: () => Quotation[];
@@ -1486,13 +1490,56 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     [actorRole, commandBus, permissionService, repositories, state.quotations],
   );
   
-  const deleteQuotation = useCallback((id: string) => {
-    setState(prev => ({ 
-      ...prev, 
-      quotations: prev.quotations.filter(q => q.id !== id),
-      projects: prev.projects.map(p => p.quotationId === id ? { ...p, quotationId: undefined } : p)
-    }));
-  }, []);
+  const deleteQuotation = useCallback(
+    (id: string): { ok: boolean; error?: string } => {
+      if (!canFeature(actorRole, "quotation", "delete", roleMatrixOverride)) {
+        showPermissionDeniedToast("Your role cannot delete quotations.");
+        return { ok: false, error: "Permission denied" };
+      }
+
+      const quotation = state.quotations.find((q) => q.id === id);
+      if (!quotation) {
+        return { ok: false, error: "Quotation not found" };
+      }
+
+      const gate = canDeleteQuotationRecord(quotation, {
+        projects: state.projects,
+        accruals: state.agentCommissionAccruals ?? [],
+        invoices: state.invoices,
+      });
+      if (!gate.ok) {
+        return { ok: false, error: gate.message };
+      }
+
+      const auditEntry = createAuditEntry(
+        "delete",
+        "Quotation",
+        id,
+        quotation.quotationNumber || id,
+      );
+
+      setState((prev) => ({
+        ...prev,
+        quotations: prev.quotations.filter((q) => q.id !== id),
+        enquiries: unlinkQuotationFromEnquiries(prev.enquiries, id),
+        agentCommissionAccruals: (prev.agentCommissionAccruals ?? []).filter(
+          (a) => a.sourceQuotationId !== id,
+        ),
+        auditLogs: [auditEntry, ...prev.auditLogs],
+      }));
+
+      return { ok: true };
+    },
+    [
+      actorRole,
+      createAuditEntry,
+      roleMatrixOverride,
+      state.agentCommissionAccruals,
+      state.invoices,
+      state.projects,
+      state.quotations,
+    ],
+  );
   
   const getQuotationById = useCallback((id: string) => {
     return state.quotations.find(q => q.id === id);
