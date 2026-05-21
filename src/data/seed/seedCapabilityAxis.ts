@@ -49,6 +49,7 @@ export function capabilityProjectSpecs(fullProfile: boolean): CapabilityProjectS
     // Edge-only
     { kind: "SOLO_EPC", lifecycle: "On Hold", count: 1, category: "residential", capacityKw: 5, paymentType: "cash", edgeTag: "on-hold-blockage" },
     { kind: "SOLO_EPC", lifecycle: "Closed", count: 1, category: "commercial", capacityKw: 10, paymentType: "cash", edgeTag: "closed-reopen" },
+    { kind: "SOLO_EPC", lifecycle: "New", count: n(2), category: "residential", capacityKw: 5, paymentType: "cash" },
     { kind: "SOLO_EPC", lifecycle: "New", count: 1, category: "residential", capacityKw: 3, paymentType: "cash", edgeTag: "direct-exception" },
     { kind: "SOLO_EPC", lifecycle: "Completed", count: 1, category: "commercial", capacityKw: 15, paymentType: "cash", edgeTag: "archived-project" },
   ];

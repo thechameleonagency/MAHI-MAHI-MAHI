@@ -71,6 +71,14 @@ import {
   buildProjectActorScopeContext,
   filterProjectsForActor,
 } from "@/lib/projectActorScope";
+import {
+  countProjectsByLifecycle,
+  matchesProjectLifecycleFilter,
+  parseProjectStatusFilterFromUrl,
+  PROJECT_LIFECYCLE_FILTER_OPTIONS,
+  projectLifecycleFilterToUrlParam,
+  type ProjectLifecycleFilter,
+} from "@/lib/projectListFilters";
 
 function customerOptionalForDirectExceptionKind(k: ProjectKind): boolean {
   return k === "INC_GIVEN" || k === "VENDORSHIP_ONLY" || k === "VENDOR_NETWORK";
@@ -128,14 +136,26 @@ const Projects = () => {
   const _eligibleQuotations = useMemo(() => getProjectEligibleQuotations(), [getProjectEligibleQuotations, projects]);
   
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "all");
+  const [statusFilter, setStatusFilter] = useState<ProjectLifecycleFilter>(() =>
+    parseProjectStatusFilterFromUrl(searchParams.get("status")),
+  );
 
   useEffect(() => {
-    const urlStatus = searchParams.get("status");
-    if (!urlStatus) return;
-    setStatusFilter(urlStatus);
+    const parsed = parseProjectStatusFilterFromUrl(searchParams.get("status"));
+    setStatusFilter((prev) => (prev === parsed ? prev : parsed));
     setTablePage(1);
   }, [searchParams]);
+
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      const param = projectLifecycleFilterToUrlParam(statusFilter);
+      if (param) next.set("status", param);
+      else next.delete("status");
+      if (next.toString() === prev.toString()) return prev;
+      return next;
+    }, { replace: true });
+  }, [statusFilter, setSearchParams]);
   const [typeFilter, setTypeFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("all");
   const [hideCompleted, setHideCompleted] = useState(false);
@@ -204,7 +224,7 @@ const Projects = () => {
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.id.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesStatus = statusFilter === "all" || p.status === statusFilter;
+      const matchesStatus = matchesProjectLifecycleFilter(p, statusFilter);
       const matchesType = typeFilter === "all" || p.projectType === typeFilter;
       const matchesKind = projectMatchesKindFilter(p, kindFilter);
       const matchesCompleted = !hideCompleted || isProjectOpen(p);
@@ -298,11 +318,18 @@ const Projects = () => {
   );
   const canAccessActiveSites = permissionService.canAccessPath(currentRole, "/active-sites");
 
+  const lifecycleCounts = useMemo(
+    () => countProjectsByLifecycle(scopedProjects),
+    [scopedProjects],
+  );
+
   const stats = {
-    total: scopedProjects.length,
-    ongoing: scopedProjects.filter(p => p.status === "Ongoing").length,
-    completed: scopedProjects.filter(p => p.status === "Completed").length,
-    onHold: scopedProjects.filter(p => p.status === "On Hold").length,
+    total: lifecycleCounts.all,
+    new: lifecycleCounts.New,
+    inProgress: lifecycleCounts["In Progress"],
+    completed: lifecycleCounts.Completed,
+    onHold: lifecycleCounts["On Hold"],
+    closed: lifecycleCounts.Closed,
     totalKW: scopedProjects.reduce((sum, p) => sum + (parseFloat(p.capacity) || 0), 0).toFixed(1),
   };
 
@@ -475,9 +502,10 @@ const Projects = () => {
           <InlineKpiStrip
             items={[
               { label: "Total Projects", value: stats.total },
-              { label: "Ongoing", value: stats.ongoing },
-              { label: "Completed", value: stats.completed },
+              { label: "New", value: stats.new },
+              { label: "In Progress", value: stats.inProgress },
               { label: "On Hold", value: stats.onHold },
+              { label: "Completed", value: stats.completed },
               { label: "Total Capacity", value: `${stats.totalKW} kW` },
             ]}
           />
@@ -744,15 +772,22 @@ const Projects = () => {
           />
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-40">
-              <SelectValue placeholder="Status" />
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => {
+              setStatusFilter(parseProjectStatusFilterFromUrl(v));
+              setTablePage(1);
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Lifecycle" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="Ongoing">Ongoing</SelectItem>
-              <SelectItem value="Completed">Completed</SelectItem>
-              <SelectItem value="On Hold">On Hold</SelectItem>
+              {PROJECT_LIFECYCLE_FILTER_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -902,7 +937,7 @@ const Projects = () => {
                 </TableCell>
                 <TableCell>{project.capacity}</TableCell>
                 <TableCell>
-                  <StatusBadge status={normalizeProject(project).status ?? "Ongoing"} />
+                  <StatusBadge status={normalizeProject(project).lifecycleStatus} />
                 </TableCell>
                 <TableCell className="text-muted-foreground">{project.startDate}</TableCell>
                 <TableCell className="text-right">
@@ -934,7 +969,7 @@ const Projects = () => {
                       <p className="text-xs text-muted-foreground font-mono">{project.id}</p>
                     </div>
                   </div>
-                  <StatusBadge status={normalizeProject(project).status ?? "Ongoing"} />
+                  <StatusBadge status={normalizeProject(project).lifecycleStatus} />
                 </div>
                 
                 <div className="flex flex-wrap gap-1.5 mb-3">

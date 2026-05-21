@@ -21,7 +21,7 @@ const LIST_PATHS: Record<DashboardKpiCardId, string> = {
   enquiries: "/enquiries?status=open",
   followUps: "/enquiries?status=open&followUp=overdue",
   quotations: "/quotations?pipeline=inflight",
-  projects: "/projects?status=Ongoing",
+  projects: "/projects?status=In%20Progress",
   activeSites: "/active-sites",
   tasks: "/timeline?sections=people,office&tasks=overdue",
   pending: "/invoices?receivable=open",
@@ -49,7 +49,7 @@ export function getDashboardKpiListLabel(cardId: string): string {
     case "quotations":
       return "Quotations in flight";
     case "projects":
-      return "Ongoing projects";
+      return "In progress projects";
     case "activeSites":
       return "Active sites";
     case "tasks":

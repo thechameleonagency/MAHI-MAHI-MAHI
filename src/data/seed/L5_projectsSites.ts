@@ -46,8 +46,20 @@ function buildProjectFromSpec(
     type: spec.kind === "INC" || spec.kind === "INC_GIVEN" ? "INC" : "EPC",
     lifecycleStatus: spec.lifecycle,
     status: legacyStatusFromLifecycle(spec.lifecycle),
-    progressStage: spec.lifecycle === "Completed" ? "completed" : spec.lifecycle === "In Progress" ? "work-in-progress" : "quotation-sent",
-    executionPhase: spec.lifecycle === "In Progress" ? "Panel installation" : undefined,
+    progressStage:
+      spec.lifecycle === "Completed"
+        ? "completed"
+        : spec.lifecycle === "In Progress"
+          ? "work-in-progress"
+          : spec.lifecycle === "New"
+            ? "new"
+            : "quotation-sent",
+    executionPhase:
+      spec.lifecycle === "In Progress"
+        ? "Panel installation"
+        : spec.lifecycle === "New"
+          ? "Intake"
+          : undefined,
     executionNotes: globalIndex % 3 === 0 ? "Client prefers weekend-only work" : undefined,
     client: customer?.name ?? companyName(globalIndex),
     clientAddress: customer?.address ?? addr.line,

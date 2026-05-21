@@ -14,7 +14,7 @@ describe("dashboardKpiNavigation", () => {
     expect(getDashboardKpiListPath("enquiries")).toBe("/enquiries?status=open");
     expect(getDashboardKpiListPath("followUps")).toBe("/enquiries?status=open&followUp=overdue");
     expect(getDashboardKpiListPath("quotations")).toBe("/quotations?pipeline=inflight");
-    expect(getDashboardKpiListPath("projects")).toBe("/projects?status=Ongoing");
+    expect(getDashboardKpiListPath("projects")).toBe("/projects?status=In%20Progress");
     expect(getDashboardKpiListPath("pending")).toBe("/invoices?receivable=open");
     expect(getDashboardKpiListPath("stock")).toBe("/inventory/materials?stock=low");
     expect(getDashboardKpiListPath("emis")).toBe("/loans?status=Active&emi=due7d");

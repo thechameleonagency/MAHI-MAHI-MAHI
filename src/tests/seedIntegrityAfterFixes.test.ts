@@ -5,6 +5,7 @@ import { projectBillingDrift } from "@/lib/billingSelectors";
 import { getOutstandingReceivables } from "@/domain/finance/financialSemantics";
 import { computeLedgerTotals } from "@/lib/audit/ledgerTotals";
 import { getCashRevenue } from "@/lib/billingSelectors";
+import { matchesProjectLifecycleFilter } from "@/lib/projectListFilters";
 
 const DRIFT_EPS = 1;
 
@@ -84,6 +85,15 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(Math.abs(ledger.receivablesOpen - expectedAr)).toBeLessThanOrEqual(DRIFT_EPS);
     const cashIn = getCashRevenue({ payments: hydrated.payments });
     expect(Math.abs(ledger.revenueCollected - cashIn)).toBeLessThanOrEqual(DRIFT_EPS);
+  });
+
+  it("business seed includes New lifecycle projects filterable by MD3 list filter", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const newProjects = hydrated.projects.filter((p) => p.lifecycleStatus === "New");
+    expect(newProjects.length).toBeGreaterThan(0);
+    expect(newProjects.every((p) => matchesProjectLifecycleFilter(p, "New"))).toBe(true);
+    expect(newProjects.every((p) => !p.startedAt)).toBe(true);
   });
 
   it("enquiry assignees use member id and resolved display name", () => {

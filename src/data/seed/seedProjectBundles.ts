@@ -217,7 +217,14 @@ export function attachProjectBundle(ctx: BundleContext): void {
   state.projectTimelineByProjectId[project.id] = buildTimeline(ctx);
   buildWorkStatusTasks(ctx);
 
-  if (project.lifecycleStatus === "In Progress" || project.lifecycleStatus === "Completed") {
+  if (project.lifecycleStatus === "New") {
+    project.siteReadiness = {
+      ready: false,
+      markedAt: seedDateAt(fraction + 0.01),
+      markedBy: "ADM-001",
+      note: "Awaiting roof access survey and client NOC",
+    };
+  } else if (project.lifecycleStatus === "In Progress" || project.lifecycleStatus === "Completed") {
     project.siteReadiness = {
       ready: true,
       markedAt: seedDateAt(fraction + 0.02),
