@@ -156,7 +156,17 @@ function buildTimeline(ctx: BundleContext): ProjectTimelineStatus {
         requestedByName: "Karthik Rao",
       },
     } : index % 11 === 0 ? {
-      structure: { status: "closed", approvedAt: seedDateAt(fraction + 0.12), approvedByName: "Anita Deshmukh" },
+      structure: {
+        status: "closed",
+        photoCount: 2,
+        photoUrls: [
+          "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='48'%3E%3Crect fill='%23e2e8f0' width='64' height='48'/%3E%3Ctext x='8' y='28' font-size='10' fill='%2364748b'%3ESeed%3C/text%3E%3C/svg%3E",
+        ],
+        updatedBy: "admin-001",
+        updatedByName: "Anita Deshmukh",
+        approvedAt: seedDateAt(fraction + 0.12),
+        approvedByName: "Anita Deshmukh",
+      },
     } : {},
     discomChecks: rich ? ["meter-file-submit"] : [],
     discomSubsidyStatus: rich ? "pending" : "",

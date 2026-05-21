@@ -7,11 +7,7 @@ import { assertCommandPermission } from "@/application/commands/commandPermissio
 import type { AuditService } from "@/application/services/AuditService";
 import type { Command } from "@/application/commands/types";
 import type { Enquiry } from "@/types/project";
-import type { Customer } from "@/types/finance";
-import {
-  enrichCustomerFromEnquiry,
-  resolveCustomerForEnquiryConversion,
-} from "@/lib/convertEnquiryCustomer";
+import { executeEnquiryConversion } from "@/lib/enquiryConversionAtProjectWin";
 
 type UpdateEnquiryStatusPayload = {
   enquiryId: string;
@@ -131,56 +127,28 @@ export const registerEnquiryCommands = (
     (command) => {
       assertCommandPermission(permissionService, command, "enquiry:create");
       const { enquiryId } = command.payload;
-      const enquiry = repositories.enquiryRepository.getById(enquiryId);
-      if (!enquiry) {
-        return { ok: false, errorCode: "ENQUIRY_NOT_FOUND", message: "Enquiry not found" };
+      const result = executeEnquiryConversion(repositories, auditService, command, enquiryId);
+      if (!result.ok) {
+        return {
+          ok: false,
+          errorCode: result.errorCode,
+          message: result.message,
+        };
       }
-
-      if (!canTransitionEnquiryStatus(enquiry.status, "converted", command.actorRole)) {
-        return { ok: false, errorCode: "INVALID_ENQUIRY_TRANSITION", message: `Cannot convert enquiry from status: ${enquiry.status}` };
+      if (!result.converted && result.previousStatus !== "converted") {
+        return {
+          ok: false,
+          errorCode: "INVALID_ENQUIRY_TRANSITION",
+          message: "Enquiry could not be converted",
+        };
       }
-
-      const allCustomers = repositories.customerRepository.getAll() as Customer[];
-      const resolved = resolveCustomerForEnquiryConversion(enquiry, allCustomers);
-
-      if (resolved.customerCreated && resolved.customer) {
-        repositories.customerRepository.add(resolved.customer);
-        auditService.write(command, {
-          action: "create",
-          entityType: "Customer",
-          entityId: resolved.customerId,
-          entityName: resolved.customer.name,
-          newValue: resolved.customerId,
-        });
-      } else {
-        const existing = repositories.customerRepository.getById(resolved.customerId);
-        if (existing) {
-          repositories.customerRepository.update(
-            resolved.customerId,
-            enrichCustomerFromEnquiry(existing, enquiry),
-          );
-        }
-      }
-
-      repositories.enquiryRepository.update(enquiryId, {
-        status: "converted",
-        customerId: resolved.customerId,
-        updatedAt: new Date().toISOString(),
-      });
-
-      auditService.write(command, {
-        action: "update",
-        entityType: "Enquiry",
-        entityId: enquiryId,
-        entityName: enquiry.customerName,
-        field: "status",
-        oldValue: enquiry.status,
-        newValue: "converted",
-      });
-
+      const customerId =
+        result.customerId ??
+        repositories.enquiryRepository.getById(enquiryId)?.customerId ??
+        "";
       return {
         ok: true,
-        result: { enquiryId, customerId: resolved.customerId },
+        result: { enquiryId, customerId },
         domainEvents: ["EnquiryConverted"],
       };
     },

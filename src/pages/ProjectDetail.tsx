@@ -186,6 +186,7 @@ const ProjectDetail = () => {
     getClientPaymentRecordsByProject,
     getTasksByProjectId,
     getSitesByProjectId,
+    addTask,
     addSite,
     deleteSite,
     updateProject,
@@ -1062,6 +1063,10 @@ const ProjectDetail = () => {
               })
             }
             onAddTicket={(t) => addOperationalTicket({ ...t, id: generateId("TKT"), createdAt: new Date().toISOString() })}
+            onAddTask={(task) => addTask(task)}
+            generateTaskId={() => generateId("TASK")}
+            primarySiteId={sites.find((s) => s.projectId === project.id)?.id ?? project.id}
+            primarySiteName={sites.find((s) => s.projectId === project.id)?.name ?? project.name}
             onUpdateTimeline={(updates) => updateProjectTimelineForProject(project.id, updates)}
             scope={project.scope}
             outsource={project.outsource ?? null}

@@ -19,6 +19,8 @@ import {
 import { migrateOpaqueCustomerIds } from "@/lib/migrateCustomerIds";
 import { migratePersistedState } from "@/lib/migratePersistedIds";
 import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
+import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
+import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import type { AppState } from "@/contexts/AppDataContext";
 
@@ -77,13 +79,15 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
     "saleBills",
   );
   const reconciledProjects = reconcileProjectsAmountInvoiced(projects, invoices, saleBills);
-  return {
-    ...migrated,
-    projects: reconciledProjects,
-    quotations,
-    invoices,
-    saleBills,
-  };
+  return reconcileVendorBillVouchers(
+    reconcileEnquiriesConvertedOnProjectLink({
+      ...migrated,
+      projects: reconciledProjects,
+      quotations,
+      invoices,
+      saleBills,
+    }),
+  );
 }
 
 export function persistFreshAppStateSeed(baseSeed: AppState): void {

@@ -27,7 +27,12 @@ import type {
   WorkStatusApprovalStatus,
 } from "@/types/blockage";
 import { WORK_STATUS_STAGES, BLOCKAGE_TIMELINE_STAGES, DEFAULT_CUSTOM_STAGE_TAGS, type CustomBlockageStageTag } from "@/types/blockage";
-import type { Employee, ProjectScopeConfig } from "@/types/project";
+import type { Employee, ProjectScopeConfig, Task } from "@/types/project";
+import { resolveProgressReportActor } from "@/lib/progressReportActor";
+import {
+  countPendingTransportSubItems,
+  sumTransportedQtyForStage,
+} from "@/lib/progressReportTransport";
 
 // Timeline steps for site status card (now 7 steps)
 const TIMELINE_STEPS = [
@@ -71,6 +76,10 @@ interface ProgressReportTabProps {
   /** When set, cash received is persisted (client payment record + project totals); otherwise local demo totals only. */
   onRecordClientCash?: (amount: number, notes?: string) => boolean;
   onAddTicket: (ticket: Omit<Ticket, "id" | "createdAt">) => void;
+  onAddTask: (task: Task) => void;
+  generateTaskId: () => string;
+  primarySiteId: string;
+  primarySiteName: string;
   onUpdateTimeline: (updates: Partial<ProjectTimelineStatus>) => void;
   scope?: ProjectScopeConfig;
   /** Outsource info attached to the project — when present, renders an outsource tracking panel. */
@@ -147,14 +156,6 @@ const PRIORITIES = [
   { value: "low", label: "Low", color: "bg-slate-500/20 text-slate-600" },
 ];
 
-// Transport material mapping for stage keywords
-const TRANSPORT_MATERIAL_MAP: Record<string, string[]> = {
-  "structure": ["structure", "mounting", "rail", "clamp", "l-angle", "channel", "gi"],
-  "panel": ["panel", "solar", "module", "waaree", "540w", "mono"],
-  "inverter": ["inverter", "growatt"],
-  "civil": ["cement", "sand", "chemical", "pharma"],
-};
-
 export function ProgressReportTab({
   projectId,
   projectName,
@@ -173,6 +174,10 @@ export function ProgressReportTab({
   onResolveBlockage,
   onRecordClientCash,
   onAddTicket,
+  onAddTask,
+  generateTaskId,
+  primarySiteId,
+  primarySiteName,
   onUpdateTimeline,
   scope,
   outsource,
@@ -208,8 +213,12 @@ export function ProgressReportTab({
   const [isAssignTaskOpen, setIsAssignTaskOpen] = useState(false);
   const [taskModalMilestoneId, setTaskModalMilestoneId] = useState<string | undefined>();
   
-  const { currentRole } = useAppSession();
-  const isAdmin = currentRole === "admin" || currentRole === "super_admin" || currentRole === "ceo";
+  const { currentRole, sessionUserId, demoUserName } = useAppSession();
+  const { userId: actorUserId, displayName: actorDisplayName, isAdmin } = resolveProgressReportActor({
+    sessionUserId,
+    displayName: demoUserName,
+    role: currentRole,
+  });
   
   // Blockage view toggle: "active" or "history"
   const [blockageViewMode, setBlockageViewMode] = useState<"active" | "history">("active");
@@ -246,6 +255,8 @@ export function ProgressReportTab({
   const [photoAssignTo, setPhotoAssignTo] = useState("");
   const [photoAssignNotes, setPhotoAssignNotes] = useState("");
   const [uploadPhotosDirectly, setUploadPhotosDirectly] = useState(false);
+  const [adminCompleteOverrideReason, setAdminCompleteOverrideReason] = useState("");
+  const photoDirectUploadInputRef = useRef<HTMLInputElement>(null);
   
   // Photo upload modal state for sub-items
   const [photoUploadModal, setPhotoUploadModal] = useState<{
@@ -264,6 +275,15 @@ export function ProgressReportTab({
     setPendingVideoDataUrls([]);
     setUploadNotes("");
   }, [photoUploadModal?.open]);
+
+  useEffect(() => {
+    if (!photoAssignmentModal?.open) return;
+    setPendingPhotoDataUrls([]);
+    setPendingVideoDataUrls([]);
+    setUploadNotes("");
+    setAdminCompleteOverrideReason("");
+    setUploadPhotosDirectly(false);
+  }, [photoAssignmentModal?.open]);
   const [rejectReasonModal, setRejectReasonModal] = useState<{
     stageKey: string;
     subItemKey: string;
@@ -644,17 +664,17 @@ export function ProgressReportTab({
           [subItemKey]: {
             ...prev[stageKey]?.subItemApprovals?.[subItemKey],
             status: subStatus,
-            updatedBy: isAdmin ? "admin" : "currentUserId",
-            updatedByName: isAdmin ? "Admin" : "Current User",
+            updatedBy: actorUserId,
+            updatedByName: actorDisplayName,
             updatedAt: new Date().toISOString(),
             photoCount: photoN,
             videoCount: videoN,
             photoUrls: photoUrls?.length ? photoUrls : prev[stageKey]?.subItemApprovals?.[subItemKey]?.photoUrls,
             videoUrls: videoUrls?.length ? videoUrls : prev[stageKey]?.subItemApprovals?.[subItemKey]?.videoUrls,
             notes: notes || undefined,
-            approvedByName: isAdmin ? "Admin" : undefined,
+            approvedByName: isAdmin ? actorDisplayName : undefined,
             approvedAt: isAdmin ? new Date().toISOString() : undefined,
-            requestedByName: !isAdmin && hasMedia ? "Current User" : undefined,
+            requestedByName: !isAdmin && hasMedia ? actorDisplayName : undefined,
             requestedAt: !isAdmin && hasMedia ? new Date().toISOString() : undefined,
           },
         },
@@ -681,7 +701,7 @@ export function ProgressReportTab({
           [subItemKey]: {
             ...prev[stageKey]?.subItemApprovals?.[subItemKey],
             status: "approved",
-            approvedByName: "Admin",
+            approvedByName: actorDisplayName,
             approvedAt: new Date().toISOString(),
           },
         },
@@ -735,7 +755,8 @@ export function ProgressReportTab({
         ...prev[item],
         status: "requested",
         requestedAt: new Date().toISOString(),
-        requestedBy: "Current User",
+        requestedBy: actorUserId,
+        requestedByName: actorDisplayName,
         photoCount: prev[item]?.photoCount ?? 0,
         videoCount: item === "inverter" ? 1 : 0,
       },
@@ -817,58 +838,160 @@ export function ProgressReportTab({
     }
   };
   
-  // Handle photo assignment submit
+  const appendMediaFromFiles = (files: FileList | null) => {
+    if (!files?.length) return;
+    const picked = Array.from(files).filter(
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/"),
+    );
+    const readers = picked.map(
+      (file) =>
+        new Promise<{ url: string; kind: "image" | "video" }>((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => {
+            const url = typeof r.result === "string" ? r.result : "";
+            resolve({
+              url,
+              kind: file.type.startsWith("video/") ? "video" : "image",
+            });
+          };
+          r.onerror = () => reject(new Error("read"));
+          r.readAsDataURL(file);
+        }),
+    );
+    void Promise.all(readers).then((items) => {
+      const imgs = items.filter((x) => x.kind === "image" && x.url).map((x) => x.url);
+      const vids = items.filter((x) => x.kind === "video" && x.url).map((x) => x.url);
+      setPendingPhotoDataUrls((prev) => [...prev, ...imgs]);
+      setPendingVideoDataUrls((prev) => [...prev, ...vids]);
+      toast({
+        title: "Media added",
+        description: `${imgs.length} image(s), ${vids.length} video(s) attached.`,
+      });
+    });
+  };
+
+  // Handle photo assignment submit — persists task or real media before stage close
   const handlePhotoAssignmentSubmit = () => {
     if (!photoAssignmentModal) return;
+    const key = photoAssignmentModal.stageKey;
+    const today = new Date().toISOString().split("T")[0];
 
     if (uploadPhotosDirectly) {
+      const hasMedia = pendingPhotoDataUrls.length > 0 || pendingVideoDataUrls.length > 0;
+      if (!hasMedia) {
+        if (!isAdmin) {
+          toast({
+            title: "Photos required",
+            description: "Upload at least one photo or video before completing this stage.",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (!adminCompleteOverrideReason.trim()) {
+          toast({
+            title: "Override reason required",
+            description: "As admin, enter a reason to complete without site media.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      const photoN = pendingPhotoDataUrls.length;
+      const videoN = pendingVideoDataUrls.length;
+      const stageStatus: WorkStatusApprovalStatus = isAdmin && hasMedia ? "closed" : hasMedia ? "requested" : "closed";
       const prev = workStatusApprovals;
-      const key = photoAssignmentModal.stageKey;
       const next: WorkApprovalsState = {
         ...prev,
         [key]: {
           ...prev[key],
-          status: "closed",
-          photoCount: prev[key]?.photoCount && prev[key]!.photoCount! > 0 ? prev[key]!.photoCount : 1,
+          status: stageStatus,
+          photoCount: photoN,
+          videoCount: videoN,
+          photoUrls: photoN > 0 ? pendingPhotoDataUrls : prev[key]?.photoUrls,
+          videoUrls: videoN > 0 ? pendingVideoDataUrls : prev[key]?.videoUrls,
+          updatedBy: actorUserId,
+          updatedByName: actorDisplayName,
+          updatedAt: new Date().toISOString(),
+          notes: !hasMedia && adminCompleteOverrideReason.trim()
+            ? `Admin override: ${adminCompleteOverrideReason.trim()}`
+            : uploadNotes || prev[key]?.notes,
+          approvedByName: isAdmin && stageStatus === "closed" ? actorDisplayName : undefined,
+          approvedAt: isAdmin && stageStatus === "closed" ? new Date().toISOString() : undefined,
+          requestedBy: !isAdmin && hasMedia ? actorUserId : prev[key]?.requestedBy,
+          requestedByName: !isAdmin && hasMedia ? actorDisplayName : prev[key]?.requestedByName,
+          requestedAt: !isAdmin && hasMedia ? new Date().toISOString() : prev[key]?.requestedAt,
         },
       };
       setWorkStatusApprovals(next);
       onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
-      toast({ title: "Completed", description: "Stage marked as completed (upload flow)" });
+      toast({
+        title: stageStatus === "closed" ? "Stage completed" : "Submitted for approval",
+        description: hasMedia
+          ? `${photoN} photo(s) and ${videoN} video(s) saved on timeline`
+          : "Completed with admin override (no media)",
+      });
     } else {
-      // Assign to someone
       if (!photoAssignTo) {
         toast({ title: "Error", description: "Please select an employee to assign", variant: "destructive" });
         return;
       }
-      const emp = employees.find(e => e.id.toString() === photoAssignTo);
-      toast({ 
-        title: "Photo Request Sent", 
-        description: `Request sent to ${emp?.name || "Employee"} for photos of ${photoAssignmentModal.stageName}` 
+      const emp = employees.find((e) => e.id.toString() === photoAssignTo);
+      const taskId = generateTaskId();
+      const task: Task = {
+        id: taskId,
+        employeeId: photoAssignTo,
+        projectId,
+        siteId: primarySiteId,
+        siteName: primarySiteName,
+        workType: `Site photos: ${photoAssignmentModal.stageName}`,
+        workTag: key,
+        notes:
+          photoAssignNotes.trim() ||
+          `Capture photos/videos for ${photoAssignmentModal.stageName} on ${projectName}`,
+        createdDate: today,
+        workDate: today,
+        status: "sent",
+        createdBy: actorDisplayName,
+        milestoneId: key,
+        workItems: [
+          {
+            stageKey: key,
+            stageName: photoAssignmentModal.stageName,
+            subItems: [],
+          },
+        ],
+      };
+      onAddTask(task);
+
+      const prev = workStatusApprovals;
+      const next: WorkApprovalsState = {
+        ...prev,
+        [key]: {
+          ...prev[key],
+          status: "pending",
+          requestedBy: actorUserId,
+          requestedByName: actorDisplayName,
+          requestedAt: new Date().toISOString(),
+          notes: photoAssignNotes.trim() || `Photo task ${taskId} assigned to ${emp?.name ?? "employee"}`,
+        },
+      };
+      setWorkStatusApprovals(next);
+      onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
+      toast({
+        title: "Photo task created",
+        description: `Task ${taskId} assigned to ${emp?.name || "employee"}`,
       });
     }
-    
-    // Reset modal state
+
     setPhotoAssignmentModal(null);
     setPhotoAssignTo("");
     setPhotoAssignNotes("");
     setUploadPhotosDirectly(false);
-  };
-  
-  // Get transported count for a stage based on materials sent
-  const getTransportedCount = (stageKey: string): number => {
-    if (!materialsSent || materialsSent.length === 0) return 0;
-    const keywords = TRANSPORT_MATERIAL_MAP[stageKey] || [];
-    return materialsSent.filter(m => 
-      keywords.some(k => m.itemName.toLowerCase().includes(k))
-    ).length;
-  };
-  
-  // Get pending transport count (placeholder - would need to know expected quantity)
-  const _getPendingTransportCount = (stageKey: string): number => {
-    // For now, return a static demo value
-    const transported = getTransportedCount(stageKey);
-    return transported > 0 ? Math.max(0, 5 - transported) : 0;
+    setAdminCompleteOverrideReason("");
+    setPendingPhotoDataUrls([]);
+    setPendingVideoDataUrls([]);
+    setUploadNotes("");
   };
 
   // DISCOM: Sequential checkboxes
@@ -2712,9 +2835,15 @@ export function ProgressReportTab({
                                         </span>
                                         
                                         {/* Transport counts for transport sub-items */}
-                                        {subItem.value?.includes("transport") && materialsSent && materialsSent.length > 0 && (
+                                        {subItem.value?.includes("transport") && (
                                           <span className="text-2xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
-                                            {getTransportedCount(stage.value)} sent
+                                            {(() => {
+                                              const qty = sumTransportedQtyForStage(stage.value, materialsSent);
+                                              const pending = countPendingTransportSubItems(stage.value, materialsSent);
+                                              if (qty > 0) return `${qty} issued`;
+                                              if (pending > 0) return `${pending} pending`;
+                                              return "no issue yet";
+                                            })()}
                                           </span>
                                         )}
                                         
@@ -4033,11 +4162,70 @@ export function ProgressReportTab({
               </div>
             )}
             
-            {/* Upload Area */}
+            {/* Upload Area — same persistence as sub-item media flow */}
             {uploadPhotosDirectly && (
-              <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                <Camera className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">Click to upload photos</p>
+              <div className="space-y-3">
+                <input
+                  ref={photoDirectUploadInputRef}
+                  type="file"
+                  accept="image/*,video/mp4,video/webm,video/quicktime"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    appendMediaFromFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  className="w-full rounded-lg border-2 border-dashed border-border p-6 text-center transition-colors hover:bg-muted/30"
+                  onClick={() => photoDirectUploadInputRef.current?.click()}
+                >
+                  <Camera className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    Add photos or videos (required unless admin override)
+                  </p>
+                </button>
+                {pendingPhotoDataUrls.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {pendingPhotoDataUrls.map((url, i) => (
+                      <button
+                        key={`stage-ph-${i}`}
+                        type="button"
+                        className="relative h-14 w-14 overflow-hidden rounded-md border"
+                        onClick={() => setViewerImage({ url, fileName: `stage-photo-${i + 1}` })}
+                      >
+                        <img src={url} alt="" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {pendingVideoDataUrls.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    {pendingVideoDataUrls.map((url, i) => (
+                      <video key={`stage-v-${i}`} src={url} className="max-h-32 rounded-md border" controls muted />
+                    ))}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>Notes (optional)</Label>
+                  <Input
+                    placeholder="Site conditions, angles, etc."
+                    value={uploadNotes}
+                    onChange={(e) => setUploadNotes(e.target.value)}
+                  />
+                </div>
+                {isAdmin && pendingPhotoDataUrls.length === 0 && pendingVideoDataUrls.length === 0 && (
+                  <div className="space-y-2">
+                    <Label>Admin override reason (no media)</Label>
+                    <Textarea
+                      value={adminCompleteOverrideReason}
+                      onChange={(e) => setAdminCompleteOverrideReason(e.target.value)}
+                      placeholder="Why completing without photos (e.g. client WhatsApp already received)"
+                      rows={2}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -4045,7 +4233,7 @@ export function ProgressReportTab({
           <SheetFooter>
             <Button variant="outline" onClick={() => setPhotoAssignmentModal(null)}>Cancel</Button>
             <Button onClick={handlePhotoAssignmentSubmit}>
-              {uploadPhotosDirectly ? "Upload & Complete" : "Send Request"}
+              {uploadPhotosDirectly ? "Save media & complete" : "Create photo task"}
             </Button>
           </SheetFooter>
         </AppSheetContent>

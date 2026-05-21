@@ -21,6 +21,7 @@ import { freezeProjectClientFieldsFromQuotation } from "@/lib/customerPipelineId
 import { rejectSecondProjectFromQuotation } from "@/lib/quotationProjectConversionPolicy";
 import { buildQuotationProjectLinkPatch } from "@/lib/quotationProjectLink";
 import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
+import { convertLinkedEnquiryAfterProjectFromQuotation } from "@/lib/enquiryConversionAtProjectWin";
 
 type CreateProjectFromQuotationPayload = {
   quotationId: string;
@@ -167,6 +168,10 @@ export const registerProjectCommands = (
         entityId: p.id,
         entityName: p.name,
       });
+      convertLinkedEnquiryAfterProjectFromQuotation(repositories, auditService, command, {
+        ...quotation,
+        ...buildQuotationProjectLinkPatch(p.id),
+      });
       return {
         ok: true,
         result: { projectId: p.id },
@@ -217,6 +222,10 @@ export const registerProjectCommands = (
       entityType: "Project",
       entityId: projectId,
       entityName: command.payload.projectName,
+    });
+    convertLinkedEnquiryAfterProjectFromQuotation(repositories, auditService, command, {
+      ...quotation,
+      ...buildQuotationProjectLinkPatch(projectId),
     });
 
     return {
@@ -324,6 +333,10 @@ export const registerProjectCommands = (
       entityType: "Project",
       entityId: project.id,
       entityName: project.name,
+    });
+    convertLinkedEnquiryAfterProjectFromQuotation(repositories, auditService, command, {
+      ...quotation,
+      ...buildQuotationProjectLinkPatch(project.id),
     });
     return { ok: true, result: { projectId: project.id }, domainEvents: ["ProjectCreated"] };
   });

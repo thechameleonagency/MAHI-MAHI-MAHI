@@ -125,6 +125,11 @@ import {
 } from "@/lib/invoiceDocumentType";
 import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
 import { formatINR } from "@/lib/formatCurrency";
+import {
+  hasPurchaseBillBookedVoucher,
+  postVendorBillVoucher,
+  stripVendorBillAccounting,
+} from "@/lib/vendorBillVoucherPosting";
 
 /**
  * Customer payment writers (E10) — see `src/lib/customerInflowWritePaths.ts`.
@@ -952,6 +957,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       };
       repositories.projectRepository.replaceAll(state.projects);
       repositories.quotationRepository.replaceAll(state.quotations);
+      repositories.enquiryRepository.replaceAll(state.enquiries);
+      repositories.customerRepository.replaceAll(state.customers);
       try {
         const result = await runCommand<{ projectId: string }>({
           type: CREATE_PROJECT_FROM_QUOTATION_COMMAND,
@@ -975,6 +982,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             ...prev,
             projects: nextProjects,
             quotations: repositories.quotationRepository.getAll() as Quotation[],
+            enquiries: repositories.enquiryRepository.getAll() as Enquiry[],
+            customers: repositories.customerRepository.getAll() as Customer[],
             auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
             agentCommissionAccruals: created
               ? linkAccrualsToProject(
@@ -992,7 +1001,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: message };
       }
     },
-    [actorRole, commandBus, permissionService, repositories, state.projects, state.quotations],
+    [actorRole, commandBus, permissionService, repositories, state.projects, state.quotations, state.enquiries, state.customers],
   );
 
   const createProjectIntake = useCallback(
@@ -1006,6 +1015,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       repositories.projectRepository.replaceAll(state.projects);
       repositories.quotationRepository.replaceAll(state.quotations);
+      repositories.enquiryRepository.replaceAll(state.enquiries);
+      repositories.customerRepository.replaceAll(state.customers);
       try {
         const result = await runCommand<{ projectId: string }>({
           type: CREATE_PROJECT_INTAKE_COMMAND,
@@ -1024,6 +1035,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             ...prev,
             projects: nextProjects,
             quotations: repositories.quotationRepository.getAll() as Quotation[],
+            enquiries: repositories.enquiryRepository.getAll() as Enquiry[],
+            customers: repositories.customerRepository.getAll() as Customer[],
             auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
             agentCommissionAccruals: created?.quotationId
               ? linkAccrualsToProject(
@@ -1041,7 +1054,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: message };
       }
     },
-    [actorRole, commandBus, permissionService, repositories, roleMatrixOverride, state.projects, state.quotations],
+    [actorRole, commandBus, permissionService, repositories, roleMatrixOverride, state.projects, state.quotations, state.enquiries, state.customers],
   );
 
   const createDirectProjectException = useCallback(
@@ -3761,12 +3774,23 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   // ============ VENDOR BILLS CRUD ============
   const addVendorBill = useCallback((bill: VendorBill) => {
     if (!canPerformActionOrWarn("vendor:record_bill")) return;
+    const postingResult = postVendorBillVoucher(bill, voucherPostingService);
+    const reviewQueueItem = postingResult
+      ? createReviewQueueItem(postingResult, bill.projectId)
+      : null;
     const auditEntry = createAuditEntry("create", "VendorBill", bill.id, bill.billNumber || bill.id);
     setState((prev) => {
       return {
         ...prev,
         vendorBills: [bill, ...prev.vendorBills],
         vendors: prev.vendors,
+        accountingVouchers:
+          postingResult?.ok
+            ? [postingResult.voucher, ...prev.accountingVouchers]
+            : prev.accountingVouchers,
+        accountingReviewQueue: reviewQueueItem
+          ? [reviewQueueItem, ...prev.accountingReviewQueue]
+          : prev.accountingReviewQueue,
         auditLogs: [auditEntry, ...prev.auditLogs],
       };
     });
@@ -3784,27 +3808,63 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         quantity: qty,
       });
     }
-  }, [canPerformActionOrWarn, createAuditEntry, recordWarehouseInventoryMovement]);
+  }, [
+    canPerformActionOrWarn,
+    createAuditEntry,
+    createReviewQueueItem,
+    recordWarehouseInventoryMovement,
+    voucherPostingService,
+  ]);
   
   const updateVendorBill = useCallback((id: string, updates: Partial<VendorBill>) => {
-    setState(prev => ({
-      ...prev,
-      vendorBills: prev.vendorBills.map(b => b.id === id ? { ...b, ...updates } : b),
-    }));
-  }, []);
+    setState((prev) => {
+      const existing = prev.vendorBills.find((b) => b.id === id);
+      const merged = existing ? { ...existing, ...updates } : undefined;
+      let accountingVouchers = prev.accountingVouchers;
+      let accountingReviewQueue = prev.accountingReviewQueue;
+
+      if (
+        merged &&
+        existing.status === "draft" &&
+        merged.status !== "draft" &&
+        !hasPurchaseBillBookedVoucher(accountingVouchers, id)
+      ) {
+        const postingResult = postVendorBillVoucher(merged, voucherPostingService);
+        if (postingResult) {
+          const reviewQueueItem = createReviewQueueItem(postingResult, merged.projectId);
+          if (postingResult.ok) {
+            accountingVouchers = [postingResult.voucher, ...accountingVouchers];
+          } else if (reviewQueueItem) {
+            accountingReviewQueue = [reviewQueueItem, ...accountingReviewQueue];
+          }
+        }
+      }
+
+      return {
+        ...prev,
+        vendorBills: prev.vendorBills.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+        accountingVouchers,
+        accountingReviewQueue,
+      };
+    });
+  }, [createReviewQueueItem, voucherPostingService]);
   
   const deleteVendorBill = useCallback((id: string) => {
     if (!canFeature(actorRole, "vendorBill", "delete", roleMatrixOverride)) {
       showPermissionDeniedToast("Your role cannot delete vendor bills.");
       return;
     }
-    setState((prev) => ({
-      ...prev,
-      vendorBills: prev.vendorBills.filter((b) => b.id !== id),
-      procurementNeedLines: (prev.procurementNeedLines ?? []).map((l) =>
-        l.vendorBillId === id ? { ...l, vendorBillId: undefined } : l,
-      ),
-    }));
+    setState((prev) => {
+      const stripped = stripVendorBillAccounting(prev, id);
+      return {
+        ...prev,
+        ...stripped,
+        vendorBills: prev.vendorBills.filter((b) => b.id !== id),
+        procurementNeedLines: (prev.procurementNeedLines ?? []).map((l) =>
+          l.vendorBillId === id ? { ...l, vendorBillId: undefined } : l,
+        ),
+      };
+    });
   }, [actorRole, roleMatrixOverride]);
   
   const getVendorBillsByVendor = useCallback((vendorId: string) => {
