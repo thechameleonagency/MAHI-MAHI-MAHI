@@ -16,6 +16,7 @@ import { ROLE_LABELS, USER_ROLES, type UserRole } from "@/domain/entities/identi
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
+import { MobileDemoPostureCard } from "@/components/demo/MobileDemoPostureCard";
 
 const ROLE_ORDER: UserRole[] = [
   "super_admin",
@@ -97,7 +98,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-canvas flex items-center justify-center p-4">
+    <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-6 p-4">
       <div className="w-full max-w-4xl grid gap-6 lg:grid-cols-[1fr_1.1fr]">
         <Card className="border-border">
           <CardHeader>
@@ -182,6 +183,7 @@ export default function Login() {
           </CardContent>
         </Card>
       </div>
+      <MobileDemoPostureCard variant="compact" className="w-full max-w-4xl border-primary/20" />
     </div>
   );
 }

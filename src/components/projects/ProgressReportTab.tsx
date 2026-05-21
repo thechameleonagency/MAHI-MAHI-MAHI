@@ -56,6 +56,7 @@ import {
   FIELD_INSTALL_DEMO_MARKER,
   isFieldInstallationDemoProject,
 } from "@/lib/fieldInstallationDemoPath";
+import { MOBILE_POSTURE_SUMMARY } from "@/lib/mobileDataEntryPosture";
 
 // Timeline steps for site status card (now 7 steps)
 const TIMELINE_STEPS = [
@@ -1701,10 +1702,10 @@ export function ProgressReportTab({
         <Alert className="border-primary/30 bg-primary/5">
           <AlertTitle className="text-sm">Field installation demo (PR1)</AlertTitle>
           <AlertDescription className="text-xs text-muted-foreground">
-            Walkthrough project: assign a <strong>Panel</strong> photo task → field marks task{" "}
-            <strong>Done</strong> → upload media → management <strong>Approve</strong> →{" "}
-            <strong>Mark Completed</strong>. See{" "}
-            <code className="text-2xs">docs/demo-field-installation.md</code> ({FIELD_INSTALL_DEMO_MARKER}).
+            Walkthrough project: assign a <strong>Panel</strong> photo task (desktop) → field marks task{" "}
+            <strong>Done</strong> (mobile OK) → upload media (desktop) → management <strong>Approve</strong>{" "}
+            (mobile OK) → <strong>Mark Completed</strong>. Project: {FIELD_INSTALL_DEMO_MARKER}.{" "}
+            {MOBILE_POSTURE_SUMMARY}
           </AlertDescription>
         </Alert>
       )}

@@ -23,6 +23,7 @@ import { User, Building2, Shield, Palette, Users, Mail, Phone, MapPin, Globe, Ca
 import { MastersTab } from "@/components/settings/MastersTab";
 import { RoleMatrixTab } from "@/components/settings/RoleMatrixTab";
 import { DeletionQueueTab } from "@/components/settings/DeletionQueueTab";
+import { MobileDemoPostureCard } from "@/components/demo/MobileDemoPostureCard";
 import { QuotationStaticSectionsTab } from "@/components/settings/QuotationStaticSectionsTab";
 import { useCan } from "@/hooks/useCan";
 import { ToastAction } from "@/components/ui/toast";
@@ -806,6 +807,7 @@ const Settings = () => {
                 )}
               </CardContent>
             </Card>
+            <MobileDemoPostureCard variant="full" />
           </TabsContent>
           )}
 
