@@ -37,6 +37,13 @@ describe("M5 — finance mutation audit coverage", () => {
     );
   });
 
+  it("updateVendorBill plans GL adjustments via planVendorBillAccountingUpdate (MD7)", () => {
+    expect(source).toContain("planVendorBillAccountingUpdate");
+    expect(source).toMatch(
+      /updateVendorBill[\s\S]*?recordWarehouseInventoryMovement/,
+    );
+  });
+
   it("resolveBlockage logs status transition", () => {
     expect(source).toMatch(
       /const resolveBlockage = useCallback[\s\S]*?createAuditEntry\(\s*"update",\s*"Blockage"/,

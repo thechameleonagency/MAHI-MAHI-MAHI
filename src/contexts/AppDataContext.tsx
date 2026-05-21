@@ -138,9 +138,11 @@ import {
 } from "@/lib/billingSelectors";
 import { formatINR } from "@/lib/formatCurrency";
 import {
-  hasPurchaseBillBookedVoucher,
+  planVendorBillAccountingUpdate,
   postVendorBillVoucher,
   stripVendorBillAccounting,
+  vendorBillUpdateAffectsBooks,
+  vendorBillUpdateIsDocumentOnly,
 } from "@/lib/vendorBillVoucherPosting";
 
 /**
@@ -4012,50 +4014,85 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   ]);
   
   const updateVendorBill = useCallback((id: string, updates: Partial<VendorBill>) => {
+    if (
+      vendorBillUpdateAffectsBooks(updates) &&
+      !vendorBillUpdateIsDocumentOnly(updates) &&
+      !canPerformActionOrWarn("vendor:record_bill")
+    ) {
+      return;
+    }
+
+    let inventoryDeltas: ReturnType<typeof planVendorBillAccountingUpdate>["inventoryDeltas"] = [];
+
     setState((prev) => {
       const existing = prev.vendorBills.find((b) => b.id === id);
-      const merged = existing ? { ...existing, ...updates } : undefined;
-      const auditLogs =
-        existing != null
-          ? auditFieldDiff(
-              createAuditEntry,
-              "VendorBill",
-              id,
-              existing.billNumber || id,
-              existing as unknown as Record<string, unknown>,
-              updates as unknown as Record<string, unknown>,
-            )
-          : [];
+      if (!existing) return prev;
+
+      const merged: VendorBill = { ...existing, ...updates };
+      const auditLogs = auditFieldDiff(
+        createAuditEntry,
+        "VendorBill",
+        id,
+        existing.billNumber || id,
+        existing as unknown as Record<string, unknown>,
+        updates as unknown as Record<string, unknown>,
+      );
+
+      const plan = planVendorBillAccountingUpdate(
+        { vouchers: prev.accountingVouchers, before: existing, after: merged },
+        voucherPostingService,
+      );
+      inventoryDeltas = plan.inventoryDeltas;
+
       let accountingVouchers = prev.accountingVouchers;
       let accountingReviewQueue = prev.accountingReviewQueue;
 
-      if (
-        merged &&
-        existing &&
-        existing.status === "draft" &&
-        merged.status !== "draft" &&
-        !hasPurchaseBillBookedVoucher(accountingVouchers, id)
-      ) {
-        const postingResult = postVendorBillVoucher(merged, voucherPostingService);
-        if (postingResult) {
-          const reviewQueueItem = createReviewQueueItem(postingResult, merged.projectId);
-          if (postingResult.ok) {
-            accountingVouchers = [postingResult.voucher, ...accountingVouchers];
-          } else if (reviewQueueItem) {
-            accountingReviewQueue = [reviewQueueItem, ...accountingReviewQueue];
-          }
+      if (plan.stripExisting) {
+        const stripped = stripVendorBillAccounting(prev, id);
+        accountingVouchers = stripped.accountingVouchers;
+        accountingReviewQueue = stripped.accountingReviewQueue;
+      }
+
+      for (const postingResult of plan.postings) {
+        const reviewQueueItem = createReviewQueueItem(postingResult, merged.projectId);
+        if (postingResult.ok) {
+          accountingVouchers = [postingResult.voucher, ...accountingVouchers];
+        } else if (reviewQueueItem) {
+          accountingReviewQueue = [reviewQueueItem, ...accountingReviewQueue];
         }
       }
 
       return {
         ...prev,
-        vendorBills: prev.vendorBills.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+        vendorBills: prev.vendorBills.map((b) => (b.id === id ? merged : b)),
         accountingVouchers,
         accountingReviewQueue,
         auditLogs: auditLogs.length > 0 ? [...auditLogs, ...prev.auditLogs] : prev.auditLogs,
       };
     });
-  }, [createReviewQueueItem, voucherPostingService, createAuditEntry]);
+
+    for (const { itemId, deltaQty } of inventoryDeltas) {
+      if (deltaQty > 0) {
+        void recordWarehouseInventoryMovement({
+          itemId,
+          movementType: "PurchaseIn",
+          quantity: deltaQty,
+        });
+      } else if (deltaQty < 0) {
+        void recordWarehouseInventoryMovement({
+          itemId,
+          movementType: "ScrapWarehouse",
+          quantity: Math.abs(deltaQty),
+        });
+      }
+    }
+  }, [
+    canPerformActionOrWarn,
+    createAuditEntry,
+    createReviewQueueItem,
+    recordWarehouseInventoryMovement,
+    voucherPostingService,
+  ]);
   
   const deleteVendorBill = useCallback((id: string) => {
     if (!canFeature(actorRole, "vendorBill", "delete", roleMatrixOverride)) {

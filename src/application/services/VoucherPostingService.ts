@@ -4,6 +4,7 @@ export type AccountingEventType =
   | "InvoiceIssued"
   | "PaymentReceived"
   | "PurchaseBillBooked"
+  | "PurchaseBillAdjusted"
   | "VendorPaymentRecorded"
   | "ExpenseRecorded"
   | "PayrollReleased"
@@ -121,6 +122,27 @@ export class VoucherPostingService {
             { accountCode: "2100_ACCOUNTS_PAYABLE", debit: 0, credit: input.amount },
           ],
         };
+      case "PurchaseBillAdjusted": {
+        const delta = input.amount;
+        if (delta === 0) return null;
+        if (delta > 0) {
+          return {
+            ...base,
+            lines: [
+              { accountCode: "5300_PURCHASES", debit: delta, credit: 0 },
+              { accountCode: "2100_ACCOUNTS_PAYABLE", debit: 0, credit: delta },
+            ],
+          };
+        }
+        const abs = Math.abs(delta);
+        return {
+          ...base,
+          lines: [
+            { accountCode: "2100_ACCOUNTS_PAYABLE", debit: abs, credit: 0 },
+            { accountCode: "5300_PURCHASES", debit: 0, credit: abs },
+          ],
+        };
+      }
       case "VendorPaymentRecorded":
         return {
           ...base,
