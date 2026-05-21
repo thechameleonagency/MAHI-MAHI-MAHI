@@ -19,6 +19,7 @@ import { findStaleCprFifoVoidedAllocations } from "@/lib/cprFifoPipelineContinui
 import { findStaleCustomerArchiveState } from "@/domain/customer/customerArchive";
 import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToGetSync";
 import { findStaleProcurementNeedLines } from "@/lib/procurementNeedLineContinuity";
+import { findStaleClientPaymentLedgerLinkage } from "@/lib/clientPaymentReconciliation";
 
 const DRIFT_EPS = 1;
 
@@ -184,6 +185,17 @@ describe("seed & hydration integrity after audit fixes", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+  });
+
+  it("client payment ledger linkage is consistent on hydrated seed (FC10)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(
+      findStaleClientPaymentLedgerLinkage({
+        clientPaymentRecords: hydrated.clientPaymentRecords,
+        payments: hydrated.payments,
+      }),
+    ).toEqual([]);
   });
 
   it("site checklist syncs to Need-to-Get on hydrated seed (FC9)", () => {

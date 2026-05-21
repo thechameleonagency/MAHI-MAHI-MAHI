@@ -8,7 +8,10 @@ import { serializeAppState } from "@/lib/appDataStorage";
 import { buildCalendarEvents, type CalendarEventSource } from "@/lib/calendarSources";
 import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/businessAlerts";
 
-import { reconcileClientPaymentLedger } from "@/lib/clientPaymentReconciliation";
+import {
+  findStaleClientPaymentLedgerLinkage,
+  reconcileClientPaymentLedger,
+} from "@/lib/clientPaymentReconciliation";
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
 import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
@@ -193,6 +196,14 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleProcurementNeedLines(state)) {
     errors.push(`FC9: procurement line ${stale.lineKey} — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleClientPaymentLedgerLinkage({
+    clientPaymentRecords: state.clientPaymentRecords,
+    payments: state.payments,
+  })) {
+    const label = stale.recordId ?? stale.paymentId ?? "unknown";
+    errors.push(`FC10: client payment ${label} — ${stale.reason}`);
   }
 
 

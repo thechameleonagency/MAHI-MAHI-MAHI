@@ -85,6 +85,7 @@ import {
 import { validateChangeRequestDraft } from "@/lib/changeRequestValidation";
 import { issueChangeRequestDeltaBilling } from "@/lib/issueChangeRequestDeltaBilling";
 import {
+  applyPaymentDeletionToLedger,
   buildClientPaymentRecordPaymentRow,
   CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX,
   clientPaymentRecordPaymentId,
@@ -92,6 +93,7 @@ import {
   formatClientPaymentLedgerReconcileDevMessage,
   isClientPaymentRecordPayment,
   reconcileClientPaymentLedger,
+  resolveClientPaymentRecordIdFromPayment,
   summarizeClientPaymentLedgerReconcile,
   validateClientPaymentRecord,
 } from "@/lib/clientPaymentReconciliation";
@@ -2564,9 +2566,20 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const deletePayment = useCallback((id: string) => {
     if (!canPerformActionOrWarn("finance:delete_payment")) return;
-    setState(prev => {
-      const payment = prev.payments.find(p => p.id === id);
-      if (!payment) return prev;
+    setState((prev) => {
+      const result = applyPaymentDeletionToLedger({
+        paymentId: id,
+        payments: prev.payments,
+        clientPaymentRecords: prev.clientPaymentRecords,
+        invoices: prev.invoices,
+        saleBills: prev.saleBills,
+        projects: prev.projects,
+        incomes: prev.incomes,
+        customers: prev.customers,
+      });
+      if (!result) return prev;
+
+      const { deletedPayment: payment } = result;
       const auditLogs: AuditLogEntry[] = [
         createAuditEntry(
           "delete",
@@ -2578,10 +2591,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           "0",
         ),
       ];
-      if (isClientPaymentRecordPayment(payment)) {
-        const cprId = payment.id.startsWith(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX)
-          ? payment.id.slice(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX.length)
-          : (payment.reference?.slice(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX.length) ?? payment.id);
+      const cprId = resolveClientPaymentRecordIdFromPayment(payment);
+      if (cprId) {
         auditLogs.push(
           createAuditEntry(
             "delete",
@@ -2594,42 +2605,16 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           ),
         );
       }
-      const applyDec = (doc: Invoice) =>
-        doc.id === payment.invoiceId
-          ? { ...doc, amountReceived: Math.max(0, (doc.amountReceived ?? 0) - payment.amount) }
-          : doc;
-      const inInvoice = payment.invoiceId ? prev.invoices.some((i) => i.id === payment.invoiceId) : false;
-      const updatedInvoices = payment.invoiceId && inInvoice ? prev.invoices.map(applyDec) : prev.invoices;
-      const updatedSaleBills =
-        payment.invoiceId && !inInvoice ? prev.saleBills.map(applyDec) : prev.saleBills;
-      const updatedProjects = (payment.projectId && payment.direction === "in")
-        ? prev.projects.map(p =>
-            p.id === payment.projectId
-              ? { ...p, amountReceived: Math.max(0, (p.amountReceived ?? 0) - payment.amount) }
-              : p
-          )
-        : prev.projects;
-      const updatedCustomers = (payment.counterpartyType === "customer" && payment.counterpartyId && payment.direction === "in")
-        ? prev.customers.map(c =>
-            c.id === payment.counterpartyId
-              ? { ...c, amountReceived: Math.max(0, (c.amountReceived ?? 0) - payment.amount) }
-              : c
-          )
-        : prev.customers;
-      let incomes = prev.incomes;
-      if (payment.linkedIncomeId) {
-        incomes = prev.incomes.map((row) =>
-          row.id === payment.linkedIncomeId ? { ...row, linkedPaymentId: undefined } : row,
-        );
-      }
+
       return {
         ...prev,
-        payments: prev.payments.filter(p => p.id !== id),
-        invoices: updatedInvoices,
-        saleBills: updatedSaleBills,
-        projects: updatedProjects,
-        customers: updatedCustomers,
-        incomes,
+        payments: result.payments,
+        clientPaymentRecords: result.clientPaymentRecords,
+        invoices: result.invoices,
+        saleBills: result.saleBills,
+        projects: result.projects,
+        customers: result.customers,
+        incomes: result.incomes,
         auditLogs: [...auditLogs, ...prev.auditLogs],
       };
     });

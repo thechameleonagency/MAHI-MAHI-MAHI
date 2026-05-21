@@ -1,5 +1,5 @@
 import type { ClientPaymentRecord } from "@/types/blockage";
-import type { Income, Invoice, Payment } from "@/types/finance";
+import type { Customer, Income, Invoice, Payment } from "@/types/finance";
 import type { Project } from "@/types/project";
 import { getProjectAmountReceived, isActiveBill } from "@/lib/billingSelectors";
 
@@ -142,8 +142,14 @@ export function reconcileClientPaymentLedger(input: {
         amountReceived: 0,
       };
     }
-    if (!inv.projectId || !projectIds.has(inv.projectId)) return inv;
     const baseReceived = paymentReceivedOnInvoice(payments, inv.id);
+    if (!inv.projectId || !projectIds.has(inv.projectId)) {
+      return {
+        ...inv,
+        amountReceived: baseReceived,
+        status: invoiceStatusFromReceived(inv.total || 0, baseReceived),
+      };
+    }
     return {
       ...inv,
       amountReceived: baseReceived,
@@ -309,4 +315,145 @@ export function validateClientPaymentRecord(
   }
 
   return { ok: true, remainingDue };
+}
+
+export function resolveClientPaymentRecordIdFromPayment(payment: Payment): string | null {
+  if (!isClientPaymentRecordPayment(payment)) return null;
+  if (payment.id.startsWith(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX)) {
+    return payment.id.slice(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX.length);
+  }
+  if (payment.reference?.startsWith(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX)) {
+    return payment.reference.slice(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX.length);
+  }
+  return null;
+}
+
+export type StaleClientPaymentLedgerLink = {
+  recordId?: string;
+  paymentId?: string;
+  reason: "record_without_cpr_payment" | "cpr_payment_without_record";
+};
+
+/** CPR rows and `cpr:*` payment rows must stay paired (FC10). */
+export function findStaleClientPaymentLedgerLinkage(input: {
+  clientPaymentRecords: ClientPaymentRecord[];
+  payments: Payment[];
+}): StaleClientPaymentLedgerLink[] {
+  const stale: StaleClientPaymentLedgerLink[] = [];
+  for (const record of input.clientPaymentRecords) {
+    const compositeKey = clientPaymentRecordPaymentId(record.id);
+    const hasPayment = input.payments.some(
+      (p) => p.id === compositeKey || p.reference === compositeKey,
+    );
+    if (!hasPayment) {
+      stale.push({ recordId: record.id, reason: "record_without_cpr_payment" });
+    }
+  }
+  for (const payment of input.payments) {
+    if (!isClientPaymentRecordPayment(payment)) continue;
+    const recordId = resolveClientPaymentRecordIdFromPayment(payment);
+    if (!recordId || !input.clientPaymentRecords.some((r) => r.id === recordId)) {
+      stale.push({ paymentId: payment.id, reason: "cpr_payment_without_record" });
+    }
+  }
+  return stale;
+}
+
+function syncCustomersAmountReceivedFromProjects(
+  customers: Customer[],
+  projects: Project[],
+): Customer[] {
+  const totals = new Map<string, number>();
+  for (const project of projects) {
+    if (!project.customerId) continue;
+    totals.set(
+      project.customerId,
+      (totals.get(project.customerId) ?? 0) + (project.amountReceived ?? 0),
+    );
+  }
+  return customers.map((c) => {
+    const next = totals.get(c.id);
+    return next === undefined ? c : { ...c, amountReceived: next };
+  });
+}
+
+export type PaymentDeletionLedgerResult = {
+  payments: Payment[];
+  clientPaymentRecords: ClientPaymentRecord[];
+  invoices: Invoice[];
+  saleBills: Invoice[];
+  projects: Project[];
+  incomes: Income[];
+  customers: Customer[];
+  deletedPayment: Payment;
+};
+
+/**
+ * Remove a payment, drop linked CPR when applicable, and replay FIFO allocations (FC10).
+ * Keeps invoice/sale-bill balances consistent with remaining payments + CPR rows.
+ */
+export function applyPaymentDeletionToLedger(input: {
+  paymentId: string;
+  payments: Payment[];
+  clientPaymentRecords: ClientPaymentRecord[];
+  invoices: Invoice[];
+  saleBills: Invoice[];
+  projects: Project[];
+  incomes: Income[];
+  customers: Customer[];
+}): PaymentDeletionLedgerResult | null {
+  const payment = input.payments.find((p) => p.id === input.paymentId);
+  if (!payment) return null;
+
+  const cprId = resolveClientPaymentRecordIdFromPayment(payment);
+  const clientPaymentRecords = cprId
+    ? input.clientPaymentRecords.filter((r) => r.id !== cprId)
+    : input.clientPaymentRecords;
+
+  let payments = input.payments.filter((p) => p.id !== input.paymentId);
+  let incomes = input.incomes;
+  if (payment.linkedIncomeId) {
+    incomes = incomes.map((row) =>
+      row.id === payment.linkedIncomeId ? { ...row, linkedPaymentId: undefined } : row,
+    );
+  }
+
+  const ledger = reconcileClientPaymentLedger({
+    clientPaymentRecords,
+    payments,
+    invoices: input.invoices,
+    projects: input.projects,
+    incomes,
+  });
+  payments = ledger.payments;
+  let invoices = ledger.invoices;
+  let projects = ledger.projects;
+
+  const inInvoices = payment.invoiceId
+    ? input.invoices.some((i) => i.id === payment.invoiceId)
+    : false;
+  let saleBills = input.saleBills;
+  if (payment.invoiceId && !inInvoices) {
+    saleBills = saleBills.map((doc) =>
+      doc.id === payment.invoiceId
+        ? {
+            ...doc,
+            amountReceived: Math.max(0, (doc.amountReceived ?? 0) - payment.amount),
+          }
+        : doc,
+    );
+  }
+
+  const customers = syncCustomersAmountReceivedFromProjects(input.customers, projects);
+
+  return {
+    payments,
+    clientPaymentRecords,
+    invoices,
+    saleBills,
+    projects,
+    incomes,
+    customers,
+    deletedPayment: payment,
+  };
 }

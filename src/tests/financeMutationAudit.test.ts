@@ -19,7 +19,8 @@ describe("M5 — finance mutation audit coverage", () => {
   });
 
   it("deletePayment audits linked CPR rows", () => {
-    expect(source).toContain("isClientPaymentRecordPayment(payment)");
+    expect(source).toContain("applyPaymentDeletionToLedger");
+    expect(source).toContain("resolveClientPaymentRecordIdFromPayment(payment)");
     expect(source).toMatch(
       /deletePayment[\s\S]*?createAuditEntry\(\s*"delete",\s*"ClientPaymentRecord"/,
     );
