@@ -23,7 +23,8 @@ export const applyChangeRequestApproved: NarrativeApply = (state) => {
     name: i.name,
     unit: i.unit,
   }));
-  const { projectPatch, deltaAmount } = applyChangeRequestToProject(project, cr, inventoryLookup);
+  const { projectPatch, reservations: _res, reservationReleases: _rel, deltaAmount } =
+    applyChangeRequestToProject(project, cr, inventoryLookup);
   Object.assign(project, projectPatch);
   const withDelta = { ...cr, deltaAmount: deltaAmount || cr.deltaAmount };
   state.projectChangeRequests.push(applyChangeRequestBillingToSeedState(state, project, withDelta));

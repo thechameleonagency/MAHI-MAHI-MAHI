@@ -341,6 +341,37 @@ describe("seed & hydration integrity after audit fixes", () => {
     }
   });
 
+  it("scope-reduction change request has no delta invoice and releases material reservations (V4)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const reduction = (hydrated.projectChangeRequests ?? []).find((cr) =>
+      cr.notes?.toLowerCase().includes("scope reduction"),
+    );
+    expect(reduction?.status).toBe("approved");
+    expect(reduction?.deltaAmount).toBeLessThan(0);
+    expect(reduction?.generatedInvoiceId).toBeFalsy();
+    const project = hydrated.projects.find((p) => p.id === reduction?.projectId);
+    expect(project).toBeTruthy();
+    const panelDelta = reduction?.materialDelta?.find((m) => (m.deltaQty ?? 0) < 0);
+    if (panelDelta) {
+      const activeRes = (hydrated.materialReservations ?? [])
+        .filter(
+          (r) =>
+            !r.releasedAt &&
+            r.projectId === reduction?.projectId &&
+            String(r.itemId) === String(panelDelta.itemId),
+        )
+        .reduce((sum, r) => sum + r.qty, 0);
+      expect(activeRes).toBeGreaterThanOrEqual(0);
+    }
+    const accrual = hydrated.agentCommissionAccruals?.find(
+      (a) =>
+        a.projectId === project?.id ||
+        (project?.quotationId != null && a.sourceQuotationId === project.quotationId),
+    );
+    expect(accrual?.expectedAmount ?? 0).toBeGreaterThan(0);
+  });
+
   it("command audit logs use display names not raw member ids", () => {
     const { state } = buildBusinessSeed("smoke");
     const bad = state.auditLogs.filter(

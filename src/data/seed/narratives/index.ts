@@ -26,6 +26,7 @@ import { applyProcurementNeedAcquired } from "./procurementNeedAcquired";
 import { applyChangeRequestApproved } from "./changeRequestApproved";
 import { applyChangeRequestDeltaPayment } from "./changeRequestDeltaPayment";
 import { applyChangeRequestRejected } from "./changeRequestRejected";
+import { applyChangeRequestScopeReduction } from "./changeRequestScopeReduction";
 import { applyWorkStatusApprovalPending } from "./workStatusApprovalPending";
 import { applyMaterialDamageThreshold } from "./materialDamageThreshold";
 import { applyIncGivenNoDispatch } from "./incGivenNoDispatch";
@@ -65,6 +66,7 @@ const NARRATIVES = [
   applyChangeRequestApproved,
   applyChangeRequestDeltaPayment,
   applyChangeRequestRejected,
+  applyChangeRequestScopeReduction,
   applyWorkStatusApprovalPending,
   applyMaterialDamageThreshold,
   applyIncGivenNoDispatch,

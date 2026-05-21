@@ -144,11 +144,13 @@ export function ChangeRequestSheet({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Δ kW</Label>
-                <Input type="number" min={0} step="0.1" value={deltaKw} onChange={(e) => setDeltaKw(e.target.value)} />
+                <Input type="number" step="0.1" value={deltaKw} onChange={(e) => setDeltaKw(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Negative reduces installed capacity.</p>
               </div>
               <div className="space-y-2">
                 <Label>Δ amount (₹, optional)</Label>
-                <Input type="number" min={0} value={deltaAmount} onChange={(e) => setDeltaAmount(e.target.value)} />
+                <Input type="number" value={deltaAmount} onChange={(e) => setDeltaAmount(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Overrides per-kW estimate; negative reduces contract.</p>
               </div>
             </div>
           )}
@@ -162,8 +164,9 @@ export function ChangeRequestSheet({
 
           {type === "addon-work" && (
             <div className="space-y-2">
-              <Label>Add-on amount (₹) *</Label>
-              <Input type="number" min={0} value={deltaAmount} onChange={(e) => setDeltaAmount(e.target.value)} />
+              <Label>Commercial delta (₹) *</Label>
+              <Input type="number" value={deltaAmount} onChange={(e) => setDeltaAmount(e.target.value)} />
+              <p className="text-xs text-muted-foreground">Use a negative amount for scope reduction (no delta invoice).</p>
             </div>
           )}
 
@@ -195,7 +198,7 @@ export function ChangeRequestSheet({
                 <Input
                   className="w-20"
                   type="number"
-                  min={0}
+                  placeholder="±qty"
                   value={line.deltaQty}
                   onChange={(e) =>
                     setMaterialLines((p) => p.map((l) => (l.key === line.key ? { ...l, deltaQty: e.target.value } : l)))

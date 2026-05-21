@@ -102,6 +102,7 @@ import {
 } from "@/lib/bankReconciliationLink";
 import { validateChangeRequestDraft } from "@/lib/changeRequestValidation";
 import { issueChangeRequestDeltaBilling } from "@/lib/issueChangeRequestDeltaBilling";
+import { applyMaterialReservationReleases } from "@/lib/changeRequestMaterialContinuity";
 import {
   applyPaymentDeletionToLedger,
   buildClientPaymentRecordPaymentRow,
@@ -5305,13 +5306,13 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         name: i.name,
         unit: i.unit,
       }));
-      const { projectPatch, reservations, deltaAmount } = applyChangeRequestToProject(
-        project,
-        cr,
-        inventoryLookup,
-      );
+      const { projectPatch, reservations, reservationReleases, deltaAmount } =
+        applyChangeRequestToProject(project, cr, inventoryLookup);
       const oldContract = project.contractAmount ?? 0;
       const newContract = projectPatch.contractAmount ?? oldContract;
+      if (newContract < 0) {
+        return { ok: false, error: "Approved change would reduce contract amount below zero." };
+      }
       const approvedAt = new Date().toISOString();
       const updatedProjectPreview = { ...project, ...projectPatch };
 
@@ -5383,6 +5384,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             ? { ...updatedProject, ...mergeProjectInvoiceRef(updatedProject, deltaInvoice.id) }
             : updatedProject;
 
+        let materialReservations = [...(prev.materialReservations ?? [])];
+        for (const release of reservationReleases) {
+          materialReservations = applyMaterialReservationReleases(materialReservations, release);
+        }
         const newReservations = reservations.map((r) => ({
           id: `RES-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase(),
           ...r,
@@ -5424,7 +5429,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
               ? { ...r, status: "approved" as const, approvedAt, generatedInvoiceId }
               : r,
           ),
-          materialReservations: [...newReservations, ...(prev.materialReservations ?? [])],
+          materialReservations: [...newReservations, ...materialReservations],
           agentCommissionAccruals: scaleAgentAccrualsForContractChange(
             prev.agentCommissionAccruals ?? [],
             project.id,

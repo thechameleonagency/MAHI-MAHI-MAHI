@@ -11,12 +11,17 @@ export type ChangeRequestDraftFields = {
   materialDelta?: ProjectChangeRequestMaterialDelta[];
 };
 
+function signedNonZeroOrUndefined(raw: string): number | undefined {
+  const n = Number.parseFloat(raw.trim());
+  return Number.isFinite(n) && n !== 0 ? n : undefined;
+}
+
 function positiveOrUndefined(raw: string): number | undefined {
   const n = Number.parseFloat(raw.trim());
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-/** Parse UI string inputs into persisted numeric fields (only strictly positive values). */
+/** Parse UI string inputs into persisted numeric fields. */
 export function parseChangeRequestFieldsFromForm(
   type: ProjectChangeRequestType,
   form: { deltaKw: string; deltaPanels: string; deltaAmount: string },
@@ -24,13 +29,13 @@ export function parseChangeRequestFieldsFromForm(
   switch (type) {
     case "capacity":
       return {
-        deltaKw: positiveOrUndefined(form.deltaKw),
-        deltaAmount: positiveOrUndefined(form.deltaAmount),
+        deltaKw: signedNonZeroOrUndefined(form.deltaKw),
+        deltaAmount: signedNonZeroOrUndefined(form.deltaAmount),
       };
     case "panels":
       return { deltaPanels: positiveOrUndefined(form.deltaPanels) };
     case "addon-work":
-      return { deltaAmount: positiveOrUndefined(form.deltaAmount) };
+      return { deltaAmount: signedNonZeroOrUndefined(form.deltaAmount) };
     default:
       return {};
   }
@@ -44,10 +49,10 @@ export function validateChangeRequestDraft(
     case "capacity": {
       const kw = draft.deltaKw ?? 0;
       const amt = draft.deltaAmount ?? 0;
-      if (kw > 0 || amt > 0) return { ok: true };
+      if (kw !== 0 || amt !== 0) return { ok: true };
       return {
         ok: false,
-        message: "Capacity changes require a positive kW delta or amount (₹).",
+        message: "Capacity changes require a non-zero kW delta or amount (₹).",
       };
     }
     case "panels": {
@@ -60,10 +65,10 @@ export function validateChangeRequestDraft(
     }
     case "addon-work": {
       const amt = draft.deltaAmount ?? 0;
-      if (amt > 0) return { ok: true };
+      if (amt !== 0) return { ok: true };
       return {
         ok: false,
-        message: "Add-on work requires a positive amount (₹).",
+        message: "Add-on work requires a non-zero amount (₹); use negative for scope reduction.",
       };
     }
     default:

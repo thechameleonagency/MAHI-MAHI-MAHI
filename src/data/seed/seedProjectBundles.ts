@@ -378,11 +378,8 @@ export function attachProjectBundle(ctx: BundleContext): void {
         name: i.name,
         unit: i.unit,
       }));
-      const { projectPatch, reservations, deltaAmount } = applyChangeRequestToProject(
-        project,
-        cr,
-        inventoryLookup,
-      );
+      const { projectPatch, reservations, reservationReleases: _releases, deltaAmount } =
+        applyChangeRequestToProject(project, cr, inventoryLookup);
       Object.assign(project, projectPatch);
       for (const r of reservations) {
         state.materialReservations.push({

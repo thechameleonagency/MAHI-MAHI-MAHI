@@ -16,13 +16,14 @@ describe("changeRequestMaterialDelta", () => {
     ]);
   });
 
-  it("drops empty item ids and non-positive quantities", () => {
+  it("drops empty item ids and zero quantities; keeps negative qty for scope reduction", () => {
     const parsed = parseMaterialDeltaFromLines([
       { itemId: "", deltaQty: "5" },
       { itemId: "INV-1", deltaQty: "0" },
       { itemId: "   ", deltaQty: "1" },
+      { itemId: "INV-PANEL", deltaQty: "-2" },
     ]);
-    expect(parsed).toEqual([]);
+    expect(parsed).toEqual([{ itemId: "INV-PANEL", deltaQty: -2 }]);
   });
 
   it("does not treat legacy numeric-only filter semantics as valid guard", () => {

@@ -42,7 +42,7 @@ describe("changeRequestApproval", () => {
       status: "draft",
       requestedAt: "2026-05-10",
     };
-    const { projectPatch, reservations, deltaAmount } = applyChangeRequestToProject(
+    const { projectPatch, reservations, reservationReleases, deltaAmount } = applyChangeRequestToProject(
       baseProject,
       cr,
       [{ id: "INV-PANEL-540", name: "Panel 540W", unit: "pcs" }],
@@ -52,6 +52,26 @@ describe("changeRequestApproval", () => {
     expect(projectPatch.executionLineItems?.length).toBe(1);
     expect(projectPatch.siteChecklist?.length).toBe(1);
     expect(reservations).toHaveLength(1);
+    expect(reservationReleases).toHaveLength(0);
+  });
+
+  it("negative addon-work reduces contract without new reservations", () => {
+    const cr: ProjectChangeRequest = {
+      id: "CR-NEG",
+      projectId: "P-1",
+      type: "addon-work",
+      deltaAmount: -50000,
+      status: "draft",
+      requestedAt: "2026-05-10",
+    };
+    const { projectPatch, reservations, deltaAmount } = applyChangeRequestToProject(
+      baseProject,
+      cr,
+      [],
+    );
+    expect(deltaAmount).toBe(-50000);
+    expect(projectPatch.contractAmount).toBe(450000);
+    expect(reservations).toHaveLength(0);
   });
 
   it("computes INC additional work totals by basis", () => {
