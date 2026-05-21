@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { formatINR } from "@/lib/formatCurrency";
+import { filterProjectsForIncGiverCompany } from "@/lib/incGiverProjectLink";
+import { deriveIncGiverCompanyEconomics } from "@/lib/deriveIncGiverEconomics";
 
 type EntityType =
   | "project"
@@ -44,6 +46,8 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
     getAgentById,
     getVendorshipCompanyById,
     getINCGiverCompanyById,
+    incGiverCompanies,
+    incGiverTransactions,
     vendors,
     getProjectInvoices,
     getCustomerInvoices,
@@ -706,7 +710,17 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
     const company = getINCGiverCompanyById(String(entityId));
     if (!company) return <p className="text-muted-foreground">INC work source not found</p>;
 
-    const linkedProjects = projects.filter((p) => p.scope?.incGiverCompanyId === company.id);
+    const linkedProjects = filterProjectsForIncGiverCompany(
+      projects,
+      company.id,
+      incGiverCompanies ?? [],
+    );
+    const econ = deriveIncGiverCompanyEconomics(
+      company.id,
+      projects,
+      incGiverTransactions ?? [],
+      incGiverCompanies ?? [],
+    );
 
     return (
       <div className="space-y-4">
@@ -720,6 +734,14 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
         </div>
 
         <div className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <p className="text-xs text-muted-foreground">Ledger collected</p>
+            <p className="font-medium">{formatINR(econ.collected)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Pending</p>
+            <p className="font-medium">{formatINR(econ.pending)}</p>
+          </div>
           <div className="flex items-center gap-2">
             <Phone className="h-4 w-4 text-muted-foreground" />
             <span>{company.phone}</span>

@@ -15,6 +15,7 @@ import type {
   Invoice,
   OwnerInvestment,
   PartnerTransaction,
+  INCGiverTransaction,
   Payment,
 } from "@/types/finance";
 import type {
@@ -58,6 +59,7 @@ export type ProjectDeletionStateSlice = {
   procurementNeedLines?: ProcurementNeedLine[];
   ownerInvestments: OwnerInvestment[];
   partnerTransactions: PartnerTransaction[];
+  incGiverTransactions?: INCGiverTransaction[];
   accountingReviewQueue: AccountingReviewQueueItem[];
   agentCommissionPayments: AgentCommissionPayment[];
   quotations: Quotation[];
@@ -84,6 +86,7 @@ export type ProjectDeletionCascadeCounts = {
   procurementNeedLines: number;
   ownerInvestments: number;
   partnerTransactions: number;
+  incGiverTransactions: number;
   accountingReviewQueue: number;
   agentCommissionPayments: number;
   quotationsUnlinked: number;
@@ -127,6 +130,7 @@ export function countProjectDeletionCascade(
     procurementNeedLines: countByProjectId(state.procurementNeedLines ?? [], projectId),
     ownerInvestments: countByProjectId(state.ownerInvestments, projectId),
     partnerTransactions: countByProjectId(state.partnerTransactions, projectId),
+    incGiverTransactions: countByProjectId(state.incGiverTransactions ?? [], projectId),
     accountingReviewQueue: countByProjectId(state.accountingReviewQueue, projectId),
     agentCommissionPayments: countByProjectId(state.agentCommissionPayments, projectId),
     quotationsUnlinked,
@@ -155,6 +159,7 @@ export function totalProjectDeletionCascadeRecords(counts: ProjectDeletionCascad
     counts.procurementNeedLines +
     counts.ownerInvestments +
     counts.partnerTransactions +
+    counts.incGiverTransactions +
     counts.accountingReviewQueue +
     counts.agentCommissionPayments +
     counts.quotationsUnlinked
@@ -182,6 +187,7 @@ const CASCADE_LABELS: { key: keyof ProjectDeletionCascadeCounts; label: string }
   { key: "procurementNeedLines", label: "procurement lines" },
   { key: "ownerInvestments", label: "owner investments" },
   { key: "partnerTransactions", label: "partner transactions" },
+  { key: "incGiverTransactions", label: "INC giver transactions" },
   { key: "accountingReviewQueue", label: "accounting review items" },
   { key: "agentCommissionPayments", label: "commission payments" },
   { key: "quotationsUnlinked", label: "quotations unlinked" },
@@ -283,6 +289,7 @@ export function applyProjectDeletionToState<T extends ProjectDeletionStateSlice>
     ),
     ownerInvestments: prev.ownerInvestments.filter((i) => i.projectId !== projectId),
     partnerTransactions: prev.partnerTransactions.filter((t) => t.projectId !== projectId),
+    incGiverTransactions: (prev.incGiverTransactions ?? []).filter((t) => t.projectId !== projectId),
     accountingReviewQueue: prev.accountingReviewQueue.filter((i) => i.projectId !== projectId),
     agentCommissionPayments: prev.agentCommissionPayments.filter(
       (p) => p.projectId !== projectId,

@@ -87,6 +87,19 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(Math.abs(ledger.revenueCollected - cashIn)).toBeLessThanOrEqual(DRIFT_EPS);
   });
 
+  it("inc giver transactions reference valid companies and INC_GIVEN projects", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect((hydrated.incGiverTransactions ?? []).length).toBeGreaterThan(0);
+    for (const tx of hydrated.incGiverTransactions) {
+      expect(hydrated.incGiverCompanies.some((c) => c.id === tx.incGiverCompanyId)).toBe(true);
+      if (tx.projectId) {
+        const project = hydrated.projects.find((p) => p.id === tx.projectId);
+        expect(project?.projectKind).toBe("INC_GIVEN");
+      }
+    }
+  });
+
   it("business seed includes New lifecycle projects filterable by MD3 list filter", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);

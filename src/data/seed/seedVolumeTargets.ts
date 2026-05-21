@@ -47,6 +47,7 @@ export const FULL_PROFILE_MINIMUMS: Partial<Record<keyof AppState, number>> = {
   settingsTeamMembers: 6,
   vendorshipCompanies: 4,
   incGiverCompanies: 3,
+  incGiverTransactions: 8,
   bankReconciliationStatements: 6,
   materialReservations: 20,
   scheduledInstallations: 20,

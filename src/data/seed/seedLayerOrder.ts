@@ -101,6 +101,7 @@ export const SEED_COLLECTION_KEYS = Object.keys({
   settingsTeamMembers: 1,
   vendorshipCompanies: 1,
   incGiverCompanies: 1,
+  incGiverTransactions: 1,
   bankReconciliationStatements: 1,
   materialReservations: 1,
   scheduledInstallations: 1,

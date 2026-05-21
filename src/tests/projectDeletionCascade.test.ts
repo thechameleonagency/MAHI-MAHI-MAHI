@@ -125,6 +125,7 @@ describe("E3 project deletion cascade", () => {
       procurementNeedLines: 0,
       ownerInvestments: 0,
       partnerTransactions: 0,
+      incGiverTransactions: 0,
       accountingReviewQueue: 0,
       agentCommissionPayments: 0,
       quotationsUnlinked: 1,

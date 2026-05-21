@@ -132,6 +132,21 @@ function buildProjectFromSpec(
   }
 
   if (spec.kind === "INC_GIVEN") {
+    const giver = state.incGiverCompanies[globalIndex % Math.max(state.incGiverCompanies.length, 1)];
+    if (giver) {
+      project.customerId = `inc-${giver.id}`;
+      project.client = giver.name;
+      project.scope = {
+        hasMaterial: false,
+        hasInstallation: true,
+        vendorshipOwner: "CLIENT",
+        leadSource: "MSS_DIRECT",
+        billingParty: "MSS",
+        incGiverCompanyId: giver.id,
+        rateBasis: "per_kw",
+        rateValue: 1200,
+      };
+    }
     project.additionalWorkLines = [{
       id: seedId("AWL"),
       description: "Extra conduit routing on east wing",

@@ -10,6 +10,8 @@ import { formatINR } from "@/lib/formatCurrency";
 import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { usePagedSlice } from "@/hooks/usePagedSlice";
 import type { INCGiverCompany } from "@/types/finance";
+import { filterProjectsForIncGiverCompany } from "@/lib/incGiverProjectLink";
+import { deriveIncGiverCompanyEconomics } from "@/lib/deriveIncGiverEconomics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +36,15 @@ const emptyForm = (): Omit<INCGiverCompany, "id" | "createdAt"> => ({
 
 export default function INCWorkSources() {
   const navigate = useNavigate();
-  const { incGiverCompanies, addINCGiverCompany, updateINCGiverCompany, deleteINCGiverCompany, generateId, projects } = useAppData();
+  const {
+    incGiverCompanies,
+    incGiverTransactions,
+    addINCGiverCompany,
+    updateINCGiverCompany,
+    deleteINCGiverCompany,
+    generateId,
+    projects,
+  } = useAppData();
   const canCreate = useCan("partner", "create");
   const canEdit = useCan("partner", "edit");
   const canDelete = useCan("partner", "delete");
@@ -88,15 +98,13 @@ export default function INCWorkSources() {
     setCompanyToDelete(null);
   };
 
-  // Projects given by this INC source
-  const projectsForCompany = (companyId: string) =>
-    (projects ?? []).filter(p => (p.scope as any)?.incGiverCompanyId === companyId);
-
-  const totalToCollect = (companyId: string) =>
-    projectsForCompany(companyId).reduce((sum, p) => sum + (p.contractAmount || 0), 0);
-
-  const totalCollected = (companyId: string) =>
-    projectsForCompany(companyId).reduce((sum, p) => sum + (p.amountReceived || 0), 0);
+  const economicsForCompany = (companyId: string) =>
+    deriveIncGiverCompanyEconomics(
+      companyId,
+      projects ?? [],
+      incGiverTransactions ?? [],
+      incGiverCompanies ?? [],
+    );
 
   return (
     <PageShell className="space-y-6">
@@ -163,11 +171,8 @@ export default function INCWorkSources() {
           </TableHeader>
           <TableBody>
             {pagedCompanies.map((c) => {
-              const linked = projectsForCompany(c.id);
-              const toCollect = totalToCollect(c.id);
-              const collected = totalCollected(c.id);
-              const pending = toCollect - collected;
-              const completedProjects = linked.filter((p) => p.status === "Completed" || p.status === "Closed").length;
+              const econ = economicsForCompany(c.id);
+              const { linkedProjectCount: linked, toCollect, collected, pending, completedProjectCount: completedProjects } = econ;
               return (
                 <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => navigate(`/inc-sources/${c.id}`)}>
                   <TableCell>

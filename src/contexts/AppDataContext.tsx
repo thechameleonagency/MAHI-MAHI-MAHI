@@ -40,7 +40,7 @@ import { syncPrototypeRepositoriesFromAppState } from "@/infrastructure/reposito
 import { createId, createNextCustomerId, ensureSequentialCustomerId } from "@/lib/idFactory";
 import { isQuotationConverted } from "@/lib/quotationSelectors";
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
-import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany } from "@/types/finance";
+import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany, INCGiverTransaction } from "@/types/finance";
 import type { Blockage, Ticket, ProjectTimelineStatus, ClientPaymentRecord } from "@/types/blockage";
 import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate, stripOrphanChecklistInventoryRefs } from "@/lib/siteChecklist";
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
@@ -259,6 +259,7 @@ export interface AppState {
   // New entity types
   vendorshipCompanies: VendorshipCompany[];
   incGiverCompanies: INCGiverCompany[];
+  incGiverTransactions: INCGiverTransaction[];
 
   /** B13: persisted uploaded statements for the BankReconciliation modal (prototype). */
   bankReconciliationStatements: unknown[];
@@ -597,6 +598,11 @@ interface AppDataContextType extends AppState {
   updateINCGiverCompany: (id: string, updates: Partial<INCGiverCompany>) => void;
   deleteINCGiverCompany: (id: string) => void;
   getINCGiverCompanyById: (id: string) => INCGiverCompany | undefined;
+
+  addINCGiverTransaction: (transaction: INCGiverTransaction) => void;
+  updateINCGiverTransaction: (id: string, updates: Partial<INCGiverTransaction>) => void;
+  deleteINCGiverTransaction: (id: string) => void;
+  getTransactionsByIncGiverCompany: (companyId: string) => INCGiverTransaction[];
 
   // Bank reconciliation (prototype: persist uploaded statements across modal sessions; B13)
   bankReconciliationStatements: unknown[];
@@ -4544,6 +4550,49 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     return (state.incGiverCompanies ?? []).find(c => c.id === id);
   }, [state.incGiverCompanies]);
 
+  const addINCGiverTransaction = useCallback((transaction: INCGiverTransaction) => {
+    if (!canPerformActionOrWarn("partner:add_transaction")) return;
+    const auditEntry = createAuditEntry(
+      "create",
+      "INCGiverTransaction",
+      transaction.id,
+      `${transaction.type} — ${transaction.incGiverCompanyId}`,
+    );
+    setState((prev) => ({
+      ...prev,
+      incGiverTransactions: [transaction, ...(prev.incGiverTransactions ?? [])],
+      auditLogs: [auditEntry, ...prev.auditLogs],
+    }));
+  }, [canPerformActionOrWarn, createAuditEntry]);
+
+  const updateINCGiverTransaction = useCallback((id: string, updates: Partial<INCGiverTransaction>) => {
+    if (!canPerformActionOrWarn("partner:update")) return;
+    const auditEntry = createAuditEntry("update", "INCGiverTransaction", id, id);
+    setState((prev) => ({
+      ...prev,
+      incGiverTransactions: (prev.incGiverTransactions ?? []).map((t) =>
+        t.id === id ? { ...t, ...updates } : t,
+      ),
+      auditLogs: [auditEntry, ...prev.auditLogs],
+    }));
+  }, [canPerformActionOrWarn, createAuditEntry]);
+
+  const deleteINCGiverTransaction = useCallback((id: string) => {
+    if (!canPerformActionOrWarn("partner:delete")) return;
+    const auditEntry = createAuditEntry("delete", "INCGiverTransaction", id, id);
+    setState((prev) => ({
+      ...prev,
+      incGiverTransactions: (prev.incGiverTransactions ?? []).filter((t) => t.id !== id),
+      auditLogs: [auditEntry, ...prev.auditLogs],
+    }));
+  }, [canPerformActionOrWarn, createAuditEntry]);
+
+  const getTransactionsByIncGiverCompany = useCallback(
+    (companyId: string) =>
+      (state.incGiverTransactions ?? []).filter((t) => t.incGiverCompanyId === companyId),
+    [state.incGiverTransactions],
+  );
+
   // ============ BANK RECONCILIATION (B13 + E9) ============
   const setBankReconciliationStatements = useCallback((statements: unknown[]) => {
     setState(prev => ({ ...prev, bankReconciliationStatements: statements }));
@@ -5507,6 +5556,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     updateINCGiverCompany,
     deleteINCGiverCompany,
     getINCGiverCompanyById,
+    addINCGiverTransaction,
+    updateINCGiverTransaction,
+    deleteINCGiverTransaction,
+    getTransactionsByIncGiverCompany,
 
     // Bank reconciliation (B13 + E9)
     setBankReconciliationStatements,

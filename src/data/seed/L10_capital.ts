@@ -171,6 +171,37 @@ export function buildL10Capital(state: AppState, profile: SeedProfile): AppState
     }
   }
 
+  const incGiverTxTarget = countFor(profile, 8);
+  const incGivenProjects = state.projects.filter((p) => p.projectKind === "INC_GIVEN");
+  for (let i = 0; i < incGiverTxTarget; i++) {
+    const project = incGivenProjects[i % Math.max(incGivenProjects.length, 1)];
+    const giverId =
+      project?.scope?.incGiverCompanyId ??
+      state.incGiverCompanies[i % Math.max(state.incGiverCompanies.length, 1)]?.id;
+    if (!giverId) continue;
+    const giver = state.incGiverCompanies.find((c) => c.id === giverId);
+    state.incGiverTransactions.push({
+      id: seedId(SEED_ID_PREFIX.incGiverTx),
+      incGiverCompanyId: giverId,
+      projectId: project?.id,
+      projectName: project?.name,
+      date: seedDayAt(0.4 + i * 0.004),
+      amount: 12000 + i * 2500,
+      type: i % 7 === 0 ? "adjustment" : "collection",
+      notes: "INC giver settlement (seed)",
+    });
+    if (giver && project) {
+      pushAudit(state, {
+        action: "create",
+        entityType: "INCGiverTransaction",
+        entityId: state.incGiverTransactions[state.incGiverTransactions.length - 1]?.id ?? "",
+        entityName: `${giver.name} — ${project.name}`,
+        fraction: 0.41 + i * 0.002,
+        role: "management",
+      });
+    }
+  }
+
   pushAudit(state, { action: "create", entityType: "Loan", entityId: state.loans[0]?.id ?? "", entityName: state.loans[0]?.source ?? "", fraction: 0.52, role: "management" });
 
   return state;

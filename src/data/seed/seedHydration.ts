@@ -13,6 +13,7 @@ import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
 import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScopeSeed";
 import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
 import { reconcileProjectsAmountReceived } from "@/lib/billingSelectors";
+import { reconcileIncGiverTransactions } from "@/lib/reconcileIncGiverTransactions";
 
 /**
  * Appendix N — full hydration after seed assembly (steps 6–12 beyond boot pipeline).
@@ -77,6 +78,8 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
     ...s,
     projects: reconcileProjectsAmountReceived(s.projects, s.payments, s.incomes),
   };
+
+  s = reconcileIncGiverTransactions(s);
 
   return s;
 }

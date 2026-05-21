@@ -26,6 +26,7 @@ import { reconcileAuditLogUserNames } from "@/lib/resolveAuditActorUserName";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
 import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
 import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScopeSeed";
+import { reconcileIncGiverTransactions } from "@/lib/reconcileIncGiverTransactions";
 import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import type { AppState } from "@/contexts/AppDataContext";
@@ -90,17 +91,19 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
     migrated.incomes,
   );
   const auditLogs = reconcileAuditLogUserNames(migrated.auditLogs, migrated.settingsTeamMembers);
-  return reconcileChangeRequestDeltaInvoices(
-    reconcileProjectActorScopeSeed(
-      reconcileVendorBillVouchers(
-        reconcileEnquiriesConvertedOnProjectLink({
-          ...migrated,
-          projects: reconciledProjects,
-          quotations,
-          invoices,
-          saleBills,
-          auditLogs,
-        }),
+  return reconcileIncGiverTransactions(
+    reconcileChangeRequestDeltaInvoices(
+      reconcileProjectActorScopeSeed(
+        reconcileVendorBillVouchers(
+          reconcileEnquiriesConvertedOnProjectLink({
+            ...migrated,
+            projects: reconciledProjects,
+            quotations,
+            invoices,
+            saleBills,
+            auditLogs,
+          }),
+        ),
       ),
     ),
   );
