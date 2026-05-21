@@ -19,7 +19,12 @@ import { AlertCircle, Download, RotateCcw } from "lucide-react";
 import { downloadCSV } from "@/lib/csvExport";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { AUDIT_FEATURE_LABELS, AUDIT_VIEW_FEATURES } from "@/lib/auditRouteFeatures";
+import {
+  AUDIT_FEATURE_LABELS,
+  AUDIT_VIEW_FEATURES,
+  AUDIT_WRITE_FEATURES,
+  AUDIT_WRITE_FEATURE_LABELS,
+} from "@/lib/auditRouteFeatures";
 
 const CRUDS: Crud[] = ["view", "create", "edit", "delete"];
 
@@ -79,7 +84,7 @@ const DOMAIN_GROUPS: { id: string; label: string; features: Feature[] }[] = [
   {
     id: "audit",
     label: "Audit & Books (per page)",
-    features: [...AUDIT_VIEW_FEATURES],
+    features: [...AUDIT_VIEW_FEATURES, ...AUDIT_WRITE_FEATURES],
   },
   {
     id: "system",
@@ -147,6 +152,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   payroll: "Payroll",
   employeeWallet: "Employee wallet (advances)",
   ...AUDIT_FEATURE_LABELS,
+  ...AUDIT_WRITE_FEATURE_LABELS,
   analytics: "Analytics",
   calendar: "Calendar",
   timeline: "Timeline",

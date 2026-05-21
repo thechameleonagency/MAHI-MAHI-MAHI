@@ -33,6 +33,7 @@ export type Feature =
   | "auditDashboard" | "auditChartOfAccounts" | "auditProfitLoss" | "auditInventory"
   | "auditDebtorsCreditors" | "auditGst" | "auditCashBank" | "auditExpenses" | "auditAssets"
   | "auditLogs" | "auditReports" | "auditDataFlow"
+  | "auditBankReconciliation"
   // System / read-mostly pages
   | "analytics" | "calendar" | "timeline" | "dashboard" | "notifications"
   // Settings sub-areas
@@ -60,6 +61,8 @@ export const FEATURE_MATRIX_ROW_NOTES: Partial<Record<Feature, string>> = {
   auditProfitLoss:
     "Controls /audit/profit-loss only. Independent from Cash & bank and other audit sub-pages.",
   auditCashBank: "Controls /audit/cash-bank only. Independent from Profit & loss and other audit sub-pages.",
+  auditBankReconciliation:
+    "Upload bank/cash CSVs and apply ledger matches (Audit dashboard Reconcile sheet). View allows read-only review.",
 };
 
 /** Compact helper to build a row: `r("view,create", ["admin", "management"])`. */
@@ -244,6 +247,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: FeaturePermissionMatrix = {
   auditLogs: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
   auditReports: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
   auditDataFlow: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
+  auditBankReconciliation: r(ADMIN_MGMT_CEO_VIEW, ADMIN_MGMT, ADMIN_MGMT, ADMIN_ONLY),
   analytics: r(ADMIN_MGMT_CEO_VIEW, NONE, NONE, NONE),
   calendar: r(ALL_NON_SUPER, ADMIN_MGMT, ADMIN_MGMT, ADMIN_MGMT),
   timeline: r(

@@ -22,6 +22,8 @@ import { toast } from "@/hooks/use-toast";
 import { fileExceedsLimit, MAX_UPLOAD_BYTES } from "@/lib/fileLimits";
 import { formatINR } from "@/lib/formatCurrency";
 import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useCan } from "@/hooks/useCan";
 import type {
   BankReconciliationStatement,
   BankStatementTransaction,
@@ -154,6 +156,10 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
     syncBankReconciliationLinks,
     clearBankReconciliationLinksForStatement,
   } = useAppData();
+  const canUploadStatements = useCan("auditBankReconciliation", "create");
+  const canApplyMatches = useCan("auditBankReconciliation", "edit");
+  const canRemoveStatements = useCan("auditBankReconciliation", "delete");
+  const reconciliationReadOnly = !canUploadStatements && !canApplyMatches && !canRemoveStatements;
   const [statements, setStatements] = useState<BankReconciliationStatement[]>(
     () => bankReconciliationStatements ?? [],
   );
@@ -364,6 +370,14 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
   }, [statements, ledgerEntries]);
 
   const handleSave = useCallback(() => {
+    if (!canApplyMatches) {
+      toast({
+        title: "Read-only",
+        description: "Your role cannot apply bank reconciliation matches.",
+        variant: "destructive",
+      });
+      return;
+    }
     setBankReconciliationStatements?.(statements);
     const matches = toBankReconciliationMatchInputs(reconciliationResults, normalizeDate);
     syncBankReconciliationLinks?.(
@@ -378,9 +392,24 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
           ? `${linkedCount} ledger row(s) tagged with bank statement links.`
           : "Uploaded statements are stored for this session.",
     });
-  }, [reconciliationResults, statements, setBankReconciliationStatements, syncBankReconciliationLinks]);
+  }, [
+    canApplyMatches,
+    reconciliationResults,
+    statements,
+    setBankReconciliationStatements,
+    syncBankReconciliationLinks,
+  ]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>, type: "bank" | "cash") => {
+    if (!canUploadStatements) {
+      toast({
+        title: "Read-only",
+        description: "Your role cannot upload bank statements.",
+        variant: "destructive",
+      });
+      e.target.value = "";
+      return;
+    }
     const files = e.target.files;
     if (!files) return;
 
@@ -477,9 +506,17 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
     if (wasEmpty) {
       setActiveTab("results");
     }
-  }, [statements]);
+  }, [canUploadStatements, statements]);
 
   const removeStatement = (id: string) => {
+    if (!canRemoveStatements) {
+      toast({
+        title: "Read-only",
+        description: "Your role cannot remove uploaded statements.",
+        variant: "destructive",
+      });
+      return;
+    }
     setStatements(prev => prev.filter(s => s.id !== id));
     clearBankReconciliationLinksForStatement?.(id);
   };
@@ -564,6 +601,16 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
           </SheetTitle>
         </SheetHeader>
 
+        {reconciliationReadOnly && (
+          <Alert>
+            <AlertTitle>View only</AlertTitle>
+            <AlertDescription>
+              You can review uploaded statements and match results. Upload, remove, and save actions require Bank
+              reconciliation create/edit permissions in Settings → Role matrix.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <TabsList className="grid grid-cols-2 w-full max-w-sm">
             <TabsTrigger value="upload">Upload Statements</TabsTrigger>
@@ -580,7 +627,10 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
                   <Landmark className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
                   <h3 className="font-semibold text-foreground mb-1">Bank Statement</h3>
                   <p className="text-xs text-muted-foreground mb-4">Upload CSV from your bank portal</p>
-                  <Label htmlFor="bank-upload" className="cursor-pointer">
+                  <Label
+                    htmlFor="bank-upload"
+                    className={canUploadStatements ? "cursor-pointer" : "cursor-not-allowed opacity-60"}
+                  >
                     <div className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
                       <Upload className="w-4 h-4" />
                       Choose Files
@@ -591,6 +641,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
                       accept=".csv"
                       multiple
                       className="hidden"
+                      disabled={!canUploadStatements}
                       onChange={(e) => handleFileUpload(e, "bank")}
                     />
                   </Label>
@@ -603,7 +654,10 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
                   <FileText className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
                   <h3 className="font-semibold text-foreground mb-1">Cash Statement</h3>
                   <p className="text-xs text-muted-foreground mb-4">Upload cash register or petty cash CSV</p>
-                  <Label htmlFor="cash-upload" className="cursor-pointer">
+                  <Label
+                    htmlFor="cash-upload"
+                    className={canUploadStatements ? "cursor-pointer" : "cursor-not-allowed opacity-60"}
+                  >
                     <div className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-secondary text-secondary-foreground text-sm font-medium hover:bg-secondary/80 transition-colors">
                       <Upload className="w-4 h-4" />
                       Choose Files
@@ -614,6 +668,7 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
                       accept=".csv"
                       multiple
                       className="hidden"
+                      disabled={!canUploadStatements}
                       onChange={(e) => handleFileUpload(e, "cash")}
                     />
                   </Label>
@@ -645,7 +700,13 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
                         <p className="text-xs text-muted-foreground">{s.transactions.length} transactions • {s.type === "bank" ? "Bank" : "Cash"}</p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon" aria-label="Remove statement" onClick={() => removeStatement(s.id)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Remove statement"
+                      disabled={!canRemoveStatements}
+                      onClick={() => removeStatement(s.id)}
+                    >
                       <X className="w-4 h-4" aria-hidden />
                     </Button>
                   </div>
@@ -820,7 +881,11 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
           <Button
             type="button"
             onClick={handleSave}
-            disabled={!setBankReconciliationStatements || !syncBankReconciliationLinks}
+            disabled={
+              !canApplyMatches ||
+              !setBankReconciliationStatements ||
+              !syncBankReconciliationLinks
+            }
           >
             Save
           </Button>

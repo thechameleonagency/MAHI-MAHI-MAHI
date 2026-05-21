@@ -19,8 +19,8 @@ import { computeProfitLoss } from "@/lib/audit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/hooks/use-toast";
 import { Info } from "lucide-react";
+import { useCan } from "@/hooks/useCan";
 
-/** Audit pages are route-gated today; when write actions ship, gate each control with `useCan` for the matching feature. */
 const AuditDashboard = () => {
   const {
     invoices,
@@ -37,6 +37,8 @@ const AuditDashboard = () => {
   const navigate = useNavigate();
   const [period, setPeriod] = useState("current");
   const [showReconciliation, setShowReconciliation] = useState(false);
+  const canOpenBankReconciliation = useCan("auditBankReconciliation", "view");
+  const canRunBankReconciliation = useCan("auditBankReconciliation", "create");
 
   const now = new Date();
 
@@ -214,10 +216,19 @@ const AuditDashboard = () => {
         }
       >
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => setShowReconciliation(true)} className="gap-2">
-            <ShieldCheck className="h-4 w-4" />
-            <span className="hidden sm:inline">Reconcile</span>
-          </Button>
+          {canOpenBankReconciliation && (
+            <Button
+              size="sm"
+              onClick={() => setShowReconciliation(true)}
+              className="gap-2"
+              variant={canRunBankReconciliation ? "default" : "outline"}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              <span className="hidden sm:inline">
+                {canRunBankReconciliation ? "Reconcile" : "View reconciliation"}
+              </span>
+            </Button>
+          )}
         </div>
       </StickyPageHeader>
 
@@ -331,7 +342,9 @@ const AuditDashboard = () => {
           </CardContent>
         </Card>
       </div>
-      <BankReconciliationSheet open={showReconciliation} onOpenChange={setShowReconciliation} />
+      {canOpenBankReconciliation && (
+        <BankReconciliationSheet open={showReconciliation} onOpenChange={setShowReconciliation} />
+      )}
     </PageShell>
   );
 };

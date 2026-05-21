@@ -20,9 +20,18 @@ export type AuditViewFeature = (typeof AUDIT_ROUTE_FEATURE_DEFS)[number]["featur
 
 export const AUDIT_VIEW_FEATURES: AuditViewFeature[] = AUDIT_ROUTE_FEATURE_DEFS.map((d) => d.feature);
 
+/** Non-route audit write surfaces (Role Matrix + useCan). */
+export const AUDIT_WRITE_FEATURES = ["auditBankReconciliation"] as const satisfies readonly Feature[];
+
+export type AuditWriteFeature = (typeof AUDIT_WRITE_FEATURES)[number];
+
 export const AUDIT_FEATURE_LABELS: Record<AuditViewFeature, string> = Object.fromEntries(
   AUDIT_ROUTE_FEATURE_DEFS.map((d) => [d.feature, d.label]),
 ) as Record<AuditViewFeature, string>;
+
+export const AUDIT_WRITE_FEATURE_LABELS: Record<AuditWriteFeature, string> = {
+  auditBankReconciliation: "Bank reconciliation (statements & matches)",
+};
 
 /** Route → feature entries for `ROUTE_VIEW_FEATURE` (longest-prefix match in `featureForPath`). */
 export function auditRouteFeatureEntries(): { prefix: string; feature: Feature }[] {
