@@ -130,7 +130,7 @@ import { formatINR } from "@/lib/formatCurrency";
  * - `addPayment` — invoice-targeted receipt when `invoiceId` is set (voucher + invoice sync).
  *
  * Boot `reconcileClientPaymentLedger` replays CPR rows only (C3). CustomerDetail still uses
- * manual FIFO + `addPayment` without `invoiceId` (documented legacy pattern in the policy file).
+ * Customer bulk pay uses `planCustomerBulkInflow` + `recordCustomerInflow` (see `customerInflowWritePaths.ts`).
  */
 import { validateExpensePaidByRecord } from "@/lib/expensePayerValidation";
 import {

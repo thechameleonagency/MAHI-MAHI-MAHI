@@ -40,11 +40,12 @@ import { useCan } from "@/hooks/useCan";
 import { useCanAction } from "@/hooks/useCanAction";
 import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
+import { planCustomerBulkInflow } from "@/lib/customerInflowWritePaths";
 
 const CustomerDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { customers, invoices, saleBills, projects, quotations, payments: _payments, updateInvoice, updateSaleBill, addPayment, generateId, canDo, updateCustomer } = useAppData();
+  const { customers, invoices, saleBills, projects, quotations, payments: _payments, recordCustomerInflow, generateId, canDo, updateCustomer } = useAppData();
   const canCreateQuotation = useCan("quotation", "create");
   const canCreateProjectFromQuote = useCanAction("project:create_from_quote");
   const canCreateInvoice = useCanAction("finance:create_invoice");
@@ -199,43 +200,72 @@ const CustomerDetail = () => {
       return;
     }
 
-    // Apply FIFO payments
-    fifoBreakdown.forEach(({ invoice, payAmount }) => {
-      const newAmountReceived = invoice.amountReceived + payAmount;
-      const newStatus = newAmountReceived >= invoice.total ? "paid" : "partial";
-      
-      if (invoice._isSaleBill) {
-        updateSaleBill(invoice.id, {
-          amountReceived: newAmountReceived,
-          status: newStatus,
-          receivedDate: paymentDate,
-          receivedIn: paymentMode,
-        });
-      } else {
-        updateInvoice(invoice.id, {
-          amountReceived: newAmountReceived,
-          status: newStatus,
-          receivedDate: paymentDate,
-          receivedIn: paymentMode,
-        });
-      }
-    });
+    const plan = planCustomerBulkInflow(
+      fifoBreakdown.map(({ invoice, payAmount }) => ({
+        invoice: {
+          id: invoice.id,
+          projectId: invoice.projectId,
+          invoiceNumber: invoice.invoiceNumber,
+          _isSaleBill: invoice._isSaleBill,
+        },
+        payAmount,
+      })),
+    );
 
-    addPayment({
-      id: generateId('PAY'),
-      date: paymentDate,
-      amount,
-      direction: 'in',
-      paymentMode,
-      counterpartyType: 'customer',
-      counterpartyId: id,
-      counterpartyName: customer?.name || '',
-      notes: `Customer payment — ${fifoBreakdown.length} invoice(s)`,
-    });
+    let applied = 0;
+    for (const item of plan) {
+      if (item.path === "invoice_targeted") {
+        const ok = recordCustomerInflow({
+          path: "invoice_targeted",
+          payment: {
+            id: generateId("PAY"),
+            date: paymentDate,
+            amount: item.amount,
+            direction: "in",
+            paymentMode,
+            counterpartyType: "customer",
+            counterpartyId: id,
+            counterpartyName: customer?.name || "",
+            invoiceId: item.invoiceId,
+            projectId: item.projectId,
+            notes:
+              paymentNotes.trim() ||
+              `Customer payment — ${fifoBreakdown.length} document(s)`,
+          },
+        });
+        if (ok) applied += item.amount;
+      } else {
+        const ok = recordCustomerInflow({
+          path: "project_fifo",
+          record: {
+            id: generateId("CPR"),
+            projectId: item.projectId,
+            date: paymentDate,
+            amount: item.amount,
+            paymentMode,
+            notes:
+              paymentNotes.trim() ||
+              `Customer payment — ${fifoBreakdown.length} document(s)`,
+            recordedAt: new Date().toISOString(),
+            paymentStage: "other",
+          },
+        });
+        if (ok) applied += item.amount;
+      }
+    }
+
+    if (applied <= 0) {
+      toast({
+        title: "Payment not recorded",
+        description: "Could not apply payment. Check amount and open balances.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     toast({
       title: "Payment recorded",
-      description: `${formatINR(amount)} applied to ${fifoBreakdown.length} invoice(s)`,
+      description: `${formatINR(applied)} applied across ${plan.length} allocation(s)`,
     });
 
     setIsPaymentModalOpen(false);

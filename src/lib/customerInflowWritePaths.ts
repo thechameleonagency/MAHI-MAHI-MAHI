@@ -8,9 +8,8 @@
  * |------|-----|-------------|-------------------|------------|
  * | Project FIFO | `addClientPaymentRecord` | Project Financials, ClientPaymentHistory | FIFO in context | CPR + Payment `cpr:<id>` |
  * | Invoice-targeted | `addPayment` (with `invoiceId`) | Invoices / sale-bill receipt modal | That invoice only | `PAY-*`, `invoiceId` set |
- * | Customer manual FIFO | `addPayment` (no `invoiceId`) | CustomerDetail only — UI patches invoices first | UI FIFO, then one Payment | `PAY-*`, no CPR |
  *
- * Prefer `recordCustomerInflow()` for new code so the path is explicit at the call site.
+ * All UI call sites use `recordCustomerInflow()` so the path is explicit at the call site.
  */
 import type { ClientPaymentRecord } from "@/types/blockage";
 import type { Payment } from "@/types/finance";
@@ -32,12 +31,59 @@ export const CUSTOMER_INFLOW_CALL_SITES: Record<CustomerInflowWritePath, readonl
   project_fifo: [
     "ProjectDetail → ClientPaymentHistory",
     "ProjectDetail → record payment actions",
+    "CustomerDetail.tsx → bulk pay (per-project FIFO slices)",
   ],
   invoice_targeted: [
     "Invoices.tsx → record payment on selected invoice",
-    "CustomerDetail.tsx → legacy bulk pay (manual FIFO + addPayment — migrate to project path per project when possible)",
+    "CustomerDetail.tsx → bulk pay (sale bills + invoices without projectId)",
   ],
 };
+
+export type CustomerBulkFifoLine = {
+  invoice: {
+    id: string;
+    projectId?: string | null;
+    invoiceNumber: string;
+    _isSaleBill?: boolean;
+  };
+  payAmount: number;
+};
+
+export type CustomerBulkInflowPlanItem =
+  | { path: "invoice_targeted"; invoiceId: string; amount: number; projectId?: string }
+  | { path: "project_fifo"; projectId: string; amount: number };
+
+/**
+ * Plans customer-level bulk payment into project FIFO slices and invoice-targeted rows.
+ * Sale bills and project-less invoices use invoice_targeted; other lines roll up per projectId.
+ */
+export function planCustomerBulkInflow(
+  breakdown: CustomerBulkFifoLine[],
+): CustomerBulkInflowPlanItem[] {
+  const projectAmounts = new Map<string, number>();
+  const planned: CustomerBulkInflowPlanItem[] = [];
+
+  for (const { invoice, payAmount } of breakdown) {
+    if (payAmount <= 0) continue;
+    const projectId = invoice.projectId?.trim();
+    if (invoice._isSaleBill || !projectId) {
+      planned.push({
+        path: "invoice_targeted",
+        invoiceId: invoice.id,
+        amount: payAmount,
+        projectId: projectId || undefined,
+      });
+    } else {
+      projectAmounts.set(projectId, (projectAmounts.get(projectId) ?? 0) + payAmount);
+    }
+  }
+
+  for (const [projectId, amount] of projectAmounts) {
+    planned.push({ path: "project_fifo", projectId, amount });
+  }
+
+  return planned;
+}
 
 export function validateInvoiceTargetedInflow(
   payment: Payment,

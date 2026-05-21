@@ -20,7 +20,7 @@ import type { ClientPaymentRecord } from "@/types/blockage";
 import { formatINR } from "@/lib/formatCurrency";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { validateClientPaymentRecord } from "@/lib/clientPaymentReconciliation";
-/** E10: parent should wire `onRecordPayment` → `recordCustomerInflow({ path: "project_fifo", record })`. */
+/** E10: parent wires `onRecordPayment` → `recordCustomerInflow({ path: "project_fifo", record })`. */
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 
 interface ClientPaymentHistoryProps {

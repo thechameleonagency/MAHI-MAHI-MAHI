@@ -81,7 +81,7 @@ const Invoices = () => {
     addSaleBill,
     updateInvoice,
     updateSaleBill,
-    addPayment,
+    recordCustomerInflow,
     addPartnerTransaction,
     addCustomer,
     generateId,
@@ -434,41 +434,47 @@ const Invoices = () => {
 
     // MSS-side Payment (recorded whenever mssPortion > 0)
     if (mssPortion > 0) {
-      addPayment({
-        id: generateId('PAY'),
-        date: paymentDate,
-        amount: mssPortion,
-        direction: 'in',
-        paymentMode: paymentMode,
-        counterpartyType: 'customer',
-        counterpartyId: selectedInvoice.customerId,
-        counterpartyName: selectedInvoice.customerName,
-        invoiceId: selectedInvoice.id,
-        projectId: selectedInvoice.projectId || undefined,
-        notes: `Payment for ${selectedInvoice.invoiceNumber}${paymentSource === "split" ? " (MSS portion of split)" : ""}`,
-        paymentSource: paymentSource === "split" ? "split" : "mss",
-        partnerId: paymentSource === "split" ? projectPartnerId : undefined,
-        partnerPortion: paymentSource === "split" ? partnerPortion : undefined,
+      recordCustomerInflow({
+        path: "invoice_targeted",
+        payment: {
+          id: generateId("PAY"),
+          date: paymentDate,
+          amount: mssPortion,
+          direction: "in",
+          paymentMode: paymentMode,
+          counterpartyType: "customer",
+          counterpartyId: selectedInvoice.customerId,
+          counterpartyName: selectedInvoice.customerName,
+          invoiceId: selectedInvoice.id,
+          projectId: selectedInvoice.projectId || undefined,
+          notes: `Payment for ${selectedInvoice.invoiceNumber}${paymentSource === "split" ? " (MSS portion of split)" : ""}`,
+          paymentSource: paymentSource === "split" ? "split" : "mss",
+          partnerId: paymentSource === "split" ? projectPartnerId : undefined,
+          partnerPortion: paymentSource === "split" ? partnerPortion : undefined,
+        },
       });
     }
 
     // Partner-side: separate Payment (counterpartyType=partner) + PartnerTransaction
     if (partnerPortion > 0 && projectPartnerId) {
       const partner = partners.find(p => p.id === projectPartnerId);
-      addPayment({
-        id: generateId('PAY'),
-        date: paymentDate,
-        amount: partnerPortion,
-        direction: 'in',
-        paymentMode: paymentMode,
-        counterpartyType: 'partner',
-        counterpartyId: projectPartnerId,
-        counterpartyName: partner?.name ?? "Partner",
-        invoiceId: selectedInvoice.id,
-        projectId: selectedInvoice.projectId || undefined,
-        notes: `Client paid partner on our behalf · Invoice ${selectedInvoice.invoiceNumber}`,
-        paymentSource: "partner",
-        partnerId: projectPartnerId,
+      recordCustomerInflow({
+        path: "invoice_targeted",
+        payment: {
+          id: generateId("PAY"),
+          date: paymentDate,
+          amount: partnerPortion,
+          direction: "in",
+          paymentMode: paymentMode,
+          counterpartyType: "partner",
+          counterpartyId: projectPartnerId,
+          counterpartyName: partner?.name ?? "Partner",
+          invoiceId: selectedInvoice.id,
+          projectId: selectedInvoice.projectId || undefined,
+          notes: `Client paid partner on our behalf · Invoice ${selectedInvoice.invoiceNumber}`,
+          paymentSource: "partner",
+          partnerId: projectPartnerId,
+        },
       });
       addPartnerTransaction({
         id: generateId('PT'),

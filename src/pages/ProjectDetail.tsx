@@ -195,7 +195,7 @@ const ProjectDetail = () => {
     resolveBlockage,
     addOperationalTicket,
     updateProjectTimelineForProject,
-    addClientPaymentRecord,
+    recordCustomerInflow,
     applySiteChecklistFromTemplate,
     dispatchSiteMaterial,
     getSiteVisitsByProject,
@@ -1047,15 +1047,18 @@ const ProjectDetail = () => {
               })
             }
             onRecordClientCash={(amount, notes) =>
-              addClientPaymentRecord({
-                id: generateId("CPR"),
-                projectId: project.id,
-                date: new Date().toISOString().slice(0, 10),
-                amount,
-                paymentMode: "cash",
-                notes,
-                recordedAt: new Date().toISOString(),
-                paymentStage: "other",
+              recordCustomerInflow({
+                path: "project_fifo",
+                record: {
+                  id: generateId("CPR"),
+                  projectId: project.id,
+                  date: new Date().toISOString().slice(0, 10),
+                  amount,
+                  paymentMode: "cash",
+                  notes,
+                  recordedAt: new Date().toISOString(),
+                  paymentStage: "other",
+                },
               })
             }
             onAddTicket={(t) => addOperationalTicket({ ...t, id: generateId("TKT"), createdAt: new Date().toISOString() })}
@@ -1535,7 +1538,12 @@ const ProjectDetail = () => {
             clientName={project.client}
             contractAmount={project.contractAmount}
             payments={clientPayments}
-            onRecordPayment={(payment) => addClientPaymentRecord({ ...payment, id: generateId("CPR"), recordedAt: new Date().toISOString() })}
+            onRecordPayment={(payment) =>
+              recordCustomerInflow({
+                path: "project_fifo",
+                record: { ...payment, id: generateId("CPR"), recordedAt: new Date().toISOString() },
+              })
+            }
             partnerName={partnerRow?.partnerName}
             forbidPartnerSettlement={forbidPartnerSettlement}
           />
@@ -2227,7 +2235,12 @@ const ProjectDetail = () => {
                 clientName={project.client}
                 contractAmount={project.contractAmount}
                 payments={clientPayments}
-                onRecordPayment={(payment) => addClientPaymentRecord({ ...payment, id: generateId("CPR"), recordedAt: new Date().toISOString() })}
+                onRecordPayment={(payment) =>
+                  recordCustomerInflow({
+                    path: "project_fifo",
+                    record: { ...payment, id: generateId("CPR"), recordedAt: new Date().toISOString() },
+                  })
+                }
                 partnerName={partnerRow?.partnerName}
                 forbidPartnerSettlement={forbidPartnerSettlement}
               />
