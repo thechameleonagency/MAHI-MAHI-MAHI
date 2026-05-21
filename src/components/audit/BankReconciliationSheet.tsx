@@ -22,24 +22,15 @@ import { toast } from "@/hooks/use-toast";
 import { fileExceedsLimit, MAX_UPLOAD_BYTES } from "@/lib/fileLimits";
 import { formatINR } from "@/lib/formatCurrency";
 import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
+import type {
+  BankReconciliationStatement,
+  BankStatementTransaction,
+} from "@/types/finance";
 
-interface BankTransaction {
-  date: string;
-  description: string;
-  debit: number;
-  credit: number;
-  balance: number;
-  reference?: string;
-  rawLine: string;
-}
+/** @deprecated Use `BankReconciliationStatement` from `@/types/finance`. */
+export type UploadedStatement = BankReconciliationStatement;
 
-export interface UploadedStatement {
-  id: string;
-  fileName: string;
-  type: "bank" | "cash";
-  transactions: BankTransaction[];
-  uploadedAt: string;
-}
+type BankTransaction = BankStatementTransaction;
 
 type FlagType = "matched" | "unmatched" | "duplicate" | "bank-charge" | "possible-match";
 
@@ -163,14 +154,16 @@ const BankReconciliationSheet = ({ open, onOpenChange }: Props) => {
     syncBankReconciliationLinks,
     clearBankReconciliationLinksForStatement,
   } = useAppData();
-  const [statements, setStatements] = useState<UploadedStatement[]>(() => (bankReconciliationStatements ?? []) as UploadedStatement[]);
+  const [statements, setStatements] = useState<BankReconciliationStatement[]>(
+    () => bankReconciliationStatements ?? [],
+  );
   const [activeTab, setActiveTab] = useState("upload");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedRowKeys, setExpandedRowKeys] = useState<Set<string>>(() => new Set());
 
   // Hydrate from context whenever the modal re-opens so prior uploads survive close/reopen (B13).
   useEffect(() => {
-    if (open) setStatements((bankReconciliationStatements ?? []) as UploadedStatement[]);
+    if (open) setStatements(bankReconciliationStatements ?? []);
   }, [open, bankReconciliationStatements]);
 
   const handleOpenChange = useCallback(

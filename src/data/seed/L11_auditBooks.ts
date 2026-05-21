@@ -1,5 +1,5 @@
 import type { AppState } from "@/contexts/AppDataContext";
-import type { UploadedStatement } from "@/components/audit/BankReconciliationSheet";
+import type { BankReconciliationStatement } from "@/types/finance";
 import type { SeedProfile } from "./seedLayerOrder";
 import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt } from "./seedTimeModel";
@@ -8,7 +8,7 @@ import { countFor, pushAudit } from "./seedHelpers";
 /** L11 — bank reconciliation statements + supplemental audit logs. */
 export function buildL11AuditBooks(state: AppState, profile: SeedProfile): AppState {
   const stmtCount = countFor(profile, 8);
-  const statements: UploadedStatement[] = [];
+  const statements: BankReconciliationStatement[] = [];
 
   for (let s = 0; s < stmtCount; s++) {
     const stmtId = seedId(SEED_ID_PREFIX.bankStatement);

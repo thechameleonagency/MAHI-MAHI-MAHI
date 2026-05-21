@@ -45,7 +45,7 @@ import {
   unlinkQuotationFromEnquiries,
 } from "@/lib/quotationProjectConversionPolicy";
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
-import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany, INCGiverTransaction } from "@/types/finance";
+import type { BankReconciliationStatement, Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany, INCGiverTransaction } from "@/types/finance";
 import type { Blockage, Ticket, ProjectTimelineStatus, ClientPaymentRecord } from "@/types/blockage";
 import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate, stripOrphanChecklistInventoryRefs } from "@/lib/siteChecklist";
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
@@ -269,7 +269,7 @@ export interface AppState {
   incGiverTransactions: INCGiverTransaction[];
 
   /** B13: persisted uploaded statements for the BankReconciliation modal (prototype). */
-  bankReconciliationStatements: unknown[];
+  bankReconciliationStatements: BankReconciliationStatement[];
 
   // ---- Operations entities (final-touches plan) ----
   /** Inventory reservations. Auto-created from project site checklist + manual reservations. */
@@ -612,8 +612,8 @@ interface AppDataContextType extends AppState {
   getTransactionsByIncGiverCompany: (companyId: string) => INCGiverTransaction[];
 
   // Bank reconciliation (prototype: persist uploaded statements across modal sessions; B13)
-  bankReconciliationStatements: unknown[];
-  setBankReconciliationStatements: (statements: unknown[]) => void;
+  bankReconciliationStatements: BankReconciliationStatement[];
+  setBankReconciliationStatements: (statements: BankReconciliationStatement[]) => void;
   /** E9 — write `reconciledWith` on matched expenses/incomes/payments from reconciliation results. */
   syncBankReconciliationLinks: (
     activeStatementIds: string[],
@@ -4656,7 +4656,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 
   // ============ BANK RECONCILIATION (B13 + E9) ============
-  const setBankReconciliationStatements = useCallback((statements: unknown[]) => {
+  const setBankReconciliationStatements = useCallback((statements: BankReconciliationStatement[]) => {
     setState(prev => ({ ...prev, bankReconciliationStatements: statements }));
   }, []);
 

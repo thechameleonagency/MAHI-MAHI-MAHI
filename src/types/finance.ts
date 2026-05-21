@@ -10,6 +10,26 @@ export interface BankReconciliationLink {
   matchFlag?: "matched" | "possible-match";
 }
 
+/** Parsed line from an uploaded bank/cash statement CSV. */
+export interface BankStatementTransaction {
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  reference?: string;
+  rawLine: string;
+}
+
+/** Persisted uploaded statement for bank reconciliation (B13 / MN3). */
+export interface BankReconciliationStatement {
+  id: string;
+  fileName: string;
+  type: "bank" | "cash";
+  transactions: BankStatementTransaction[];
+  uploadedAt: string;
+}
+
 export interface Customer {
   id: string;
   name: string;

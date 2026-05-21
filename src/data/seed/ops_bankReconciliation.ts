@@ -3,7 +3,7 @@ import type { SeedProfile } from "./seedLayerOrder";
 import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt } from "./seedTimeModel";
 import { getMinimumFor } from "./seedVolumeTargets";
-import type { UploadedStatement } from "@/components/audit/BankReconciliationSheet";
+import type { BankReconciliationStatement } from "@/types/finance";
 
 /** Ensure bank statements + matched/unmatched ledger coverage (§4 row 46). */
 export function buildOpsBankReconciliation(state: AppState, profile: SeedProfile): AppState {
@@ -16,7 +16,7 @@ export function buildOpsBankReconciliation(state: AppState, profile: SeedProfile
     const income = state.incomes[idx % Math.max(1, state.incomes.length)];
     const vp = state.vendorPayments[idx % Math.max(1, state.vendorPayments.length)];
 
-    const transactions: UploadedStatement["transactions"] = [];
+    const transactions: BankReconciliationStatement["transactions"] = [];
     let balance = 920000 + idx * 5000;
 
     if (payment) {

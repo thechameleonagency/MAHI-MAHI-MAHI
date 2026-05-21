@@ -10,6 +10,7 @@ import {
   countProjectsByLifecycle,
   matchesProjectLifecycleFilter,
 } from "@/lib/projectListFilters";
+import { isBankReconciliationStatement } from "@/lib/bankReconciliationStatement";
 
 const DRIFT_EPS = 1;
 
@@ -111,6 +112,25 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(newProjects.length).toBeGreaterThan(0);
     expect(newProjects.every((p) => matchesProjectLifecycleFilter(p, "New"))).toBe(true);
     expect(newProjects.every((p) => !p.startedAt)).toBe(true);
+  });
+
+  it("bank reconciliation statements are typed and linked on hydrated seed (MN3)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(hydrated.bankReconciliationStatements.length).toBeGreaterThan(0);
+    expect(
+      hydrated.bankReconciliationStatements.every((s) => isBankReconciliationStatement(s)),
+    ).toBe(true);
+    const stmtIds = new Set(hydrated.bankReconciliationStatements.map((s) => s.id));
+    const linked = [
+      ...hydrated.expenses,
+      ...hydrated.incomes,
+      ...hydrated.payments,
+      ...hydrated.vendorPayments,
+    ].filter((r) => r.reconciledWith?.statementId);
+    for (const row of linked) {
+      expect(stmtIds.has(row.reconciledWith!.statementId)).toBe(true);
+    }
   });
 
   it("projects list KPI stats match lifecycle buckets on hydrated seed (MN2)", () => {

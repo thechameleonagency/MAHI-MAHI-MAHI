@@ -5,6 +5,7 @@
 import { normalizeTools } from "@/lib/normalizeTools";
 import { reconcileAllEnquiryQuotationHistories } from "@/lib/enquiryQuotationHistory";
 import { migrateQuotationProjectLink } from "@/lib/quotationProjectLink";
+import { normalizeBankReconciliationStatements } from "@/lib/bankReconciliationStatement";
 import type { AppState } from "@/contexts/AppDataContext";
 import type { Quotation } from "@/types/project";
 
@@ -158,7 +159,9 @@ export function normalizeAppState(parsed: Partial<AppState> | null | undefined):
     vendorshipCompanies: ensureArray(parsed.vendorshipCompanies),
     incGiverCompanies: ensureArray(parsed.incGiverCompanies),
     incGiverTransactions: ensureArray(parsed.incGiverTransactions),
-    bankReconciliationStatements: ensureArray(parsed.bankReconciliationStatements),
+    bankReconciliationStatements: normalizeBankReconciliationStatements(
+      parsed.bankReconciliationStatements,
+    ),
     materialReservations: ensureArray(parsed.materialReservations),
     scheduledInstallations: ensureArray(parsed.scheduledInstallations),
     siteVisits: ensureArray(parsed.siteVisits),
