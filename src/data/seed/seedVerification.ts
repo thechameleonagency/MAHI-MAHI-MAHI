@@ -30,6 +30,7 @@ import {
   findStaleProgressReportTaskLinkage,
   formatStaleProgressReportTaskErrors,
 } from "@/lib/progressReportTaskContinuity";
+import { findStaleDiscomCheckOrder } from "@/lib/progressReportDiscom";
 import {
   findStaleDeletionRequests,
   formatStaleDeletionRequestErrors,
@@ -222,6 +223,12 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
   errors.push(...formatStaleBillingAmountReceivedErrors(findStaleBillingAmountReceived(state)));
 
   errors.push(...formatStaleProgressReportTaskErrors(findStaleProgressReportTaskLinkage(state)));
+
+  for (const stale of findStaleDiscomCheckOrder(state.projectTimelineByProjectId)) {
+    errors.push(
+      `C3: project ${stale.projectId} DISCOM checks out of order: ${stale.invalidChecks.join(", ")}`,
+    );
+  }
   errors.push(...formatStaleQuotationShareErrors(findStaleQuotationShareDetails(state)));
   errors.push(...formatStaleDeletionRequestErrors(findStaleDeletionRequests(state)));
 

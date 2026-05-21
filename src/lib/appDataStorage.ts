@@ -32,6 +32,7 @@ import { normalizeNonCollectibleBillingDocuments } from "@/lib/clientPaymentReco
 import { reconcileCustomersAutoArchive } from "@/domain/customer/customerArchive";
 import { reconcileProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 import { reconcileProgressReportTaskLinkage } from "@/lib/progressReportTaskContinuity";
+import { reconcileProjectTimelineDiscomChecks } from "@/lib/progressReportDiscom";
 import { reconcileDeletionRequests } from "@/lib/deletionRequestContinuity";
 import { reconcileQuotationShareDetails } from "@/lib/quotationShareContinuity";
 import { reconcileProjectsLifecycleVocabulary } from "@/lib/projectListFilters";
@@ -127,7 +128,8 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
   return reconcileProjectsLifecycleVocabulary(
     reconcileQuotationShareDetails(
       reconcileDeletionRequests(
-        reconcileProgressReportTaskLinkage(
+        reconcileProjectTimelineDiscomChecks(
+          reconcileProgressReportTaskLinkage(
           reconcileProjectCustomerLinkage(
             reconcileProjectAgentCommissionState(
               reconcileIncGiverTransactions(
@@ -140,6 +142,7 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
                 ),
               ),
             ),
+          ),
           ),
         ),
       ),

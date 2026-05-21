@@ -30,6 +30,16 @@ import { WORK_STATUS_STAGES, BLOCKAGE_TIMELINE_STAGES, DEFAULT_CUSTOM_STAGE_TAGS
 import type { Employee, ProjectScopeConfig, Task } from "@/types/project";
 import { resolveProgressReportActor } from "@/lib/progressReportActor";
 import {
+  DISCOM_CHECK_LABELS,
+  DISCOM_CHECK_ORDER,
+  applyDiscomCheckChange,
+} from "@/lib/progressReportDiscom";
+import {
+  fieldSubItemSubmissionStatus,
+  stageAwaitingApproverAction,
+  subItemAwaitingApproverAction,
+} from "@/lib/progressReportWorkStatus";
+import {
   countPendingTransportSubItems,
   sumTransportedQtyForStage,
 } from "@/lib/progressReportTransport";
@@ -112,12 +122,11 @@ const SUBSIDY_OPTIONS = [
   { value: "not-applicable", label: "N/A", amount: "₹0", color: "bg-muted border-muted-foreground/20 text-muted-foreground" },
 ];
 
-// DISCOM checkboxes (sequential)
-const DISCOM_ITEMS = [
-  { value: "meter-file-submit", label: "Meter & File Submit DISCOM" },
-  { value: "net-metering", label: "Net Metering" },
-  { value: "subsidy-apply-photo", label: "Subsidy Apply with Site Photos" },
-];
+// DISCOM checkboxes (sequential — order enforced in progressReportDiscom)
+const DISCOM_ITEMS = DISCOM_CHECK_ORDER.map((value) => ({
+  value,
+  label: DISCOM_CHECK_LABELS[value],
+}));
 
 // Loan flow stages
 const LOAN_STAGES = [
@@ -214,7 +223,7 @@ export function ProgressReportTab({
   const [taskModalMilestoneId, setTaskModalMilestoneId] = useState<string | undefined>();
   
   const { currentRole, sessionUserId, demoUserName } = useAppSession();
-  const { userId: actorUserId, displayName: actorDisplayName, isAdmin } = resolveProgressReportActor({
+  const { userId: actorUserId, displayName: actorDisplayName, isAdmin, canApproveWorkStatus } = resolveProgressReportActor({
     sessionUserId,
     displayName: demoUserName,
     role: currentRole,
@@ -591,7 +600,7 @@ export function ProgressReportTab({
 
   // Work Status: Multi-select checkboxes (Admin direct action)
   const handleWorkStatusCheck = (item: string, checked: boolean) => {
-    if (!isAdmin) {
+    if (!canApproveWorkStatus) {
       toast({ title: "Request Required", description: "Please use 'Request Done' to submit for approval", variant: "destructive" });
       return;
     }
@@ -652,8 +661,10 @@ export function ProgressReportTab({
     const videoN = videoUrls?.length ?? 0;
     const _count = photoN + videoN;
     const hasMedia = photoN > 0 || videoN > 0;
-    const subStatus: WorkStatusApprovalStatus =
-      isAdmin ? "approved" : hasMedia ? "requested" : "pending";
+    const subStatus: WorkStatusApprovalStatus = fieldSubItemSubmissionStatus(
+      canApproveWorkStatus,
+      hasMedia,
+    );
     const next: WorkApprovalsState = {
       ...prev,
       [stageKey]: {
@@ -672,10 +683,12 @@ export function ProgressReportTab({
             photoUrls: photoUrls?.length ? photoUrls : prev[stageKey]?.subItemApprovals?.[subItemKey]?.photoUrls,
             videoUrls: videoUrls?.length ? videoUrls : prev[stageKey]?.subItemApprovals?.[subItemKey]?.videoUrls,
             notes: notes || undefined,
-            approvedByName: isAdmin ? actorDisplayName : undefined,
-            approvedAt: isAdmin ? new Date().toISOString() : undefined,
-            requestedByName: !isAdmin && hasMedia ? actorDisplayName : undefined,
-            requestedAt: !isAdmin && hasMedia ? new Date().toISOString() : undefined,
+            approvedByName: canApproveWorkStatus ? actorDisplayName : undefined,
+            approvedAt: canApproveWorkStatus ? new Date().toISOString() : undefined,
+            approvedBy: canApproveWorkStatus ? actorUserId : undefined,
+            requestedByName: !canApproveWorkStatus && hasMedia ? actorDisplayName : undefined,
+            requestedAt: !canApproveWorkStatus && hasMedia ? new Date().toISOString() : undefined,
+            requestedBy: !canApproveWorkStatus && hasMedia ? actorUserId : undefined,
           },
         },
       },
@@ -684,8 +697,10 @@ export function ProgressReportTab({
     onUpdateTimeline({ workStatusApprovals: next, updatedAt: new Date().toISOString() });
 
     toast({
-      title: isAdmin ? "Item Completed" : "Submitted for Approval",
-      description: isAdmin ? "Sub-item marked as complete" : "Your update has been submitted for admin approval",
+      title: canApproveWorkStatus ? "Item Completed" : "Submitted for Approval",
+      description: canApproveWorkStatus
+        ? "Sub-item marked as complete"
+        : "Your update has been submitted for admin approval",
     });
   };
 
@@ -701,6 +716,7 @@ export function ProgressReportTab({
           [subItemKey]: {
             ...prev[stageKey]?.subItemApprovals?.[subItemKey],
             status: "approved",
+            approvedBy: actorUserId,
             approvedByName: actorDisplayName,
             approvedAt: new Date().toISOString(),
           },
@@ -774,6 +790,9 @@ export function ProgressReportTab({
       [item]: {
         ...prev[item],
         status: "approved",
+        approvedBy: actorUserId,
+        approvedByName: actorDisplayName,
+        approvedAt: new Date().toISOString(),
       },
     };
     setWorkStatusApprovals(next);
@@ -997,29 +1016,16 @@ export function ProgressReportTab({
 
   // DISCOM: Sequential checkboxes
   const handleDiscomCheck = (item: string, checked: boolean) => {
-    const itemIndex = DISCOM_ITEMS.findIndex(d => d.value === item);
-    let newChecks = [...discomChecks];
-    
-    if (checked) {
-      // Can only check if previous items are checked
-      const canCheck = DISCOM_ITEMS.slice(0, itemIndex).every(d => discomChecks.includes(d.value));
-      if (canCheck || itemIndex === 0) {
-        if (!newChecks.includes(item)) {
-          newChecks.push(item);
-        }
-      } else {
-        toast({ title: "Complete Previous Step", description: "Please complete the previous steps first", variant: "destructive" });
-        return;
-      }
-    } else {
-      // When unchecking, also uncheck subsequent items
-      newChecks = newChecks.filter(c => {
-        const cIndex = DISCOM_ITEMS.findIndex(d => d.value === c);
-        return cIndex < itemIndex;
+    const result = applyDiscomCheckChange(discomChecks, item, checked);
+    if (!result.ok) {
+      toast({
+        title: "Complete Previous Step",
+        description: result.reason,
+        variant: "destructive",
       });
+      return;
     }
-    
-    onUpdateTimeline({ discomChecks: newChecks, updatedAt: new Date().toISOString() });
+    onUpdateTimeline({ discomChecks: result.checks, updatedAt: new Date().toISOString() });
   };
 
   const handleDiscomSubsidyStatus = (status: "approved" | "rejected") => {
@@ -2695,8 +2701,8 @@ export function ProgressReportTab({
                             'bg-muted/30 border-muted-foreground/10'
                         }`}>
                           <div className="flex items-center gap-2">
-                            {/* Checkbox - Admin only */}
-                            {isAdmin ? (
+                            {/* Checkbox - approver roles only */}
+                            {canApproveWorkStatus ? (
                               <Checkbox
                                 id={`work-${stage.value}`}
                                 checked={isChecked}
@@ -2794,7 +2800,10 @@ export function ProgressReportTab({
                                   // Get sub-item approval info
                                   const subApproval = approval?.subItemApprovals?.[subItem.value];
                                   const isSubCompleted = subApproval?.status === "approved" || subApproval?.status === "closed";
-                                  const isSubPending = subApproval?.status === "pending";
+                                  const awaitsSubApproval = subItemAwaitingApproverAction(
+                                    subApproval,
+                                    subItem.photoRequired || false,
+                                  );
                                   const isSubOnHold = subApproval?.status === "rejected";
                                   const hasBlockage = blockages.some(b => 
                                     b.status === "active" && 
@@ -2922,8 +2931,8 @@ export function ProgressReportTab({
                                         </div>
                                       )}
                                       
-                                      {/* Admin actions for pending approval */}
-                                      {isAdmin && isSubPending && (
+                                      {/* Approver actions for field submissions */}
+                                      {canApproveWorkStatus && awaitsSubApproval && (
                                         <div className="mt-2 ml-5 flex gap-2">
                                           <Button 
                                             size="sm" 
@@ -2972,7 +2981,7 @@ export function ProgressReportTab({
                           {/* Action Buttons */}
                           <div className="flex items-center gap-2 ml-6">
                             {/* User: Request Done button */}
-                            {!isAdmin && approvalStatus === "pending" && !isChecked && (
+                            {!canApproveWorkStatus && approvalStatus === "pending" && !isChecked && (
                               <Button 
                                 size="sm" 
                                 variant="outline" 
@@ -2985,7 +2994,7 @@ export function ProgressReportTab({
                             )}
                             
                             {/* User: After rejection - can re-request */}
-                            {!isAdmin && approvalStatus === "rejected" && (
+                            {!canApproveWorkStatus && approvalStatus === "rejected" && (
                               <Button 
                                 size="sm" 
                                 variant="outline" 
@@ -2997,8 +3006,8 @@ export function ProgressReportTab({
                               </Button>
                             )}
                             
-                            {/* Admin: Approve/Reject buttons for pending requests */}
-                            {isAdmin && approvalStatus === "requested" && (
+                            {/* Approver: Approve/Reject for field requests */}
+                            {canApproveWorkStatus && stageAwaitingApproverAction(approvalStatus) && (
                               <>
                                 <Button 
                                   size="sm" 
@@ -3020,8 +3029,8 @@ export function ProgressReportTab({
                               </>
                             )}
                             
-                            {/* Admin: Close button for approved items */}
-                            {isAdmin && approvalStatus === "approved" && (
+                            {/* Approver: Close button for approved items */}
+                            {canApproveWorkStatus && approvalStatus === "approved" && (
                               <Button 
                                 size="sm" 
                                 variant="outline"

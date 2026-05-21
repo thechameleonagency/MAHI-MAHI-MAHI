@@ -31,6 +31,7 @@ import { findStaleClientPaymentLedgerLinkage } from "@/lib/clientPaymentReconcil
 import { findStaleEnquiryAssigneeState } from "@/lib/enquiryAssignee";
 import { findStaleProjectCustomerLinkage } from "@/lib/projectCustomerLinkage";
 import { findStaleProgressReportTaskLinkage } from "@/lib/progressReportTaskContinuity";
+import { findStaleDiscomCheckOrder } from "@/lib/progressReportDiscom";
 import { findStaleDeletionRequests } from "@/lib/deletionRequestContinuity";
 import { findStaleQuotationShareDetails } from "@/lib/quotationShareContinuity";
 
@@ -202,6 +203,12 @@ describe("seed & hydration integrity after audit fixes", () => {
         expect(project.client.trim().toLowerCase()).toBe(customer!.name.trim().toLowerCase());
       }
     }
+  });
+
+  it("DISCOM checks are sequential on hydrated seed (C3 / V3)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleDiscomCheckOrder(hydrated.projectTimelineByProjectId)).toEqual([]);
   });
 
   it("no stale open enquiry after quotation approve on hydrated seed (FC2)", () => {
