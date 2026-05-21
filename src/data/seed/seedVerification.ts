@@ -11,6 +11,7 @@ import { deriveBusinessAlertDescriptors, type BusinessAlertKind } from "@/lib/bu
 import { reconcileClientPaymentLedger } from "@/lib/clientPaymentReconciliation";
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
+import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
 
 import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 
@@ -154,6 +155,10 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
   for (const stale of findStaleChangeRequestBilling(state)) {
     errors.push(`FC3: change request ${stale.changeRequestId} — ${stale.reason}`);
+  }
+
+  for (const stale of findStaleVendorBillBooks(state)) {
+    errors.push(`FC4: vendor bill ${stale.vendorBillId} (${stale.billNumber}) — ${stale.reason}`);
   }
 
 

@@ -434,7 +434,7 @@ interface AppDataContextType extends AppState {
   ) => void;
 
   // Vendor Bills CRUD
-  addVendorBill: (bill: VendorBill) => void;
+  addVendorBill: (bill: VendorBill) => Promise<void>;
   updateVendorBill: (id: string, updates: Partial<VendorBill>) => void;
   deleteVendorBill: (id: string) => void;
   getVendorBillsByVendor: (vendorId: string) => VendorBill[];
@@ -3994,7 +3994,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   // ============ VENDOR BILLS CRUD ============
-  const addVendorBill = useCallback((bill: VendorBill) => {
+  const addVendorBill = useCallback(async (bill: VendorBill) => {
     if (!canPerformActionOrWarn("vendor:record_bill")) return;
     const postingResult = postVendorBillVoucher(bill, voucherPostingService);
     const reviewQueueItem = postingResult
@@ -4017,14 +4017,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       };
     });
 
-    // C4: also record a PurchaseIn warehouse movement per line item with an inventory link.
-    // Bills without `inventoryItemId` are skipped (e.g. pure-service bills) so we don't fabricate movements.
+    // FC4: PurchaseIn after GL booking so stock and vouchers stay aligned in the UI.
     for (const line of bill.items ?? []) {
       const itemId = line.inventoryItemId;
       const qty = Number(line.quantity);
       if (!itemId || !Number.isFinite(qty) || qty <= 0) continue;
-      // Fire-and-forget — the recorder is itself permission-gated and updates inventory atomically.
-      void recordWarehouseInventoryMovement({
+      await recordWarehouseInventoryMovement({
         itemId,
         movementType: "PurchaseIn",
         quantity: qty,

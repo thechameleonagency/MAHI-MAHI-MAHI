@@ -13,6 +13,7 @@ import {
 import { isBankReconciliationStatement } from "@/lib/bankReconciliationStatement";
 import { findStaleOpenEnquiriesAfterProjectWin } from "@/lib/enquiryPipelineContinuity";
 import { findStaleChangeRequestBilling } from "@/lib/changeRequestPipelineContinuity";
+import { findStaleVendorBillBooks } from "@/lib/vendorBillPipelineContinuity";
 
 const DRIFT_EPS = 1;
 
@@ -178,6 +179,20 @@ describe("seed & hydration integrity after audit fixes", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleOpenEnquiriesAfterProjectWin(hydrated)).toEqual([]);
+  });
+
+  it("bookable vendor bills post PurchaseBillBooked on hydrated seed (FC4)", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    expect(findStaleVendorBillBooks(hydrated)).toEqual([]);
+    const overdue = hydrated.vendorBills.find((b) => b.billNumber === "VB-2026-OVERDUE");
+    if (overdue) {
+      expect(
+        hydrated.accountingVouchers.some(
+          (v) => v.sourceDocumentId === overdue.id && v.sourceEvent === "PurchaseBillBooked",
+        ),
+      ).toBe(true);
+    }
   });
 
   it("approved change requests bill to real invoices on hydrated seed (FC3)", () => {
