@@ -18,9 +18,15 @@ import {
 } from "@/lib/defaultAppBoot";
 import { migrateOpaqueCustomerIds } from "@/lib/migrateCustomerIds";
 import { migratePersistedState } from "@/lib/migratePersistedIds";
-import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
+import {
+  reconcileProjectsAmountInvoiced,
+  reconcileProjectsAmountReceived,
+} from "@/lib/billingSelectors";
+import { reconcileAuditLogUserNames } from "@/lib/resolveAuditActorUserName";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
 import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
+import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScopeSeed";
+import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import type { AppState } from "@/contexts/AppDataContext";
 
@@ -78,15 +84,25 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
     hydrateInvoiceLinkage(migrated.saleBills, customers, projects),
     "saleBills",
   );
-  const reconciledProjects = reconcileProjectsAmountInvoiced(projects, invoices, saleBills);
-  return reconcileVendorBillVouchers(
-    reconcileEnquiriesConvertedOnProjectLink({
-      ...migrated,
-      projects: reconciledProjects,
-      quotations,
-      invoices,
-      saleBills,
-    }),
+  const reconciledProjects = reconcileProjectsAmountReceived(
+    reconcileProjectsAmountInvoiced(projects, invoices, saleBills),
+    migrated.payments,
+    migrated.incomes,
+  );
+  const auditLogs = reconcileAuditLogUserNames(migrated.auditLogs, migrated.settingsTeamMembers);
+  return reconcileChangeRequestDeltaInvoices(
+    reconcileProjectActorScopeSeed(
+      reconcileVendorBillVouchers(
+        reconcileEnquiriesConvertedOnProjectLink({
+          ...migrated,
+          projects: reconciledProjects,
+          quotations,
+          invoices,
+          saleBills,
+          auditLogs,
+        }),
+      ),
+    ),
   );
 }
 

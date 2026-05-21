@@ -122,7 +122,7 @@ const AuditReports = () => {
       icon: Scale,
       records: [...invoices, ...saleBills].filter(i => i.status !== "paid").length,
       onExport: () => {
-        const dc = debtorCreditorSummary(invoices, saleBills, vendorBills);
+        const dc = debtorCreditorSummary(invoices, saleBills, vendorBills, payments);
         downloadCSV(
           dc.debtors.map((inv) => ({
             Customer: inv.customerName,

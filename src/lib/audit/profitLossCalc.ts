@@ -82,11 +82,10 @@ export function computeProfitLoss(
   if (basis === "accrual") {
     revenueTotal = periodInvoices.reduce((s, inv) => s + inv.total, 0);
   } else {
-    const cashFromInvoices = periodInvoices.reduce((s, inv) => s + (inv.amountReceived ?? 0), 0);
-    const cashFromPayments = (input.payments ?? [])
+    // Cash basis = payments-in only (never add invoice.amountReceived — double-counts with CPR rows).
+    revenueTotal = (input.payments ?? [])
       .filter((p) => p.direction === "in" && inPeriod(p.date))
       .reduce((s, p) => s + p.amount, 0);
-    revenueTotal = Math.max(cashFromInvoices, cashFromPayments);
   }
 
   const solarSales = periodInvoices.reduce(

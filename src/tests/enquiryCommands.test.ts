@@ -3,6 +3,7 @@ import { CommandBus } from "@/application/commands/CommandBus";
 import {
   CONVERT_ENQUIRY_COMMAND,
   CREATE_ENQUIRY_COMMAND,
+  UPDATE_ENQUIRY_COMMAND,
   registerEnquiryCommands,
 } from "@/application/commands/enquiry/registerEnquiryCommands";
 import { PermissionService } from "@/application/services/PermissionService";
@@ -115,6 +116,43 @@ describe("Enquiry commands", () => {
       actorUserId: "admin",
       actorRole: "admin",
       payload: { enquiryId: "ENQ-TEST-002" },
+    });
+    expect(blocked.ok).toBe(false);
+  });
+
+  it("UpdateEnquiry writes field-diff audit rows and rejects status in patch", async () => {
+    const repositories = emptyRepos();
+    const bus = new CommandBus();
+    registerEnquiryCommands(
+      bus,
+      repositories,
+      new PermissionService(),
+      new AuditService({ auditRepository: repositories.auditRepository }),
+    );
+    repositories.enquiryRepository.add(baseEnquiry({ assignedTo: "", priority: "low" }));
+
+    const updated = await bus.execute({
+      type: UPDATE_ENQUIRY_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: {
+        enquiryId: "ENQ-TEST-001",
+        patch: { assignedTo: "SAL-001", priority: "high" },
+      },
+    });
+    expect(updated.ok).toBe(true);
+    const stored = repositories.enquiryRepository.getById("ENQ-TEST-001");
+    expect(stored?.assignedTo).toBe("SAL-001");
+    expect(stored?.priority).toBe("high");
+    const audits = repositories.auditRepository.getAll();
+    expect(audits.some((a) => a.field === "assignedTo")).toBe(true);
+    expect(audits.some((a) => a.field === "priority")).toBe(true);
+
+    const blocked = await bus.execute({
+      type: UPDATE_ENQUIRY_COMMAND,
+      actorUserId: "admin",
+      actorRole: "admin",
+      payload: { enquiryId: "ENQ-TEST-001", patch: { status: "lost" } },
     });
     expect(blocked.ok).toBe(false);
   });

@@ -44,6 +44,7 @@ import type { Customer, Invoice, Expense, Income, Partner, PartnerTransaction, L
 import type { Blockage, Ticket, ProjectTimelineStatus, ClientPaymentRecord } from "@/types/blockage";
 import { findUnknownChecklistInventoryIds, siteWithChecklistFromTemplate, stripOrphanChecklistInventoryRefs } from "@/lib/siteChecklist";
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
+import { resolveAuditActorUserName } from "@/lib/resolveAuditActorUserName";
 import {
   applyProjectDeletionToState,
   buildProjectDeletionAuditEntry,
@@ -75,12 +76,14 @@ import {
   syncBankReconciliationLinks,
 } from "@/lib/bankReconciliationLink";
 import { validateChangeRequestDraft } from "@/lib/changeRequestValidation";
-import { saveCreateDraft, buildProjectToInvoiceDraft } from "@/lib/createFromContext";
+import { buildChangeRequestDeltaInvoice } from "@/lib/changeRequestDeltaInvoice";
 import {
   buildClientPaymentRecordPaymentRow,
+  CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX,
   clientPaymentRecordPaymentId,
   fifoApplyClientPaymentToInvoices,
   formatClientPaymentLedgerReconcileDevMessage,
+  isClientPaymentRecordPayment,
   reconcileClientPaymentLedger,
   summarizeClientPaymentLedgerReconcile,
   validateClientPaymentRecord,
@@ -104,7 +107,12 @@ import { showPermissionDeniedToast, showPermissionDeniedToastForAction } from "@
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useRoleMatrix } from "@/contexts/RoleMatrixContext";
 import { canFeature } from "@/domain/policies/featurePermissions";
-import { CREATE_ENQUIRY_COMMAND, UPDATE_ENQUIRY_STATUS_COMMAND, CONVERT_ENQUIRY_COMMAND } from "@/application/commands/enquiry/registerEnquiryCommands";
+import {
+  CREATE_ENQUIRY_COMMAND,
+  UPDATE_ENQUIRY_COMMAND,
+  UPDATE_ENQUIRY_STATUS_COMMAND,
+  CONVERT_ENQUIRY_COMMAND,
+} from "@/application/commands/enquiry/registerEnquiryCommands";
 import {
   CREATE_QUOTATION_COMMAND,
   TRANSITION_QUOTATION_STATUS_COMMAND,
@@ -123,7 +131,11 @@ import {
   prepareBillingDocumentForStorage,
   stripVolatileDocumentTypeFields,
 } from "@/lib/invoiceDocumentType";
-import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
+import {
+  applyProjectReceivedFromIncomeDelta,
+  incomeCountsTowardProjectReceived,
+  reconcileProjectsAmountInvoiced,
+} from "@/lib/billingSelectors";
 import { formatINR } from "@/lib/formatCurrency";
 import {
   hasPurchaseBillBookedVoucher,
@@ -447,7 +459,7 @@ interface AppDataContextType extends AppState {
   
   // Enquiries CRUD
   addEnquiry: (enquiry: Enquiry) => Promise<{ ok: boolean; error?: string }>;
-  updateEnquiry: (id: string, updates: Partial<Enquiry>) => void;
+  updateEnquiry: (id: string, updates: Partial<Enquiry>) => Promise<{ ok: boolean; error?: string }>;
   deleteEnquiry: (id: string) => void;
   getEnquiryById: (id: string) => Enquiry | undefined;
   transitionEnquiryStatus: (id: string, nextStatus: EnquiryStatus, reason?: string) => Promise<{ ok: boolean; error?: string }>;
@@ -623,7 +635,12 @@ interface AppDataContextType extends AppState {
   addProjectChangeRequest: (
     request: Omit<import("@/types/operations").ProjectChangeRequest, "id" | "requestedAt" | "status">,
   ) => { ok: true; id: string } | { ok: false; error: string };
-  approveProjectChangeRequest: (id: string) => { ok: boolean; error?: string; generatedInvoiceId?: string };
+  approveProjectChangeRequest: (id: string) => {
+    ok: boolean;
+    error?: string;
+    generatedInvoiceId?: string;
+    generatedInvoiceNumber?: string;
+  };
   rejectProjectChangeRequest: (id: string, reason?: string) => void;
   getChangeRequestsByProject: (projectId: string) => import("@/types/operations").ProjectChangeRequest[];
 
@@ -738,8 +755,28 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const runCommand = useCallback(
     <TResult,>(command: Command): Promise<CommandResult<TResult>> =>
-      commandBus.execute<TResult>({ ...command, matrixOverride: roleMatrixOverride }),
-    [commandBus, roleMatrixOverride],
+      commandBus.execute<TResult>({
+        ...command,
+        actorUserId: command.actorUserId ?? actorUserId,
+        actorRole: command.actorRole ?? actorRole,
+        actorDisplayName:
+          command.actorDisplayName ??
+          resolveAuditActorUserName({
+            actor: { actorUserId, actorRole, actorDisplayName },
+            settingsTeamMembers: state.settingsTeamMembers,
+            demoUserName: demoUserName,
+          }),
+        matrixOverride: roleMatrixOverride,
+      }),
+    [
+      commandBus,
+      roleMatrixOverride,
+      actorUserId,
+      actorRole,
+      actorDisplayName,
+      demoUserName,
+      state.settingsTeamMembers,
+    ],
   );
 
   // ============ CROSS-TAB SYNC (storage events from other windows) ============
@@ -797,6 +834,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         payments: prev.payments,
         invoices: prev.invoices,
         projects: prev.projects,
+        incomes: prev.incomes,
       });
       const summary = summarizeClientPaymentLedgerReconcile(
         {
@@ -853,7 +891,11 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     id: generateId("LOG"),
     timestamp: new Date().toISOString(),
     userId: actorUserId,
-    userName: actorDisplayName,
+    userName: resolveAuditActorUserName({
+      actor: { actorUserId, actorRole, actorDisplayName },
+      settingsTeamMembers: state.settingsTeamMembers,
+      demoUserName: demoUserName,
+    }),
     action,
     entityType,
     entityId,
@@ -861,7 +903,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     field,
     oldValue,
     newValue,
-  }), [actorDisplayName, actorUserId, generateId]);
+  }), [actorDisplayName, actorRole, actorUserId, demoUserName, generateId, state.settingsTeamMembers]);
 
   const createReviewQueueItem = useCallback((
     postingResult: PostingResult,
@@ -2218,10 +2260,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           );
         }
       }
-      const updatedProjects = incomeToStore.projectId
-        ? prev.projects.map((p) =>
-            p.id === incomeToStore.projectId ? { ...p, amountReceived: (p.amountReceived ?? 0) + incomeToStore.amount } : p,
-          )
+      const updatedProjects = incomeCountsTowardProjectReceived(incomeToStore)
+        ? applyProjectReceivedFromIncomeDelta(prev.projects, incomeToStore.projectId, incomeToStore.amount)
         : prev.projects;
       return {
         ...prev,
@@ -2235,12 +2275,41 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   
   const updateIncome = useCallback((id: string, updates: Partial<Income>) => {
     if (!canPerformActionOrWarn("finance:update_income")) return;
-    const auditEntry = createAuditEntry("update", "Income", id, updates.notes || id);
-    setState(prev => ({
-      ...prev,
-      incomes: prev.incomes.map(i => i.id === id ? { ...i, ...updates } : i),
-      auditLogs: [auditEntry, ...prev.auditLogs],
-    }));
+    setState((prev) => {
+      const old = prev.incomes.find((i) => i.id === id);
+      const auditLogs =
+        old != null
+          ? auditFieldDiff(
+              createAuditEntry,
+              "Income",
+              id,
+              old.category || id,
+              old as unknown as Record<string, unknown>,
+              updates as unknown as Record<string, unknown>,
+            )
+          : [createAuditEntry("update", "Income", id, updates.notes || id)];
+      if (!old) {
+        return {
+          ...prev,
+          incomes: prev.incomes.map((i) => (i.id === id ? { ...i, ...updates } : i)),
+          auditLogs: [...auditLogs, ...prev.auditLogs],
+        };
+      }
+      const next: Income = { ...old, ...updates };
+      let projects = prev.projects;
+      if (incomeCountsTowardProjectReceived(old)) {
+        projects = applyProjectReceivedFromIncomeDelta(projects, old.projectId, -old.amount);
+      }
+      if (incomeCountsTowardProjectReceived(next)) {
+        projects = applyProjectReceivedFromIncomeDelta(projects, next.projectId, next.amount);
+      }
+      return {
+        ...prev,
+        incomes: prev.incomes.map((i) => (i.id === id ? next : i)),
+        projects,
+        auditLogs: [...auditLogs, ...prev.auditLogs],
+      };
+    });
   }, [canPerformActionOrWarn, createAuditEntry]);
   
   const deleteIncome = useCallback((id: string) => {
@@ -2248,13 +2317,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     const auditEntry = createAuditEntry("delete", "Income", id, id);
     setState(prev => {
       const removedIncome = prev.incomes.find(i => i.id === id);
-      const updatedProjects = removedIncome
-        ? prev.projects.map((project) =>
-            project.id === removedIncome.projectId
-              ? { ...project, amountReceived: Math.max(0, (project.amountReceived ?? 0) - removedIncome.amount) }
-              : project
-          )
-        : prev.projects;
+      const updatedProjects =
+        removedIncome && incomeCountsTowardProjectReceived(removedIncome)
+          ? applyProjectReceivedFromIncomeDelta(prev.projects, removedIncome.projectId, -removedIncome.amount)
+          : prev.projects;
       return {
         ...prev,
         incomes: prev.incomes.filter(i => i.id !== id),
@@ -2344,9 +2410,19 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   
   const updatePayment = useCallback((id: string, updates: Partial<Payment>) => {
     if (!canPerformActionOrWarn("finance:update_payment")) return;
-    const auditEntry = createAuditEntry("update", "Payment", id, id);
     setState(prev => {
       const oldPayment = prev.payments.find(p => p.id === id);
+      const auditLogs =
+        oldPayment != null
+          ? auditFieldDiff(
+              createAuditEntry,
+              "Payment",
+              id,
+              oldPayment.counterpartyName || oldPayment.paymentMode || id,
+              oldPayment as unknown as Record<string, unknown>,
+              updates as unknown as Record<string, unknown>,
+            )
+          : [createAuditEntry("update", "Payment", id, id)];
       const updatedPayment = oldPayment ? { ...oldPayment, ...updates } : undefined;
       const patchInvoiceDocs = (docs: Invoice[]) =>
         docs.map((invoice) => {
@@ -2397,7 +2473,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         invoices: updatedInvoices,
         saleBills: updatedSaleBills,
         projects: updatedProjects,
-        auditLogs: [auditEntry, ...prev.auditLogs],
+        auditLogs: [...auditLogs, ...prev.auditLogs],
       };
     });
   }, [canPerformActionOrWarn, createAuditEntry]);
@@ -2406,7 +2482,34 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!canPerformActionOrWarn("finance:delete_payment")) return;
     setState(prev => {
       const payment = prev.payments.find(p => p.id === id);
-      if (!payment) return { ...prev, payments: prev.payments.filter(p => p.id !== id) };
+      if (!payment) return prev;
+      const auditLogs: AuditLogEntry[] = [
+        createAuditEntry(
+          "delete",
+          "Payment",
+          id,
+          payment.counterpartyName || payment.paymentMode || id,
+          "amount",
+          String(payment.amount),
+          "0",
+        ),
+      ];
+      if (isClientPaymentRecordPayment(payment)) {
+        const cprId = payment.id.startsWith(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX)
+          ? payment.id.slice(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX.length)
+          : (payment.reference?.slice(CLIENT_PAYMENT_RECORD_PAYMENT_PREFIX.length) ?? payment.id);
+        auditLogs.push(
+          createAuditEntry(
+            "delete",
+            "ClientPaymentRecord",
+            cprId,
+            payment.projectName || payment.projectId || cprId,
+            "amount",
+            String(payment.amount),
+            "0",
+          ),
+        );
+      }
       const applyDec = (doc: Invoice) =>
         doc.id === payment.invoiceId
           ? { ...doc, amountReceived: Math.max(0, (doc.amountReceived ?? 0) - payment.amount) }
@@ -2429,6 +2532,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
               : c
           )
         : prev.customers;
+      let incomes = prev.incomes;
+      if (payment.linkedIncomeId) {
+        incomes = prev.incomes.map((row) =>
+          row.id === payment.linkedIncomeId ? { ...row, linkedPaymentId: undefined } : row,
+        );
+      }
       return {
         ...prev,
         payments: prev.payments.filter(p => p.id !== id),
@@ -2436,21 +2545,37 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         saleBills: updatedSaleBills,
         projects: updatedProjects,
         customers: updatedCustomers,
+        incomes,
+        auditLogs: [...auditLogs, ...prev.auditLogs],
       };
     });
-  }, []);
+  }, [canPerformActionOrWarn, createAuditEntry]);
 
   const dismissAccountingReviewItem = useCallback(
     (queueItemId: string) => {
       if (!canPerformActionOrWarn("finance:record_expense_income")) {
         return;
       }
-      setState((prev) => ({
-        ...prev,
-        accountingReviewQueue: prev.accountingReviewQueue.filter((i) => i.id !== queueItemId),
-      }));
+      setState((prev) => {
+        const item = prev.accountingReviewQueue.find((i) => i.id === queueItemId);
+        if (!item) return prev;
+        const auditEntry = createAuditEntry(
+          "delete",
+          "AccountingReviewQueue",
+          queueItemId,
+          `${item.eventType} — ${item.sourceDocumentId}`,
+          "amount",
+          String(item.amount),
+          "",
+        );
+        return {
+          ...prev,
+          accountingReviewQueue: prev.accountingReviewQueue.filter((i) => i.id !== queueItemId),
+          auditLogs: [auditEntry, ...prev.auditLogs],
+        };
+      });
     },
-    [canPerformActionOrWarn],
+    [canPerformActionOrWarn, createAuditEntry],
   );
 
   const retryAccountingReviewPosting = useCallback(
@@ -3091,12 +3216,56 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     [actorRole, commandBus, permissionService, repositories, state.enquiries],
   );
   
-  const updateEnquiry = useCallback((id: string, updates: Partial<Enquiry>) => {
-    setState(prev => ({
-      ...prev,
-      enquiries: prev.enquiries.map(e => e.id === id ? { ...e, ...updates } : e),
-    }));
-  }, []);
+  const updateEnquiry = useCallback(
+    async (id: string, updates: Partial<Enquiry>): Promise<{ ok: boolean; error?: string }> => {
+      if (!permissionService.canPerformAction(actorRole, "enquiry:create", roleMatrixOverride)) {
+        return { ok: false, error: `Role ${actorRole} is not allowed to update enquiries` };
+      }
+
+      if (!state.enquiries.some((e) => e.id === id)) {
+        return { ok: false, error: "Enquiry not found" };
+      }
+
+      repositories.enquiryRepository.replaceAll(state.enquiries);
+
+      try {
+        const result = await runCommand({
+          type: UPDATE_ENQUIRY_COMMAND,
+          actorUserId,
+          actorRole,
+          payload: { enquiryId: id, patch: updates },
+        });
+
+        if (!result.ok) {
+          return { ok: false, error: (result as { message: string }).message };
+        }
+
+        const updated = repositories.enquiryRepository.getById(id);
+        setState((prev) => ({
+          ...prev,
+          enquiries: updated
+            ? prev.enquiries.map((e) => (e.id === id ? (updated as Enquiry) : e))
+            : prev.enquiries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+          auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
+        }));
+
+        return { ok: true };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Command failed";
+        return { ok: false, error: message };
+      }
+    },
+    [
+      actorRole,
+      actorUserId,
+      commandBus,
+      permissionService,
+      repositories,
+      roleMatrixOverride,
+      runCommand,
+      state.enquiries,
+    ],
+  );
   
   const deleteEnquiry = useCallback((id: string) => {
     setState(prev => ({ 
@@ -3424,26 +3593,42 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       notesAppend?: string;
     }) => {
       const { id, resolvedAt, resolvedBy, resolvedByName, notesAppend } = input;
-      setState((prev) => ({
-        ...prev,
-        blockages: prev.blockages.map((b) =>
-          b.id !== id
-            ? b
-            : {
-                ...b,
-                status: "resolved",
-                resolvedAt,
-                resolvedBy,
-                resolvedByName,
-                resolutionNote: notesAppend || b.resolutionNote,
-                notes: notesAppend
-                  ? `${b.notes ?? ""} | Resolution: ${notesAppend}`.trim()
-                  : b.notes,
-              },
-        ),
-      }));
+      setState((prev) => {
+        const before = prev.blockages.find((b) => b.id === id);
+        const auditEntry =
+          before != null
+            ? createAuditEntry(
+                "update",
+                "Blockage",
+                id,
+                before.title || id,
+                "status",
+                before.status,
+                "resolved",
+              )
+            : null;
+        return {
+          ...prev,
+          blockages: prev.blockages.map((b) =>
+            b.id !== id
+              ? b
+              : {
+                  ...b,
+                  status: "resolved",
+                  resolvedAt,
+                  resolvedBy,
+                  resolvedByName,
+                  resolutionNote: notesAppend || b.resolutionNote,
+                  notes: notesAppend
+                    ? `${b.notes ?? ""} | Resolution: ${notesAppend}`.trim()
+                    : b.notes,
+                },
+          ),
+          auditLogs: auditEntry ? [auditEntry, ...prev.auditLogs] : prev.auditLogs,
+        };
+      });
     },
-    [],
+    [createAuditEntry],
   );
 
   const updateOperationalTicket = useCallback((id: string, updates: Partial<Ticket>) => {
@@ -3820,11 +4005,23 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState((prev) => {
       const existing = prev.vendorBills.find((b) => b.id === id);
       const merged = existing ? { ...existing, ...updates } : undefined;
+      const auditLogs =
+        existing != null
+          ? auditFieldDiff(
+              createAuditEntry,
+              "VendorBill",
+              id,
+              existing.billNumber || id,
+              existing as unknown as Record<string, unknown>,
+              updates as unknown as Record<string, unknown>,
+            )
+          : [];
       let accountingVouchers = prev.accountingVouchers;
       let accountingReviewQueue = prev.accountingReviewQueue;
 
       if (
         merged &&
+        existing &&
         existing.status === "draft" &&
         merged.status !== "draft" &&
         !hasPurchaseBillBookedVoucher(accountingVouchers, id)
@@ -3845,9 +4042,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         vendorBills: prev.vendorBills.map((b) => (b.id === id ? { ...b, ...updates } : b)),
         accountingVouchers,
         accountingReviewQueue,
+        auditLogs: auditLogs.length > 0 ? [...auditLogs, ...prev.auditLogs] : prev.auditLogs,
       };
     });
-  }, [createReviewQueueItem, voucherPostingService]);
+  }, [createReviewQueueItem, voucherPostingService, createAuditEntry]);
   
   const deleteVendorBill = useCallback((id: string) => {
     if (!canFeature(actorRole, "vendorBill", "delete", roleMatrixOverride)) {
@@ -4713,7 +4911,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     [createAuditEntry],
   );
   const approveProjectChangeRequest = useCallback(
-    (id: string): { ok: boolean; error?: string; generatedInvoiceId?: string } => {
+    (id: string): {
+      ok: boolean;
+      error?: string;
+      generatedInvoiceId?: string;
+      generatedInvoiceNumber?: string;
+    } => {
       const cr = (state.projectChangeRequests ?? []).find((r) => r.id === id);
       if (!cr) return { ok: false, error: "Change request not found" };
       if (cr.status !== "draft") return { ok: false, error: `Cannot approve from status '${cr.status}'` };
@@ -4735,18 +4938,37 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       const oldContract = project.contractAmount ?? 0;
       const newContract = projectPatch.contractAmount ?? oldContract;
       const approvedAt = new Date().toISOString();
-      const generatedInvoiceId =
-        deltaAmount > 0 ? `INV-DRAFT-${cr.id}` : undefined;
+      const updatedProjectPreview = { ...project, ...projectPatch };
 
-      if (deltaAmount > 0 && generatedInvoiceId) {
+      let deltaInvoice: import("@/types/finance").Invoice | undefined;
+      if (deltaAmount > 0) {
+        if (!project.customerId?.trim()) {
+          return { ok: false, error: "Project must have a linked customer before billing a scope change." };
+        }
         const customer = state.customers.find((c) => c.id === project.customerId);
-        const draft = buildProjectToInvoiceDraft(project, customer, deltaAmount);
-        saveCreateDraft("invoice-create-draft", {
-          ...draft,
-          openBalanceSuggestion: deltaAmount,
-          notes: `Delta invoice for change request ${cr.id} — ₹${deltaAmount.toLocaleString("en-IN")}`,
+        deltaInvoice = buildChangeRequestDeltaInvoice({
+          project: updatedProjectPreview,
+          customer,
+          changeRequest: cr,
+          deltaAmount,
+          invoiceId: generateId("INV"),
+          existingInvoices: state.invoices,
+          issuedAt: approvedAt.slice(0, 10),
         });
+        const invScope = financeValidationService.validateOperationalInvoice(deltaInvoice);
+        if (!invScope.ok) {
+          return { ok: false, error: invScope.errors.join(" ") };
+        }
+        const highValueCheck = billingDirectionGuardService.validateHighValueIssuance(
+          deltaInvoice.total,
+          `Approved change request ${cr.id} (${cr.type})`,
+        );
+        if (!highValueCheck.ok) {
+          return { ok: false, error: highValueCheck.error };
+        }
       }
+
+      const generatedInvoiceId = deltaInvoice?.id;
 
       const crAudit = createAuditEntry(
         "update",
@@ -4770,8 +4992,22 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             )
           : null;
 
+      const invoicePostingResult = deltaInvoice
+        ? voucherPostingService.post({
+            type: "InvoiceIssued",
+            sourceDocumentId: deltaInvoice.id,
+            amount: deltaInvoice.total,
+            gstAmount: deltaInvoice.cgst + deltaInvoice.sgst + deltaInvoice.igst,
+          })
+        : null;
+
       setState((prev) => {
         const updatedProject = { ...project, ...projectPatch };
+        const projectWithInvoice =
+          deltaInvoice && updatedProject
+            ? { ...updatedProject, ...mergeProjectInvoiceRef(updatedProject, deltaInvoice.id) }
+            : updatedProject;
+
         const newReservations = reservations.map((r) => ({
           id: `RES-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase(),
           ...r,
@@ -4781,14 +5017,33 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         const reservationAudits = newReservations.map((r) =>
           createAuditEntry("create", "MaterialReservation", r.id, `Item ${r.itemId} × ${r.qty}`),
         );
+        const invoiceAudits = deltaInvoice
+          ? [
+              createAuditEntry("create", "Invoice", deltaInvoice.id, deltaInvoice.invoiceNumber),
+            ]
+          : [];
+        const reviewQueueItem =
+          deltaInvoice && invoicePostingResult && !invoicePostingResult.ok
+            ? createReviewQueueItem(invoicePostingResult, deltaInvoice.projectId)
+            : null;
         const extraAudits = [
           crAudit,
           ...(contractAudit ? [contractAudit] : []),
           ...reservationAudits,
+          ...invoiceAudits,
         ];
+
+        const nextInvoices = deltaInvoice ? [deltaInvoice, ...prev.invoices] : prev.invoices;
+        const reconciledProjects = reconcileProjectsAmountInvoiced(
+          prev.projects.map((p) => (p.id === project.id ? projectWithInvoice : p)),
+          nextInvoices,
+          prev.saleBills,
+        );
+
         return {
           ...prev,
-          projects: prev.projects.map((p) => (p.id === project.id ? updatedProject : p)),
+          projects: reconciledProjects,
+          invoices: nextInvoices,
           projectChangeRequests: (prev.projectChangeRequests ?? []).map((r) =>
             r.id === id
               ? { ...r, status: "approved" as const, approvedAt, generatedInvoiceId }
@@ -4801,12 +5056,35 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             oldContract,
             newContract,
           ),
+          accountingVouchers:
+            invoicePostingResult?.ok && deltaInvoice
+              ? [invoicePostingResult.voucher, ...prev.accountingVouchers]
+              : prev.accountingVouchers,
+          accountingReviewQueue: reviewQueueItem
+            ? [reviewQueueItem, ...prev.accountingReviewQueue]
+            : prev.accountingReviewQueue,
           auditLogs: [...extraAudits, ...prev.auditLogs],
         };
       });
-      return { ok: true, generatedInvoiceId };
+      return {
+        ok: true,
+        generatedInvoiceId,
+        generatedInvoiceNumber: deltaInvoice?.invoiceNumber,
+      };
     },
-    [state.projectChangeRequests, state.projects, state.inventoryItems, state.customers, createAuditEntry],
+    [
+      state.projectChangeRequests,
+      state.projects,
+      state.inventoryItems,
+      state.customers,
+      state.invoices,
+      createAuditEntry,
+      createReviewQueueItem,
+      financeValidationService,
+      billingDirectionGuardService,
+      voucherPostingService,
+      generateId,
+    ],
   );
   const rejectProjectChangeRequest = useCallback((id: string, reason?: string) => {
     const cr = (state.projectChangeRequests ?? []).find((r) => r.id === id);

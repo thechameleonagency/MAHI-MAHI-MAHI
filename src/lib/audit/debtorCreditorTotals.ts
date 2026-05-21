@@ -1,5 +1,6 @@
-import type { Invoice } from "@/types/finance";
+import type { Invoice, Payment } from "@/types/finance";
 import type { VendorBill } from "@/types/inventory";
+import { getInvoiceAmountReceived, getInvoiceOpenBalance } from "@/lib/billingSelectors";
 import { differenceInDays, parseISO } from "date-fns";
 
 export type AgingBucketKey = "0-30" | "31-60" | "61-90" | "90+";
@@ -9,10 +10,6 @@ export interface AgingBucketTotals {
   label: string;
   count: number;
   amount: number;
-}
-
-function openInvoiceBalance(inv: Invoice): number {
-  return Math.max(0, inv.total - (inv.amountReceived ?? 0));
 }
 
 function openBillBalance(bill: VendorBill): number {
@@ -26,16 +23,22 @@ function bucketForDays(days: number): AgingBucketKey {
   return "90+";
 }
 
-export function computeDebtorRows(invoices: Invoice[], saleBills: Invoice[], asOf = new Date()) {
+export function computeDebtorRows(
+  invoices: Invoice[],
+  saleBills: Invoice[],
+  payments: Payment[] = [],
+  asOf = new Date(),
+) {
   return [...invoices, ...saleBills]
     .filter((i) => i.status !== "paid" && i.status !== "voided" && i.status !== "draft")
     .map((inv) => {
-      const outstanding = openInvoiceBalance(inv);
+      const outstanding = getInvoiceOpenBalance(inv, payments);
+      const amountReceived = getInvoiceAmountReceived(inv.id, payments, inv);
       const refDate = inv.dueDate ?? inv.invoiceDate;
       const daysOverdue = refDate
         ? Math.max(0, differenceInDays(asOf, parseISO(refDate)))
         : 0;
-      return { ...inv, outstanding, daysOverdue };
+      return { ...inv, amountReceived, outstanding, daysOverdue };
     })
     .filter((r) => r.outstanding > 0)
     .sort((a, b) => b.outstanding - a.outstanding);
@@ -82,8 +85,9 @@ export function debtorCreditorSummary(
   invoices: Invoice[],
   saleBills: Invoice[],
   vendorBills: VendorBill[],
+  payments: Payment[] = [],
 ) {
-  const debtors = computeDebtorRows(invoices, saleBills);
+  const debtors = computeDebtorRows(invoices, saleBills, payments);
   const creditors = computeCreditorRows(vendorBills);
   const totalReceivables = debtors.reduce((s, d) => s + d.outstanding, 0);
   const totalPayables = creditors.reduce((s, c) => s + c.outstanding, 0);

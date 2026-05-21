@@ -253,12 +253,31 @@ export const registerQuotationCommands = (
           approvedAt: today,
         });
 
+        const enquiryBeforeLink = quotation.enquiryId
+          ? repositories.enquiryRepository.getById(quotation.enquiryId)
+          : undefined;
         syncEnquiryCustomerIdAfterQuotationApprove(
           (id) => repositories.enquiryRepository.getById(id),
           (id, patch) => repositories.enquiryRepository.update(id, patch),
           quotation.enquiryId,
           customerId,
         );
+        if (enquiryBeforeLink && quotation.enquiryId) {
+          const enquiryAfterLink = repositories.enquiryRepository.getById(quotation.enquiryId);
+          if (
+            enquiryAfterLink &&
+            enquiryBeforeLink.customerId !== enquiryAfterLink.customerId
+          ) {
+            auditService.writeFieldDiff(
+              command,
+              "Enquiry",
+              enquiryAfterLink.id,
+              enquiryAfterLink.customerName,
+              enquiryBeforeLink as unknown as Record<string, unknown>,
+              { customerId: enquiryAfterLink.customerId ?? "" },
+            );
+          }
+        }
       } else {
         repositories.quotationRepository.update(quotation.id, {
           status: nextStatus,

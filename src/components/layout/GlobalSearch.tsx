@@ -26,6 +26,10 @@ import { useNavigate } from "react-router-dom";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useFoundation } from "@/app/providers/FoundationProvider";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
+import {
+  buildProjectActorScopeContext,
+  filterProjectsForActor,
+} from "@/lib/projectActorScope";
 import { normalizeLoanPersonKey } from "@/lib/loanPerson";
 import { ICON_CLASS_NAV } from "@/lib/iconSizes";
 import {
@@ -122,7 +126,7 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { permissionService } = useFoundation();
-  const { currentRole } = useAppSession();
+  const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const {
     projects,
     customers,
@@ -137,6 +141,8 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
     agents,
     enquiries,
     teams,
+    settingsTeamMembers,
+    scheduledInstallations,
     loans,
     tasks,
     vendorshipCompanies,
@@ -154,7 +160,23 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
     const searchQuery = query.toLowerCase().trim();
     const searchResults: SearchResult[] = [];
 
-    projects.forEach((p) => {
+    const scopedProjects = filterProjectsForActor(
+      projects,
+      buildProjectActorScopeContext({
+        role: currentRole,
+        actorMemberId: sessionUserId,
+        actorDisplayName: demoUserName,
+        quotations,
+        enquiries,
+        teams,
+        employees,
+        settingsTeamMembers,
+        scheduledInstallations,
+      }),
+    );
+    const scopedProjectIds = new Set(scopedProjects.map((p) => p.id));
+
+    scopedProjects.forEach((p) => {
       pushSearchMatch(
         searchResults,
         searchQuery,
@@ -366,6 +388,7 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
     });
 
     tasks.forEach((task) => {
+      if (task.projectId && !scopedProjectIds.has(task.projectId)) return;
       pushSearchMatch(
         searchResults,
         searchQuery,
@@ -414,6 +437,7 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
     });
 
     sites.forEach((s) => {
+      if (s.projectId && !scopedProjectIds.has(s.projectId)) return;
       pushSearchMatch(
         searchResults,
         searchQuery,
@@ -455,6 +479,8 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
   }, [
     query,
     currentRole,
+    sessionUserId,
+    demoUserName,
     permissionService,
     projects,
     customers,
@@ -469,6 +495,8 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
     agents,
     enquiries,
     teams,
+    settingsTeamMembers,
+    scheduledInstallations,
     loans,
     tasks,
     vendorshipCompanies,

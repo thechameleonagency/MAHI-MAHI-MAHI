@@ -1,3 +1,4 @@
+import { getInvoiceOpenBalance } from "@/lib/billingSelectors";
 import type { AnalyticsDateRange, AnalyticsSlices, MetricRow } from "./types";
 import { inAnalyticsRange } from "./dateRange";
 
@@ -15,10 +16,6 @@ export interface FinanceMetrics {
   debtorBuckets: DebtorBucket[];
   emiDueNext30: number;
   summaryRows: MetricRow[];
-}
-
-function invoiceOpenBalance(inv: { total: number; amountReceived?: number }): number {
-  return Math.max(0, inv.total - (inv.amountReceived ?? 0));
 }
 
 export function computeFinanceMetrics(
@@ -55,7 +52,7 @@ export function computeFinanceMetrics(
 
   for (const inv of invoices) {
     if (inv.status === "paid" || inv.status === "voided" || inv.status === "draft") continue;
-    const open = invoiceOpenBalance(inv);
+    const open = getInvoiceOpenBalance(inv, payments);
     if (open <= 0) continue;
     const dueMs = new Date(inv.dueDate).getTime();
     const daysPast = Math.floor((todayMs - dueMs) / 86_400_000);

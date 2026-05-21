@@ -1,4 +1,5 @@
 import { auditFieldDiff } from "@/lib/auditFieldDiff";
+import { resolveAuditActorUserName } from "@/lib/resolveAuditActorUserName";
 import type { AuditLogEntry } from "@/types/finance";
 import type { ActorContext } from "@/domain/entities/identity";
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
@@ -21,7 +22,7 @@ export class AuditService {
       id: `AUD-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase(),
       timestamp: new Date().toISOString(),
       userId: actor.actorUserId,
-      userName: actor.actorUserId,
+      userName: resolveAuditActorUserName({ actor }),
       action: payload.action,
       entityType: payload.entityType,
       entityId: payload.entityId,

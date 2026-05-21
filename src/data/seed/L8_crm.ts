@@ -5,6 +5,7 @@ import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt, SEED_REFERENCE_TODAY } from "./seedTimeModel";
 import { phoneNumber, emailFor, addressAt, companyName, personName } from "./seedNames";
 import { CAPACITIES_KW, contractForCapacity, countFor, pushAudit, roundInr } from "./seedHelpers";
+import { normalizeTeamMemberStatus } from "@/lib/seedSessionBootstrap";
 
 const ENQUIRY_STATUSES: Enquiry["status"][] = [
   "new", "meeting_scheduled", "quotation_sent", "quotation_rejected", "converted", "lost",
@@ -23,7 +24,9 @@ function gstBreakup(amount: number) {
 /** L8 — enquiries + quotations (CRM pipeline). */
 export function buildL8Crm(state: AppState, profile: SeedProfile): AppState {
   const enquiryCount = countFor(profile, 45);
-  const assignees = state.settingsTeamMembers.map((m) => m.id);
+  const salesMembers = state.settingsTeamMembers.filter(
+    (m) => m.role === "salesperson" && normalizeTeamMemberStatus(m.status) === "Active",
+  );
   const agents = state.agents.filter((a) => a.status === "active");
 
   for (let i = 0; i < enquiryCount; i++) {
@@ -47,7 +50,7 @@ export function buildL8Crm(state: AppState, profile: SeedProfile): AppState {
       status,
       source: (["website", "phone", "referral", "walk-in", "social-media", "other"] as const)[i % 6],
       priority: (["high", "medium", "low"] as const)[i % 3],
-      assignedTo: assignees[i % assignees.length]?.id ?? "SAL-001",
+      assignedTo: salesMembers[i % Math.max(salesMembers.length, 1)]?.id ?? "SAL-001",
       followUpDate:
         status === "quotation_sent" && i % 5 === 0
           ? seedDayAt(0.75)

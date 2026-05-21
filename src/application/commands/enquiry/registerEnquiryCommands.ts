@@ -8,6 +8,7 @@ import type { AuditService } from "@/application/services/AuditService";
 import type { Command } from "@/application/commands/types";
 import type { Enquiry } from "@/types/project";
 import { executeEnquiryConversion } from "@/lib/enquiryConversionAtProjectWin";
+import { sanitizeEnquiryPatch } from "@/lib/enquiryPatchPolicy";
 
 type UpdateEnquiryStatusPayload = {
   enquiryId: string;
@@ -23,7 +24,13 @@ export type ConvertEnquiryPayload = {
   enquiryId: string;
 };
 
+export type UpdateEnquiryPayload = {
+  enquiryId: string;
+  patch: Partial<Enquiry>;
+};
+
 export const UPDATE_ENQUIRY_STATUS_COMMAND = "enquiry.update_status";
+export const UPDATE_ENQUIRY_COMMAND = "enquiry.update";
 export const CREATE_ENQUIRY_COMMAND = "enquiry.create";
 export const CONVERT_ENQUIRY_COMMAND = "enquiry.convert";
 
@@ -57,6 +64,53 @@ export const registerEnquiryCommands = (
         ok: true,
         result: { enquiryId: enquiry.id },
         domainEvents: ["EnquiryCreated"],
+      };
+    },
+  );
+
+  commandBus.register<Command<UpdateEnquiryPayload>, { enquiryId: string }>(
+    UPDATE_ENQUIRY_COMMAND,
+    (command) => {
+      assertCommandPermission(permissionService, command, "enquiry:create");
+
+      const sanitized = sanitizeEnquiryPatch(command.payload.patch);
+      if (!sanitized.ok) {
+        return {
+          ok: false,
+          errorCode: "ENQUIRY_PATCH_FORBIDDEN",
+          message: sanitized.message,
+        };
+      }
+
+      const enquiry = repositories.enquiryRepository.getById(command.payload.enquiryId);
+      if (!enquiry) {
+        return {
+          ok: false,
+          errorCode: "ENQUIRY_NOT_FOUND",
+          message: "Enquiry not found",
+        };
+      }
+
+      const patch = {
+        ...sanitized.patch,
+        updatedAt: sanitized.patch.updatedAt ?? new Date().toISOString(),
+      };
+
+      repositories.enquiryRepository.update(enquiry.id, patch);
+
+      auditService.writeFieldDiff(
+        command,
+        "Enquiry",
+        enquiry.id,
+        enquiry.customerName,
+        enquiry as unknown as Record<string, unknown>,
+        patch as unknown as Record<string, unknown>,
+      );
+
+      return {
+        ok: true,
+        result: { enquiryId: enquiry.id },
+        domainEvents: ["EnquiryUpdated"],
       };
     },
   );

@@ -17,6 +17,8 @@ import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { Button } from "@/components/ui/button";
 import { downloadCSV } from "@/lib/csvExport";
 import { formatINR } from "@/lib/formatCurrency";
+import { getInvoiceAmountReceived, getInvoiceOpenBalance } from "@/lib/billingSelectors";
+import { getOutstandingReceivables } from "@/domain/finance/financialSemantics";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -117,7 +119,7 @@ const ChartOfAccounts = () => {
   // Compute balances for key ledgers
   const balances = useMemo(() => {
     const allInvoices = [...invoices, ...saleBills];
-    const receivables = allInvoices.filter(i => i.status !== "paid").reduce((s, i) => s + (i.total - i.amountReceived), 0);
+    const receivables = getOutstandingReceivables(invoices, payments, saleBills);
     const payables = vendorBills.filter(b => b.status !== "paid").reduce((s, b) => s + (b.total - b.amountPaid), 0);
     const inventoryValue = inventoryItems.reduce((s, item) => s + item.stock * item.buyPrice, 0);
     const toolsValue = tools.reduce((s, t) => s + t.purchaseRate, 0);
@@ -173,16 +175,22 @@ const ChartOfAccounts = () => {
 
     if (id === "sundry-debtors" || id === "trade-receivables") {
       const allInv = [...invoices, ...saleBills];
-      const unpaid = allInv.filter(i => i.status !== "paid");
+      const unpaid = allInv.filter(
+        (i) => i.status !== "paid" && i.status !== "voided" && i.status !== "draft" && getInvoiceOpenBalance(i, payments) > 0,
+      );
       return {
         title: "Sundry Debtors — Customer Ledgers",
         kpis: [
-          { label: "Total Receivable", value: formatINR(unpaid.reduce((s, i) => s + (i.total - i.amountReceived), 0)) },
+          { label: "Total Receivable", value: formatINR(unpaid.reduce((s, i) => s + getInvoiceOpenBalance(i, payments), 0)) },
           { label: "Unpaid Invoices", value: unpaid.length.toString() },
           { label: "Customers", value: new Set(unpaid.map(i => i.customerName)).size.toString() },
         ],
         columns: ["Customer", "Invoice", "Total", "Received", "Outstanding"],
-        rows: unpaid.map(i => [i.customerName, i.invoiceNumber, formatINR(i.total), formatINR(i.amountReceived), formatINR(i.total - i.amountReceived)]),
+        rows: unpaid.map((i) => {
+          const received = getInvoiceAmountReceived(i.id, payments, i);
+          const outstanding = getInvoiceOpenBalance(i, payments);
+          return [i.customerName, i.invoiceNumber, formatINR(i.total), formatINR(received), formatINR(outstanding)];
+        }),
       };
     }
 

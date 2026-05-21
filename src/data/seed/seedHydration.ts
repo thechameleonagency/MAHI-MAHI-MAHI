@@ -10,6 +10,9 @@ import { syncProjectsSiteReadinessFromChecklist } from "@/lib/siteReadinessFromC
 import { buildBankReconciliationMatches } from "./ops_bankReconciliation";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
 import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
+import { reconcileProjectActorScopeSeed } from "@/lib/reconcileProjectActorScopeSeed";
+import { reconcileChangeRequestDeltaInvoices } from "@/lib/reconcileChangeRequestDeltaInvoices";
+import { reconcileProjectsAmountReceived } from "@/lib/billingSelectors";
 
 /**
  * Appendix N — full hydration after seed assembly (steps 6–12 beyond boot pipeline).
@@ -48,6 +51,7 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
     payments: s.payments,
     invoices: s.invoices,
     projects: s.projects,
+    incomes: s.incomes,
   });
   s = { ...s, ...ledger };
 
@@ -66,6 +70,13 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
   };
 
   s = reconcileVendorBillVouchers(s);
+  s = reconcileProjectActorScopeSeed(s);
+  s = reconcileChangeRequestDeltaInvoices(s);
+
+  s = {
+    ...s,
+    projects: reconcileProjectsAmountReceived(s.projects, s.payments, s.incomes),
+  };
 
   return s;
 }

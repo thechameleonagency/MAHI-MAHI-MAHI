@@ -18,6 +18,8 @@ export const DEMO_DEFAULT_SESSION_ROLE: UserRole = "salesperson";
 export interface ActorContext {
   actorUserId: string;
   actorRole: UserRole;
+  /** Human-readable label for audit logs; resolved from session / team roster when omitted. */
+  actorDisplayName?: string;
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {

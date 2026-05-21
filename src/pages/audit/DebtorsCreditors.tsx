@@ -22,7 +22,7 @@ import { formatINR } from "@/lib/formatCurrency";
 import { debtorCreditorSummary } from "@/lib/audit";
 
 const DebtorsCreditors = () => {
-  const { invoices, saleBills, vendorBills, customers } = useAppData();
+  const { invoices, saleBills, vendorBills, customers, payments } = useAppData();
   const navigate = useNavigate();
   const [dcTab, setDcTab] = useState("debtors");
   const [debPage, setDebPage] = useState(1);
@@ -31,8 +31,8 @@ const DebtorsCreditors = () => {
   const [credSize, setCredSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
   const dcSummary = useMemo(
-    () => debtorCreditorSummary(invoices, saleBills, vendorBills),
-    [invoices, saleBills, vendorBills],
+    () => debtorCreditorSummary(invoices, saleBills, vendorBills, payments),
+    [invoices, saleBills, vendorBills, payments],
   );
   const { debtors, creditors, totalReceivables, totalPayables, overdueReceivables, overduePayables, debtorBuckets, creditorBuckets } =
     dcSummary;

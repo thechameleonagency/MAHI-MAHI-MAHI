@@ -6,6 +6,7 @@ import {
   personName, phoneNumber, emailFor, EMPLOYEE_ROLES, TEAM_NAMES,
 } from "./seedNames";
 import { countFor, pushAudit } from "./seedHelpers";
+import { DEMO_LOGIN_USERS } from "@/domain/demoCredentials";
 
 /** L4 — employees, teams, holidays. */
 export function buildL4Hr(state: AppState, profile: SeedProfile): AppState {
@@ -65,6 +66,42 @@ export function buildL4Hr(state: AppState, profile: SeedProfile): AppState {
         notes: "Paid holiday credit",
         createdAt: `${month}-15T10:00:00.000Z`,
       });
+    }
+  }
+
+  const fieldUsers = DEMO_LOGIN_USERS.filter(
+    (u) => u.role === "salesperson" || u.role === "installation_team",
+  );
+  fieldUsers.forEach((demo, i) => {
+    const emp = state.employees[i];
+    if (!emp) return;
+    state.employees[i] = {
+      ...emp,
+      name: demo.name,
+      email: demo.email,
+      initial: demo.name
+        .split(" ")
+        .map((p) => p[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase(),
+      role: demo.role === "installation_team" ? "Installer" : "Sales Executive",
+      status: "Active",
+    };
+  });
+
+  const instEmpIds = fieldUsers
+    .filter((u) => u.role === "installation_team")
+    .map((_, i) => {
+      const offset = fieldUsers.filter((u) => u.role === "salesperson").length;
+      return state.employees[offset + i]?.id;
+    })
+    .filter((id): id is string => Boolean(id));
+
+  if (instEmpIds.length >= 2) {
+    if (state.teams[0]) state.teams[0] = { ...state.teams[0], memberIds: instEmpIds.slice(0, 2) };
+    if (state.teams[1] && instEmpIds.length >= 4) {
+      state.teams[1] = { ...state.teams[1], memberIds: instEmpIds.slice(2, 4) };
     }
   }
 

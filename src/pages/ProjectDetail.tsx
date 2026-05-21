@@ -59,6 +59,10 @@ import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet"
 import { ProgressReportTab } from "@/components/projects/ProgressReportTab";
 import { TeamRosterTab } from "@/components/projects/TeamRosterTab";
 import { filterWorkTabsBySnapshot, filterWorkTabsByRole, projectForbidsAction } from "@/lib/projectDetailTabs";
+import {
+  buildProjectActorScopeContext,
+  isProjectVisibleToActor,
+} from "@/lib/projectActorScope";
 import { isQuotationConverted, quotationLinkedProjectId } from "@/lib/quotationSelectors";
 import { ProjectDocumentsStudio } from "@/components/projects/ProjectDocumentsStudio";
 import MaterialsSentTab from "@/components/projects/MaterialsSentTab";
@@ -161,11 +165,15 @@ const ProjectDetail = () => {
   const { id } = useParams();
   const directExceptionFlash = (location.state as ProjectDetailLocationState | null)
     ?.directExceptionReason;
-  const { currentRole } = useAppSession();
+  const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const {
     attendanceRecords,
     customers,
     employees,
+    enquiries,
+    teams,
+    settingsTeamMembers,
+    scheduledInstallations,
     expenses,
     quotations,
     invoices,
@@ -216,6 +224,34 @@ const ProjectDetail = () => {
   const COMPANY_STATE_CODE = (() => { try { return JSON.parse(localStorage.getItem("mss.settings.company") || "{}").companyState || "08"; } catch { return "08"; } })();
 
   const project = id ? getProjectById(id) : undefined;
+  const projectAccessDenied = useMemo(() => {
+    if (!project) return false;
+    return !isProjectVisibleToActor(
+      project,
+      buildProjectActorScopeContext({
+        role: currentRole,
+        actorMemberId: sessionUserId,
+        actorDisplayName: demoUserName,
+        quotations,
+        enquiries,
+        teams,
+        employees,
+        settingsTeamMembers,
+        scheduledInstallations,
+      }),
+    );
+  }, [
+    project,
+    currentRole,
+    sessionUserId,
+    demoUserName,
+    quotations,
+    enquiries,
+    teams,
+    employees,
+    settingsTeamMembers,
+    scheduledInstallations,
+  ]);
   const quotation = project?.quotationId ? getQuotationById(project.quotationId) : undefined;
   const linkedCustomer = useMemo(
     () => (project?.customerId ? customers.find((c) => c.id === project.customerId) : undefined),
@@ -632,16 +668,19 @@ const ProjectDetail = () => {
   const getProjectMaterialsForTab = () => {
     const ledger = project?.siteMaterialLedger;
     if (ledger?.length) return ledger.map(entry => { const inv = globalInvItems.find(i => i.id === entry.itemId); return { id: entry.itemId, name: inv?.size ? `${inv.name} (${inv.size})` : inv?.name ?? `Item ${entry.itemId}`, totalQuantitySent: entry.issuedQty, unitPrice: inv?.buyPrice ?? 0, unit: inv?.unit || "pcs", category: inv?.category || "Material", issues: [{ date: entry.updatedAt.split("T")[0], quantity: entry.issuedQty }] }; });
-    if (project?.materialsSent?.length) return project.materialsSent.map(item => ({ id: item.itemId, name: item.itemName, totalQuantitySent: item.quantity, unitPrice: item.unitPrice, unit: inventoryItems.find(inv => inv.id === item.itemId)?.unit || "pcs", category: inventoryItems.find(inv => inv.id === item.itemId)?.category || "Material", issues: [{ date: item.dateIssued, quantity: item.quantity }] }));
     return [];
   };
 
-  if (!project) {
+  if (!project || projectAccessDenied) {
     return (
       <PageShell className="space-y-4">
         <StickyPageHeader breadcrumbs={[{ label: "Home", to: "/" }, { label: "Projects", to: "/projects" }, { label: "Not found" }]} />
         <Card><CardContent className="py-8">
-          <p className="text-sm text-muted-foreground">Project not found.</p>
+          <p className="text-sm text-muted-foreground">
+            {projectAccessDenied
+              ? "This project is outside your role scope."
+              : "Project not found."}
+          </p>
           <Button className="mt-4" variant="outline" type="button" onClick={() => navigate(-1)}>
             Go back
           </Button>
@@ -1837,12 +1876,12 @@ const ProjectDetail = () => {
                                   }
                                   toast({
                                     title: "Change request approved",
-                                    description: res.generatedInvoiceId
-                                      ? "Delta invoice draft saved — open Invoices to finalize."
+                                    description: res.generatedInvoiceNumber
+                                      ? `Delta invoice ${res.generatedInvoiceNumber} issued to books.`
                                       : "Project commercial baseline updated.",
                                   });
-                                  if (res.generatedInvoiceId && canCreateInvoice) {
-                                    navigate(`/invoices?createFrom=proj:${project.id}`);
+                                  if (res.generatedInvoiceId) {
+                                    navigate(`/invoices?invoice=${res.generatedInvoiceId}`);
                                   }
                                 }}
                               >
@@ -1863,17 +1902,22 @@ const ProjectDetail = () => {
                               </PermissionGatedButton>
                             </>
                           )}
-                          {cr.generatedInvoiceId && cr.status === "approved" && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="link"
-                              className="h-8"
-                              onClick={() => navigate(`/invoices?createFrom=proj:${project.id}`)}
-                            >
-                              Invoice draft
-                            </Button>
-                          )}
+                          {cr.generatedInvoiceId && cr.status === "approved" && (() => {
+                            const inv = projectInvoices.find((i) => i.id === cr.generatedInvoiceId);
+                            return (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="link"
+                                className="h-8"
+                                onClick={() =>
+                                  navigate(`/invoices?invoice=${cr.generatedInvoiceId}`)
+                                }
+                              >
+                                {inv?.invoiceNumber ?? "View invoice"}
+                              </Button>
+                            );
+                          })()}
                         </TableCell>
                       </TableRow>
                     );

@@ -60,7 +60,7 @@ const AuditDashboard = () => {
     const periodInvoices = allInvoices.filter(i => inRange(i.invoiceDate, range));
 
     const ledger = computeLedgerTotals(
-      { invoices, saleBills, expenses, vendorBills, inventoryItems, materialDamageRecords },
+      { invoices, saleBills, expenses, vendorBills, inventoryItems, materialDamageRecords, payments },
       (dateStr) => inRange(dateStr, range),
     );
     const gstCollected = periodInvoices.reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);

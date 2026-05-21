@@ -29,6 +29,11 @@ import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { isActiveSiteProject } from "@/lib/activeSiteProjects";
 import { NeedToGetSheet } from "@/components/need-to-get/NeedToGetSheet";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
+import {
+  buildProjectActorScopeContext,
+  filterProjectsForActor,
+} from "@/lib/projectActorScope";
 
 // Timeline step labels
 const TIMELINE_STEPS = [
@@ -181,8 +186,14 @@ const calculateOverallProgress = (timeline: ProjectTimelineStatus | null): numbe
 
 const ActiveSites = () => {
   const navigate = useNavigate();
+  const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const {
     projects,
+    quotations,
+    enquiries,
+    teams,
+    settingsTeamMembers,
+    scheduledInstallations,
     employees,
     blockages,
     operationalTickets,
@@ -196,6 +207,33 @@ const ActiveSites = () => {
     materialDamageRecords,
     tasks,
   } = useAppData();
+
+  const scopedProjects = useMemo(() => {
+    const ctx = buildProjectActorScopeContext({
+      role: currentRole,
+      actorMemberId: sessionUserId,
+      actorDisplayName: demoUserName,
+      quotations,
+      enquiries,
+      teams,
+      employees,
+      settingsTeamMembers,
+      scheduledInstallations,
+    });
+    return filterProjectsForActor(projects, ctx);
+  }, [
+    projects,
+    quotations,
+    enquiries,
+    teams,
+    employees,
+    settingsTeamMembers,
+    scheduledInstallations,
+    currentRole,
+    sessionUserId,
+    demoUserName,
+  ]);
+
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
   const [refreshKey, setRefreshKey] = useState(0);
   const [needToGetOpen, setNeedToGetOpen] = useState(false);
@@ -205,7 +243,7 @@ const ActiveSites = () => {
   const procurementShortQtyByProject = useMemo(() => {
     const rows = needToGetService.buildRows(
       sites,
-      projects,
+      scopedProjects,
       inventoryItems,
       vendorBills,
       materialReservations ?? [],
@@ -220,7 +258,7 @@ const ActiveSites = () => {
   }, [
     needToGetService,
     sites,
-    projects,
+    scopedProjects,
     inventoryItems,
     vendorBills,
     materialReservations,
@@ -474,7 +512,7 @@ const ActiveSites = () => {
 
   // Get active/ongoing projects with filtering
   const activeProjects = useMemo(() => {
-    let filtered = projects.filter((p) => isActiveSiteProject(p));
+    let filtered = scopedProjects.filter((p) => isActiveSiteProject(p));
     
     // Apply search filter
     if (filters.search) {
@@ -554,7 +592,7 @@ const ActiveSites = () => {
     });
     
     return filtered;
-  }, [projects, filters, projectTimelineByProjectId, refreshKey]);
+  }, [scopedProjects, filters, projectTimelineByProjectId, refreshKey]);
 
   // Get blockages for each project
   const getProjectBlockages = (projectId: string) => 
@@ -630,12 +668,12 @@ const ActiveSites = () => {
   
   // Get completed projects with active tickets
   const completedProjectsWithTickets = useMemo(() => {
-    const completedProjects = projects.filter(p => p.status === "Completed");
+    const completedProjects = scopedProjects.filter(p => p.status === "Completed");
     return completedProjects.filter(p => {
       const projectTickets = operationalTickets.filter(t => t.projectId === p.id && t.status !== "completed");
       return projectTickets.length > 0;
     });
-  }, [projects, operationalTickets]);
+  }, [scopedProjects, operationalTickets]);
 
   const activeTicketsCount = useMemo(
     () =>

@@ -58,6 +58,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardEnquiryRow } from "@/components/dashboard/DashboardEnquiryRow";
 import { DashboardTodaysSiteActivity } from "@/components/dashboard/DashboardTodaysSiteActivity";
 import { buildTodaysSiteActivitySnapshot } from "@/lib/todaysSiteActivity";
+import {
+  buildProjectActorScopeContext,
+  filterProjectsForActor,
+} from "@/lib/projectActorScope";
 import { buildEnquiryToQuotationDraft, quickCreatePath, saveCreateDraft } from "@/lib/createFromContext";
 import {
   FIELD_OPS_METRICS,
@@ -146,8 +150,10 @@ const Dashboard = () => {
     materialReservations,
     materialDamageRecords,
     projectTimelineByProjectId,
+    teams,
+    settingsTeamMembers,
   } = useAppData();
-  const { currentRole } = useAppSession();
+  const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const { permissionService } = useFoundation();
   const canCreateEnquiry = useCan("enquiry", "create");
   const canAccessEnquiries = permissionService.canAccessPath(currentRole, "/enquiries");
@@ -169,9 +175,35 @@ const Dashboard = () => {
     [enquiries],
   );
 
+  const scopedProjects = useMemo(() => {
+    const ctx = buildProjectActorScopeContext({
+      role: currentRole,
+      actorMemberId: sessionUserId,
+      actorDisplayName: demoUserName,
+      quotations,
+      enquiries,
+      teams,
+      employees,
+      settingsTeamMembers,
+      scheduledInstallations,
+    });
+    return filterProjectsForActor(projects, ctx);
+  }, [
+    projects,
+    quotations,
+    enquiries,
+    teams,
+    employees,
+    settingsTeamMembers,
+    scheduledInstallations,
+    currentRole,
+    sessionUserId,
+    demoUserName,
+  ]);
+
   const ongoingProjectIds = useMemo(
-    () => new Set(projects.filter((p) => p.status === "Ongoing").map((p) => p.id)),
-    [projects],
+    () => new Set(scopedProjects.filter((p) => p.status === "Ongoing").map((p) => p.id)),
+    [scopedProjects],
   );
 
   const sitesOnOngoingProjects = useMemo(
@@ -188,8 +220,8 @@ const Dashboard = () => {
     const totalRevenue = getRevenueCash(payments);
     const cashSplit = partitionCashRevenueByBillKind(payments, invoices, saleBills);
 
-    const activeProjects = projects.filter((p) => p.status === "Ongoing").length;
-    const completedCount = projects.filter((p) => p.status === "Completed").length;
+    const activeProjects = scopedProjects.filter((p) => p.status === "Ongoing").length;
+    const completedCount = scopedProjects.filter((p) => p.status === "Completed").length;
 
     const activeEmployees = employees.filter((e) => e.status === "Active").length;
     const onLeave = employees.filter((e) => e.status !== "Active").length;
@@ -202,7 +234,7 @@ const Dashboard = () => {
 
     const pendingQuotations = quotations.filter((q) => q.status === "draft" || q.status === "sent");
 
-    const activeBlockages = projects.filter((p) => p.status === "On Hold").length;
+    const activeBlockages = scopedProjects.filter((p) => p.status === "On Hold").length;
 
     const activeLoansList = loans.filter((l) => l.status === "Active");
     const upcomingEmiAmount = activeLoansList.reduce((sum, l) => sum + l.emiAmount, 0);
@@ -222,7 +254,7 @@ const Dashboard = () => {
       upcomingEmiAmount,
       openOpsBlockagesCount: activeOpsBlockages.length,
     };
-  }, [projects, employees, invoices, saleBills, payments, quotations, loans, activeOpsBlockages]);
+  }, [scopedProjects, employees, invoices, saleBills, payments, quotations, loans, activeOpsBlockages]);
 
   const lowStockItems = useMemo(
     () =>
@@ -277,7 +309,7 @@ const Dashboard = () => {
     () =>
       needToGetService.buildRows(
         sites,
-        projects,
+        scopedProjects,
         inventoryItems,
         vendorBills,
         materialReservations ?? [],
@@ -286,7 +318,7 @@ const Dashboard = () => {
     [
       needToGetService,
       sites,
-      projects,
+      scopedProjects,
       inventoryItems,
       vendorBills,
       materialReservations,
@@ -466,7 +498,7 @@ const Dashboard = () => {
 
   const activeProjectsList = useMemo(
     () =>
-      projects.filter(
+      scopedProjects.filter(
         (p) =>
           p.lifecycleStatus === "Active" ||
           p.lifecycleStatus === "In Progress" ||
@@ -476,7 +508,7 @@ const Dashboard = () => {
             p.status !== "Completed" &&
             p.status !== "Closed"),
       ),
-    [projects],
+    [scopedProjects],
   );
 
   const sortedEmiLoans = useMemo(
@@ -816,13 +848,13 @@ const Dashboard = () => {
   const todaysSiteActivity = useMemo(
     () =>
       buildTodaysSiteActivitySnapshot({
-        projects,
+        projects: scopedProjects,
         blockages: blockages ?? [],
         tasks,
         todayIso,
         projectTimelineByProjectId,
       }),
-    [projects, blockages, tasks, todayIso, projectTimelineByProjectId],
+    [scopedProjects, blockages, tasks, todayIso, projectTimelineByProjectId],
   );
 
   const todaySchedule = useMemo(() => {
@@ -835,7 +867,7 @@ const Dashboard = () => {
       loans,
       loanRepayments: loanRepayments ?? [],
       siteVisits: siteVisits ?? [],
-      projects,
+      projects: scopedProjects,
     });
     return getEventsForDate(events, todayIso).slice(0, 10);
   }, [
@@ -848,7 +880,7 @@ const Dashboard = () => {
     loans,
     loanRepayments,
     siteVisits,
-    projects,
+    scopedProjects,
     todayIso,
   ]);
 
@@ -1098,7 +1130,7 @@ const Dashboard = () => {
                             <div className="min-w-0">
                               <p className="font-medium leading-snug">{row.materialName}</p>
                               <p className="text-xs text-muted-foreground truncate">
-                                {needToGetLocationLabel(row, ntgActiveSitesPerProject, projects)}
+                                {needToGetLocationLabel(row, ntgActiveSitesPerProject, scopedProjects)}
                               </p>
                             </div>
                             <Badge className="shrink-0 bg-destructive/10 text-destructive dark:text-destructive border-0">
@@ -1430,7 +1462,7 @@ const Dashboard = () => {
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
             {sitesOnOngoingProjects.slice(0, 12).map((s) => {
               const linkedProject = s.projectId
-                ? projects.find((p) => p.id === s.projectId)
+                ? scopedProjects.find((p) => p.id === s.projectId)
                 : undefined;
               return (
                 <DashboardActiveSiteRow
@@ -1627,7 +1659,7 @@ const Dashboard = () => {
             </p>
           )}
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
-            {projects
+            {scopedProjects
               .filter((p) => p.status === "On Hold")
               .slice(0, 12)
               .map((project) => (

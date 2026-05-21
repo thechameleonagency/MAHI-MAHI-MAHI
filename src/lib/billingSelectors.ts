@@ -92,6 +92,27 @@ export function reconcileProjectsAmountInvoiced(
   }));
 }
 
+/** Whether a non-invoice income row should bump stored `project.amountReceived`. */
+export function incomeCountsTowardProjectReceived(
+  income: Pick<Income, "projectId" | "isOutgoing" | "linkedPaymentId">,
+): boolean {
+  return Boolean(income.projectId?.trim()) && income.isOutgoing !== true && !income.linkedPaymentId;
+}
+
+/** Apply a signed delta to one project's stored `amountReceived`. */
+export function applyProjectReceivedFromIncomeDelta(
+  projects: Project[],
+  projectId: string | undefined,
+  delta: number,
+): Project[] {
+  if (!projectId?.trim() || delta === 0) return projects;
+  return projects.map((p) =>
+    p.id === projectId
+      ? { ...p, amountReceived: Math.max(0, (p.amountReceived ?? 0) + delta) }
+      : p,
+  );
+}
+
 export function getProjectAmountReceived(
   projectId: string,
   payments: Payment[],
@@ -101,9 +122,22 @@ export function getProjectAmountReceived(
     .filter((p) => p.direction === "in" && p.projectId === projectId)
     .reduce((s, p) => s + p.amount, 0);
   const fromIncome = incomes
-    .filter((i) => i.projectId === projectId && !i.isOutgoing)
+    .filter((i) => incomeCountsTowardProjectReceived(i))
+    .filter((i) => i.projectId === projectId)
     .reduce((s, i) => s + i.amount, 0);
   return fromPayments + fromIncome;
+}
+
+/** Recompute stored `amountReceived` from payments + standalone project incomes. */
+export function reconcileProjectsAmountReceived(
+  projects: Project[],
+  payments: Payment[],
+  incomes: Income[],
+): Project[] {
+  return projects.map((project) => ({
+    ...project,
+    amountReceived: getProjectAmountReceived(project.id, payments, incomes),
+  }));
 }
 
 export function getProjectTotalCost(
@@ -167,13 +201,14 @@ export function projectBillingDrift(
   payments: Payment[],
   expenses: Expense[],
   saleBills: Invoice[] = [],
+  incomes: Income[] = [],
 ): {
   amountInvoicedDrift: number;
   amountReceivedDrift: number;
   totalCostDrift: number;
 } {
   const derivedInvoiced = getProjectAmountInvoiced(project.id, invoices, saleBills);
-  const derivedReceived = getProjectAmountReceived(project.id, payments);
+  const derivedReceived = getProjectAmountReceived(project.id, payments, incomes);
   const derivedCost = getProjectTotalCost(project.id, expenses);
   return {
     amountInvoicedDrift: Math.abs((project.amountInvoiced ?? 0) - derivedInvoiced),

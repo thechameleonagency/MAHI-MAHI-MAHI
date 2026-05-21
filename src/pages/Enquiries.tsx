@@ -416,7 +416,7 @@ const formatCapacityInput = (capacity: string) => {
     toast({ title: "Enquiry Added", description: `${newEnquiry.id} has been created` });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!selectedEnquiry || !editFormData.customerName || !editFormData.customerPhone) {
       toast({ title: "Error", description: "Name and phone are required", variant: "destructive" });
       return;
@@ -434,7 +434,7 @@ const formatCapacityInput = (capacity: string) => {
 
     const finalCapacity = formatCapacityInput(editFormData.systemCapacity);
 
-    updateEnquiry(selectedEnquiry.id, {
+    const result = await updateEnquiry(selectedEnquiry.id, {
       customerName: editFormData.customerName,
       customerPhone: editFormData.customerPhone,
       customerEmail: editFormData.customerEmail,
@@ -449,6 +449,14 @@ const formatCapacityInput = (capacity: string) => {
       followUpDate: editFormData.followUpDate || undefined,
       updatedAt: new Date().toISOString().split('T')[0],
     });
+    if (!result.ok) {
+      toast({
+        title: "Could not save enquiry",
+        description: friendlyCommandErrorMessage(result.error, "Update failed"),
+        variant: "destructive",
+      });
+      return;
+    }
 
     setIsEditEnquiryOpen(false);
     resetEditForm();
@@ -477,10 +485,18 @@ const formatCapacityInput = (capacity: string) => {
   const handleAssign = async () => {
     if (!selectedEnquiry || !assignTo) return;
     
-    updateEnquiry(selectedEnquiry.id, { 
+    const result = await updateEnquiry(selectedEnquiry.id, { 
       assignedTo: assignTo, 
       updatedAt: new Date().toISOString().split('T')[0] 
     });
+    if (!result.ok) {
+      toast({
+        title: "Could not assign",
+        description: friendlyCommandErrorMessage(result.error, "Update failed"),
+        variant: "destructive",
+      });
+      return;
+    }
 
     // Assigning no longer auto-transitions status; "new" stays "new" until a meeting is scheduled,
     // a quotation is sent, or the lead is converted/lost.
@@ -490,7 +506,7 @@ const formatCapacityInput = (capacity: string) => {
     toast({ title: "Assigned", description: `Enquiry assigned to ${assignTo}` });
   };
 
-  const handleAddNote = () => {
+  const handleAddNote = async () => {
     if (!selectedEnquiry || !noteText) return;
     
     const personName = notePersonId 
@@ -506,10 +522,18 @@ const formatCapacityInput = (capacity: string) => {
       updatedBy: updatedByName,
     };
     
-    updateEnquiry(selectedEnquiry.id, { 
+    const result = await updateEnquiry(selectedEnquiry.id, { 
       notes: [newNote, ...selectedEnquiry.notes], 
       updatedAt: new Date().toISOString().split('T')[0] 
     });
+    if (!result.ok) {
+      toast({
+        title: "Could not add note",
+        description: friendlyCommandErrorMessage(result.error, "Update failed"),
+        variant: "destructive",
+      });
+      return;
+    }
     
     setIsAddNoteOpen(false);
     setNoteText("");
@@ -535,7 +559,17 @@ const formatCapacityInput = (capacity: string) => {
     const result = await transitionEnquiryStatus(selectedEnquiry.id, "lost", reason);
     if (result.ok) {
       if (reason) {
-        updateEnquiry(selectedEnquiry.id, { lostReason: reason, updatedAt: new Date().toISOString().split('T')[0] });
+        const lostPatch = await updateEnquiry(selectedEnquiry.id, {
+          lostReason: reason,
+          updatedAt: new Date().toISOString().split('T')[0],
+        });
+        if (!lostPatch.ok) {
+          toast({
+            title: "Status updated; reason not saved",
+            description: friendlyCommandErrorMessage(lostPatch.error, "Could not save lost reason"),
+            variant: "destructive",
+          });
+        }
       }
       toast({ title: "Lead Lost", description: "Enquiry marked as lost" });
       setIsMarkLostReasonOpen(false);
@@ -593,12 +627,28 @@ const formatCapacityInput = (capacity: string) => {
   const handleScheduleMeeting = async () => {
     if (!selectedEnquiry || !meetingDate) return;
     
-    updateEnquiry(selectedEnquiry.id, { 
+    const meetResult = await updateEnquiry(selectedEnquiry.id, { 
       meetingDate, 
       meetingNotes, 
       updatedAt: new Date().toISOString().split('T')[0] 
     });
-    await transitionEnquiryStatus(selectedEnquiry.id, "meeting_scheduled");
+    if (!meetResult.ok) {
+      toast({
+        title: "Could not save meeting",
+        description: friendlyCommandErrorMessage(meetResult.error, "Update failed"),
+        variant: "destructive",
+      });
+      return;
+    }
+    const statusResult = await transitionEnquiryStatus(selectedEnquiry.id, "meeting_scheduled");
+    if (!statusResult.ok) {
+      toast({
+        title: "Meeting saved; status not updated",
+        description: friendlyCommandErrorMessage(statusResult.error, "Invalid transition"),
+        variant: "destructive",
+      });
+      return;
+    }
     
     setIsScheduleMeetingOpen(false);
     setMeetingDate("");
@@ -1199,8 +1249,16 @@ const formatCapacityInput = (capacity: string) => {
                 }
                 onPrimaryAction={
                   selectedEnquiry.archivedAt
-                    ? () => {
-                        updateEnquiry(selectedEnquiry.id, { archivedAt: null });
+                    ? async () => {
+                        const res = await updateEnquiry(selectedEnquiry.id, { archivedAt: null });
+                        if (!res.ok) {
+                          toast({
+                            title: "Could not restore",
+                            description: friendlyCommandErrorMessage(res.error, "Update failed"),
+                            variant: "destructive",
+                          });
+                          return;
+                        }
                         toast({ title: "Enquiry restored" });
                       }
                     : selectedEnquiry.status === "lost" && canReopenLost
@@ -1210,8 +1268,18 @@ const formatCapacityInput = (capacity: string) => {
                 secondaryActionLabel={!selectedEnquiry.archivedAt && selectedEnquiry.status === "lost" ? "Archive" : undefined}
                 onSecondaryAction={
                   !selectedEnquiry.archivedAt && selectedEnquiry.status === "lost"
-                    ? () => {
-                        updateEnquiry(selectedEnquiry.id, { archivedAt: new Date().toISOString() });
+                    ? async () => {
+                        const res = await updateEnquiry(selectedEnquiry.id, {
+                          archivedAt: new Date().toISOString(),
+                        });
+                        if (!res.ok) {
+                          toast({
+                            title: "Could not archive",
+                            description: friendlyCommandErrorMessage(res.error, "Update failed"),
+                            variant: "destructive",
+                          });
+                          return;
+                        }
                         toast({ title: "Enquiry archived" });
                         setIsViewEnquiryOpen(false);
                       }
@@ -1515,8 +1583,16 @@ const formatCapacityInput = (capacity: string) => {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => {
-                          updateEnquiry(selectedEnquiry.id, { archivedAt: null });
+                        onClick={async () => {
+                          const res = await updateEnquiry(selectedEnquiry.id, { archivedAt: null });
+                          if (!res.ok) {
+                            toast({
+                              title: "Could not restore",
+                              description: friendlyCommandErrorMessage(res.error, "Update failed"),
+                              variant: "destructive",
+                            });
+                            return;
+                          }
                           toast({ title: "Enquiry restored" });
                         }}
                       >
@@ -1528,8 +1604,18 @@ const formatCapacityInput = (capacity: string) => {
                           variant="outline"
                           size="sm"
                           className="text-muted-foreground"
-                          onClick={() => {
-                            updateEnquiry(selectedEnquiry.id, { archivedAt: new Date().toISOString() });
+                          onClick={async () => {
+                            const res = await updateEnquiry(selectedEnquiry.id, {
+                              archivedAt: new Date().toISOString(),
+                            });
+                            if (!res.ok) {
+                              toast({
+                                title: "Could not archive",
+                                description: friendlyCommandErrorMessage(res.error, "Update failed"),
+                                variant: "destructive",
+                              });
+                              return;
+                            }
                             toast({ title: "Enquiry archived" });
                             setIsViewEnquiryOpen(false);
                           }}

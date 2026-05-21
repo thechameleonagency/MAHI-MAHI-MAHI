@@ -159,13 +159,17 @@ export function buildL9Finance(state: AppState, profile: SeedProfile): AppState 
   ];
   for (let i = 0; i < countFor(profile, 18); i++) {
     const cat = incomeCats[i % incomeCats.length];
+    const linkedProject = cat.main === "project" ? projects[i % projects.length] : undefined;
+    const amount = 25000 + i * 5000;
     state.incomes.push({
       id: seedId(SEED_ID_PREFIX.income),
       date: seedDayAt(0.4 + i * 0.01),
-      amount: 25000 + i * 5000,
+      amount,
       mainCategory: cat.main,
       category: cat.sub,
       subCategory: cat.sub,
+      projectId: linkedProject?.id,
+      projectName: linkedProject?.name,
       paymentMode: "Bank Transfer",
       createdAt: seedDateAt(0.4 + i * 0.01),
     });

@@ -7,6 +7,7 @@ import { allowsMaterialDispatch } from "./seedCapabilityAxis";
 import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt } from "./seedTimeModel";
 import { pushAudit } from "./seedHelpers";
+import { applyChangeRequestToProject } from "@/lib/changeRequestApproval";
 import { panelItem, inverterItem, structureItem, cableItem } from "./seedInventoryCatalog";
 
 export interface BundleContext {
@@ -232,6 +233,7 @@ export function attachProjectBundle(ctx: BundleContext): void {
       startDate: seedDayAt(fraction + 0.02),
       endDate: seedDayAt(fraction + 0.5),
     }];
+    project.assignees = team?.memberIds?.length ? [...team.memberIds] : [];
 
     state.scheduledInstallations.push({
       id: seedId(SEED_ID_PREFIX.installation),
@@ -316,18 +318,47 @@ export function attachProjectBundle(ctx: BundleContext): void {
   }
 
   if (index % 4 === 0 && project.projectKind !== "VENDORSHIP_ONLY") {
-    state.projectChangeRequests.push({
+    const crType = (["capacity", "panels", "addon-work"] as const)[index % 3];
+    const isApproved = index % 2 === 0;
+    const cr = {
       id: seedId(SEED_ID_PREFIX.changeRequest),
       projectId: project.id,
-      type: (["capacity", "panels", "addon-work"] as const)[index % 3],
-      deltaKw: index % 3 === 0 ? 1 : undefined,
-      deltaPanels: index % 3 === 1 ? 2 : undefined,
+      type: crType,
+      deltaKw: crType === "capacity" ? 1 : undefined,
+      deltaPanels: crType === "panels" ? 2 : undefined,
       deltaAmount: 25000,
-      status: index % 2 === 0 ? "approved" : "rejected",
+      status: isApproved ? ("approved" as const) : ("rejected" as const),
       requestedAt: seedDateAt(fraction + 0.08),
-      approvedAt: index % 2 === 0 ? seedDateAt(fraction + 0.09) : undefined,
-      notes: index % 2 === 0 ? "Client requested extra panel row" : "Client declined addon cost",
-    });
+      approvedAt: isApproved ? seedDateAt(fraction + 0.09) : undefined,
+      notes: isApproved ? "Client requested extra panel row" : "Client declined addon cost",
+    };
+    if (isApproved && project.customerId) {
+      const inventoryLookup = state.inventoryItems.map((i) => ({
+        id: i.id,
+        name: i.name,
+        unit: i.unit,
+      }));
+      const { projectPatch, reservations, deltaAmount } = applyChangeRequestToProject(
+        project,
+        cr,
+        inventoryLookup,
+      );
+      Object.assign(project, projectPatch);
+      for (const r of reservations) {
+        state.materialReservations.push({
+          id: seedId(SEED_ID_PREFIX.reservation),
+          itemId: r.itemId,
+          qty: r.qty,
+          projectId: r.projectId,
+          reason: r.reason,
+          createdAt: seedDateAt(fraction + 0.09),
+          source: "manual",
+        });
+      }
+      state.projectChangeRequests.push({ ...cr, deltaAmount: deltaAmount || cr.deltaAmount });
+    } else {
+      state.projectChangeRequests.push(cr);
+    }
   }
 
   if (index % 3 === 0) {

@@ -67,6 +67,10 @@ import { buttonRoles } from "@/lib/buttonRoles";
 import { isActiveSiteProject } from "@/lib/activeSiteProjects";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { useFoundation } from "@/app/providers/FoundationProvider";
+import {
+  buildProjectActorScopeContext,
+  filterProjectsForActor,
+} from "@/lib/projectActorScope";
 
 function customerOptionalForDirectExceptionKind(k: ProjectKind): boolean {
   return k === "INC_GIVEN" || k === "VENDORSHIP_ONLY" || k === "VENDOR_NETWORK";
@@ -75,11 +79,14 @@ function customerOptionalForDirectExceptionKind(k: ProjectKind): boolean {
 const Projects = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { currentRole } = useAppSession();
+  const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const { permissionService } = useFoundation();
   const {
     projects,
     quotations,
+    enquiries,
+    teams,
+    settingsTeamMembers,
     employees,
     customers,
     partners,
@@ -158,12 +165,41 @@ const Projects = () => {
 
   const customerFilterParam = searchParams.get("customer");
 
+  const projectScopeCtx = useMemo(
+    () =>
+      buildProjectActorScopeContext({
+        role: currentRole,
+        actorMemberId: sessionUserId,
+        actorDisplayName: demoUserName,
+        quotations,
+        enquiries,
+        teams,
+        employees,
+        settingsTeamMembers,
+      }),
+    [
+      currentRole,
+      sessionUserId,
+      demoUserName,
+      quotations,
+      enquiries,
+      teams,
+      employees,
+      settingsTeamMembers,
+    ],
+  );
+
+  const scopedProjects = useMemo(
+    () => filterProjectsForActor(projects, projectScopeCtx),
+    [projects, projectScopeCtx],
+  );
+
   // Filtering + open-before-completed sort (Phase 3.7)
   const filteredProjects = useMemo(() => {
     const customerFilterName = customerFilterParam
       ? customers.find((c) => c.id === customerFilterParam)?.name
       : undefined;
-    const base = projects.filter((p) => {
+    const base = scopedProjects.filter((p) => {
       const matchesSearch =
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -182,7 +218,7 @@ const Projects = () => {
     const open = base.filter(isProjectOpen);
     const completed = base.filter(isProjectCompleted);
     return [...open, ...completed];
-  }, [projects, customers, searchQuery, statusFilter, typeFilter, kindFilter, hideCompleted, customerFilterParam]);
+  }, [scopedProjects, customers, searchQuery, statusFilter, typeFilter, kindFilter, hideCompleted, customerFilterParam]);
 
   const completedDividerIndex = useMemo(() => {
     if (hideCompleted) return -1;
@@ -257,17 +293,17 @@ const Projects = () => {
   };
 
   const activeSiteCount = useMemo(
-    () => projects.filter(isActiveSiteProject).length,
-    [projects],
+    () => scopedProjects.filter(isActiveSiteProject).length,
+    [scopedProjects],
   );
   const canAccessActiveSites = permissionService.canAccessPath(currentRole, "/active-sites");
 
   const stats = {
-    total: projects.length,
-    ongoing: projects.filter(p => p.status === "Ongoing").length,
-    completed: projects.filter(p => p.status === "Completed").length,
-    onHold: projects.filter(p => p.status === "On Hold").length,
-    totalKW: projects.reduce((sum, p) => sum + (parseFloat(p.capacity) || 0), 0).toFixed(1),
+    total: scopedProjects.length,
+    ongoing: scopedProjects.filter(p => p.status === "Ongoing").length,
+    completed: scopedProjects.filter(p => p.status === "Completed").length,
+    onHold: scopedProjects.filter(p => p.status === "On Hold").length,
+    totalKW: scopedProjects.reduce((sum, p) => sum + (parseFloat(p.capacity) || 0), 0).toFixed(1),
   };
 
   const resetDirectExForm = () => {

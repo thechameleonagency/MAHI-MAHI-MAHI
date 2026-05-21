@@ -166,6 +166,8 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
     projects: state.projects,
 
+    incomes: state.incomes,
+
   });
 
   if (JSON.stringify(before) !== JSON.stringify({

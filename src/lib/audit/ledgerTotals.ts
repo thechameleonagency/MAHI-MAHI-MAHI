@@ -1,7 +1,8 @@
-import type { Expense, Invoice } from "@/types/finance";
+import type { Expense, Invoice, Payment } from "@/types/finance";
 import type { VendorBill } from "@/types/inventory";
 import type { InventoryItem } from "@/types/project";
 import type { MaterialDamage } from "@/types/operations";
+import { getAccountsPayable, getOutstandingReceivables } from "@/domain/finance/financialSemantics";
 
 export interface LedgerTotalsInput {
   invoices: Invoice[];
@@ -10,6 +11,7 @@ export interface LedgerTotalsInput {
   vendorBills: VendorBill[];
   inventoryItems: InventoryItem[];
   materialDamageRecords?: MaterialDamage[];
+  payments?: Payment[];
 }
 
 export interface LedgerTotals {
@@ -27,16 +29,15 @@ export function computeLedgerTotals(
   inPeriod: (dateStr: string) => boolean,
 ): LedgerTotals {
   const allInvoices = [...input.invoices, ...input.saleBills];
+  const payments = input.payments ?? [];
   const revenueAccrual = allInvoices
     .filter((i) => inPeriod(i.invoiceDate) && i.status !== "voided" && i.status !== "draft")
     .reduce((s, i) => s + i.total, 0);
-  const revenueCollected = allInvoices.reduce((s, i) => s + (i.amountReceived ?? 0), 0);
-  const receivablesOpen = allInvoices
-    .filter((i) => i.status !== "paid" && i.status !== "voided" && i.status !== "draft")
-    .reduce((s, i) => s + Math.max(0, i.total - (i.amountReceived ?? 0)), 0);
-  const payablesOpen = input.vendorBills
-    .filter((b) => b.status !== "paid")
-    .reduce((s, b) => s + Math.max(0, b.total - (b.amountPaid ?? 0)), 0);
+  const revenueCollected = payments
+    .filter((p) => p.direction === "in" && inPeriod(p.date))
+    .reduce((s, p) => s + p.amount, 0);
+  const receivablesOpen = getOutstandingReceivables(input.invoices, payments, input.saleBills);
+  const payablesOpen = getAccountsPayable(input.vendorBills);
   const inventoryValueCost = input.inventoryItems.reduce(
     (s, item) => s + item.stock * (item.buyPrice ?? 0),
     0,

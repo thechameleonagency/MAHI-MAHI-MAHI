@@ -1,6 +1,7 @@
 import type { ClientPaymentRecord } from "@/types/blockage";
-import type { Invoice, Payment } from "@/types/finance";
+import type { Income, Invoice, Payment } from "@/types/finance";
 import type { Project } from "@/types/project";
+import { getProjectAmountReceived } from "@/lib/billingSelectors";
 
 /**
  * Payment rows emitted from {@link addClientPaymentRecord} use this id/reference prefix.
@@ -73,12 +74,6 @@ function paymentReceivedOnInvoice(payments: Payment[], invoiceId: string): numbe
     .reduce((sum, p) => sum + (p.amount ?? 0), 0);
 }
 
-function projectAmountReceivedFromPayments(payments: Payment[], projectId: string): number {
-  return payments
-    .filter((p) => p.direction === "in" && p.projectId === projectId)
-    .reduce((sum, p) => sum + (p.amount ?? 0), 0);
-}
-
 export function buildClientPaymentRecordPaymentRow(
   record: ClientPaymentRecord,
   customerName?: string,
@@ -110,6 +105,8 @@ export function reconcileClientPaymentLedger(input: {
   payments: Payment[];
   invoices: Invoice[];
   projects: Project[];
+  /** Standalone project incomes (excludes rows linked to payments — see `incomeCountsTowardProjectReceived`). */
+  incomes?: Income[];
 }): {
   payments: Payment[];
   invoices: Invoice[];
@@ -165,9 +162,10 @@ export function reconcileClientPaymentLedger(input: {
     }
   }
 
+  const incomes = input.incomes ?? [];
   const projects = input.projects.map((project) => ({
     ...project,
-    amountReceived: projectAmountReceivedFromPayments(payments, project.id),
+    amountReceived: getProjectAmountReceived(project.id, payments, incomes),
   }));
 
   return { payments, invoices, projects };
