@@ -311,7 +311,7 @@ export function CreateProjectWizard({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <AppSheetContent preset="wide" mobileFullScreen layout="bare" className="flex flex-col">
+      <AppSheetContent size="wide" mobileFullScreen layout="bare" className="flex h-full flex-col">
         <SheetHeader className="shrink-0 border-b px-4 py-4 sm:px-6">
           <SheetTitle>Create Project</SheetTitle>
           <SheetDescription className="sr-only">
@@ -319,8 +319,8 @@ export function CreateProjectWizard({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto]">
-          <div className="shrink-0 border-b px-4 py-3 lg:border-b-0 lg:border-r lg:row-span-2 lg:px-4 lg:py-6">
+        <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)_auto]">
+          <div className="shrink-0 border-b px-4 py-3 md:border-b-0 md:border-r md:row-span-2 md:px-4 md:py-6">
             <WizardStepIndicator
               state={state}
               currentStep={currentStep}
@@ -331,8 +331,8 @@ export function CreateProjectWizard({
             />
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:col-start-2">
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 custom-scrollbar lg:grid lg:grid-cols-[minmax(0,1fr)_14rem] lg:gap-6">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:col-start-2">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 custom-scrollbar lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(14rem,18rem)] lg:gap-6 lg:items-start">
               <div className="min-w-0 space-y-4">
                 <div>
                   <h2 className="text-base font-semibold" data-testid="wizard-step-heading">
@@ -360,7 +360,7 @@ export function CreateProjectWizard({
                 <div data-testid={`wizard-step-content-${currentStep}`}>{stepContent}</div>
               </div>
 
-              <div className="lg:col-start-2 lg:row-start-1">
+              <div className="lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1">
                 <WizardReviewPanel state={state} catalog={catalog} />
               </div>
             </div>

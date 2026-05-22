@@ -1,6 +1,11 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { initAppAppearance } from "@/lib/appAppearance";
+
+if (typeof window !== "undefined") {
+  initAppAppearance();
+}
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {

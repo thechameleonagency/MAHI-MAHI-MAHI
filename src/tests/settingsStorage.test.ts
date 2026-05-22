@@ -62,7 +62,7 @@ describe("settingsStorage", () => {
     const s = loadSettingsPageInitialState(storage);
     expect(s.profile.firstName).toBe("");
     expect(s.company.industry).toBe("construction");
-    expect(s.theme).toBe("dark");
+    expect(s.theme).toBe("light");
   });
 
   it("save helpers write atomic JSON blobs", () => {

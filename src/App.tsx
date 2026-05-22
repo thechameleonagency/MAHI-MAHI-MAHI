@@ -63,12 +63,14 @@ import ChartOfAccounts from "./pages/audit/ChartOfAccounts";
 import Login from "./pages/Login";
 import InviteAccept from "./pages/InviteAccept";
 import { AuthGate } from "./components/auth/AuthGate";
+import { ThemeAppearanceProvider } from "@/app/providers/ThemeAppearanceProvider";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <AppErrorBoundary>
     <QueryClientProvider client={queryClient}>
+      <ThemeAppearanceProvider>
       <FoundationProvider>
         <AppSessionProvider>
           <RoleMatrixProvider>
@@ -160,6 +162,7 @@ const App = () => (
           </RoleMatrixProvider>
         </AppSessionProvider>
       </FoundationProvider>
+      </ThemeAppearanceProvider>
     </QueryClientProvider>
   </AppErrorBoundary>
 );

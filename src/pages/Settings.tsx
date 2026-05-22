@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,11 +46,16 @@ import {
   validateSettingsPasswordUpdate,
 } from "@/lib/settingsPasswordUpdate";
 import {
+  applyAccentToDocument,
+  normalizeAccent,
+  type AppAccent,
+  type ResolvedThemeClass,
+} from "@/lib/appAppearance";
+import {
   loadSettingsPageInitialState,
   saveSettingsAccent,
   saveSettingsCompany,
   saveSettingsProfile,
-  saveSettingsTheme,
   saveSettingsTwoFa,
 } from "@/lib/settingsStorage";
 
@@ -64,6 +70,7 @@ const ACCENT_COLORS = [
 const Settings = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { theme: activeTheme, setTheme, resolvedTheme } = useTheme();
   const {
     resetToDefaults,
     loadBusinessSeed,
@@ -154,10 +161,7 @@ const Settings = () => {
   const [companyIndustry, setCompanyIndustry] = useState(storedSettings.company.industry);
   const [companyState, setCompanyState] = useState(storedSettings.company.companyState);
 
-  // Theme state (I3)
-  const [selectedTheme, setSelectedTheme] = useState(storedSettings.theme);
-
-  // Accent color state (I4)
+  // Accent color state (I4) — theme is managed globally via next-themes
   const [selectedAccent, setSelectedAccent] = useState(storedSettings.accent);
 
   // Password form (I5)
@@ -168,18 +172,14 @@ const Settings = () => {
   // 2FA state (I6)
   const [twoFAEnabled, setTwoFAEnabled] = useState(storedSettings.twoFAEnabled);
 
-  // Apply theme on mount and change
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.remove("light", "dark");
-    if (selectedTheme === "system") {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      root.classList.add(prefersDark ? "dark" : "light");
-    } else {
-      root.classList.add(selectedTheme);
-    }
-    saveSettingsTheme(selectedTheme);
-  }, [selectedTheme]);
+  const themePreference = activeTheme ?? storedSettings.theme;
+
+  const handleAccentChange = (accent: AppAccent) => {
+    setSelectedAccent(accent);
+    saveSettingsAccent(accent);
+    const mode: ResolvedThemeClass = resolvedTheme === "dark" ? "dark" : "light";
+    applyAccentToDocument(accent, mode);
+  };
 
   const handleSaveProfile = () => {
     saveSettingsProfile({
@@ -653,8 +653,8 @@ const Settings = () => {
                       <Button
                         key={t.value}
                         variant="outline"
-                        className={`flex-1 h-20 flex-col gap-2 ${selectedTheme === t.value ? "border-primary ring-1 ring-primary" : ""}`}
-                        onClick={() => setSelectedTheme(t.value)}
+                        className={`flex-1 h-20 flex-col gap-2 ${themePreference === t.value ? "border-primary ring-1 ring-primary" : ""}`}
+                        onClick={() => setTheme(t.value)}
                       >
                         <div className={`w-8 h-8 rounded-full border-2 ${t.cls}`} />
                         <span className="text-xs">{t.label}</span>
@@ -672,7 +672,7 @@ const Settings = () => {
                       <button
                         key={ac.value}
                         title={ac.label}
-                        onClick={() => { setSelectedAccent(ac.value); saveSettingsAccent(ac.value); }}
+                        onClick={() => handleAccentChange(normalizeAccent(ac.value))}
                         className={`w-8 h-8 rounded-full ${ac.cls} ${selectedAccent === ac.value ? "ring-2 ring-offset-2 ring-offset-background ring-foreground" : ""}`}
                       />
                     ))}

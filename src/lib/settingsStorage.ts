@@ -104,7 +104,7 @@ export function loadSettingsPageInitialState(
       companyState: String(companyParsed.companyState ?? "08"),
       ownerName: companyParsed.ownerName ? String(companyParsed.ownerName) : undefined,
     },
-    theme: readString(storage, SETTINGS_LS_KEYS.theme, "dark"),
+    theme: readString(storage, SETTINGS_LS_KEYS.theme, "light"),
     accent: readString(storage, SETTINGS_LS_KEYS.accent, "blue"),
     twoFAEnabled: storage.getItem(SETTINGS_LS_KEYS.twoFa) === "true",
   };
