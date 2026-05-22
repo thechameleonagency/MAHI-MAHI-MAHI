@@ -1,7 +1,7 @@
 /**
  * E7 — Partner economics row on projects
  *
- * Calculations use `project.partners[0]`. Shell builders and CreateProjectSheet often
+ * Calculations use `project.partners[0]`. Shell builders and the create-project wizard often
  * only set `scope.partnerId` / intake parties — this module materializes `partners[]`
  * and fixed-EPC commercial fields so derivePartnerEconomics works after fallback create.
  */

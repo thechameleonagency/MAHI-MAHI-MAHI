@@ -24,12 +24,16 @@ export function buildL4Hr(state: AppState, profile: SeedProfile): AppState {
       status: inactive ? ("Inactive" as const) : ("Active" as const),
       site: ["Hyderabad HQ", "Bangalore Yard", "Pune Warehouse", "Field"][i % 4],
       salary: 18000 + (i % 8) * 3500,
-      wallet: i % 4 === 0 ? 2500 : 0,
-      daysPresent: 18 + (i % 5),
-      daysAbsent: i % 6,
-      holidays: 2,
-      advancePaid: i % 3 === 0 ? 5000 : 0,
-      pendingAmount: i % 5 === 0 ? 1200 : 0,
+      // BL-21: aggregate employee fields derive at render time from real
+      // attendance + expense + payroll slices (Employees.tsx already does this
+      // for daysPresent/Absent/holidays). Seeded values are zeroed so audit
+      // surfaces show derived truth instead of arbitrary demo numbers.
+      wallet: 0,
+      daysPresent: 0,
+      daysAbsent: 0,
+      holidays: 0,
+      advancePaid: 0,
+      pendingAmount: 0,
       joiningDate: seedDayAt(0.01 + i * 0.002).slice(0, 10),
       terminatedAt: inactive ? seedDayAt(0.85) : undefined,
       terminationReason: inactive ? "Relocated out of state" : undefined,

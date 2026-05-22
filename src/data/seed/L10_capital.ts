@@ -5,6 +5,7 @@ import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt } from "./seedTimeModel";
 import { countFor, pushAudit } from "./seedHelpers";
 import { VoucherPostingService } from "@/application/services/VoucherPostingService";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 const voucherService = new VoucherPostingService();
 
@@ -43,8 +44,11 @@ export function buildL10Capital(state: AppState, profile: SeedProfile): AppState
       reminderNotes: ptype === "reminder-only" ? "Informal udhar — call before month end" : undefined,
       startDate: seedDayAt(0.1 + i * 0.02),
       emisPaidAlready: paid,
-      outstanding: ptype === "emi" ? principal - emi * paid : i === loanCount - 1 ? 0 : principal * 0.6,
-      status: i === loanCount - 1 ? "Closed" : "Active",
+      // BL-22: outstanding + status are reconciled from real loanRepayments rows
+      // during seed hydration. Seed only stores the primary fields (principal,
+      // EMI amount, tenure). Outstanding/status flow from the ledger.
+      outstanding: principal,
+      status: "Active",
     });
 
     const loanReceived = voucherService.post({ type: "LoanReceived", sourceDocumentId: loanId, amount: principal });
@@ -86,7 +90,7 @@ export function buildL10Capital(state: AppState, profile: SeedProfile): AppState
   const approvedQuotes = state.quotations.filter((q) => q.agentId);
   for (let i = 0; i < approvedQuotes.length && i < countFor(profile, 35); i++) {
     const q = approvedQuotes[i];
-    const project = state.projects.find((p) => p.quotationId === q.id);
+    const project = seedIncludesProjects() ? state.projects.find((p) => p.quotationId === q.id) : undefined;
     const status = project?.lifecycleStatus === "Completed" ? "paid" : project?.startedAt ? "payable" : "pending";
     state.agentCommissionAccruals.push({
       id: seedId(SEED_ID_PREFIX.accrual),
@@ -101,25 +105,29 @@ export function buildL10Capital(state: AppState, profile: SeedProfile): AppState
     });
   }
 
-  for (let i = 0; i < countFor(profile, 20); i++) {
-    const agent = state.agents[i % state.agents.length];
-    const project = state.projects[i % state.projects.length];
-    if (!agent || !project) continue;
-    state.agentCommissionPayments.push({
-      id: seedId(SEED_ID_PREFIX.commissionPay),
-      agentId: agent.id,
-      projectId: project.id,
-      projectName: project.name,
-      amount: 12000 + i * 1500,
-      date: seedDayAt(0.5 + i * 0.008),
-      mode: (["bank_transfer", "upi", "cheque"] as const)[i % 3],
-      createdAt: seedDateAt(0.5 + i * 0.008),
-    });
+  if (seedIncludesProjects()) {
+    for (let i = 0; i < countFor(profile, 20); i++) {
+      const agent = state.agents[i % state.agents.length];
+      const project = state.projects[i % state.projects.length];
+      if (!agent || !project) continue;
+      state.agentCommissionPayments.push({
+        id: seedId(SEED_ID_PREFIX.commissionPay),
+        agentId: agent.id,
+        projectId: project.id,
+        projectName: project.name,
+        amount: 12000 + i * 1500,
+        date: seedDayAt(0.5 + i * 0.008),
+        mode: (["bank_transfer", "upi", "cheque"] as const)[i % 3],
+        createdAt: seedDateAt(0.5 + i * 0.008),
+      });
+    }
   }
 
   for (let i = 0; i < countFor(profile, 24); i++) {
     const partner = state.partners[i % state.partners.length];
-    const project = state.projects.find((p) => p.partners?.some((pp) => pp.partnerId === partner.id));
+    const project = seedIncludesProjects()
+      ? state.projects.find((p) => p.partners?.some((pp) => pp.partnerId === partner.id))
+      : undefined;
     const txId = seedId(SEED_ID_PREFIX.partnerTx);
     state.partnerTransactions.push({
       id: txId,
@@ -172,40 +180,42 @@ export function buildL10Capital(state: AppState, profile: SeedProfile): AppState
     }
   }
 
-  const incGiverTxTarget = countFor(profile, 8);
-  const incGivenProjects = state.projects.filter((p) => p.projectKind === "INC_GIVEN");
-  for (let i = 0; i < incGiverTxTarget; i++) {
-    const project = incGivenProjects[i % Math.max(incGivenProjects.length, 1)];
-    const giverId =
-      project?.scope?.incGiverCompanyId ??
-      state.incGiverCompanies[i % Math.max(state.incGiverCompanies.length, 1)]?.id;
-    if (!giverId) continue;
-    const giver = state.incGiverCompanies.find((c) => c.id === giverId);
-    state.incGiverTransactions.push({
-      id: seedId(SEED_ID_PREFIX.incGiverTx),
-      incGiverCompanyId: giverId,
-      projectId: project?.id,
-      projectName: project?.name,
-      date: seedDayAt(0.4 + i * 0.004),
-      amount: 12000 + i * 2500,
-      type: i % 7 === 0 ? "adjustment" : "collection",
-      notes: "INC giver settlement (seed)",
-    });
-    if (project?.id) {
-      const ledger = deriveIncGiverProjectCollected(project.id, state.incGiverTransactions);
-      state.projects = state.projects.map((p) =>
-        p.id === project.id ? { ...p, amountReceived: ledger } : p,
-      );
-    }
-    if (giver && project) {
-      pushAudit(state, {
-        action: "create",
-        entityType: "INCGiverTransaction",
-        entityId: state.incGiverTransactions[state.incGiverTransactions.length - 1]?.id ?? "",
-        entityName: `${giver.name} — ${project.name}`,
-        fraction: 0.41 + i * 0.002,
-        role: "management",
+  if (seedIncludesProjects()) {
+    const incGiverTxTarget = countFor(profile, 8);
+    const incGivenProjects = state.projects.filter((p) => p.projectKind === "INC_GIVEN");
+    for (let i = 0; i < incGiverTxTarget; i++) {
+      const project = incGivenProjects[i % Math.max(incGivenProjects.length, 1)];
+      const giverId =
+        project?.scope?.incGiverCompanyId ??
+        state.incGiverCompanies[i % Math.max(state.incGiverCompanies.length, 1)]?.id;
+      if (!giverId) continue;
+      const giver = state.incGiverCompanies.find((c) => c.id === giverId);
+      state.incGiverTransactions.push({
+        id: seedId(SEED_ID_PREFIX.incGiverTx),
+        incGiverCompanyId: giverId,
+        projectId: project?.id,
+        projectName: project?.name,
+        date: seedDayAt(0.4 + i * 0.004),
+        amount: 12000 + i * 2500,
+        type: i % 7 === 0 ? "adjustment" : "collection",
+        notes: "INC giver settlement (seed)",
       });
+      if (project?.id) {
+        const ledger = deriveIncGiverProjectCollected(project.id, state.incGiverTransactions);
+        state.projects = state.projects.map((p) =>
+          p.id === project.id ? { ...p, amountReceived: ledger } : p,
+        );
+      }
+      if (giver && project) {
+        pushAudit(state, {
+          action: "create",
+          entityType: "INCGiverTransaction",
+          entityId: state.incGiverTransactions[state.incGiverTransactions.length - 1]?.id ?? "",
+          entityName: `${giver.name} — ${project.name}`,
+          fraction: 0.41 + i * 0.002,
+          role: "management",
+        });
+      }
     }
   }
 

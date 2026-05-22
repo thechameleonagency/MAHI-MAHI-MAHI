@@ -42,6 +42,6 @@ describe("All routed pages import without throwing", () => {
     await expect(import("@/components/projects/ProgressReportTab")).resolves.toBeDefined();
     await expect(import("@/components/projects/TeamRosterTab")).resolves.toBeDefined();
     await expect(import("@/components/projects/MaterialsSentTab")).resolves.toBeDefined();
-    await expect(import("@/components/projects/CreateProjectSheet")).resolves.toBeDefined();
+    await expect(import("@/components/projects/CreateProjectWizard")).resolves.toBeDefined();
   });
 });

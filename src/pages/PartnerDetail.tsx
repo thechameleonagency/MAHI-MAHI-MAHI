@@ -39,7 +39,7 @@ import { formatUiDate } from "@/lib/formatUiDate";
 import { formatINR } from "@/lib/formatCurrency";
 import {
   calculateProjectPartnerEarning,
-  calculateProjectProfit,
+  calculateProjectProfitDerived,
 
   isPartnerCreditTransaction,
   isPartnerDebitTransaction,
@@ -81,6 +81,7 @@ const PartnerDetail = () => {
     partners,
     partnerTransactions,
     projects,
+    expenses,
     canDo,
     updatePartner,
     updateProject,
@@ -193,14 +194,20 @@ const PartnerDetail = () => {
         if (!projectPartner && !isScopedPartner) return null;
 
         const projectTxns = partnerTransactions.filter((txn) => txn.partnerId === id && txn.projectId === project.id);
-        const earned = projectPartner ? calculateProjectPartnerEarning(project, projectPartner) : 0;
+        // BL-1: pre-attribute derived cost into the project payload so partner share math
+        // uses real expense-backed cost rather than the unset stored totalCost.
+        const derivedCost = (project.totalCost && project.totalCost > 0)
+          ? project.totalCost
+          : expenses.filter((e) => e.projectId === project.id).reduce((s, e) => s + e.amount, 0);
+        const projectWithCost = { ...project, totalCost: derivedCost };
+        const earned = projectPartner ? calculateProjectPartnerEarning(projectWithCost, projectPartner) : 0;
         const paid = projectTxns.filter(isPartnerCreditTransaction).reduce((sum, txn) => sum + txn.amount, 0);
         const received = projectTxns.filter(isPartnerDebitTransaction).reduce((sum, txn) => sum + txn.amount, 0);
 
         return {
           project,
           projectPartner,
-          profit: calculateProjectProfit(project),
+          profit: calculateProjectProfitDerived(project, expenses),
           earned,
           paid,
           received,
@@ -208,7 +215,7 @@ const PartnerDetail = () => {
         };
       })
       .filter((row): row is NonNullable<typeof row> => row !== null);
-  }, [id, partnerTransactions, projects]);
+  }, [id, partnerTransactions, projects, expenses]);
 
   const totals = linkedProjects.reduce(
     (acc, row) => ({

@@ -7,7 +7,7 @@ import {
   syncBankReconciliationLinks,
 } from "@/lib/bankReconciliationLink";
 import { buildCashBankEntries } from "@/lib/audit/cashBankLedger";
-import type { Expense } from "@/types/finance";
+import type { Expense, Payment } from "@/types/finance";
 
 describe("bankReconciliationLink (E9)", () => {
   it("maps reconciliation ledger types to entity kinds", () => {
@@ -94,6 +94,68 @@ describe("bankReconciliationLink (E9)", () => {
     const next = clearBankReconciliationLinksForStatement(expenses, "stmt-a");
     expect(next[0].reconciledWith).toBeUndefined();
     expect(next[1].reconciledWith?.statementId).toBe("stmt-b");
+  });
+
+  // BL-9: Payment must carry `reconciledWith` so customer-payment rows survive
+  // upload → match → apply → reopen round-trips. The type was previously missing
+  // this field even though the link code and seed already wrote to it.
+  it("Payment round-trip: apply, clear via inactive set, re-apply", () => {
+    const matchedAt = "2026-03-26T10:00:00.000Z";
+    const initialPayment: Payment = {
+      id: "PAY-001",
+      date: "2026-03-25",
+      amount: 50000,
+      direction: "in",
+      paymentMode: "bank",
+      counterpartyType: "customer",
+      counterpartyName: "Acme Co",
+    };
+
+    // Step 1: first reconciliation cycle — apply match.
+    const applied = syncBankReconciliationLinks(
+      { expenses: [], incomes: [], payments: [initialPayment], vendorPayments: [] },
+      ["stmt-1"],
+      [
+        {
+          flag: "matched",
+          statementId: "stmt-1",
+          statementName: "hdfc.csv",
+          bankEntryDate: "2026-03-25",
+          ledgerEntryId: "PAY-001",
+          ledgerEntryType: "Payment Received",
+        },
+      ],
+      matchedAt,
+    );
+    expect(applied.payments[0].reconciledWith?.statementId).toBe("stmt-1");
+    expect(applied.payments[0].reconciledWith?.matchFlag).toBe("matched");
+
+    // Step 2: user removes statement from active set; link is stripped.
+    const cleared = syncBankReconciliationLinks(
+      { expenses: [], incomes: [], payments: applied.payments, vendorPayments: [] },
+      [],
+      [],
+    );
+    expect(cleared.payments[0].reconciledWith).toBeUndefined();
+
+    // Step 3: re-upload same statement and re-apply same match. Round-trips correctly.
+    const reapplied = syncBankReconciliationLinks(
+      { expenses: [], incomes: [], payments: cleared.payments, vendorPayments: [] },
+      ["stmt-1"],
+      [
+        {
+          flag: "matched",
+          statementId: "stmt-1",
+          statementName: "hdfc.csv",
+          bankEntryDate: "2026-03-25",
+          ledgerEntryId: "PAY-001",
+          ledgerEntryType: "Payment Received",
+        },
+      ],
+      matchedAt,
+    );
+    expect(reapplied.payments[0].reconciledWith?.statementId).toBe("stmt-1");
+    expect(reapplied.payments[0].reconciledWith?.bankEntryDate).toBe("2026-03-25");
   });
 
   it("buildCashBankEntries surfaces bankReconciledNote", () => {

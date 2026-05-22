@@ -75,6 +75,27 @@ export function getCustomerLastPurchase(
   return dates.sort().at(-1);
 }
 
+/**
+ * BL-20: Hydrate stored `customer.totalPurchases` and `customer.lastPurchase`
+ * from the canonical invoice slice so seed-time fake values are replaced with
+ * the derived truth. Runs as part of seed + boot hydration so list/detail/sort
+ * surfaces all read the same number that the audit ledger reads.
+ *
+ * Sale bills are included in `invoices` arg when caller passes the union.
+ */
+export function reconcileCustomersPurchaseAggregates(
+  customers: Customer[],
+  invoices: Invoice[],
+  saleBills: Invoice[] = [],
+): Customer[] {
+  const docs = [...invoices, ...saleBills];
+  return customers.map((customer) => ({
+    ...customer,
+    totalPurchases: getCustomerTotalPurchases(customer.id, docs),
+    lastPurchase: getCustomerLastPurchase(customer.id, docs) ?? "",
+  }));
+}
+
 /** Sum of active (non-draft, non-voided) invoice + sale-bill totals for a project. */
 export function getProjectAmountInvoiced(
   projectId: string,
@@ -182,6 +203,23 @@ export function getProjectTotalCost(
         e.allocation?.type === "project" && e.allocation.projectId === projectId,
     )
     .reduce((s, e) => s + e.amount, 0);
+}
+
+/**
+ * BL-2: Hydrate stored `project.totalCost` from the materialized expense slice.
+ * Without this pass, seed data leaves `totalCost = 0` and any legacy caller
+ * (`calculateProjectProfit`, `projectBillingDrift`, partner share math) reads
+ * profit = contractAmount. Runs as part of the seed hydration pipeline so
+ * `projectBillingDrift` reports zero `totalCostDrift` from boot.
+ */
+export function reconcileProjectsTotalCost(
+  projects: Project[],
+  expenses: Expense[],
+): Project[] {
+  return projects.map((project) => ({
+    ...project,
+    totalCost: getProjectTotalCost(project.id, expenses),
+  }));
 }
 
 export interface CashRevenueInput {

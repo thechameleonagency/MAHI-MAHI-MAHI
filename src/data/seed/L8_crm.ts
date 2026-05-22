@@ -7,14 +7,20 @@ import { phoneNumber, emailFor, addressAt, companyName, personName } from "./see
 import { CAPACITIES_KW, contractForCapacity, countFor, pushAudit, roundInr } from "./seedHelpers";
 import { buildEnquiryAssignmentFromMemberId } from "@/lib/enquiryAssignee";
 import { normalizeTeamMemberStatus } from "@/lib/seedSessionBootstrap";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 const ENQUIRY_STATUSES: Enquiry["status"][] = [
   "new", "meeting_scheduled", "quotation_sent", "quotation_rejected", "converted", "lost",
 ];
 
-const QUOTATION_STATUSES: Quotation["status"][] = [
+const QUOTATION_STATUSES_ALL: Quotation["status"][] = [
   "draft", "sent", "approved", "rejected", "withdrawn", "converted_to_project",
 ];
+
+function quotationStatusesForSeed(): Quotation["status"][] {
+  if (seedIncludesProjects()) return QUOTATION_STATUSES_ALL;
+  return QUOTATION_STATUSES_ALL.filter((s) => s !== "converted_to_project");
+}
 
 function gstBreakup(amount: number) {
   const sub = roundInr(amount / 1.18);
@@ -83,7 +89,7 @@ export function buildL8Crm(state: AppState, profile: SeedProfile): AppState {
     const kw = Number(CAPACITIES_KW[i % CAPACITIES_KW.length]);
     const contract = contractForCapacity(kw, category);
     const gst = gstBreakup(contract);
-    const status = QUOTATION_STATUSES[i % QUOTATION_STATUSES.length];
+    const status = quotationStatusesForSeed()[i % quotationStatusesForSeed().length];
     const fraction = 0.1 + i * 0.007;
     const createdAt = seedDayAt(fraction);
     const paymentType = (["cash", "loan", "cash-and-loan"] as const)[i % 3];

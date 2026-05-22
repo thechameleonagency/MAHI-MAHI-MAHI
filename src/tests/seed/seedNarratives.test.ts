@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { buildBusinessSeed } from "@/data/seed/buildBusinessSeed";
 import { applyAllNarratives } from "@/data/seed/narratives/index";
 import { buildEmptyAppState } from "@/data/appSeedBuilder";
+import { seedIncludesProjects } from "@/data/seed/seedProjectPhase";
+
+const itIfProjects = seedIncludesProjects() ? it : it.skip;
 
 describe("seedNarratives", () => {
   it("applyAllNarratives runs all narrative patches on full seed without error", () => {
@@ -15,7 +18,7 @@ describe("seedNarratives", () => {
     expect(() => applyAllNarratives(state)).not.toThrow();
   });
 
-  it("includes key narrative outcomes after full build", () => {
+  itIfProjects("includes key narrative outcomes after full build", () => {
     const { state } = buildBusinessSeed("full");
     const billing = [...state.invoices, ...state.saleBills];
     expect(state.enquiries.some((e) => e.notes.some((n) => n.note.toLowerCase().includes("reopened")))).toBe(true);
@@ -26,5 +29,13 @@ describe("seedNarratives", () => {
     expect(state.projectChangeRequests.some((c) => c.status === "approved")).toBe(true);
     expect(state.projectChangeRequests.some((c) => c.status === "rejected")).toBe(true);
     expect(state.tasks.some((t) => t.delayHistory?.length)).toBe(true);
+  });
+
+  it("includes CRM and finance narrative outcomes when projects are cleared", () => {
+    if (seedIncludesProjects()) return;
+    const { state } = buildBusinessSeed("full");
+    expect(state.enquiries.some((e) => e.notes.some((n) => n.note.toLowerCase().includes("reopened")))).toBe(true);
+    expect(state.vendorBills.some((b) => b.status === "disputed")).toBe(true);
+    expect(state.projects).toHaveLength(0);
   });
 });

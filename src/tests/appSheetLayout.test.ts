@@ -32,19 +32,17 @@ describe("APP_SHEET_MOBILE_FULLSCREEN_CLASS (MR7)", () => {
     expect(APP_SHEET_MOBILE_FULLSCREEN_CLASS).toMatch(/max-md:rounded-none/);
   });
 
-  it("is wired on bank reconciliation and project confirmation sheets", () => {
+  it("is wired on bank reconciliation and create project wizard sheets", () => {
     const bank = readFileSync(
       resolve(process.cwd(), "src/components/audit/BankReconciliationSheet.tsx"),
       "utf8",
     );
-    const createProject = readFileSync(
-      resolve(process.cwd(), "src/components/projects/CreateProjectSheet.tsx"),
+    const createProjectWizard = readFileSync(
+      resolve(process.cwd(), "src/components/projects/CreateProjectWizard.tsx"),
       "utf8",
     );
-    const quotations = readFileSync(resolve(process.cwd(), "src/pages/Quotations.tsx"), "utf8");
     expect(bank).toContain("mobileFullScreen");
-    expect(createProject).toContain("mobileFullScreen");
-    expect(quotations).toMatch(/AppSheetContent[^>]*mobileFullScreen[\s\S]*ProjectConfirmationScreen/);
+    expect(createProjectWizard).toContain("mobileFullScreen");
   });
 });
 

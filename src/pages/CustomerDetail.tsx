@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAppData } from "@/contexts/AppDataContext";
+import { getCustomerTotalPurchases, getCustomerTotalReceived, getInvoiceOpenBalance, isActiveBill } from "@/lib/billingSelectors";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
@@ -45,7 +46,7 @@ import { planCustomerBulkInflow } from "@/lib/customerInflowWritePaths";
 const CustomerDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { customers, invoices, saleBills, projects, quotations, payments: _payments, recordCustomerInflow, generateId, canDo, updateCustomer } = useAppData();
+  const { customers, invoices, saleBills, projects, quotations, payments, recordCustomerInflow, generateId, canDo, updateCustomer } = useAppData();
   const canCreateQuotation = useCan("quotation", "create");
   const canCreateProjectFromQuote = useCanAction("project:create_from_quote");
   const canCreateInvoice = useCanAction("finance:create_invoice");
@@ -163,16 +164,27 @@ const CustomerDetail = () => {
   const { pagedItems: pagedCustProj, safePage: safeCp } = usePagedSlice(customerProjects, cpPage, cpSize);
   const { pagedItems: pagedCustQuot, safePage: safeCq } = usePagedSlice(customerQuotations, cqPage, cqSize);
 
-  // Calculate totals
-  const totalPending = useMemo(() => 
-    pendingInvoices.reduce((sum, inv) => sum + (inv.total - inv.amountReceived), 0),
-    [pendingInvoices]
+  // BL-14: customer financial totals derive from canonical billingSelectors so they
+  // (a) include sale bills not just invoices, (b) exclude voided/draft documents,
+  // and (c) prefer payment-linked open balance over stored amountReceived alone.
+  const totalPending = useMemo(
+    () =>
+      [...customerInvoices, ...customerSaleBills]
+        .filter((doc) => isActiveBill(doc) && doc.status !== "paid")
+        .reduce((sum, doc) => sum + getInvoiceOpenBalance(doc, payments), 0),
+    [customerInvoices, customerSaleBills, payments],
   );
 
-  const totalReceived = useMemo(() => 
-    customerInvoices.reduce((sum, inv) => sum + inv.amountReceived, 0),
-    [customerInvoices]
-  );
+  const totalReceived = useMemo(() => {
+    if (!id) return 0;
+    return getCustomerTotalReceived(id, [...customerInvoices, ...customerSaleBills], payments);
+  }, [id, customerInvoices, customerSaleBills, payments]);
+
+  // BL-14: derived total purchases (canonical) — excludes voided/draft, covers both invoices + sale bills.
+  const derivedTotalPurchases = useMemo(() => {
+    if (!id) return 0;
+    return getCustomerTotalPurchases(id, [...customerInvoices, ...customerSaleBills]);
+  }, [id, customerInvoices, customerSaleBills]);
 
   // FIFO payment breakdown
   const fifoBreakdown = useMemo(() => {
@@ -364,8 +376,9 @@ const CustomerDetail = () => {
             <InlineKpiStrip
               className="w-full sm:w-auto sm:justify-end"
               items={[
-                { label: "Pending", value: formatINR(totalPending) },
+                { label: "Total purchases", value: formatINR(derivedTotalPurchases) },
                 { label: "Received", value: formatINR(totalReceived) },
+                { label: "Outstanding", value: formatINR(totalPending) },
                 { label: "Projects", value: customerProjects.length },
                 { label: "Quotations", value: customerQuotations.length },
               ]}

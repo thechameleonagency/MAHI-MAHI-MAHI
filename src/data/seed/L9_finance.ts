@@ -7,6 +7,7 @@ import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt } from "./seedTimeModel";
 import { countFor, pushAudit, roundInr } from "./seedHelpers";
 import { gstBreakup } from "./L8_crm";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 const INVOICE_STATUSES: Invoice["status"][] = [
   "draft", "pending", "partial", "paid", "overdue", "overpaid", "voided",
@@ -33,12 +34,15 @@ function postVoucher(state: AppState, type: AccountingEventType, docId: string, 
 /** L9 — invoices, CPRs, payments, expenses, incomes, vendor bills. */
 export function buildL9Finance(state: AppState, profile: SeedProfile): AppState {
   const invoiceCount = countFor(profile, 40);
-  const projects = state.projects.filter((p) => p.projectKind !== "VENDORSHIP_ONLY");
+  const projects = seedIncludesProjects()
+    ? state.projects.filter((p) => p.projectKind !== "VENDORSHIP_ONLY")
+    : [];
 
   for (let i = 0; i < invoiceCount; i++) {
-    const project = projects[i % projects.length];
-    if (!project?.customerId) continue;
-    const customer = state.customers.find((c) => c.id === project.customerId);
+    const project = projects[i % Math.max(projects.length, 1)];
+    const customer = project?.customerId
+      ? state.customers.find((c) => c.id === project.customerId)
+      : state.customers[i % state.customers.length];
     if (!customer) continue;
     const status = INVOICE_STATUSES[i % INVOICE_STATUSES.length];
     const fraction = 0.45 + i * 0.008;
@@ -47,7 +51,7 @@ export function buildL9Finance(state: AppState, profile: SeedProfile): AppState 
     const inv: Invoice = {
       id: seedId(SEED_ID_PREFIX.invoice),
       invoiceNumber: `INV-2026-${String(2000 + i)}`,
-      type: i % 5 === 0 ? "sale-bill" : "invoice",
+      type: seedIncludesProjects() && i % 5 === 0 ? "sale-bill" : "invoice",
       documentTypeSource: "user",
       customerId: customer.id,
       customerName: customer.name,
@@ -82,48 +86,49 @@ export function buildL9Finance(state: AppState, profile: SeedProfile): AppState 
     }
   }
 
-  // Client payment records + synthetic payments
-  const cprCount = countFor(profile, 45);
-  for (let i = 0; i < cprCount; i++) {
-    const project = projects[i % projects.length];
-    if (!project) continue;
-    const amount = roundInr((project.contractAmount ?? 100000) * (0.1 + (i % 4) * 0.05));
-    const cprId = seedId(SEED_ID_PREFIX.cpr);
-    const fraction = 0.5 + i * 0.006;
-    const split = i % 7 === 0 && project.partners?.length;
-    state.clientPaymentRecords.push({
-      id: cprId,
-      projectId: project.id,
-      date: seedDayAt(fraction),
-      amount,
-      paymentMode: (["upi", "bank-transfer", "cheque", "neft"] as const)[i % 4],
-      settlementRecipient: split ? "split" : "company",
-      splitLines: split ? [{ recipient: "company", amount: amount * 0.6 }, { recipient: "partner", amount: amount * 0.4 }] : undefined,
-      paymentStage: (["advance", "milestone", "completion", "loan_release"] as const)[i % 4],
-      recordedAt: seedDateAt(fraction),
-      recordedBy: "Anita Deshmukh",
-    });
-    state.payments.push({
-      id: clientPaymentRecordPaymentId(cprId),
-      date: seedDayAt(fraction),
-      amount,
-      direction: "in",
-      paymentMode: "Bank Transfer",
-      counterpartyType: "customer",
-      customerId: project.customerId,
-      projectId: project.id,
-      projectName: project.name,
-      paymentSource: split ? "split" : "mss",
-      partnerPortion: split ? amount * 0.4 : undefined,
-    });
-    project.amountReceived = (project.amountReceived ?? 0) + amount;
-    postVoucher(state, "PaymentReceived", cprId, amount);
+  if (seedIncludesProjects()) {
+    const cprCount = countFor(profile, 45);
+    for (let i = 0; i < cprCount; i++) {
+      const project = projects[i % projects.length];
+      if (!project) continue;
+      const amount = roundInr((project.contractAmount ?? 100000) * (0.1 + (i % 4) * 0.05));
+      const cprId = seedId(SEED_ID_PREFIX.cpr);
+      const fraction = 0.5 + i * 0.006;
+      const split = i % 7 === 0 && project.partners?.length;
+      state.clientPaymentRecords.push({
+        id: cprId,
+        projectId: project.id,
+        date: seedDayAt(fraction),
+        amount,
+        paymentMode: (["upi", "bank-transfer", "cheque", "neft"] as const)[i % 4],
+        settlementRecipient: split ? "split" : "company",
+        splitLines: split ? [{ recipient: "company", amount: amount * 0.6 }, { recipient: "partner", amount: amount * 0.4 }] : undefined,
+        paymentStage: (["advance", "milestone", "completion", "loan_release"] as const)[i % 4],
+        recordedAt: seedDateAt(fraction),
+        recordedBy: "Anita Deshmukh",
+      });
+      state.payments.push({
+        id: clientPaymentRecordPaymentId(cprId),
+        date: seedDayAt(fraction),
+        amount,
+        direction: "in",
+        paymentMode: "Bank Transfer",
+        counterpartyType: "customer",
+        customerId: project.customerId,
+        projectId: project.id,
+        projectName: project.name,
+        paymentSource: split ? "split" : "mss",
+        partnerPortion: split ? amount * 0.4 : undefined,
+      });
+      project.amountReceived = (project.amountReceived ?? 0) + amount;
+      postVoucher(state, "PaymentReceived", cprId, amount);
+    }
   }
 
-  // Expenses across main categories
   const expenseCats: Array<{ main: NonNullable<import("@/types/finance").Expense["mainCategory"]>; sub: string }> = [
-    { main: "site", sub: "labour" },
-    { main: "site", sub: "material-transport" },
+    ...(seedIncludesProjects()
+      ? [{ main: "site" as const, sub: "labour" }, { main: "site" as const, sub: "material-transport" }]
+      : []),
     { main: "company", sub: "marketing" },
     { main: "office", sub: "office-rent" },
     { main: "employee", sub: "employee-reimbursement" },
@@ -133,7 +138,7 @@ export function buildL9Finance(state: AppState, profile: SeedProfile): AppState 
   const expenseCount = countFor(profile, 70);
   for (let i = 0; i < expenseCount; i++) {
     const cat = expenseCats[i % expenseCats.length];
-    const project = cat.main === "site" ? projects[i % projects.length] : undefined;
+    const project = cat.main === "site" ? projects[i % Math.max(projects.length, 1)] : undefined;
     const expId = seedId(SEED_ID_PREFIX.expense);
     state.expenses.push({
       id: expId,
@@ -152,16 +157,15 @@ export function buildL9Finance(state: AppState, profile: SeedProfile): AppState 
     postVoucher(state, "ExpenseRecorded", expId, 1500 + i * 350);
   }
 
-  // Incomes
   const incomeCats = [
-    { main: "project" as const, sub: "client-payment" },
+    ...(seedIncludesProjects() ? [{ main: "project" as const, sub: "client-payment" }] : []),
     { main: "loan" as const, sub: "bank-loan" },
     { main: "partner" as const, sub: "partner-investment" },
     { main: "company" as const, sub: "owner-investment" },
   ];
   for (let i = 0; i < countFor(profile, 18); i++) {
     const cat = incomeCats[i % incomeCats.length];
-    const linkedProject = cat.main === "project" ? projects[i % projects.length] : undefined;
+    const linkedProject = cat.main === "project" ? projects[i % Math.max(projects.length, 1)] : undefined;
     const amount = 25000 + i * 5000;
     state.incomes.push({
       id: seedId(SEED_ID_PREFIX.income),
@@ -177,7 +181,6 @@ export function buildL9Finance(state: AppState, profile: SeedProfile): AppState 
     });
   }
 
-  // Vendor bills & payments
   for (let i = 0; i < countFor(profile, 28); i++) {
     const vendor = state.vendors[i % state.vendors.length];
     const billId = seedId(SEED_ID_PREFIX.vendorBill);
@@ -196,7 +199,7 @@ export function buildL9Finance(state: AppState, profile: SeedProfile): AppState 
       total: amount,
       amountPaid: status === "paid" ? amount : status === "partial" ? amount * 0.5 : 0,
       status,
-      projectId: state.projects[i % state.projects.length]?.id,
+      projectId: seedIncludesProjects() ? state.projects[i % state.projects.length]?.id : undefined,
     });
     if (status !== "draft") postVoucher(state, "PurchaseBillBooked", billId, amount);
     if (status === "paid" || status === "partial") {

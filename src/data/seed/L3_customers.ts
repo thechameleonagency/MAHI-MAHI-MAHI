@@ -32,7 +32,10 @@ export function buildL3Customers(state: AppState, profile: SeedProfile): AppStat
       gstin: isCompany ? gstinFor("36", i) : undefined,
       paymentTerms: i % 2 === 0 ? "30% advance, balance on completion" : "Milestone-based",
       itemsBought: i % 5 === 0 ? ["MC4 Connector", "DC Cable"] : [],
-      totalPurchases: i % 5 === 0 ? 8500 + i * 500 : 0,
+      // BL-20: aggregate fields are reconciled from real invoice/payment data
+      // during seed hydration (`reconcileCustomersPurchaseAggregates`,
+      // `reconcileBillingAmountReceivedState`). No fake totals seeded.
+      totalPurchases: 0,
       amountReceived: 0,
       customerKind: i % 7 === 0 ? "both" : i % 11 === 0 ? "inventory" : "project",
       createdAt,

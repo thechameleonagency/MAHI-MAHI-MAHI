@@ -69,7 +69,7 @@ export class ProjectInvariantService {
     }
 
     // Intake create without quotation (direct-exception uses a separate command + site payload).
-    if (!input.quotationId && input.project !== undefined) {
+    if (!input.quotationId && input.project !== undefined && !input.directExceptionReason?.trim()) {
       const kind = input.project.projectKind ?? "SOLO_EPC";
       if (kind === "SOLO_EPC") {
         return {

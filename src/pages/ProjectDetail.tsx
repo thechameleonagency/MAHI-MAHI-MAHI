@@ -88,9 +88,9 @@ import { clientPaymentRecordPaymentId } from "@/lib/clientPaymentReconciliation"
 import { CustomerSnapshotDriftHint } from "@/components/shared/CustomerSnapshotDriftHint";
 import { ProjectScopeChangeGuidance } from "@/components/shared/ProjectScopeChangeGuidance";
 import { resolveProjectClientDisplay } from "@/lib/customerPipelineIdentity";
+import { getTimelineCompletionPercent } from "@/lib/projectUtils";
 import {
   calculateProjectPartnerEarning,
-  calculateProjectProfit,
   calculateProjectVendorshipFee,
   isPartnerCreditTransaction,
   isPartnerDebitTransaction,
@@ -138,11 +138,12 @@ function TabCard({
   );
 }
 
-function MiniMetric({ label, value }: { label: string; value: string | number }) {
+function MiniMetric({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
-    <div className="rounded-lg border border-border/70 bg-muted/25 px-3 py-2">
+    <div className="rounded-lg border border-border/70 bg-muted/25 px-3 py-2" title={hint}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
+      {hint && <p className="text-2xs text-muted-foreground/80">{hint}</p>}
     </div>
   );
 }
@@ -754,17 +755,30 @@ const ProjectDetail = () => {
   const linkedPartner = partnerRow
     ? partners.find((partner) => partner.id === partnerRow.partnerId)
     : undefined;
-  const projectProfit = calculateProjectProfit(project);
-  const partnerEarning = partnerRow ? calculateProjectPartnerEarning(project, partnerRow) : 0;
+  const billed = projectInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
+  const collected = projectPayments.filter((payment) => payment.direction === "in").reduce((sum, payment) => sum + payment.amount, 0);
+  // BL-1: actualCost is derived from linked expenses when project.totalCost is not stored.
+  // Profit must use the same derived cost — otherwise profit collapses to contractAmount
+  // when totalCost is 0/undefined (the historical "Profit == Contract" bug).
+  const actualCost = project.totalCost && project.totalCost > 0
+    ? project.totalCost
+    : projectExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  // BL-5: Three distinct profit lenses (see audit report Round 3 BL-5).
+  // - expectedProfit:  contract − cost (what we'll earn if the deal completes as priced)
+  // - accrualProfit:   billed   − cost (what's already earned in books)
+  // - realizedProfit:  collected − cost (what's earned in cash)
+  const projectProfit = (project.contractAmount || 0) - actualCost;
+  const accrualProfit = billed - actualCost;
+  const realizedProfit = collected - actualCost;
+  const partnerEarning = partnerRow
+    ? calculateProjectPartnerEarning({ ...project, totalCost: actualCost }, partnerRow)
+    : 0;
   const vendorshipFee = partnerRow ? calculateProjectVendorshipFee(partnerRow) : 0;
   const partnerProjectTransactions = partnerRow ? partnerTransactions.filter((txn) => txn.partnerId === partnerRow.partnerId && txn.projectId === project.id) : [];
   const partnerPaid = partnerProjectTransactions.filter(isPartnerCreditTransaction).reduce((sum, txn) => sum + txn.amount, 0);
   const partnerReceived = partnerProjectTransactions.filter(isPartnerDebitTransaction).reduce((sum, txn) => sum + txn.amount, 0);
   const _pendingToPartner = Math.max(0, partnerEarning - partnerPaid);
   const _pendingFromPartner = Math.max(0, vendorshipFee - partnerReceived);
-  const billed = projectInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
-  const collected = projectPayments.filter((payment) => payment.direction === "in").reduce((sum, payment) => sum + payment.amount, 0);
-  const actualCost = project.totalCost || projectExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   const companyRetainedRevenue = project.contractAmount - partnerEarning;
   const _companyNet = kind === "VENDOR_NETWORK" ? projectProfit + vendorshipFee : companyRetainedRevenue - actualCost;
 
@@ -864,6 +878,10 @@ const ProjectDetail = () => {
                   { label: "Actual cost", value: formatINR(actualCost) },
                   { label: "Profit", value: formatINR(projectProfit) },
                   { label: "Collected", value: formatINR(collected) },
+                  { label: "Outstanding", value: formatINR(Math.max(0, (project.contractAmount || 0) - collected)) },
+                  // BL-7: completion % derived from timeline milestones (file login, subsidy,
+                  // bank file, work status, DISCOM, payment). Shows "—" if no timeline yet.
+                  { label: "Completion", value: projectTimeline ? `${getTimelineCompletionPercent(projectTimeline)}%` : "—" },
                 ]}
               />
               {hasFinancialDetail && canViewCommercial && (
@@ -1871,12 +1889,32 @@ const ProjectDetail = () => {
 
         {/* â•â•â• Financials (merged Billing + Costs) â•â•â• */}
         <TabsContent value="financials" className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
             <MiniMetric label="Contract" value={formatINR(project.contractAmount)} />
             <MiniMetric label="Billed" value={formatINR(billed)} />
             <MiniMetric label="Collected" value={formatINR(collected)} />
+            <MiniMetric label="Outstanding" value={formatINR(Math.max(0, (project.contractAmount || 0) - collected))} />
             <MiniMetric label="Actual Cost" value={formatINR(actualCost)} />
             <MiniMetric label="Profit" value={formatINR(projectProfit)} />
+            <MiniMetric label="Margin" value={(project.contractAmount || 0) > 0 ? `${((projectProfit / (project.contractAmount || 1)) * 100).toFixed(1)}%` : "—"} />
+          </div>
+          {/* BL-5: profit-by-recognition split (expected vs accrual vs realized). */}
+          <div className="grid gap-3 md:grid-cols-3 rounded-md border border-border/60 bg-muted/20 p-3">
+            <MiniMetric
+              label="Expected profit"
+              value={formatINR(projectProfit)}
+              hint="Contract − Actual cost"
+            />
+            <MiniMetric
+              label="Accrual profit"
+              value={formatINR(accrualProfit)}
+              hint="Billed − Actual cost"
+            />
+            <MiniMetric
+              label="Realized profit"
+              value={formatINR(realizedProfit)}
+              hint="Collected − Actual cost"
+            />
           </div>
 
           <TabCard title="Change requests" icon={<FileText className="h-4 w-4 text-primary" />}>

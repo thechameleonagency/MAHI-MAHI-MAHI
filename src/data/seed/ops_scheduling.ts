@@ -3,9 +3,11 @@ import type { SeedProfile } from "./seedLayerOrder";
 import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedDateAt } from "./seedTimeModel";
 import { getMinimumFor } from "./seedVolumeTargets";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 /** Supplement scheduledInstallations to §4 minimum (20–30). */
 export function buildOpsScheduling(state: AppState, profile: SeedProfile): AppState {
+  if (!seedIncludesProjects()) return state;
   const target = getMinimumFor(profile, "scheduledInstallations");
   const statuses = ["scheduled", "in_progress", "completed", "cancelled"] as const;
   let i = 0;

@@ -19,6 +19,9 @@ import {
 import { migrateOpaqueCustomerIds } from "@/lib/migrateCustomerIds";
 import { migratePersistedState } from "@/lib/migratePersistedIds";
 import { reconcileBillingAmountReceivedState } from "@/lib/billingAmountReceivedContinuity";
+import { reconcileProjectsTotalCost, reconcileCustomersPurchaseAggregates } from "@/lib/billingSelectors";
+import { reconcileEmployeesAggregates } from "@/lib/employeeAggregates";
+import { reconcileLoansOutstanding } from "@/lib/loanAggregates";
 import { reconcileAuditLogUserNames } from "@/lib/resolveAuditActorUserName";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
 import { reconcileVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
@@ -116,18 +119,42 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
 
   const withBilling = reconcileBillingAmountReceivedState(linked);
 
-  const withSites = {
+  // BL-2: hydrate stored project.totalCost from materialized expenses so legacy
+  // callers and drift checks see real cost rather than zero on existing snapshots.
+  // BL-20: same treatment for customer.totalPurchases + lastPurchase so list/detail
+  // sort + display agree with the audit ledger byte-for-byte.
+  const withCost = {
     ...withBilling,
+    projects: reconcileProjectsTotalCost(withBilling.projects, withBilling.expenses),
+    customers: reconcileCustomersPurchaseAggregates(
+      withBilling.customers,
+      withBilling.invoices,
+      withBilling.saleBills,
+    ),
+    // BL-21: employee aggregate fields (daysPresent/Absent/holidays/advancePaid/
+    // pendingAmount/wallet) hydrated from attendance + wallet ledger + payroll.
+    employees: reconcileEmployeesAggregates({
+      employees: withBilling.employees,
+      attendanceRecords: withBilling.attendanceRecords,
+      walletLedger: withBilling.employeeWalletLedger,
+      payrollRecords: withBilling.employeePayrollRecords,
+    }),
+    // BL-22: loan.outstanding = principal − Σ principalPaid (canonical, not arbitrary).
+    loans: reconcileLoansOutstanding(withBilling.loans, withBilling.loanRepayments),
+  };
+
+  const withSites = {
+    ...withCost,
     customers: reconcileCustomersAutoArchive({
-      customers: withBilling.customers,
-      projects: withBilling.projects,
-      quotations: withBilling.quotations,
-      enquiries: withBilling.enquiries,
+      customers: withCost.customers,
+      projects: withCost.projects,
+      quotations: withCost.quotations,
+      enquiries: withCost.enquiries,
     }),
     sites: syncSitesChecklistFromProjects(
-      withBilling.projects,
-      withBilling.sites,
-      withBilling.inventoryItems,
+      withCost.projects,
+      withCost.sites,
+      withCost.inventoryItems,
     ),
   };
 

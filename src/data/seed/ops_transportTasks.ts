@@ -6,6 +6,7 @@ import { seedDayAt } from "./seedTimeModel";
 import { resolveSiteForMaterialIssue } from "@/lib/materialIssueTransportTask";
 import { structureItem } from "./seedInventoryCatalog";
 import { countFor } from "./seedHelpers";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 const TRANSPORT_KINDS = [
   { workType: "Panel Transport", stageKey: "panel-transport" },
@@ -16,6 +17,8 @@ const TRANSPORT_KINDS = [
 
 /** §17 — ≥30 transport tasks; all 4 transport workTypes portfolio-wide. */
 export function buildOpsTransportTasks(state: AppState, profile: SeedProfile): AppState {
+  if (!seedIncludesProjects()) return state;
+
   const transportMin = countFor(profile, 32);
   const existing = state.tasks.filter((t) => t.workType.includes("Transport"));
   const missingKinds = TRANSPORT_KINDS.filter(

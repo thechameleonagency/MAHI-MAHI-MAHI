@@ -42,6 +42,8 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
+import { isActiveBill, getInvoiceOpenBalance } from "@/lib/billingSelectors";
+import { getOutstandingReceivables } from "@/domain/finance/financialSemantics";
 import { InvoiceLineItemsReadOnly } from "@/components/finance/InvoiceLineItemsReadOnly";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatINR } from "@/lib/formatCurrency";
@@ -658,10 +660,20 @@ const Invoices = () => {
     if (Number.isNaN(due.getTime())) return 0;
     return due.getTime() < Date.now() ? bal : 0;
   };
-  const totalInvoiced = allBillingDocuments.reduce((sum, i) => sum + i.total, 0);
-  const totalReceived = allBillingDocuments.reduce((sum, i) => sum + i.amountReceived, 0);
-  const pendingAmount = totalInvoiced - totalReceived;
-  const pendingCount = allBillingDocuments.filter((i) => i.status !== "paid" && i.status !== "overpaid" && i.status !== "draft").length;
+  // BL-16: KPI strip totals derive from canonical selectors so they (a) exclude
+  // voided + draft documents from "Billed", (b) prefer payment-linked open balance
+  // over a stored amountReceived subtract that can drift, and (c) match
+  // Finance Hub / DebtorsCreditors / Audit ledger aggregates byte-for-byte.
+  const totalInvoiced = allBillingDocuments
+    .filter(isActiveBill)
+    .reduce((sum, i) => sum + i.total, 0);
+  const totalReceived = allBillingDocuments
+    .filter(isActiveBill)
+    .reduce((sum, i) => sum + (i.amountReceived ?? 0), 0);
+  const pendingAmount = getOutstandingReceivables(invoices, payments, saleBills);
+  const pendingCount = allBillingDocuments.filter(
+    (i) => isActiveBill(i) && getInvoiceOpenBalance(i, payments) > 0.01,
+  ).length;
   const overpaidCount = allBillingDocuments.filter((i) => i.status === "overpaid").length;
 
   return (

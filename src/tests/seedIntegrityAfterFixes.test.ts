@@ -41,8 +41,17 @@ import { findStaleProgressReportTaskLinkage } from "@/lib/progressReportTaskCont
 import { findStaleDiscomCheckOrder } from "@/lib/progressReportDiscom";
 import { findStaleDeletionRequests } from "@/lib/deletionRequestContinuity";
 import { findStaleQuotationShareDetails } from "@/lib/quotationShareContinuity";
+import { findStaleChangeRequestMaterialReservations } from "@/lib/changeRequestMaterialContinuity";
+import {
+  getCustomerLastPurchase,
+  getCustomerTotalPurchases,
+} from "@/lib/billingSelectors";
+import { getEmployeeAdvanceBalance } from "@/lib/employeeAggregates";
+import { getLoanOutstanding } from "@/lib/loanAggregates";
+import { seedIncludesProjects } from "@/data/seed/seedProjectPhase";
 
 const DRIFT_EPS = 1;
+const itIfProjects = seedIncludesProjects() ? it : it.skip;
 
 describe("seed & hydration integrity after audit fixes", () => {
   it("full business seed passes verifySeedState", () => {
@@ -60,12 +69,13 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(violations, formatSeedForeignKeyErrors(violations).join("; ")).toEqual([]);
   });
 
-  it("hydrated projects: amountInvoiced and amountReceived match derived totals", () => {
+  it("hydrated projects: amountInvoiced, amountReceived, and totalCost match derived totals", () => {
     const { state: seeded } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(seeded);
 
     const invoicedDrifts: string[] = [];
     const receivedDrifts: string[] = [];
+    const totalCostDrifts: string[] = [];
     for (const project of hydrated.projects) {
       const drift = projectBillingDrift(
         project,
@@ -82,10 +92,15 @@ describe("seed & hydration integrity after audit fixes", () => {
       if (drift.amountReceivedDrift > DRIFT_EPS) {
         receivedDrifts.push(`${project.id}:${drift.amountReceivedDrift}`);
       }
+      // BL-2: stored totalCost must equal Σ project expenses after hydration.
+      if (drift.totalCostDrift > DRIFT_EPS) {
+        totalCostDrifts.push(`${project.id}:${drift.totalCostDrift}`);
+      }
     }
 
     expect(invoicedDrifts, `amountInvoiced drift on ${invoicedDrifts.slice(0, 5).join(", ")}`).toEqual([]);
     expect(receivedDrifts, `amountReceived drift on ${receivedDrifts.slice(0, 5).join(", ")}`).toEqual([]);
+    expect(totalCostDrifts, `totalCost drift on ${totalCostDrifts.slice(0, 5).join(", ")}`).toEqual([]);
   });
 
   it("buildBusinessSeed output already has reconciled amountReceived (pre second hydration pass)", () => {
@@ -131,7 +146,7 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(Math.abs(ledger.revenueCollected - cashIn)).toBeLessThanOrEqual(DRIFT_EPS);
   });
 
-  it("inc giver ledger aligns with INC_GIVEN projects on hydrated seed (ER4)", () => {
+  itIfProjects("inc giver ledger aligns with INC_GIVEN projects on hydrated seed (ER4)", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect((hydrated.incGiverTransactions ?? []).length).toBeGreaterThan(0);
@@ -145,7 +160,7 @@ describe("seed & hydration integrity after audit fixes", () => {
     }
   });
 
-  it("business seed includes New lifecycle projects filterable by MD3 list filter", () => {
+  itIfProjects("business seed includes New lifecycle projects filterable by MD3 list filter", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     const newProjects = hydrated.projects.filter((p) => p.lifecycleStatus === "New");
@@ -173,7 +188,7 @@ describe("seed & hydration integrity after audit fixes", () => {
     }
   });
 
-  it("projects list KPI stats match lifecycle buckets on hydrated seed (MN2)", () => {
+  itIfProjects("projects list KPI stats match lifecycle buckets on hydrated seed (MN2)", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     const counts = countProjectsByLifecycle(hydrated.projects);
@@ -270,7 +285,7 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(findStaleProcurementNeedLines(hydrated)).toEqual([]);
   });
 
-  it("customers auto-archive when all projects complete on hydrated seed (FC7)", () => {
+  itIfProjects("customers auto-archive when all projects complete on hydrated seed (FC7)", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleCustomerArchiveState(hydrated)).toEqual([]);
@@ -289,7 +304,7 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(findStaleCprFifoVoidedAllocations(hydrated)).toEqual([]);
   });
 
-  it("started projects flip agent commission accruals to payable on hydrated seed (FC5)", () => {
+  itIfProjects("started projects flip agent commission accruals to payable on hydrated seed (FC5)", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleProjectStartContinuity(hydrated)).toEqual([]);
@@ -335,7 +350,7 @@ describe("seed & hydration integrity after audit fixes", () => {
     }
   });
 
-  it("approved change requests bill to real invoices on hydrated seed (FC3)", () => {
+  itIfProjects("approved change requests bill to real invoices on hydrated seed (FC3)", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleChangeRequestBilling(hydrated)).toEqual([]);
@@ -350,7 +365,7 @@ describe("seed & hydration integrity after audit fixes", () => {
     }
   });
 
-  it("role-scoped seed: salesperson and installer see subset of projects (V5)", () => {
+  itIfProjects("role-scoped seed: salesperson and installer see subset of projects (V5)", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     expect(findStaleQuotationSalesOwners(hydrated)).toEqual([]);
@@ -389,7 +404,7 @@ describe("seed & hydration integrity after audit fixes", () => {
     expect(instProjects.length).toBeLessThan(hydrated.projects.length);
   });
 
-  it("scope-reduction change request has no delta invoice and releases material reservations (V4)", () => {
+  itIfProjects("scope-reduction change request has no delta invoice and releases material reservations (V4)", () => {
     const { state } = buildBusinessSeed("smoke");
     const hydrated = applyAppStateHydrationPipeline(state);
     const reduction = (hydrated.projectChangeRequests ?? []).find((cr) =>
@@ -418,6 +433,69 @@ describe("seed & hydration integrity after audit fixes", () => {
         (project?.quotationId != null && a.sourceQuotationId === project.quotationId),
     );
     expect(accrual?.expectedAmount ?? 0).toBeGreaterThan(0);
+  });
+
+  // BL-13: zero-drift for change-request material reservations on hydrated seed.
+  // Approved CR material deltas must be reflected in active reservations.
+  itIfProjects("approved change-request material reservations stay in sync on hydrated seed", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const stale = findStaleChangeRequestMaterialReservations(
+      hydrated.projectChangeRequests ?? [],
+      hydrated.materialReservations ?? [],
+    );
+    expect(
+      stale,
+      `stale CR material reservations: ${stale.slice(0, 3).map((s) => `${s.changeRequestId}:${s.reason}`).join(", ")}`,
+    ).toEqual([]);
+  });
+
+  // BL-20: stored customer.totalPurchases and customer.lastPurchase must match
+  // the canonical derivation from invoices+saleBills on the hydrated seed.
+  it("customer purchase aggregates match canonical derivation on hydrated seed", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const docs = [...hydrated.invoices, ...hydrated.saleBills];
+    const drifts: string[] = [];
+    for (const customer of hydrated.customers) {
+      const derivedTotal = getCustomerTotalPurchases(customer.id, docs);
+      const derivedLast = getCustomerLastPurchase(customer.id, docs) ?? "";
+      if (Math.abs((customer.totalPurchases ?? 0) - derivedTotal) > DRIFT_EPS) {
+        drifts.push(`${customer.id}:totalPurchases stored=${customer.totalPurchases} derived=${derivedTotal}`);
+      }
+      if ((customer.lastPurchase || "") !== (derivedLast || "")) {
+        drifts.push(`${customer.id}:lastPurchase stored="${customer.lastPurchase}" derived="${derivedLast}"`);
+      }
+    }
+    expect(drifts, `customer aggregate drift: ${drifts.slice(0, 5).join("; ")}`).toEqual([]);
+  });
+
+  // BL-22: stored loan.outstanding must equal principal − Σ principalPaid.
+  it("loan.outstanding matches canonical derivation on hydrated seed", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const drifts: string[] = [];
+    for (const loan of hydrated.loans) {
+      const derived = getLoanOutstanding(loan, hydrated.loanRepayments);
+      if (Math.abs((loan.outstanding ?? 0) - derived) > DRIFT_EPS) {
+        drifts.push(`${loan.id}:outstanding stored=${loan.outstanding} derived=${derived}`);
+      }
+    }
+    expect(drifts, `loan outstanding drift: ${drifts.slice(0, 5).join("; ")}`).toEqual([]);
+  });
+
+  // BL-21: stored employee.advancePaid must equal Σ ledger advances − recoveries.
+  it("employee advance balance matches wallet ledger derivation on hydrated seed", () => {
+    const { state } = buildBusinessSeed("smoke");
+    const hydrated = applyAppStateHydrationPipeline(state);
+    const drifts: string[] = [];
+    for (const emp of hydrated.employees) {
+      const derived = getEmployeeAdvanceBalance(emp.id, hydrated.employeeWalletLedger);
+      if (Math.abs((emp.advancePaid ?? 0) - derived) > DRIFT_EPS) {
+        drifts.push(`${emp.id}:advancePaid stored=${emp.advancePaid} derived=${derived}`);
+      }
+    }
+    expect(drifts, `employee advance drift: ${drifts.slice(0, 5).join("; ")}`).toEqual([]);
   });
 
   it("command audit logs use display names not raw member ids", () => {

@@ -1,5 +1,6 @@
-import type { PartnerTransaction } from "@/types/finance";
+import type { Expense, PartnerTransaction } from "@/types/finance";
 import type { Project, ProjectPartner } from "@/types/project";
+import { getProjectTotalCost } from "@/lib/billingSelectors";
 
 /** Derives expected partner share from actual project profit. */
 export function expectedPartnerProfitShare(params: {
@@ -11,8 +12,31 @@ export function expectedPartnerProfitShare(params: {
   return profit * (params.profitSharePercent / 100);
 }
 
+/**
+ * Legacy: profit from stored `project.totalCost`. Use only when caller has
+ * already populated `totalCost`. Seed data does not set `totalCost`, so
+ * callers should prefer `calculateProjectProfitDerived` with the expense
+ * slice from AppData. Kept for backward compatibility with partner-share
+ * calculations that pre-attribute cost.
+ */
 export function calculateProjectProfit(project: Pick<Project, "contractAmount" | "totalCost">): number {
   return (project.contractAmount || 0) - (project.totalCost || 0);
+}
+
+/**
+ * BL-1: True per-project profit. Falls back to summing linked expenses when
+ * `project.totalCost` is missing/zero. This is the canonical helper for any
+ * UI that shows "Profit" on a project card, project list row, or partner
+ * detail page — it does not collapse to contractAmount when totalCost is unset.
+ */
+export function calculateProjectProfitDerived(
+  project: Pick<Project, "id" | "contractAmount" | "totalCost">,
+  expenses: Expense[],
+): number {
+  const cost = project.totalCost && project.totalCost > 0
+    ? project.totalCost
+    : getProjectTotalCost(project.id, expenses);
+  return (project.contractAmount || 0) - cost;
 }
 
 export function calculateProjectPartnerEarning(

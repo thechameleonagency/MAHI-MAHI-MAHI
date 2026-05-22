@@ -40,26 +40,16 @@ import { applyEnquiryShareTrail } from "./enquiryShareTrail";
 import { applyDeletionRequestSamples } from "./deletionRequestSamples";
 import { applyFieldInstallationDemo } from "./fieldInstallationDemo";
 import { applyAccountingReviewQueueTraining } from "./accountingReviewQueueTraining";
+import { seedIncludesProjects } from "../seedProjectPhase";
 
-const NARRATIVES = [
+/** Narratives that only touch CRM, finance, HR, or inventory — safe with zero projects. */
+const NON_PROJECT_NARRATIVES = [
   applyStalledEnquiry,
   applyApprovedQuotationOpenEnquiry,
   applyQuotationRevisionChain,
-  applyPartialInvoice,
-  applyOverpaidInvoice,
   applyVoidedDraftInvoice,
-  applyOnHoldBlockage,
-  applyDoubleBookInstall,
-  applyArchivedCustomer,
-  applyHighValueInvoice,
   applyLoanRepaymentLinks,
   applyBankReconMixed,
-  applyNeedToGetDamage,
-  applyRichTimeline,
-  applyDirectExceptionProject,
-  applyDirectExceptionProjectComplete,
-  applyPartnerSplitPayment,
-  applyPartnerSiteProjectIncome,
   applyCustomerBulkInflow,
   applyReopenLostEnquiry,
   applyRescheduledTask,
@@ -67,6 +57,26 @@ const NARRATIVES = [
   applyLowStockProcurement,
   applyVendorDelayBill,
   applyProcurementNeedAcquired,
+  applyDisputedVendorBill,
+  applyMultiAlertNotificationsRoute,
+  applyEnquiryShareTrail,
+  applyDeletionRequestSamples,
+] as const;
+
+/** Narratives that require seeded projects (disabled during Phase 0.2 clearance). */
+const PROJECT_NARRATIVES = [
+  applyPartialInvoice,
+  applyOverpaidInvoice,
+  applyOnHoldBlockage,
+  applyDoubleBookInstall,
+  applyArchivedCustomer,
+  applyHighValueInvoice,
+  applyNeedToGetDamage,
+  applyRichTimeline,
+  applyDirectExceptionProject,
+  applyDirectExceptionProjectComplete,
+  applyPartnerSplitPayment,
+  applyPartnerSiteProjectIncome,
   applyChangeRequestApproved,
   applyChangeRequestDeltaPayment,
   applyChangeRequestRejected,
@@ -75,14 +85,15 @@ const NARRATIVES = [
   applyMaterialDamageThreshold,
   applyIncGivenNoDispatch,
   applyVendorshipOnlyFee,
-  applyDisputedVendorBill,
   applyClosedProjectReopen,
   applyStaleBlockage,
-  applyMultiAlertNotificationsRoute,
-  applyEnquiryShareTrail,
-  applyDeletionRequestSamples,
   applyFieldInstallationDemo,
   applyAccountingReviewQueueTraining,
+] as const;
+
+const NARRATIVES = [
+  ...NON_PROJECT_NARRATIVES,
+  ...(seedIncludesProjects() ? PROJECT_NARRATIVES : []),
 ] as const;
 
 /** Apply all narrative edge-case patches (Appendix I). */

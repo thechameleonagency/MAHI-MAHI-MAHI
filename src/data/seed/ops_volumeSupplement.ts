@@ -5,6 +5,7 @@ import { seedDayAt, seedDateAt } from "./seedTimeModel";
 import { getMinimumFor } from "./seedVolumeTargets";
 import { panelItem } from "./seedInventoryCatalog";
 import { allowsMaterialDispatch } from "./seedCapabilityAxis";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 /** Fill §4 volume gaps not covered by layer builders alone. */
 export function buildOpsVolumeSupplement(state: AppState, profile: SeedProfile): AppState {
@@ -25,7 +26,7 @@ export function buildOpsVolumeSupplement(state: AppState, profile: SeedProfile):
   while (state.saleBills.length < getMinimumFor(profile, "saleBills")) {
     const i = state.saleBills.length;
     const customer = state.customers[i % state.customers.length];
-    const project = state.projects[i % state.projects.length];
+    const project = seedIncludesProjects() ? state.projects[i % state.projects.length] : undefined;
     const total = 85000 + i * 12000;
     const sub = Math.round(total / 1.18);
     state.saleBills.push({
@@ -71,22 +72,24 @@ export function buildOpsVolumeSupplement(state: AppState, profile: SeedProfile):
     else if (bill.amountPaid > 0) bill.status = "partial";
   }
 
-  while (state.blockages.length < getMinimumFor(profile, "blockages")) {
-    const i = state.blockages.length;
-    const project = state.projects[i % state.projects.length];
-    state.blockages.push({
-      id: seedId(SEED_ID_PREFIX.blockage),
-      projectId: project.id,
-      title: `Blockage supplement ${i + 1}`,
-      reason: i % 3 === 0 ? "Client payment delay" : i % 3 === 1 ? "DISCOM file pending" : "Material shortfall",
-      status: i % 5 === 0 ? "resolved" : "active",
-      projectStage: "work-in-progress",
-      timelineStage: (["payment", "work-status", "discom"] as const)[i % 3],
-      timelineSubStage: "client-delay",
-      createdAt: seedDateAt(0.3 + i * 0.01),
-      startDate: seedDayAt(0.28 + i * 0.01),
-      resolvedAt: i % 5 === 0 ? seedDateAt(0.5 + i * 0.01) : undefined,
-    });
+  if (seedIncludesProjects()) {
+    while (state.blockages.length < getMinimumFor(profile, "blockages")) {
+      const i = state.blockages.length;
+      const project = state.projects[i % state.projects.length];
+      state.blockages.push({
+        id: seedId(SEED_ID_PREFIX.blockage),
+        projectId: project.id,
+        title: `Blockage supplement ${i + 1}`,
+        reason: i % 3 === 0 ? "Client payment delay" : i % 3 === 1 ? "DISCOM file pending" : "Material shortfall",
+        status: i % 5 === 0 ? "resolved" : "active",
+        projectStage: "work-in-progress",
+        timelineStage: (["payment", "work-status", "discom"] as const)[i % 3],
+        timelineSubStage: "client-delay",
+        createdAt: seedDateAt(0.3 + i * 0.01),
+        startDate: seedDayAt(0.28 + i * 0.01),
+        resolvedAt: i % 5 === 0 ? seedDateAt(0.5 + i * 0.01) : undefined,
+      });
+    }
   }
 
   while (state.accountingReviewQueue.length < getMinimumFor(profile, "accountingReviewQueue")) {
@@ -137,38 +140,40 @@ export function buildOpsVolumeSupplement(state: AppState, profile: SeedProfile):
     });
   }
 
-  const dispatchProjects = state.projects.filter((p) => allowsMaterialDispatch(p.projectKind ?? "SOLO_EPC"));
-  while (state.materialReservations.length < getMinimumFor(profile, "materialReservations")) {
-    const i = state.materialReservations.length;
-    const project = dispatchProjects[i % dispatchProjects.length];
-    const panel = panelItem(state.inventoryItems);
-    if (!project) break;
-    state.materialReservations.push({
-      id: seedId(SEED_ID_PREFIX.reservation),
-      itemId: panel.id,
-      qty: 2 + (i % 4),
-      projectId: project.id,
-      source: i % 2 === 0 ? "manual" : "auto-from-checklist",
-      createdAt: seedDateAt(0.4 + i * 0.005),
-    });
-  }
+  if (seedIncludesProjects()) {
+    const dispatchProjects = state.projects.filter((p) => allowsMaterialDispatch(p.projectKind ?? "SOLO_EPC"));
+    while (state.materialReservations.length < getMinimumFor(profile, "materialReservations")) {
+      const i = state.materialReservations.length;
+      const project = dispatchProjects[i % dispatchProjects.length];
+      const panel = panelItem(state.inventoryItems);
+      if (!project) break;
+      state.materialReservations.push({
+        id: seedId(SEED_ID_PREFIX.reservation),
+        itemId: panel.id,
+        qty: 2 + (i % 4),
+        projectId: project.id,
+        source: i % 2 === 0 ? "manual" : "auto-from-checklist",
+        createdAt: seedDateAt(0.4 + i * 0.005),
+      });
+    }
 
-  while (state.materialDamageRecords.length < getMinimumFor(profile, "materialDamageRecords")) {
-    const i = state.materialDamageRecords.length;
-    const project = dispatchProjects[i % dispatchProjects.length];
-    const item = panelItem(state.inventoryItems);
-    if (!project) break;
-    state.materialDamageRecords.push({
-      id: seedId(SEED_ID_PREFIX.damage),
-      itemId: item.id,
-      qty: i % 2 === 0 ? 6 : 3,
-      stage: (["transport", "installation", "storage"] as const)[i % 3],
-      projectId: project.id,
-      notes: i % 2 === 0 ? "Six modules damaged during unloading — vendor claim raised" : "Minor packaging damage",
-      costImpact: i % 2 === 0 ? 8200 : 1200,
-      reportedAt: seedDateAt(0.65 + i * 0.004),
-      reportedBy: "Karthik Rao",
-    });
+    while (state.materialDamageRecords.length < getMinimumFor(profile, "materialDamageRecords")) {
+      const i = state.materialDamageRecords.length;
+      const project = dispatchProjects[i % dispatchProjects.length];
+      const item = panelItem(state.inventoryItems);
+      if (!project) break;
+      state.materialDamageRecords.push({
+        id: seedId(SEED_ID_PREFIX.damage),
+        itemId: item.id,
+        qty: i % 2 === 0 ? 6 : 3,
+        stage: (["transport", "installation", "storage"] as const)[i % 3],
+        projectId: project.id,
+        notes: i % 2 === 0 ? "Six modules damaged during unloading — vendor claim raised" : "Minor packaging damage",
+        costImpact: i % 2 === 0 ? 8200 : 1200,
+        reportedAt: seedDateAt(0.65 + i * 0.004),
+        reportedBy: "Karthik Rao",
+      });
+    }
   }
 
   const agentQuotes = state.quotations.filter((q) => q.agentId);
@@ -176,7 +181,7 @@ export function buildOpsVolumeSupplement(state: AppState, profile: SeedProfile):
   while (state.agentCommissionAccruals.length < getMinimumFor(profile, "agentCommissionAccruals")) {
     const q = agentQuotes[qi % Math.max(1, agentQuotes.length)] ?? state.quotations[qi % state.quotations.length];
     const agent = state.agents.find((a) => a.id === q.agentId) ?? state.agents[qi % state.agents.length];
-    const project = state.projects.find((p) => p.quotationId === q.id);
+    const project = seedIncludesProjects() ? state.projects.find((p) => p.quotationId === q.id) : undefined;
     if (!agent || !q) break;
     state.agentCommissionAccruals.push({
       id: seedId(SEED_ID_PREFIX.accrual),

@@ -4,6 +4,9 @@ import { applyAppStateHydrationPipeline } from "@/lib/appDataStorage";
 import { reconcileAllEnquiryQuotationHistories } from "@/lib/enquiryQuotationHistory";
 import { reconcileProjectAgentCommissionState } from "@/lib/projectStartContinuity";
 import { reconcileBillingAmountReceivedState } from "@/lib/billingAmountReceivedContinuity";
+import { reconcileProjectsTotalCost, reconcileCustomersPurchaseAggregates } from "@/lib/billingSelectors";
+import { reconcileEmployeesAggregates } from "@/lib/employeeAggregates";
+import { reconcileLoansOutstanding } from "@/lib/loanAggregates";
 import { syncBankReconciliationLinks } from "@/lib/bankReconciliationLink";
 import { reconcileCustomersAutoArchive } from "@/domain/customer/customerArchive";
 import { syncProjectsSiteReadinessFromChecklist } from "@/lib/siteReadinessFromChecklist";
@@ -62,6 +65,25 @@ export function applySeedHydrationPipeline(state: AppState): AppState {
   s = { ...s, ...bankSynced };
 
   s = reconcileBillingAmountReceivedState(s);
+
+  // BL-2: hydrate `project.totalCost` from materialized expenses so legacy
+  // callers (calculateProjectProfit, projectBillingDrift, partner share math)
+  // do not read profit = contractAmount when stored cost is unset.
+  // BL-20: same treatment for customer aggregates so list/sort agree with audit.
+  s = {
+    ...s,
+    projects: reconcileProjectsTotalCost(s.projects, s.expenses),
+    customers: reconcileCustomersPurchaseAggregates(s.customers, s.invoices, s.saleBills),
+    // BL-21: employee aggregates hydrated from primary slices.
+    employees: reconcileEmployeesAggregates({
+      employees: s.employees,
+      attendanceRecords: s.attendanceRecords,
+      walletLedger: s.employeeWalletLedger,
+      payrollRecords: s.employeePayrollRecords,
+    }),
+    // BL-22: loan.outstanding hydrated from principal − Σ repayments.
+    loans: reconcileLoansOutstanding(s.loans, s.loanRepayments),
+  };
 
   s = {
     ...s,

@@ -25,7 +25,8 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { formatINR } from "@/lib/formatCurrency";
-import { isVendorBillOpenPayable } from "@/lib/vendorBillVoucherPosting";
+import { isVendorBillOpenPayable, getVendorBillOpenBalance, sumVendorOpenPayables, isVendorBillBookable } from "@/lib/vendorBillVoucherPosting";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { StickyPageHeader } from "@/components/layout/StickyPageHeader";
 import { FinanceLineItemRow } from "@/components/finance/FinanceLineItemRow";
@@ -298,20 +299,21 @@ const VendorDetail = () => {
     [pendingBills],
   );
 
-  // Calculate totals
-  const totalPending = useMemo(
-    () => payablePendingBills.reduce((sum, b) => sum + (b.total - b.amountPaid), 0),
-    [payablePendingBills],
+  // BL-15: vendor financial totals derived from canonical vendor-bill selectors.
+  // - totalPending: open AP across all this vendor's bills (canonical, includes status filter).
+  // - totalPaid: payments made to vendor (already canonical via paymentHistory).
+  // - totalPurchases: bookable bills only — draft bills are not yet committed AP, so they
+  //   should not inflate vendor lifetime spend. Matches audit/P&L COGS aggregation.
+  const totalPending = useMemo(() => sumVendorOpenPayables(vendorBills), [vendorBills]);
+
+  const totalPaid = useMemo(
+    () => paymentHistory.reduce((sum, p) => sum + p.amount, 0),
+    [paymentHistory],
   );
 
-  const totalPaid = useMemo(() => 
-    paymentHistory.reduce((sum, p) => sum + p.amount, 0),
-    [paymentHistory]
-  );
-
-  const totalPurchases = useMemo(() => 
-    vendorBills.reduce((sum, b) => sum + b.total, 0),
-    [vendorBills]
+  const totalPurchases = useMemo(
+    () => vendorBills.filter((b) => isVendorBillBookable(b.status)).reduce((sum, b) => sum + b.total, 0),
+    [vendorBills],
   );
 
   const toAcquireLines = useMemo(
@@ -394,7 +396,7 @@ const VendorDetail = () => {
       if (!result.ok) {
         toast({
           title: "Bill not recorded",
-          description: result.error ?? "Warehouse receipt failed",
+          description: friendlyCommandErrorMessage(result.error ?? "Warehouse receipt failed"),
           variant: "destructive",
         });
         return;
@@ -616,7 +618,7 @@ const VendorDetail = () => {
       if (!result.ok) {
         toast({
           title: "Purchase not recorded",
-          description: result.error ?? "Warehouse receipt failed",
+          description: friendlyCommandErrorMessage(result.error ?? "Warehouse receipt failed"),
           variant: "destructive",
         });
         return;

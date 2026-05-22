@@ -63,10 +63,7 @@ import {
   quotationStatusBadgeClass,
 } from "@/lib/quotationStatusUi";
 import { useMasters } from "@/contexts/MastersContext";
-import { ProjectKindService, type ProjectIntakePayload } from "@/application/services/ProjectKindService";
-import { projectKindConfigs } from "@/domain/projectTypes/config";
-import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
-import type { ProjectKind } from "@/domain/projectTypes/types";
+import { CreateProjectWizardContainer } from "@/components/projects/CreateProjectWizardContainer";
 import { companyInfo } from "@/components/ExportHeader";
 import type { Quotation } from "@/types/project";
 import type { Project } from "@/types/project";
@@ -120,12 +117,6 @@ import {
   type QuotationApprovalCustomerPreview,
 } from "@/lib/quotationApproveCustomer";
 import { QuotationApproveCustomerDialog } from "@/components/quotations/QuotationApproveCustomerDialog";
-import ProjectConfirmationScreen from "@/components/projects/ProjectConfirmationScreen";
-import {
-  applyTeamAssignmentToProject,
-  buildProjectConfirmationData,
-  type ProjectTeamAssignmentDraft,
-} from "@/lib/projectTeamAssignment";
 
 interface QuotationMaterial {
   id: number;
@@ -182,7 +173,6 @@ const presetMaterials: Record<string, QuotationMaterial[]> = {
 };
 
 const Quotations = () => {
-  const projectKindService = new ProjectKindService();
   const { currentRole, sessionUserId, demoUserName } = useAppSession();
   const navigate = useNavigate();
   const location = useLocation();
@@ -200,7 +190,6 @@ const Quotations = () => {
     reviseQuotation,
     withdrawQuotation,
     deleteQuotation,
-    createProjectFromConfirmedQuotation,
     employees,
     generateId,
     partners,
@@ -246,21 +235,7 @@ const Quotations = () => {
   const [listPageSize, setListPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
-  const [createProjectStep, setCreateProjectStep] = useState<"form" | "confirm">("form");
-  const [pendingCreateProject, setPendingCreateProject] = useState<Project | null>(null);
-  const [selectedQuotationForProject, setSelectedQuotationForProject] = useState<typeof savedQuotations[0] | null>(null);
-  const [projectAmountType, _setProjectAmountType] = useState<"temporary" | "final">("final");
-  const [projectContractAmount, setProjectContractAmount] = useState(0);
-  const [projectPaymentType, setProjectPaymentType] = useState<"cash" | "loan" | "cash-and-loan">("cash");
-  const [projectBankDocAmount, setProjectBankDocAmount] = useState(0);
-  const [quotationProjectKind, setQuotationProjectKind] = useState<ProjectKind>("SOLO_EPC");
-  const [qPartnerIdForProject, setQPartnerIdForProject] = useState<string>("");
-  const [qProfitSharePercent, setQProfitSharePercent] = useState("30");
-  const [qVendorshipFee, setQVendorshipFee] = useState("");
-  const [qFixedBackend, setQFixedBackend] = useState("");
-  const [qFixedSell, setQFixedSell] = useState("");
-  const [qChannel, setQChannel] = useState("");
-  const [qExternal, setQExternal] = useState("");
+  const [prefillQuotationIdForProject, setPrefillQuotationIdForProject] = useState<string | undefined>();
   
   // Save Amounts Modal
   const [_isSaveAmountsOpen, setIsSaveAmountsOpen] = useState(false);
@@ -1721,24 +1696,7 @@ const Quotations = () => {
 
   // Create Project from Quotation
   const handleCreateProject = (quotation: Quotation) => {
-    setSelectedQuotationForProject(quotation);
-    setProjectContractAmount(resolveContractAmount(quotation));
-    setProjectPaymentType("cash");
-    setProjectBankDocAmount(resolveContractAmount(quotation));
-    setCreateProjectStep("form");
-    setPendingCreateProject(null);
-    setIsCreateProjectOpen(true);
-  };
-
-  const resetCreateProjectSheet = () => {
-    setCreateProjectStep("form");
-    setPendingCreateProject(null);
-    setIsCreateProjectOpen(false);
-  };
-
-  const prepareCreateProject = async () => {
-    if (!selectedQuotationForProject) return;
-    if (selectedQuotationForProject.status !== "approved") {
+    if (quotation.status !== "approved") {
       toast({
         title: "Approved Quotation Required",
         description: "Projects can only be created from approved quotations.",
@@ -1746,215 +1704,13 @@ const Quotations = () => {
       });
       return;
     }
-
-    const projectKind = quotationProjectKind;
-
-    if ((projectKind === "PARTNER_EPC" || projectKind === "FIXED_EPC" || projectKind === "VENDOR_NETWORK") && !qPartnerIdForProject) {
-      toast({
-        title: "Partner required",
-        description: "Select the one partner linked to this project.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (projectKind === "FIXED_EPC" && (!qFixedBackend || !qFixedSell)) {
-      toast({
-        title: "Fixed EPC numbers required",
-        description: "Enter MSS backend and partner sell amounts.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (projectKind === "VENDOR_NETWORK" && !qVendorshipFee) {
-      toast({
-        title: "Vendorship fee required",
-        description: "Enter the fixed fee payable by the partner.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const amount =
-      projectContractAmount || resolveContractAmount(selectedQuotationForProject);
-    const pPaymentType = projectPaymentType;
-
-    const pRow = qPartnerIdForProject ? partners.find((p) => p.id === qPartnerIdForProject) : undefined;
-
-    const liveQuotation =
-      savedQuotations.find((q) => q.id === selectedQuotationForProject.id) ?? selectedQuotationForProject;
-    const effectiveCustomerId =
-      liveQuotation.customerId ?? selectedQuotationForProject.customerId;
-    if (!effectiveCustomerId) {
-      toast({
-        title: "Customer required",
-        description: "Link this quotation to a customer before creating a project.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const intakePayload: ProjectIntakePayload = {
-      kind: projectKind,
-      parties: {
-        customer: selectedQuotationForProject.clientName || "Unknown Customer",
-        vendorOrDiscom: projectKind === "SOLO_EPC" ? undefined : undefined,
-        partner: projectKind === "PARTNER_EPC" || projectKind === "FIXED_EPC" || projectKind === "VENDOR_NETWORK" ? pRow?.name || qPartnerIdForProject : undefined,
-        channelPartner: projectKind === "VENDOR_NETWORK" ? pRow?.name || qChannel || qPartnerIdForProject : undefined,
-        externalNetwork: projectKind === "VENDOR_NETWORK" ? qExternal || pRow?.name || qPartnerIdForProject : undefined,
-      },
-      commercial: {
-        contractAmount: amount,
-        paymentType: pPaymentType,
-        internalCostEstimate: projectKind === "SOLO_EPC" || projectKind === "PARTNER_EPC" ? 0 : 0,
-        backendPrice: projectKind === "FIXED_EPC" ? parseFloat(qFixedBackend) : undefined,
-        partnerSellPrice: projectKind === "FIXED_EPC" ? parseFloat(qFixedSell) : undefined,
-        commissionRule: projectKind === "VENDOR_NETWORK" ? "default_commission_rule" : undefined,
-      },
-    };
-
-    const intakeValidation = projectKindService.validateIntake(intakePayload);
-    if (!intakeValidation.ok) {
-      toast({
-        title: "Project Intake Incomplete",
-        description: intakeValidation.errors.join(", "),
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const snap = projectKindConfigSnapshot(projectKind);
-    const newProjectId = generateId("P");
-    const newProject: Project = {
-      id: newProjectId,
-      customerId: effectiveCustomerId,
-      lifecycleStatus: "New",
-      executionPhase: "Intake",
-      progressStage: "new",
-      projectKind,
-      projectKindConfigSnapshot: snap,
-      name: `${selectedQuotationForProject.clientName} ${formatCapacityKW(selectedQuotationForProject.systemCapacity)}`,
-      type: projectKind === "INC" ? "INC" : "EPC",
-      projectType:
-        selectedQuotationForProject.systemCategory === "residential"
-          ? "Residential"
-          : selectedQuotationForProject.systemCategory === "commercial"
-            ? "Commercial"
-            : "Industrial",
-      projectCategory: "solar",
-      ownerType:
-        projectKind === "PARTNER_EPC" || projectKind === "FIXED_EPC" || projectKind === "VENDOR_NETWORK"
-          ? "partnership"
-          : "solo",
-      client: selectedQuotationForProject.clientName,
-      clientAddress: selectedQuotationForProject.clientAddress || `${selectedQuotationForProject.clientCity}, ${selectedQuotationForProject.clientState}`,
-      clientPhone: selectedQuotationForProject.clientPhone,
-      clientEmail: selectedQuotationForProject.clientEmail,
-      capacity: formatCapacityKW(selectedQuotationForProject.systemCapacity),
-      location: `${selectedQuotationForProject.clientCity}, ${selectedQuotationForProject.clientState}`,
-      onSite: 0,
-      assignees: [],
-      contractAmount: amount,
-      totalCost: 0,
-      amountReceived: 0,
-      paymentType: pPaymentType,
-      bankDocumentationAmount:
-        pPaymentType === "loan" ? projectBankDocAmount : undefined,
-      quotationId: selectedQuotationForProject.id,
-      quotationType: projectAmountType,
-      photos: 0,
-      startDate: new Date().toISOString().split("T")[0],
-      endDate: null,
-      createdAt: new Date().toISOString().split("T")[0],
-      ...(pRow && (projectKind === "PARTNER_EPC" || projectKind === "FIXED_EPC" || projectKind === "VENDOR_NETWORK")
-        ? {
-            partners: [
-              {
-                partnerId: pRow.id,
-                partnerName: pRow.name,
-                partnerType:
-                  projectKind === "FIXED_EPC"
-                    ? ("fixed" as const)
-                    : projectKind === "VENDOR_NETWORK"
-                      ? ("vendorship" as const)
-                      : ("profit" as const),
-                sharePercentage: projectKind === "PARTNER_EPC" ? parseFloat(qProfitSharePercent || "0") : undefined,
-                fixedAmount:
-                  projectKind === "FIXED_EPC"
-                    ? Math.max(0, (parseFloat(qFixedSell) || amount) - (parseFloat(qFixedBackend) || 0))
-                    : undefined,
-                feeAmount: projectKind === "VENDOR_NETWORK" ? parseFloat(qVendorshipFee || "0") : undefined,
-                calculatedEarning:
-                  projectKind === "FIXED_EPC"
-                    ? Math.max(0, (parseFloat(qFixedSell) || amount) - (parseFloat(qFixedBackend) || 0))
-                    : projectKind === "VENDOR_NETWORK"
-                      ? 0
-                      : undefined,
-                settlementDirection: projectKind === "VENDOR_NETWORK" ? "partner_pays_company" : "company_pays_partner",
-                profitSharePercent: projectKind === "PARTNER_EPC" ? parseFloat(qProfitSharePercent || "0") : 0,
-              },
-            ],
-            totalPartnerInvestment: 0,
-            partnershipModel: projectKind === "FIXED_EPC" ? ("fixed_backend" as const) : undefined,
-            mssBackendAmount: projectKind === "FIXED_EPC" ? parseFloat(qFixedBackend) : undefined,
-            partnerCustomerSellAmount: projectKind === "FIXED_EPC" ? parseFloat(qFixedSell) : undefined,
-          }
-        : {}),
-      ...(projectKind === "VENDOR_NETWORK"
-        ? {
-            partyName: pRow?.name || qChannel,
-            partyContact: "",
-            contractValue: amount,
-            amountToParty: 0,
-            partyPayments: [],
-            channelPartnerIdRef: pRow?.id,
-            vendorNetworkCommissionType: "flat" as const,
-            vendorNetworkFlatFee: parseFloat(qVendorshipFee || "0"),
-          }
-        : {}),
-    };
-
-    setPendingCreateProject(newProject);
-    setCreateProjectStep("confirm");
+    setPrefillQuotationIdForProject(quotation.id);
+    setIsCreateProjectOpen(true);
   };
 
-  const finalizeCreateProject = async (team: ProjectTeamAssignmentDraft) => {
-    if (!pendingCreateProject || !selectedQuotationForProject) return;
-    if (team.targetEndDate && team.targetEndDate < pendingCreateProject.startDate) {
-      toast({
-        title: "Invalid end date",
-        description: "Target end date cannot be before the project start date.",
-        variant: "destructive",
-      });
-      return;
-    }
-    const project = applyTeamAssignmentToProject(pendingCreateProject, team);
-    const created = await createProjectFromConfirmedQuotation(project);
-    if (!created.ok) {
-      toast({
-        title: "Project creation failed",
-        description: friendlyCommandErrorMessage(created.error, "Command failed"),
-        variant: "destructive",
-      });
-      return;
-    }
-    const navigateId = created.projectId ?? project.id;
-
-    setLastConfirm(null);
-    toast({
-      title: "Project Created",
-      description: `Project "${project.name}" has been created from quotation${selectedQuotationForProject.paymentType ? ` (${selectedQuotationForProject.paymentType === "loan" ? "Loan" : "Cash"} file)` : ""}`,
-    });
-    resetCreateProjectSheet();
-    setSelectedQuotationForProject(null);
-    setQuotationProjectKind("SOLO_EPC");
-    setQPartnerIdForProject("");
-    setQProfitSharePercent("30");
-    setQVendorshipFee("");
-    setQFixedBackend("");
-    setQFixedSell("");
-    setQChannel("");
-    setQExternal("");
-    navigate(`/projects/${navigateId}`);
+  const resetCreateProjectWizard = () => {
+    setIsCreateProjectOpen(false);
+    setPrefillQuotationIdForProject(undefined);
   };
 
   const handleEditQuotation = async (quotation: Quotation) => {
@@ -1991,7 +1747,6 @@ const Quotations = () => {
     setSystemCapacity(quotation.systemCapacity);
     setStatus(quotation.status);
     setPaymentType(isProjectPaymentType(quotation.paymentType) ? quotation.paymentType : "");
-    setProjectPaymentType(isProjectPaymentType(quotation.paymentType) ? quotation.paymentType : "cash");
     setClientAgreedAmountOverride(
       hasDistinctClientAgreedAmount(quotation)
         ? String(quotation.clientAgreedAmount ?? "")
@@ -3153,7 +2908,7 @@ const Quotations = () => {
                           colSpan={8}
                           icon={Package}
                           title="No material items yet"
-                          description='Use Add Item or apply a template above.'
+                          description="Use the line-item button above or apply a template."
                         />
                       ) : (
                         materials.map((item, idx) => (
@@ -4225,201 +3980,14 @@ const Quotations = () => {
         </AppSheetContent>
       </Sheet>
 
-      {/* Create Project from Quotation Sheet */}
-      <Sheet
+      <CreateProjectWizardContainer
         open={isCreateProjectOpen}
         onOpenChange={(open) => {
-          if (!open) resetCreateProjectSheet();
+          if (!open) resetCreateProjectWizard();
           else setIsCreateProjectOpen(true);
         }}
-      >
-        <AppSheetContent layout="scroll" size="xl" mobileFullScreen>
-          {createProjectStep === "confirm" && pendingCreateProject && selectedQuotationForProject ? (
-            <div className="py-4">
-              <ProjectConfirmationScreen
-                data={buildProjectConfirmationData(pendingCreateProject, {
-                  quotationNumber: selectedQuotationForProject.quotationNumber,
-                })}
-                employees={employees
-                  .filter((e) => e.status === "Active")
-                  .map((e) => ({ id: e.id, name: e.name }))}
-                onEdit={() => setCreateProjectStep("form")}
-                onConfirm={(team) => { void finalizeCreateProject(team); }}
-              />
-            </div>
-          ) : (
-          <>
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2">
-              <Briefcase className="h-5 w-5 text-primary" />
-              Create Project from Quotation
-            </SheetTitle>
-            <SheetDescription>
-              This will create a new project with data from quotation {selectedQuotationForProject?.quotationNumber}
-            </SheetDescription>
-          </SheetHeader>
-          
-          {selectedQuotationForProject && (
-            <div className="space-y-4 py-4">
-              <div className="p-4 bg-muted/30 rounded-lg space-y-2">
-                <p className="text-sm"><strong>Client:</strong> {selectedQuotationForProject.clientName}</p>
-                <p className="text-sm"><strong>System:</strong> {selectedQuotationForProject.systemCategory} {formatCapacityKW(selectedQuotationForProject.systemCapacity)}</p>
-                <p className="text-sm"><strong>Location:</strong> {selectedQuotationForProject.clientCity}, {selectedQuotationForProject.clientState}</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 border-t pt-4">
-                <div className="space-y-2">
-                  <Label>Project Kind</Label>
-                  <Select
-                    value={quotationProjectKind}
-                    onValueChange={(v) => setQuotationProjectKind(v as ProjectKind)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(projectKindConfigs) as ProjectKind[]).map((k) => (
-                        <SelectItem key={k} value={k}>
-                          {projectKindConfigs[k].label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Payment Type *</Label>
-                  <Select
-                    value={projectPaymentType}
-                    onValueChange={(v) => setProjectPaymentType(v as any)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="loan">Loan</SelectItem>
-                      <SelectItem value="cash-and-loan">Combined (Cash + Loan)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="inline-flex items-center gap-1">
-                    Contract amount (₹)
-                    <LifecycleTermHint term="quotationClientAgreedAmount" side="top" />
-                  </Label>
-                  <Input 
-                    type="number" 
-                    value={projectContractAmount} 
-                    onChange={(e) => setProjectContractAmount(parseFloat(e.target.value) || 0)} 
-                  />
-                  {selectedQuotationForProject &&
-                  hasDistinctClientAgreedAmount(selectedQuotationForProject) ? (
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                      Quoted {formatINR(selectedQuotationForProject.totalAmount)} → agreed{" "}
-                      {formatINR(selectedQuotationForProject.clientAgreedAmount!)}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Defaults to client agreed amount, else quoted total from the quotation.
-                    </p>
-                  )}
-                </div>
-                {projectPaymentType === "loan" && (
-                  <div className="space-y-2">
-                    <Label>Bank Documentation Amount (₹)</Label>
-                    <Input 
-                      type="number" 
-                      value={projectBankDocAmount} 
-                      onChange={(e) => setProjectBankDocAmount(parseFloat(e.target.value) || 0)} 
-                    />
-                  </div>
-                )}
-              </div>
-
-              {(quotationProjectKind === "PARTNER_EPC" || quotationProjectKind === "FIXED_EPC" || quotationProjectKind === "VENDOR_NETWORK") && (
-                <div className="space-y-2 pt-2">
-                  <Label>Linked Partner</Label>
-                  <Select value={qPartnerIdForProject} onValueChange={setQPartnerIdForProject}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select partner" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {partners.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {quotationProjectKind === "PARTNER_EPC" && (
-                <div className="space-y-2">
-                  <Label>Profit Share (%)</Label>
-                  <Input type="number" value={qProfitSharePercent} onChange={(e) => setQProfitSharePercent(e.target.value)} />
-                </div>
-              )}
-
-              {quotationProjectKind === "FIXED_EPC" && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>MSS Backend (₹)</Label>
-                    <Input type="number" value={qFixedBackend} onChange={(e) => setQFixedBackend(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Partner Sell (₹)</Label>
-                    <Input type="number" value={qFixedSell} onChange={(e) => setQFixedSell(e.target.value)} />
-                  </div>
-                </div>
-              )}
-
-              {quotationProjectKind === "VENDOR_NETWORK" && (
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label>Vendorship Fee (₹)</Label>
-                    <Input
-                      type="number"
-                      value={qVendorshipFee}
-                      onChange={(e) => setQVendorshipFee(e.target.value)}
-                      placeholder="Fee payable by partner"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Channel Partner Name</Label>
-                    <Input
-                      value={qChannel}
-                      onChange={(e) => setQChannel(e.target.value)}
-                      placeholder="Channel partner (optional)"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>External Network</Label>
-                    <Input
-                      value={qExternal}
-                      onChange={(e) => setQExternal(e.target.value)}
-                      placeholder="External network (optional)"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={resetCreateProjectSheet}>Cancel</Button>
-            <Button onClick={() => { void prepareCreateProject(); }}>
-              <Briefcase className="h-4 w-4 mr-2" />
-              Review &amp; Create
-            </Button>
-          </div>
-          </>
-          )}
-        </AppSheetContent>
-      </Sheet>
+        prefillQuotationId={prefillQuotationIdForProject}
+      />
 
       {/* Save Visibility Preset Sheet */}
       <Sheet open={isSaveVisibilityPresetOpen} onOpenChange={setIsSaveVisibilityPresetOpen}>

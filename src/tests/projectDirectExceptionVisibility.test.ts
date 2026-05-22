@@ -3,6 +3,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("direct exception reason visibility (T7)", () => {
+  const wizardContainerSource = readFileSync(
+    resolve(process.cwd(), "src/components/projects/CreateProjectWizardContainer.tsx"),
+    "utf8",
+  );
   const projectsSource = readFileSync(
     resolve(process.cwd(), "src/pages/Projects.tsx"),
     "utf8",
@@ -16,10 +20,10 @@ describe("direct exception reason visibility (T7)", () => {
     "utf8",
   );
 
-  it("Projects create flow passes reason in toast and navigation state", () => {
-    expect(projectsSource).toContain("Direct exception project created");
-    expect(projectsSource).toMatch(/navigate\(`\/projects\/\$\{res\.projectId\}`/);
-    expect(projectsSource).toContain("directExceptionReason: reason");
+  it("Create wizard passes reason in toast and navigation state", () => {
+    expect(wizardContainerSource).toContain("Direct exception project created");
+    expect(wizardContainerSource).toMatch(/navigate\(`\/projects\/\$\{result\.projectId\}`/);
+    expect(wizardContainerSource).toContain("directExceptionReason: result.directExceptionReason");
   });
 
   it("Projects list surfaces exception reason in table and grid", () => {

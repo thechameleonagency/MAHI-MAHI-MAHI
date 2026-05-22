@@ -33,6 +33,7 @@ import { getCustomerReceivableAging } from "@/lib/agingHelpers";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { createNextCustomerId } from "@/lib/idFactory";
 import { formPrimaryLabel } from "@/lib/formActionLabels";
+import { isActiveBill, getInvoiceOpenBalance } from "@/lib/billingSelectors";
 
 const Customers = () => {
   const navigate = useNavigate();
@@ -41,11 +42,12 @@ const Customers = () => {
   const canEditCustomer = useCan("customer", "edit");
   const canDeleteCustomer = useCan("customer", "delete");
   const { getStateCodes } = useMasters();
-  const { 
+  const {
     customers,
     invoices,
     saleBills,
     projects,
+    payments,
     addCustomer,
     updateCustomer,
     deleteCustomer,
@@ -396,8 +398,15 @@ const Customers = () => {
           const customerInvoices = invoices.filter((i) => i.customerId === customer.id);
           const customerSaleBills = saleBills.filter((sb) => sb.customerId === customer.id);
           const allBills = [...customerInvoices, ...customerSaleBills];
-          const pendingAmount = allBills.reduce((sum, inv) => sum + (inv.total - (inv.amountReceived || 0)), 0);
-          const totalReceived = allBills.reduce((sum, inv) => sum + (inv.amountReceived || 0), 0);
+          // BL-18: derive per-customer pending/received from canonical helpers — `isActiveBill`
+          // excludes voided + draft, `getInvoiceOpenBalance` prefers payment-linked balance over
+          // stored `amountReceived` subtraction. Matches CustomerDetail (BL-14) byte-for-byte.
+          const pendingAmount = allBills
+            .filter(isActiveBill)
+            .reduce((sum, inv) => sum + getInvoiceOpenBalance(inv, payments), 0);
+          const totalReceived = allBills
+            .filter(isActiveBill)
+            .reduce((sum, inv) => sum + (inv.amountReceived ?? 0), 0);
           const activeProjectsCount = projects.filter(
             (p) =>
               p.customerId === customer.id &&

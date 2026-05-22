@@ -12,8 +12,9 @@ import type { Enquiry, Project, Quotation } from "@/types/project";
 
 /**
  * V1 — enquiry convert on all project-create entry paths (FC1 / C1).
- * UI routes: Quotations inline create, Projects ?createFrom=quo:, Customer detail ?createFrom=customer:
- * All finalize through CREATE_PROJECT_FROM_QUOTATION or CREATE_PROJECT_INTAKE (see enquiryConvertOnProjectCreate.test.ts).
+ * UI routes: CreateProjectWizard on Projects/Quotations, deep links ?createFrom=quo|customer:
+ * Submit via executeCreateProjectWizard → CREATE_PROJECT_FROM_QUOTATION / CREATE_PROJECT_INTAKE
+ * (see enquiryConvertOnProjectCreate.test.ts).
  */
 describe("project create entry paths (V1)", () => {
   const customer: Customer = {

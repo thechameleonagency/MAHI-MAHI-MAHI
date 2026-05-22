@@ -144,6 +144,13 @@ export interface Payment {
   partnerId?: string;
   /** When paymentSource = "split": the amount that went to the partner (this Payment.amount holds the MSS amount). */
   partnerPortion?: number;
+  /**
+   * BL-9 / E9 — bank or cash statement line this payment was matched against during
+   * bank reconciliation. Set by `syncBankReconciliationLinks`. Required for round-trip
+   * upload → match → apply → re-open to render correctly (BankReconciliationSheet reads
+   * this field on every Payment row to seed the "already reconciled" indicator).
+   */
+  reconciledWith?: BankReconciliationLink;
 }
 
 // Unified Journal Entry (Replaces Expense/Income)

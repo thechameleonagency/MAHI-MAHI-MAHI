@@ -3,6 +3,7 @@ import type { SeedProfile } from "./seedLayerOrder";
 import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt, seedMonths } from "./seedTimeModel";
 import { countFor } from "./seedHelpers";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 /** L6 — attendance records (400–800 full) + supplemental overdue tasks. */
 export function buildL6AttendanceTasks(state: AppState, profile: SeedProfile): AppState {
@@ -31,6 +32,10 @@ export function buildL6AttendanceTasks(state: AppState, profile: SeedProfile): A
         count++;
       }
     }
+  }
+
+  if (!seedIncludesProjects()) {
+    return state;
   }
 
   // Overdue tasks for dashboard KPI

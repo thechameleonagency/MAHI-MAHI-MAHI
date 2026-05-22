@@ -49,7 +49,7 @@ import { downloadCSV } from "@/lib/csvExport";
 import { format, isValid, parseISO } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatINR, formatINRCompact } from "@/lib/formatCurrency";
-import { calculateProjectProfit } from "@/domain/partners/derivePartnerEconomics";
+import { calculateProjectProfitDerived } from "@/domain/partners/derivePartnerEconomics";
 import type { OwnerInvestment } from "@/types/finance";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
@@ -321,10 +321,10 @@ const Finance = () => {
 
   const topProfitProjects = useMemo(() =>
     contextProjects
-      .map(p => ({ name: p.name, profit: calculateProjectProfit(p) }))
+      .map(p => ({ name: p.name, profit: calculateProjectProfitDerived(p, contextExpenses) }))
       .sort((a, b) => b.profit - a.profit)
       .slice(0, 5),
-  [contextProjects]);
+  [contextProjects, contextExpenses]);
 
   const profitMargin = kpiValues.revenue > 0
     ? ((kpiValues.profit / kpiValues.revenue) * 100).toFixed(1)

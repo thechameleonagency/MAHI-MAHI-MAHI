@@ -1,6 +1,7 @@
 import type { AppState } from "@/contexts/AppDataContext";
 import type { SeedProfile } from "./seedLayerOrder";
 import { scaleCount } from "./seedLayerOrder";
+import { isProjectClearedZeroMinimum, seedIncludesProjects } from "./seedProjectPhase";
 
 /** §4 minimum row counts for `full` profile (Appendix J). */
 export const FULL_PROFILE_MINIMUMS: Partial<Record<keyof AppState, number>> = {
@@ -63,6 +64,9 @@ export function volumeTarget(profile: SeedProfile, key: keyof AppState, fullMin:
 }
 
 export function getMinimumFor(profile: SeedProfile, key: keyof AppState): number {
+  if (!seedIncludesProjects() && isProjectClearedZeroMinimum(key)) {
+    return 0;
+  }
   const full = FULL_PROFILE_MINIMUMS[key] ?? 1;
   return profile === "full" ? full : Math.max(1, Math.round(full * 0.3));
 }

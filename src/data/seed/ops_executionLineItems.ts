@@ -2,9 +2,11 @@ import type { AppState } from "@/contexts/AppDataContext";
 import type { SeedProfile } from "./seedLayerOrder";
 import { allowsMaterialDispatch } from "./seedCapabilityAxis";
 import { seedDateAt } from "./seedTimeModel";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 /** Ensure executionLineItems mirror siteChecklist on every dispatch project. */
 export function buildOpsExecutionLineItems(state: AppState, _profile: SeedProfile): AppState {
+  if (!seedIncludesProjects()) return state;
   for (const project of state.projects) {
     if (!allowsMaterialDispatch(project.projectKind ?? "SOLO_EPC")) continue;
     if (!project.siteChecklist?.length) continue;

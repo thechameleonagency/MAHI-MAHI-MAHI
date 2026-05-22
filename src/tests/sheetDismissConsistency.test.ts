@@ -12,7 +12,6 @@ const SRC = resolve(process.cwd(), "src");
 const FORM_SHEET_FILES = [
   "components/audit/BankReconciliationSheet.tsx",
   "components/projects/ChangeRequestSheet.tsx",
-  "components/projects/CreateProjectSheet.tsx",
   "components/projects/ScheduleInstallationSheet.tsx",
   "components/projects/AdditionalWorkSheet.tsx",
   "components/projects/SiteVisitSheet.tsx",

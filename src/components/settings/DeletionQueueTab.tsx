@@ -30,6 +30,7 @@ import { dataTableClasses, listTableViewportMaxHeight } from "@/lib/tableConstan
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import type { DeletionRequest } from "@/types/blockage";
 import {
   deletionRequestEntityHref,
@@ -86,9 +87,11 @@ export function DeletionQueueTab() {
   const handleApprove = (req: DeletionRequest) => {
     const result = approveDeletionRequest(req.id, demoUserName || "Admin");
     if (!result.ok) {
+      // DS7: route raw command errors through `friendlyCommandErrorMessage` so users see
+      // human-readable copy instead of bare codes like `QUOTATION_NOT_FOUND`.
       toast({
         title: "Cannot approve deletion",
-        description: result.error ?? "Approval failed",
+        description: friendlyCommandErrorMessage(result.error ?? "Approval failed"),
         variant: "destructive",
       });
       return;

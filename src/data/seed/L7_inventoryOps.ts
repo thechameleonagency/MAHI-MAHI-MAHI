@@ -3,6 +3,7 @@ import type { SeedProfile } from "./seedLayerOrder";
 import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt } from "./seedTimeModel";
 import { countFor, pushAudit } from "./seedHelpers";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 /** L7 — tools + supplemental inventory + procurement lines (catalog seeded in L1). */
 export function buildL7InventoryOps(state: AppState, profile: SeedProfile): AppState {
@@ -55,6 +56,18 @@ export function buildL7InventoryOps(state: AppState, profile: SeedProfile): AppS
       }] : [],
     };
   });
+
+  if (!seedIncludesProjects()) {
+    pushAudit(state, {
+      action: "create",
+      entityType: "InventoryItem",
+      entityId: state.inventoryItems[0]?.id ?? "",
+      entityName: state.inventoryItems[0]?.name ?? "",
+      fraction: 0.4,
+      role: "admin",
+    });
+    return state;
+  }
 
   // Procurement need lines for shortfall scenarios
   const projects = state.projects.filter((p) => p.lifecycleStatus === "In Progress").slice(0, countFor(profile, 15));

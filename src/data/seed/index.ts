@@ -8,3 +8,5 @@ export {
 export { persistMastersData, buildMastersDataPayload, MASTERS_STORAGE_KEY } from "./seedMastersSync";
 export { applySeedHydrationPipeline } from "./seedHydration";
 export { SEED_LAYER_ORDER, smokeRoutes, scaleCount } from "./seedLayerOrder";
+export { seedIncludesProjects, SEED_INCLUDES_PROJECTS } from "./seedProjectPhase";
+export { reseedProjectsViaCommands } from "./projectReseed";

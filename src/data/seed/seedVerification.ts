@@ -53,6 +53,7 @@ import { SEED_COLLECTION_KEYS, type SeedProfile } from "./seedLayerOrder";
 import { findSeedForeignKeyViolations, formatSeedForeignKeyErrors } from "./seedForeignKeyMatrix";
 
 import { FULL_PROFILE_MINIMUMS, getMinimumFor } from "./seedVolumeTargets";
+import { seedIncludesProjects, isProjectClearedZeroMinimum } from "./seedProjectPhase";
 
 
 
@@ -287,9 +288,11 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
       const count = collectionCounts[key] ?? 0;
 
-      if (count < min) {
+      const effectiveMin = seedIncludesProjects() ? min : (isProjectClearedZeroMinimum(key) ? 0 : min);
 
-        errors.push(`${key}: ${count} rows (min ${min} for full profile)`);
+      if (count < effectiveMin) {
+
+        errors.push(`${key}: ${count} rows (min ${effectiveMin} for full profile)`);
 
       }
 
@@ -297,6 +300,7 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
 
 
+    if (seedIncludesProjects()) {
     const transportTasks = state.tasks.filter((t) => t.workType.includes("Transport"));
 
     if (transportTasks.length < 30) {
@@ -334,6 +338,7 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
       errors.push(`work-status tasks: ${workStatusTasks.length} (min 40)`);
 
     }
+    }
 
 
 
@@ -359,13 +364,15 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
     for (const evt of VOUCHER_EVENT_TYPES) {
       const count = voucherCounts[evt] ?? 0;
-      if (count < 2) {
+      const skipWhenNoProjects = !seedIncludesProjects() && evt === "PaymentReceived";
+      if (!skipWhenNoProjects && count < 2) {
         errors.push(`voucher event ${evt}: ${count} (min 2)`);
       }
     }
 
 
 
+    if (seedIncludesProjects()) {
     const richTimelines = Object.values(state.projectTimelineByProjectId).filter(
 
       (tl) => tl.workStatusChecks?.length && tl.discomChecks?.length,
@@ -374,6 +381,7 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
 
     if (richTimelines.length < 3) {
       errors.push(`rich project timelines: ${richTimelines.length} (min 3)`);
+    }
     }
 
     for (const demo of DEMO_LOGIN_USERS) {
@@ -397,7 +405,8 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
     }
 
     const calendarSources: CalendarEventSource[] = [
-      "task", "installation", "enquiry", "invoice", "vendor-bill", "loan-emi", "site-visit", "milestone",
+      ...(seedIncludesProjects() ? (["task", "installation", "site-visit", "milestone"] as const) : []),
+      "enquiry", "invoice", "vendor-bill", "loan-emi",
     ];
     const events = buildCalendarEvents({
       tasks: state.tasks,
@@ -428,7 +437,8 @@ export function verifySeedState(state: AppState, profile: SeedProfile): SeedVeri
       vendorBills: state.vendorBills,
     });
     const alertKinds: BusinessAlertKind[] = [
-      "invoice", "loan", "stock", "blockage", "blockage_stale", "quotation", "vendor_bill", "approval",
+      "invoice", "loan", "stock", "quotation", "vendor_bill",
+      ...(seedIncludesProjects() ? (["blockage", "blockage_stale", "approval"] as const) : []),
     ];
     const kindsPresent = new Set(alerts.map((a) => a.kind));
     const missingAlertKinds = alertKinds.filter((k) => !kindsPresent.has(k));

@@ -3,9 +3,11 @@ import type { SeedProfile } from "./seedLayerOrder";
 import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDayAt } from "./seedTimeModel";
 import { getMinimumFor } from "./seedVolumeTargets";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 /** Supplement procurementNeedLines to §4 minimum (30–50). */
 export function buildOpsProcurementNeedLines(state: AppState, profile: SeedProfile): AppState {
+  if (!seedIncludesProjects()) return state;
   const target = getMinimumFor(profile, "procurementNeedLines");
   let i = 0;
   while (state.procurementNeedLines.length < target) {

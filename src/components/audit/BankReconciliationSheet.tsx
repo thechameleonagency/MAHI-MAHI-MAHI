@@ -17,6 +17,12 @@ import {
   reconciliationResultRowKey,
 } from "@/lib/bankReconciliationDisplay";
 import { toBankReconciliationMatchInputs } from "@/lib/bankReconciliationLink";
+import {
+  normalizeBankDate as normalizeDateExternal,
+  parseBankAmount as parseBankAmountExternal,
+  isValidBankDate as isValidBankDateExternal,
+  parseBankCsv,
+} from "@/lib/bankReconciliationCsvParser";
 import { format, parseISO, isValid } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { fileExceedsLimit, MAX_UPLOAD_BYTES } from "@/lib/fileLimits";
@@ -45,6 +51,9 @@ interface ReconciliationEntry {
     description: string;
     amount: number;
     date: string;
+    /** BL-9: the prior reconciliation link on the matched row, surfaced for
+     *  "already reconciled" hints on possible-match rows when re-opening the sheet. */
+    reconciledWith?: import("@/types/finance").BankReconciliationLink;
   };
   notes?: string;
   statementId: string;
@@ -58,87 +67,12 @@ const BANK_CHARGE_KEYWORDS = [
   "gst on charge", "folio charge", "debit card fee", "atm charge",
 ];
 
-const normalizeDate = (dateStr: string): string => {
-  if (!dateStr) return "";
-  const formats = [
-    /^(\d{2})[/-](\d{2})[/-](\d{4})$/,
-    /^(\d{4})[/-](\d{2})[/-](\d{2})$/,
-  ];
-
-  const m1 = dateStr.match(formats[0]);
-  if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
-
-  const m2 = dateStr.match(formats[1]);
-  if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
-
-  return dateStr;
-};
-
-const parseBankAmount = (raw: string | undefined): number => {
-  if (!raw?.trim()) return 0;
-  const cleaned = raw.replace(/[₹Rs.\s]/gi, "").replace(/,/g, "");
-  const n = parseFloat(cleaned);
-  return Number.isFinite(n) ? n : 0;
-};
-
-const isValidBankDate = (dateStr: string): boolean => {
-  const normalized = normalizeDate(dateStr);
-  if (!normalized) return false;
-  const d = parseISO(normalized);
-  return isValid(d);
-};
-
-const parseCSV = (content: string): { transactions: BankTransaction[]; skippedInvalid: number } => {
-  const lines = content.trim().split("\n");
-  if (lines.length < 2) return { transactions: [], skippedInvalid: 0 };
-
-  const header = lines[0].toLowerCase();
-  const headers = header.split(",").map(h => h.trim().replace(/"/g, ""));
-
-  const dateIdx = headers.findIndex(h => h.includes("date") || h.includes("txn") || h.includes("value"));
-  const descIdx = headers.findIndex(h => h.includes("description") || h.includes("narration") || h.includes("particular") || h.includes("remark"));
-  const debitIdx = headers.findIndex(h => h.includes("debit") || h.includes("withdrawal") || h.includes("dr"));
-  const creditIdx = headers.findIndex(h => h.includes("credit") || h.includes("deposit") || h.includes("cr"));
-  const balIdx = headers.findIndex(h => h.includes("balance") || h.includes("closing"));
-  const refIdx = headers.findIndex(h => h.includes("ref") || h.includes("chq") || h.includes("utr"));
-
-  const mapRow = (cols: string[], rawLine: string): BankTransaction | null => {
-    const date = dateIdx >= 0 ? cols[dateIdx] || "" : cols[0] || "";
-    if (!isValidBankDate(date)) return null;
-    return {
-      date,
-      description: (descIdx >= 0 ? cols[descIdx] : cols[1]) || "",
-      debit: debitIdx >= 0 ? parseBankAmount(cols[debitIdx]) : parseBankAmount(cols[2]),
-      credit: creditIdx >= 0 ? parseBankAmount(cols[creditIdx]) : parseBankAmount(cols[3]),
-      balance: balIdx >= 0 ? parseBankAmount(cols[balIdx]) : parseBankAmount(cols[4]),
-      reference: refIdx >= 0 ? cols[refIdx] : cols[5] || "",
-      rawLine,
-    };
-  };
-
-  let skippedInvalid = 0;
-  const dataLines = lines.slice(1).filter((l) => l.trim());
-
-  if (dateIdx === -1 || descIdx === -1) {
-    const transactions: BankTransaction[] = [];
-    for (const line of dataLines) {
-      const cols = line.split(",").map((c) => c.trim().replace(/"/g, ""));
-      const row = mapRow(cols, line);
-      if (row) transactions.push(row);
-      else skippedInvalid += 1;
-    }
-    return { transactions, skippedInvalid };
-  }
-
-  const transactions: BankTransaction[] = [];
-  for (const line of dataLines) {
-    const cols = line.split(",").map((c) => c.trim().replace(/"/g, ""));
-    const row = mapRow(cols, line);
-    if (row) transactions.push(row);
-    else skippedInvalid += 1;
-  }
-  return { transactions, skippedInvalid };
-};
+// BL-11: parser logic lives in @/lib/bankReconciliationCsvParser for testability.
+// Local aliases preserve call sites unchanged.
+const normalizeDate = normalizeDateExternal;
+const parseBankAmount = parseBankAmountExternal;
+const isValidBankDate = isValidBankDateExternal;
+const parseCSV = parseBankCsv;
 
 interface Props {
   open: boolean;

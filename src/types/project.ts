@@ -221,8 +221,7 @@ export interface Project {
   /** Per-project site checklist — seeded from quotation BOM, editable by super admin per project. */
   siteChecklist?: ProjectSiteChecklistItem[];
 
-  /** Attaches outsourcing info to an existing project. Set when the user picks Outsourced INC
-   *  in the Create Project sheet and selects an existing open project. */
+  /** Attaches outsourcing info to an existing project via wizard source `attach_outsourced`. */
   outsource?: {
     partyId?: string;
     partyName?: string;

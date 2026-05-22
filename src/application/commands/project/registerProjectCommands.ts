@@ -380,7 +380,10 @@ export const registerProjectCommands = (
       };
     }
 
-    const shellInvariant = rejectProjectCreateInvariants({ project: built.project });
+    const shellInvariant = rejectProjectCreateInvariants({
+      project: built.project,
+      directExceptionReason: command.payload.reason,
+    });
     if (shellInvariant) {
       return shellInvariant;
     }

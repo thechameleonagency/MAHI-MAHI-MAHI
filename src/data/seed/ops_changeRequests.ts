@@ -3,9 +3,11 @@ import type { SeedProfile } from "./seedLayerOrder";
 import { seedId, SEED_ID_PREFIX } from "./seedIdRegistry";
 import { seedDateAt } from "./seedTimeModel";
 import { getMinimumFor } from "./seedVolumeTargets";
+import { seedIncludesProjects } from "./seedProjectPhase";
 
 /** Supplement projectChangeRequests to §4 minimum (10–15). */
 export function buildOpsChangeRequests(state: AppState, profile: SeedProfile): AppState {
+  if (!seedIncludesProjects()) return state;
   const target = getMinimumFor(profile, "projectChangeRequests");
   const types = ["capacity", "panels", "addon-work"] as const;
   const statuses = ["draft", "approved", "rejected"] as const;
