@@ -1,102 +1,200 @@
-import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useEffect, useMemo, useState } from "react";
+import { Sheet, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AppSheetContent } from "@/components/shared/AppSheetLayout";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useWizardStore } from "./useWizardStore";
 import { Step1DealStructure } from "./Step1DealStructure";
 import { Step2Vendorship } from "./Step2Vendorship";
-import { Step3Parties } from "./Step3Parties";
-import { Step4Commercials } from "./Step4Commercials";
-import { Step5Review } from "./Step5Review";
-import { 
-  Step1Schema, 
-  Step2Schema, 
-  Step3Schema, 
-  Step4Schema 
-} from "@/types/createProjectWizard";
+import { Step3SoloSource } from "./Step3SoloSource";
+import { Step4ProjectDetails } from "./Step4ProjectDetails";
+import { Step5Parties } from "./Step5Parties";
+import { Step6Commercials } from "./Step6Commercials";
+import { Step7Review } from "./Step7Review";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, ArrowRight } from "lucide-react";
+import { Loader2, ArrowLeft, ArrowRight, Check } from "lucide-react";
+import type { UnifiedProjectWizardState, UnifiedWizardStep } from "@/types/createProjectWizard";
+import {
+  getVisibleUnifiedWizardSteps,
+  UNIFIED_WIZARD_STEP_LABELS,
+  validateUnifiedWizardStep,
+} from "@/lib/unifiedProjectWizardFlow";
+import { cn } from "@/lib/utils";
 
 interface UnifiedProjectWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onComplete: (payload: any) => Promise<void>;
+  onComplete: (payload: UnifiedProjectWizardState) => Promise<void>;
+  initialPrefill?: Partial<UnifiedProjectWizardState>;
 }
 
-export function UnifiedProjectWizard({ open, onOpenChange, onComplete }: UnifiedProjectWizardProps) {
+function StepNav({
+  steps,
+  current,
+  onSelect,
+}: {
+  steps: UnifiedWizardStep[];
+  current: UnifiedWizardStep;
+  onSelect: (step: UnifiedWizardStep) => void;
+}) {
+  const currentIdx = steps.indexOf(current);
+  return (
+    <nav className="flex flex-col gap-1" aria-label="Create project steps">
+      {steps.map((step, index) => {
+        const isCurrent = step === current;
+        const isComplete = index < currentIdx;
+        return (
+          <button
+            key={step}
+            type="button"
+            onClick={() => isComplete && onSelect(step)}
+            disabled={!isComplete && !isCurrent}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
+              isCurrent && "bg-primary/10 text-primary font-medium",
+              isComplete && "hover:bg-muted cursor-pointer",
+              !isCurrent && !isComplete && "opacity-50 cursor-default",
+            )}
+          >
+            <span
+              className={cn(
+                "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs",
+                isComplete && "border-success bg-success/10 text-success",
+                isCurrent && "border-primary bg-primary text-primary-foreground",
+              )}
+            >
+              {isComplete ? <Check className="h-3.5 w-3.5" /> : index + 1}
+            </span>
+            {UNIFIED_WIZARD_STEP_LABELS[step]}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function UnifiedProjectWizard({
+  open,
+  onOpenChange,
+  onComplete,
+  initialPrefill,
+}: UnifiedProjectWizardProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  
-  const state = useWizardStore();
-  const { currentStep, nextStep, prevStep, resetWizard } = state;
+  const store = useWizardStore();
+  const {
+    currentStep,
+    resetWizard,
+    hydrateFromPrefill,
+    nextStep,
+    prevStep,
+    setStep,
+    setField,
+    dealOrigin,
+    partnerModifier,
+    incModifier,
+    outsourceEnabled,
+    subcontractorId,
+    vendorshipOwner,
+    vendorshipCompanyId,
+    vendorshipFeeAmount,
+    soloPipeline,
+    selectedEnquiryId,
+    selectedQuotationId,
+    endCustomer,
+    systemDetails,
+    itemDetails,
+    counterpartyId,
+    capacityKw,
+    projectType,
+    grossContractValue,
+    partnerProfitSharePct,
+    mssBackendFixedRate,
+    incRateBasis,
+    incRateValue,
+    incMaterialCost,
+    subcontractorPayoutRate,
+    partnerProvidesGst,
+    projectName,
+  } = store;
 
-  const totalSteps = 5;
-
-  const handleNext = () => {
-    try {
-      // Validate current step before advancing
-      if (currentStep === 1) Step1Schema.parse(state);
-      if (currentStep === 2) Step2Schema.parse(state);
-      if (currentStep === 3) Step3Schema.parse(state);
-      if (currentStep === 4) Step4Schema.parse(state);
-
-      nextStep();
-    } catch (error: any) {
-      if (error.issues && error.issues.length > 0) {
-        toast({
-          title: "Validation Error",
-          description: error.issues[0].message,
-          variant: "destructive",
-        });
-      }
-    }
+  const wizardState: UnifiedProjectWizardState = {
+    dealOrigin,
+    partnerModifier,
+    incModifier,
+    outsourceEnabled,
+    subcontractorId,
+    vendorshipOwner,
+    vendorshipCompanyId,
+    vendorshipFeeAmount,
+    soloPipeline,
+    selectedEnquiryId,
+    selectedQuotationId,
+    endCustomer,
+    systemDetails,
+    itemDetails,
+    counterpartyId,
+    capacityKw,
+    projectType,
+    grossContractValue,
+    partnerProfitSharePct,
+    mssBackendFixedRate,
+    incRateBasis,
+    incRateValue,
+    incMaterialCost,
+    subcontractorPayoutRate,
+    partnerProvidesGst,
+    projectName,
   };
 
-  const handleBack = () => {
-    prevStep();
+  useEffect(() => {
+    if (!open) return;
+    resetWizard(initialPrefill);
+    if (initialPrefill) hydrateFromPrefill(initialPrefill);
+  }, [open, initialPrefill, resetWizard, hydrateFromPrefill]);
+
+  const visibleSteps = useMemo(() => getVisibleUnifiedWizardSteps(wizardState), [wizardState]);
+  const currentIndex = visibleSteps.indexOf(currentStep);
+  const progressPct = visibleSteps.length > 0 ? ((currentIndex + 1) / visibleSteps.length) * 100 : 0;
+
+  useEffect(() => {
+    if (!visibleSteps.includes(currentStep)) {
+      setStep(visibleSteps[0] ?? "deal");
+    }
+  }, [visibleSteps, currentStep, setStep]);
+
+  const handleNext = () => {
+    const errors = validateUnifiedWizardStep(currentStep, wizardState);
+    if (errors.length > 0) {
+      toast({
+        title: "Validation error",
+        description: errors[0]?.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    nextStep();
   };
 
   const handleSubmit = async () => {
+    const errors = visibleSteps.flatMap((step) => validateUnifiedWizardStep(step, wizardState));
+    if (errors.length > 0) {
+      toast({
+        title: "Validation error",
+        description: errors[0]?.message,
+        variant: "destructive",
+      });
+      return;
+    }
     setIsSubmitting(true);
     try {
-      // Final payload adapter mapping UnifiedState -> Backend Payload
-      const payload = {
-        name: state.projectName || `${state.endCustomer.name} - ${state.capacityKw}kW`,
-        dealOrigin: state.dealOrigin,
-        client: state.endCustomer.name,
-        clientPhone: state.endCustomer.phone,
-        clientAddress: state.endCustomer.address,
-        location: state.endCustomer.address,
-        kNumber: state.endCustomer.kNumber,
-        capacity: `${state.capacityKw} kW`,
-        projectType: state.projectType,
-        contractAmount: state.grossContractValue,
-        
-        // Advanced Mapping
-        vendorshipOwner: state.vendorshipOwner,
-        vendorshipFeeAmount: state.vendorshipFeeAmount,
-        thirdPartyCompanyName: state.thirdPartyCompanyName,
-        thirdPartyFeeAmount: state.thirdPartyFeeAmount,
-
-        // Economics
-        partnerProfitSharePct: state.partnerProfitSharePct,
-        mssBackendFixedRate: state.mssBackendFixedRate,
-        incRateBasis: state.incRateBasis,
-        incRateValue: state.incRateValue,
-        subcontractorPayoutRate: state.subcontractorPayoutRate,
-        partnerProvidesGst: state.partnerProvidesGst,
-        counterpartyId: state.counterpartyId,
-      };
-
-      await onComplete(payload);
-      
-      // Cleanup on success
+      await onComplete(wizardState);
       resetWizard();
       onOpenChange(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
-        title: "Creation Failed",
-        description: error.message || "An unexpected error occurred",
+        title: "Creation failed",
+        description: error instanceof Error ? error.message : "Unexpected error",
         variant: "destructive",
       });
     } finally {
@@ -104,56 +202,70 @@ export function UnifiedProjectWizard({ open, onOpenChange, onComplete }: Unified
     }
   };
 
-  const handleOpenChange = (newOpen: boolean) => {
-    // If closing, we don't reset. LocalStorage handles draft persistence.
-    onOpenChange(newOpen);
+  const renderStep = () => {
+    switch (currentStep) {
+      case "deal":
+        return <Step1DealStructure />;
+      case "vendorship":
+        return <Step2Vendorship />;
+      case "source":
+        return <Step3SoloSource />;
+      case "details":
+        return <Step4ProjectDetails />;
+      case "parties":
+        return <Step5Parties />;
+      case "commercials":
+        return <Step6Commercials />;
+      case "review":
+        return <Step7Review />;
+      default:
+        return null;
+    }
   };
 
+  const isLast = currentIndex >= visibleSteps.length - 1;
+
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Create Project</DialogTitle>
-        </DialogHeader>
-
-        <div className="py-2">
-          <Progress value={(currentStep / totalSteps) * 100} className="h-2" />
-          <p className="text-xs text-muted-foreground mt-2 text-right">
-            Step {currentStep} of {totalSteps}
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <AppSheetContent size="wide" mobileFullScreen layout="bare" className="flex h-full flex-col">
+        <SheetHeader className="shrink-0 border-b px-4 py-4 sm:px-6">
+          <SheetTitle>Create Project</SheetTitle>
+          <SheetDescription className="sr-only">
+            Multi-step wizard to create a project with deal-specific tabs and billing setup.
+          </SheetDescription>
+          <Progress value={progressPct} className="h-1.5 mt-3" />
+          <p className="text-xs text-muted-foreground">
+            Step {currentIndex + 1} of {visibleSteps.length} — {UNIFIED_WIZARD_STEP_LABELS[currentStep]}
           </p>
-        </div>
+        </SheetHeader>
 
-        <div className="py-4 min-h-[400px]">
-          {currentStep === 1 && <Step1DealStructure />}
-          {currentStep === 2 && <Step2Vendorship />}
-          {currentStep === 3 && <Step3Parties />}
-          {currentStep === 4 && <Step4Commercials />}
-          {currentStep === 5 && <Step5Review />}
-        </div>
+        <div className="flex min-h-0 flex-1 md:grid md:grid-cols-[12rem_minmax(0,1fr)]">
+          <div className="hidden md:block border-r px-4 py-6 overflow-y-auto">
+            <StepNav steps={visibleSteps} current={currentStep} onSelect={setStep} />
+          </div>
 
-        <div className="flex justify-between items-center mt-6 pt-4 border-t">
-          <Button
-            variant="outline"
-            onClick={handleBack}
-            disabled={currentStep === 1 || isSubmitting}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-
-          {currentStep < totalSteps ? (
-            <Button onClick={handleNext}>
-              Next Step
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
-          ) : (
-             <Button onClick={handleSubmit} disabled={isSubmitting} className="bg-primary">
-              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create Project & Genesis Drafts
-            </Button>
-          )}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 custom-scrollbar">{renderStep()}</div>
+            <div className="flex shrink-0 items-center justify-between gap-2 border-t px-4 py-3 sm:px-6">
+              <Button variant="outline" onClick={prevStep} disabled={currentIndex <= 0 || isSubmitting}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
+              </Button>
+              {!isLast ? (
+                <Button onClick={handleNext}>
+                  Next
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              ) : (
+                <Button onClick={handleSubmit} disabled={isSubmitting}>
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Create project
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </AppSheetContent>
+    </Sheet>
   );
 }

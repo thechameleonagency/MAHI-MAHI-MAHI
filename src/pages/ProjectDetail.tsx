@@ -65,7 +65,7 @@ import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
 import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet";
 import { ProgressReportTab } from "@/components/projects/ProgressReportTab";
 import { TeamRosterTab } from "@/components/projects/TeamRosterTab";
-import { filterWorkTabsBySnapshot, filterWorkTabsByRole, projectForbidsAction } from "@/lib/projectDetailTabs";
+import { filterWorkTabsBySnapshot, filterWorkTabsByRole, projectForbidsAction, projectShowsClientInvoices, projectPrimaryPartyLabel } from "@/lib/projectDetailTabs";
 import {
   buildProjectActorScopeContext,
   isProjectVisibleToActor,
@@ -104,9 +104,8 @@ import { formatINR } from "@/lib/formatCurrency";
 import {
   canonicalProjectKind,
   canonicalProjectMode,
-  PROJECT_KIND_UI_LABELS,
   PROJECT_KIND_UI_TONES,
-  projectModeUiLabel,
+  projectKindUiLabel,
 } from "@/lib/projectTaxonomyDisplay";
 import {
   Dialog,
@@ -228,6 +227,8 @@ const ProjectDetail = () => {
     addProjectChangeRequest: _addProjectChangeRequest,
     approveProjectChangeRequest,
     rejectProjectChangeRequest,
+    vendorshipCompanies,
+    getINCGiverCompanyById,
     getAccrualsByProject,
     generateId,
     canDo,
@@ -240,27 +241,6 @@ const ProjectDetail = () => {
   const project = id ? getProjectById(id) : undefined;
 
   const formatCurrency = (val: number) => `₹ ${(val || 0).toLocaleString()}`;
-
-  const getDealOriginBadge = () => {
-    const origin = project?.dealOrigin;
-    switch(origin) {
-      case "DIRECT": return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200">Direct Client (Solo EPC)</Badge>;
-      case "PARTNER": return <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-200">Partner Network</Badge>;
-      case "INC_TAKEN": return <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-200">INC Taken</Badge>;
-      case "OUTSOURCED_INC": return <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200">Outsourced INC</Badge>;
-      case "VENDORSHIP_ONLY": return <Badge className="bg-slate-100 text-slate-800 hover:bg-slate-200">Vendorship Only</Badge>;
-      default: return <Badge variant="outline">Legacy Format</Badge>;
-    }
-  };
-
-  const getBillerText = () => {
-    switch (project?.vendorshipOwner) {
-      case "MSS": return "MSS (Direct)";
-      case "PARTNER": return "Partner";
-      case "THIRD_PARTY": return "Third Party Code";
-      default: return "Unknown";
-    }
-  };
 
   const showDocumentVault = project?.vendorshipOwner === "MSS" || project?.dealOrigin === "VENDORSHIP_ONLY";
 
@@ -781,6 +761,48 @@ const ProjectDetail = () => {
   
   const kind = canonicalProjectKind(project);
   const projectMode = canonicalProjectMode(project);
+  const showsClientInvoices = projectShowsClientInvoices(project);
+  const primaryPartyLabel = projectPrimaryPartyLabel(project, kind);
+  const dealOriginBadge = (
+    <Badge className={`${PROJECT_KIND_UI_TONES[kind] ?? "bg-slate-100 text-slate-800"} hover:opacity-90 border`}>
+      {projectKindUiLabel(kind)}
+    </Badge>
+  );
+  const billerText = (() => {
+    if (kind === "INC_GIVEN") {
+      const giverId = project.scope?.incGiverCompanyId;
+      return giverId ? getINCGiverCompanyById(giverId)?.name ?? "INC giver" : "INC giver";
+    }
+    if (kind === "VENDORSHIP_ONLY") {
+      const coId = project.scope?.vendorshipCompanyId;
+      const co = coId ? vendorshipCompanies?.find((c) => c.id === coId) : undefined;
+      return co?.name ?? "External code owner";
+    }
+    switch (project.vendorshipOwner) {
+      case "MSS":
+        return "MSS (Direct)";
+      case "PARTNER":
+      case "partner":
+        return "Partner";
+      case "THIRD_PARTY":
+        return "Third Party Code";
+      case "none":
+        return "N/A";
+      default:
+        return "Unknown";
+    }
+  })();
+  const kpiTitle =
+    kind === "VENDORSHIP_ONLY"
+      ? "Vendorship Fee"
+      : kind === "INC_GIVEN"
+        ? "Work Value"
+        : "Contract Value";
+  const kpiAmount =
+    kind === "VENDORSHIP_ONLY"
+      ? project.vendorshipFeeReceivable ?? project.scope?.vendorshipFeeAmount ?? project.contractAmount
+      : project.contractAmount;
+  const showCollectedProgress = showsClientInvoices || kind === "INC_GIVEN";
   const partnerRow = resolveProjectPartnerRow(project);
   const linkedPartner = partnerRow
     ? partners.find((partner) => partner.id === partnerRow.partnerId)
@@ -894,12 +916,15 @@ const ProjectDetail = () => {
                     {project.client}
                   </p>
                 </div>
-                {getDealOriginBadge()}
+                {dealOriginBadge}
               </div>
               <div className="flex gap-4 mt-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1"><Zap className="h-4 w-4"/> {project.capacity}</span>
                 <span className="flex items-center gap-1"><MapPin className="h-4 w-4"/> {project.location || "No Location"}</span>
               </div>
+              {project.agentName && kind === "SOLO_EPC" && (
+                <p className="mt-2 text-xs text-muted-foreground">Referral agent: {project.agentName}</p>
+              )}
             </div>
             <div className="mt-6 flex items-center justify-between border-t pt-4">
               <div className="space-y-1">
@@ -909,35 +934,42 @@ const ProjectDetail = () => {
                 </Badge>
               </div>
               <div className="space-y-1 text-right">
-                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Customer Biller</p>
-                <p className="font-semibold text-sm">{getBillerText()}</p>
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{primaryPartyLabel}</p>
+                <p className="font-semibold text-sm">{project.client}</p>
+                {kind !== "INC_GIVEN" && kind !== "VENDORSHIP_ONLY" && (
+                  <p className="text-2xs text-muted-foreground">Biller: {billerText}</p>
+                )}
               </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Financial KPI */}
+        {(showsClientInvoices || kind === "INC_GIVEN" || kind === "VENDORSHIP_ONLY") && (
         <Card className="shadow-sm">
           <CardContent className="p-6 flex flex-col justify-center h-full">
             <div className="flex items-center gap-2 mb-2 text-muted-foreground">
               <IndianRupee className="h-5 w-5" />
-              <span className="font-medium text-sm">Contract Value</span>
+              <span className="font-medium text-sm">{kpiTitle}</span>
             </div>
-            <p className="text-3xl font-bold text-slate-900">{formatCurrency(project.contractAmount)}</p>
+            <p className="text-3xl font-bold text-slate-900">{formatCurrency(kpiAmount)}</p>
+            {showCollectedProgress && (
             <div className="mt-4 space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Collected</span>
+                <span className="text-muted-foreground">{kind === "INC_GIVEN" ? "Collected from giver" : "Collected"}</span>
                 <span className="font-medium text-emerald-600">{formatCurrency(project.amountReceived || 0)}</span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-1.5">
                 <div 
                   className="bg-emerald-500 h-1.5 rounded-full" 
-                  style={{ width: `${Math.min(100, ((project.amountReceived || 0) / (project.contractAmount || 1)) * 100)}%` }}
+                  style={{ width: `${Math.min(100, ((project.amountReceived || 0) / (kpiAmount || 1)) * 100)}%` }}
                 ></div>
               </div>
             </div>
+            )}
           </CardContent>
         </Card>
+        )}
 
         {/* Audit / History Overview Card */}
         
@@ -1314,6 +1346,7 @@ const ProjectDetail = () => {
                   </DataTableShell>
                 )}
               </TabCard>
+              {(showsClientInvoices || kind === "INC_GIVEN") && (
               <ClientPaymentHistory
                 projectId={project.id}
                 clientName={project.client}
@@ -1330,6 +1363,7 @@ const ProjectDetail = () => {
                 partnerName={partnerRow?.partnerName}
                 forbidPartnerSettlement={forbidPartnerSettlement}
               />
+              )}
             </TabsContent>
           </Tabs>
             </section>
@@ -1339,33 +1373,43 @@ const ProjectDetail = () => {
             <section id="financials" className="scroll-mt-24 space-y-4">
               <h2 className="text-lg font-semibold tracking-tight">Financials</h2>
               <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
-            <MiniMetric label="Contract" value={formatINR(project.contractAmount)} />
-            <MiniMetric label="Billed" value={formatINR(billed)} />
+            <MiniMetric label={kind === "VENDORSHIP_ONLY" ? "Fee receivable" : kind === "INC_GIVEN" ? "Work value" : "Contract"} value={formatINR(kpiAmount)} />
+            {showsClientInvoices && <MiniMetric label="Billed" value={formatINR(billed)} />}
             <MiniMetric label="Collected" value={formatINR(collected)} />
-            <MiniMetric label="Outstanding" value={formatINR(Math.max(0, (project.contractAmount || 0) - collected))} />
+            {showsClientInvoices && (
+              <MiniMetric label="Outstanding" value={formatINR(Math.max(0, (project.contractAmount || 0) - collected))} />
+            )}
             <MiniMetric label="Actual Cost" value={formatINR(actualCost)} />
-            <MiniMetric label="Profit" value={formatINR(projectProfit)} />
-            <MiniMetric label="Margin" value={(project.contractAmount || 0) > 0 ? `${((projectProfit / (project.contractAmount || 1)) * 100).toFixed(1)}%` : "ÔÇö"} />
+            {kind !== "VENDORSHIP_ONLY" && (
+              <>
+                <MiniMetric label="Profit" value={formatINR(projectProfit)} />
+                <MiniMetric label="Margin" value={(project.contractAmount || 0) > 0 ? `${((projectProfit / (project.contractAmount || 1)) * 100).toFixed(1)}%` : "—"} />
+              </>
+            )}
           </div>
-          {/* BL-5: profit-by-recognition split (expected vs accrual vs realized). */}
+          {kind !== "VENDORSHIP_ONLY" && (
           <div className="grid gap-3 md:grid-cols-3 rounded-md border border-border/60 bg-muted/20 p-3">
             <MiniMetric
               label="Expected profit"
               value={formatINR(projectProfit)}
-              hint="Contract ÔêÆ Actual cost"
+              hint="Contract − Actual cost"
             />
-            <MiniMetric
-              label="Accrual profit"
-              value={formatINR(accrualProfit)}
-              hint="Billed ÔêÆ Actual cost"
-            />
+            {showsClientInvoices && (
+              <MiniMetric
+                label="Accrual profit"
+                value={formatINR(accrualProfit)}
+                hint="Billed − Actual cost"
+              />
+            )}
             <MiniMetric
               label="Realized profit"
               value={formatINR(realizedProfit)}
-              hint="Collected ÔêÆ Actual cost"
+              hint="Collected − Actual cost"
             />
           </div>
+          )}
 
+          {kind !== "VENDORSHIP_ONLY" && (
           <TabCard title="Change requests" icon={<FileText className="h-4 w-4 text-primary" />}>
             {project.quotationId && quotation && (
               <ProjectScopeChangeGuidance
@@ -1538,9 +1582,18 @@ const ProjectDetail = () => {
               </>
             )}
           </TabCard>
+          )}
 
           {/* Invoices - only for kinds that bill */}
-          {!["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(kind) && (
+          {!showsClientInvoices && (
+            <p className="text-sm text-muted-foreground rounded-md border border-dashed px-3 py-2 bg-muted/20">
+              {kind === "INC_GIVEN"
+                ? "Client invoices are not used for INC-given work — collections from the INC giver are tracked below."
+                : "This project kind does not use MSS client invoicing."}
+            </p>
+          )}
+
+          {showsClientInvoices && (
             <TabCard title="Invoices" icon={<ReceiptText className="h-4 w-4 text-primary" />}>
               {canWriteInvoice && (
               <div className="mb-3 flex justify-end">
@@ -1605,7 +1658,9 @@ const ProjectDetail = () => {
           <TabCard title="Expenses" icon={<IndianRupee className="h-4 w-4 text-primary" />}>
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <div className="grid flex-1 gap-3 md:grid-cols-3">
-                <MiniMetric label="Material" value={formatINR(projectExpenses.filter((e) => e.category === "Material").reduce((s, e) => s + e.amount, 0))} />
+                {!forbidMaterialDispatch && (
+                  <MiniMetric label="Material" value={formatINR(projectExpenses.filter((e) => e.category === "Material").reduce((s, e) => s + e.amount, 0))} />
+                )}
                 <MiniMetric label="Labour" value={formatINR(projectExpenses.filter((e) => e.category === "Labour").reduce((s, e) => s + e.amount, 0))} />
                 <MiniMetric label="Total" value={formatINR(actualCost)} />
               </div>

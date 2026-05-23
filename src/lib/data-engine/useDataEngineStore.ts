@@ -19,6 +19,22 @@ export interface EngineCounters {
   inventoryLogs: number;
   attendanceLogs: number;
   schedules: number;
+  // New metrics
+  blockages: number;
+  tickets: number;
+  changeRequests: number;
+  vendors: number;
+  vendorBills: number;
+  vendorPayments: number;
+  employees: number;
+  agents: number;
+  tools: number;
+  teams: number;
+  loans: number;
+  partners: number;
+  ownerInvestments: number;
+  materialDamage: number;
+  siteVisits: number;
 }
 
 interface DataEngineState {
@@ -47,6 +63,21 @@ const initialCounters: EngineCounters = {
   inventoryLogs: 0,
   attendanceLogs: 0,
   schedules: 0,
+  blockages: 0,
+  tickets: 0,
+  changeRequests: 0,
+  vendors: 0,
+  vendorBills: 0,
+  vendorPayments: 0,
+  employees: 0,
+  agents: 0,
+  tools: 0,
+  teams: 0,
+  loans: 0,
+  partners: 0,
+  ownerInvestments: 0,
+  materialDamage: 0,
+  siteVisits: 0,
 };
 
 export const useDataEngineStore = create<DataEngineState>((set) => ({

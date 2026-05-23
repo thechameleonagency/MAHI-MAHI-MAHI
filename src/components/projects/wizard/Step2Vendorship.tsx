@@ -1,31 +1,25 @@
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useWizardStore } from "./useWizardStore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Building2, Users, Receipt } from "lucide-react";
+import { Building2, FileText } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useAppData } from "@/contexts/AppDataContext";
+import { skipVendorshipStep } from "@/lib/unifiedProjectWizardFlow";
 
 export function Step2Vendorship() {
-  const { 
-    dealOrigin, 
-    incModifier, 
-    vendorshipOwner, 
-    vendorshipFeeAmount,
-    thirdPartyCompanyName,
-    thirdPartyFeeAmount,
-    setField 
-  } = useWizardStore();
+  const { dealOrigin, incModifier, vendorshipOwner, vendorshipCompanyId, setField } = useWizardStore();
+  const { vendorshipCompanies } = useAppData();
+  const state = useWizardStore();
 
-  const isLaborOnly = dealOrigin === "INC_TAKEN" && incModifier === "LABOR_ONLY";
-
-  if (isLaborOnly) {
+  if (skipVendorshipStep(state)) {
     return (
       <Alert className="bg-amber-50 border-amber-200">
-        <Receipt className="h-4 w-4 text-amber-600" />
-        <AlertTitle className="text-amber-800 font-semibold">Vendorship Irrelevant</AlertTitle>
+        <FileText className="h-4 w-4 text-amber-600" />
+        <AlertTitle className="text-amber-800 font-semibold">Vendorship handled by INC giver</AlertTitle>
         <AlertDescription className="text-amber-700">
-          Since this is a Labor-Only INC Taken deal, vendorship and billing codes are handled entirely by the INC Giver. You may skip this step.
+          Labor-only INC Taken deals use the giver&apos;s billing code. Continue to the next step.
         </AlertDescription>
       </Alert>
     );
@@ -34,21 +28,19 @@ export function Step2Vendorship() {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-medium">Vendorship & Documentation</h3>
+        <h3 className="text-lg font-medium">Vendorship Code</h3>
         <p className="text-sm text-muted-foreground">
-          Who owns the Vendorship Code? This is the Pivot Point that locks the billing architecture.
+          Choose MSS&apos;s own DISCOM vendorship code or select a registered code-giver company.
         </p>
       </div>
 
       <RadioGroup
         value={vendorshipOwner}
-        onValueChange={(val: any) => {
-          setField("vendorshipOwner", val);
-          setField("vendorshipFeeAmount", undefined);
-          setField("thirdPartyCompanyName", "");
-          setField("thirdPartyFeeAmount", undefined);
+        onValueChange={(val) => {
+          setField("vendorshipOwner", val as typeof vendorshipOwner);
+          if (val === "MSS") setField("vendorshipCompanyId", undefined);
         }}
-        className="grid grid-cols-1 md:grid-cols-3 gap-4"
+        className="grid grid-cols-1 md:grid-cols-2 gap-4"
       >
         <Label
           htmlFor="MSS"
@@ -59,99 +51,67 @@ export function Step2Vendorship() {
           <div className="flex items-center space-x-3 mb-2">
             <RadioGroupItem value="MSS" id="MSS" />
             <Building2 className="h-5 w-5 text-blue-500" />
-            <span className="font-semibold text-base">MSS (Our Code)</span>
+            <span className="font-semibold text-base">Our vendorship (MSS code)</span>
           </div>
           <p className="text-xs text-muted-foreground ml-7">
-            MSS bills the customer directly and creates the client documents.
+            MSS bills the customer and owns document creation.
           </p>
         </Label>
 
         <Label
-          htmlFor="PARTNER"
+          htmlFor="CODE_GIVER"
           className={`flex flex-col cursor-pointer rounded-lg border-2 p-4 hover:bg-accent/50 transition-all ${
-            vendorshipOwner === "PARTNER" ? "border-primary bg-primary/5" : "border-border"
+            vendorshipOwner === "CODE_GIVER" ? "border-primary bg-primary/5" : "border-border"
           }`}
         >
           <div className="flex items-center space-x-3 mb-2">
-            <RadioGroupItem value="PARTNER" id="PARTNER" />
-            <Users className="h-5 w-5 text-purple-500" />
-            <span className="font-semibold text-base">Partner's Code</span>
-          </div>
-          <p className="text-xs text-muted-foreground ml-7">
-            Partner bills the customer. MSS Document Creator is disabled. MSS bills the Partner.
-          </p>
-        </Label>
-
-        <Label
-          htmlFor="THIRD_PARTY"
-          className={`flex flex-col cursor-pointer rounded-lg border-2 p-4 hover:bg-accent/50 transition-all ${
-            vendorshipOwner === "THIRD_PARTY" ? "border-primary bg-primary/5" : "border-border"
-          }`}
-        >
-          <div className="flex items-center space-x-3 mb-2">
-            <RadioGroupItem value="THIRD_PARTY" id="THIRD_PARTY" />
+            <RadioGroupItem value="CODE_GIVER" id="CODE_GIVER" />
             <FileText className="h-5 w-5 text-emerald-500" />
-            <span className="font-semibold text-base">Third-Party Code</span>
+            <span className="font-semibold text-base">Code giver company</span>
           </div>
           <p className="text-xs text-muted-foreground ml-7">
-            Third-party bills the customer. MSS Document Creator is disabled.
+            Select a vendorship code giver from masters — billing follows their code.
           </p>
         </Label>
       </RadioGroup>
 
-      {/* Conditional Inputs */}
-      {vendorshipOwner === "MSS" && (dealOrigin === "PARTNER" || dealOrigin === "INC_TAKEN") && (
-        <Card className="bg-slate-50/50">
+      {vendorshipOwner === "CODE_GIVER" && (
+        <Card className="bg-emerald-50/30 border-emerald-100">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Vendorship Fee (MSS charging Counterparty)</CardTitle>
+            <CardTitle className="text-sm text-emerald-800">Vendorship code giver</CardTitle>
             <CardDescription className="text-xs">
-              Because MSS is leasing its code to a {dealOrigin === "PARTNER" ? "Partner" : "INC Giver"}, what is the fee?
+              Companies registered under Vendorship Companies in masters.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="relative max-w-xs">
-              <span className="absolute left-3 top-2.5 text-muted-foreground">₹</span>
-              <Input
-                type="number"
-                placeholder="0"
-                className="pl-8"
-                value={vendorshipFeeAmount || ""}
-                onChange={(e) => setField("vendorshipFeeAmount", parseFloat(e.target.value) || 0)}
-              />
-            </div>
+            <Select
+              value={vendorshipCompanyId}
+              onValueChange={(val) => setField("vendorshipCompanyId", val)}
+            >
+              <SelectTrigger className="max-w-md">
+                <SelectValue placeholder="Select code giver company" />
+              </SelectTrigger>
+              <SelectContent>
+                {vendorshipCompanies.map((co) => (
+                  <SelectItem key={co.id} value={co.id}>
+                    {co.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </CardContent>
         </Card>
       )}
 
-      {vendorshipOwner === "THIRD_PARTY" && (
-        <Card className="bg-emerald-50/30 border-emerald-100">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-emerald-800">Third-Party Details</CardTitle>
+      {vendorshipOwner === "MSS" && dealOrigin === "PARTNER" && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Optional vendorship fee to counterparty</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Company Name</Label>
-                <Input 
-                  placeholder="Enter company name" 
-                  value={thirdPartyCompanyName || ""}
-                  onChange={(e) => setField("thirdPartyCompanyName", e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Third-Party Fee</Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-muted-foreground">₹</span>
-                  <Input 
-                    type="number" 
-                    placeholder="0" 
-                    className="pl-8"
-                    value={thirdPartyFeeAmount || ""}
-                    onChange={(e) => setField("thirdPartyFeeAmount", parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-              </div>
-            </div>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-2">
+              When MSS leases its code on a partner deal, record the fee receivable (if any).
+            </p>
           </CardContent>
         </Card>
       )}

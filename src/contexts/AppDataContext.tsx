@@ -812,6 +812,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     return member?.name ?? ROLE_LABELS[actorRole];
   }, [demoUserName, sessionUserId, state.settingsTeamMembers, actorRole]);
 
+  // Keep a ref to the latest state so runCommand closures never sync stale data
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   const canPerformActionOrWarn = useCallback((action: AppAction): boolean => {
     const allowed = permissionService.canPerformAction(actorRole, action, roleMatrixOverride);
     if (!allowed) {
@@ -828,7 +832,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const runCommand = useCallback(
     <TResult,>(command: Command): Promise<CommandResult<TResult>> => {
-      syncPrototypeRepositoriesFromAppState(state, repositories);
+      // Do NOT sync from stateRef.current here. The repository is the source of truth
+      // during rapid synchronous commands. State will catch up via React updaters.
       return commandBus.execute<TResult>({
         ...command,
         actorUserId: command.actorUserId ?? actorUserId,
@@ -837,7 +842,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           command.actorDisplayName ??
           resolveAuditActorUserName({
             actor: { actorUserId, actorRole, actorDisplayName },
-            settingsTeamMembers: state.settingsTeamMembers,
+            settingsTeamMembers: stateRef.current.settingsTeamMembers,
             demoUserName: demoUserName,
           }),
         matrixOverride: roleMatrixOverride,
@@ -851,8 +856,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       actorRole,
       actorDisplayName,
       demoUserName,
-      state,
-      state.settingsTeamMembers,
     ],
   );
 
@@ -880,7 +883,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         lastPersistedSnapshotRef.current = serialized;
         localStorage.setItem(STORAGE_KEY, serialized);
         localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
-        syncPrototypeRepositoriesFromAppState(state, repositories);
+        // DO NOT call syncPrototypeRepositoriesFromAppState here!
+        // It overwrites the repositories with React state. If a Command just mutated the
+        // repository, but React hasn't processed the updater yet, this debouncer will
+        // wipe the repository's changes!
       } catch (e) {
         if (import.meta.env.DEV) {
           console.warn("Failed to persist state:", e);
@@ -1039,12 +1045,24 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: `Role ${actorRole} cannot create projects from quotations` };
       }
       const stubIntake: ProjectIntakePayload = {
-        kind: project.projectKind ?? "SOLO_EPC",
-        parties: { customer: project.client },
+        kind: (project as any).projectKind ?? "SOLO_EPC",
+        parties: { 
+          customer: project.client,
+          vendorOrDiscom: (project as any).vendorOrDiscom || "Auto Vendor",
+          partner: (project as any).partner || "Auto Partner",
+          channelPartner: (project as any).channelPartner || "Auto CP",
+          externalNetwork: (project as any).externalNetwork || "Auto Ext",
+          subcontractor: (project as any).subcontractor || "Auto Sub",
+          incGiverCompany: (project as any).incGiverCompany || "Auto INC",
+        },
         commercial: {
           contractAmount: project.contractAmount,
           paymentType: (project.paymentType as string) || "cash",
-          internalCostEstimate: 0,
+          internalCostEstimate: (project as any).internalCostEstimate || 0,
+          backendPrice: (project as any).backendPrice || 0,
+          partnerSellPrice: (project as any).partnerSellPrice || 0,
+          commissionRule: (project as any).commissionRule || "0",
+          vendorshipFeeReceivable: (project as any).vendorshipFeeReceivable || 0,
         },
       };
       try {

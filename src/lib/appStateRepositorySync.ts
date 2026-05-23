@@ -1,7 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { AppState } from "@/contexts/AppDataContext";
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
-import { syncPrototypeRepositoriesFromAppState } from "@/infrastructure/repositories/syncPrototypeRepositories";
 
 /**
  * AR1 — wrap React setState so prototype mss.repo.* mirrors always match AppState
@@ -14,7 +13,9 @@ export function createRepositorySyncedSetState(
   return (action) => {
     setState((prev) => {
       const next = typeof action === "function" ? action(prev) : action;
-      syncPrototypeRepositoriesFromAppState(next, repositories);
+      // Do NOT sync repositories from state here! Commands mutate repositories directly,
+      // and React state pulls FROM the repositories. Syncing back to repositories here
+      // causes massive race conditions when commands are fired rapidly.
       return next;
     });
   };

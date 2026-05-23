@@ -187,10 +187,22 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
   );
 }
 
+function safeSetItem(key: string, value: string): boolean {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn(`Failed to persist ${key}:`, error);
+    }
+    return false;
+  }
+}
+
 export function persistFreshAppStateSeed(baseSeed: AppState): void {
-  localStorage.setItem(APP_DATA_RESET_EPOCH_KEY, APP_DATA_RESET_EPOCH);
-  localStorage.setItem(APP_DATA_STORAGE_VERSION_KEY, String(APP_DATA_STORAGE_VERSION));
-  localStorage.setItem(APP_DATA_STORAGE_KEY, serializeAppState(baseSeed));
+  safeSetItem(APP_DATA_RESET_EPOCH_KEY, APP_DATA_RESET_EPOCH);
+  safeSetItem(APP_DATA_STORAGE_VERSION_KEY, String(APP_DATA_STORAGE_VERSION));
+  safeSetItem(APP_DATA_STORAGE_KEY, serializeAppState(baseSeed));
 }
 
 type ReadPersistedOptions = {
@@ -218,43 +230,33 @@ export function readPersistedAppState(options?: ReadPersistedOptions): AppState 
   const persistOnBootstrap = options?.persistOnBootstrap === true;
 
   try {
-    const storedEpoch = localStorage.getItem(APP_DATA_RESET_EPOCH_KEY);
     const storedVersion = Number(localStorage.getItem(APP_DATA_STORAGE_VERSION_KEY) ?? "0");
     const workspaceMode = getWorkspaceMode();
-    const needsFullReset =
-      storedEpoch !== APP_DATA_RESET_EPOCH || storedVersion !== APP_DATA_STORAGE_VERSION;
-
-    if (needsFullReset) {
-      if (persistOnBootstrap) {
-        return persistDefaultBusinessBoot();
-      }
-      return materializeDefaultBusinessBoot();
-    }
-
-    if (workspaceMode === "empty") {
-      if (persistOnBootstrap && !localStorage.getItem(APP_DATA_STORAGE_KEY)) {
-        persistFreshAppStateSeed(emptyBoot);
-      }
-      const stored = localStorage.getItem(APP_DATA_STORAGE_KEY);
-      if (stored) {
-        const parsed = deserializeAppState(stored);
-        if (parsed) {
-          return hydrateStoredSnapshot(parsed, storedVersion);
-        }
-      }
-      return emptyBoot;
-    }
 
     const stored = localStorage.getItem(APP_DATA_STORAGE_KEY);
     if (stored) {
       const parsed = deserializeAppState(stored);
       if (parsed) {
         const hydrated = hydrateStoredSnapshot(parsed, storedVersion);
-        if (persistOnBootstrap && isEmptyWorkspaceState(hydrated)) {
-          return persistDefaultBusinessBoot();
+        if (persistOnBootstrap) {
+          safeSetItem(APP_DATA_RESET_EPOCH_KEY, APP_DATA_RESET_EPOCH);
+          safeSetItem(APP_DATA_STORAGE_VERSION_KEY, String(APP_DATA_STORAGE_VERSION));
+          if (workspaceMode !== "empty" && isEmptyWorkspaceState(hydrated)) {
+            return persistDefaultBusinessBoot();
+          }
+          if (workspaceMode !== "empty") {
+            safeSetItem(APP_DATA_STORAGE_KEY, serializeAppState(hydrated));
+          }
         }
         return hydrated;
       }
+    }
+
+    if (workspaceMode === "empty") {
+      if (persistOnBootstrap && !localStorage.getItem(APP_DATA_STORAGE_KEY)) {
+        persistFreshAppStateSeed(emptyBoot);
+      }
+      return emptyBoot;
     }
   } catch (e) {
     if (import.meta.env.DEV) {

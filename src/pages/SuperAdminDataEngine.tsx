@@ -161,16 +161,36 @@ export default function SuperAdminDataEngine() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Entity Counters</CardTitle>
-              <CardDescription>Records created by the engine</CardDescription>
+              <CardTitle className="text-lg">Sales & Projects</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <CounterRow icon={<ScrollText />} label="Enquiries" value={store.counters.enquiries} />
               <CounterRow icon={<FileText />} label="Quotations" value={store.counters.quotations} />
               <CounterRow icon={<Briefcase />} label="Projects" value={store.counters.projects} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Finance</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <CounterRow icon={<FileText />} label="Invoices" value={store.counters.invoices} />
-              <CounterRow icon={<IndianRupee />} label="Expenses" value={store.counters.expenses} />
               <CounterRow icon={<IndianRupee />} label="Payments" value={store.counters.payments} />
+              <CounterRow icon={<IndianRupee />} label="Expenses" value={store.counters.expenses} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Operations & HR</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <CounterRow icon={<Activity />} label="Blockages" value={store.counters.blockages} />
+              <CounterRow icon={<Activity />} label="Tickets" value={store.counters.tickets} />
+              <CounterRow icon={<Briefcase />} label="Change Requests" value={store.counters.changeRequests} />
+              <CounterRow icon={<Briefcase />} label="Vendors" value={store.counters.vendors} />
+              <CounterRow icon={<Briefcase />} label="Employees" value={store.counters.employees} />
             </CardContent>
           </Card>
 

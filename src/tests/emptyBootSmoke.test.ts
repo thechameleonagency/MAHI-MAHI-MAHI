@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { buildEmptyAppState } from "@/data/appSeedBuilder";
-import { APP_DATA_RESET_EPOCH } from "@/lib/clearAppStorage";
+import { readPersistedAppState } from "@/lib/appDataStorage";
+import { persistDefaultBusinessBoot } from "@/lib/defaultAppBoot";
 
 const COLLECTION_KEYS = [
   "customers",
@@ -19,6 +20,9 @@ const COLLECTION_KEYS = [
 ] as const;
 
 describe("emptyBootSmoke", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
   it("buildEmptyAppState has zero rows for major collections", () => {
     const s = buildEmptyAppState();
     for (const key of COLLECTION_KEYS) {
@@ -27,8 +31,11 @@ describe("emptyBootSmoke", () => {
     }
   });
 
-  it("reset epoch is set for storage invalidation on seed schema changes", () => {
-    expect(APP_DATA_RESET_EPOCH.length).toBeGreaterThan(0);
-    expect(APP_DATA_RESET_EPOCH).toMatch(/2026-05-21/);
+  it("persists user data across reload without epoch wipe", () => {
+    const seeded = persistDefaultBusinessBoot();
+    const firstCount = seeded.projects.length;
+    localStorage.setItem("mahi_solar_app_reset_epoch", "stale-epoch-value");
+    const reloaded = readPersistedAppState({ persistOnBootstrap: true });
+    expect(reloaded.projects.length).toBe(firstCount);
   });
 });

@@ -1,139 +1,156 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { UnifiedProjectWizard } from "./wizard/UnifiedProjectWizard";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import type { Invoice } from "@/types/finance";
+import type { UnifiedProjectWizardState } from "@/types/createProjectWizard";
+import {
+  buildProjectFromUnifiedWizardState,
+  buildIntakeFromUnifiedWizardState,
+  prefillUnifiedWizardFromQuotation,
+} from "@/lib/buildProjectFromUnifiedWizardState";
+import type { ProjectDraftFromCustomer } from "@/lib/createFromContext";
 
 export interface CreateProjectWizardContainerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  prefillQuotationId?: string;
+  prefillCustomerDraft?: ProjectDraftFromCustomer;
+  initialStateOverride?: Partial<UnifiedProjectWizardState>;
 }
 
 export function CreateProjectWizardContainer({
   open,
   onOpenChange,
+  prefillQuotationId,
+  prefillCustomerDraft,
+  initialStateOverride,
 }: CreateProjectWizardContainerProps) {
   const navigate = useNavigate();
+  const appData = useAppData();
   const {
-    addProject,
     addInvoice,
     generateId,
-  } = useAppData();
+    partners,
+    incGiverCompanies,
+    vendorshipCompanies,
+    enquiries,
+    quotations,
+    createProjectFromConfirmedQuotation,
+    createProjectIntake,
+  } = appData;
+
+  const initialPrefill = useMemo((): Partial<UnifiedProjectWizardState> | undefined => {
+    const base: Partial<UnifiedProjectWizardState> = { ...initialStateOverride };
+    if (prefillQuotationId) {
+      const quotation = quotations.find((q) => q.id === prefillQuotationId);
+      if (quotation) Object.assign(base, prefillUnifiedWizardFromQuotation(quotation));
+    }
+    if (prefillCustomerDraft) {
+      base.endCustomer = {
+        name: prefillCustomerDraft.clientName ?? "",
+        phone: prefillCustomerDraft.clientPhone ?? "",
+        address: prefillCustomerDraft.location ?? "",
+        kNumber: prefillCustomerDraft.kNumber ?? "",
+      };
+      base.projectName = prefillCustomerDraft.projectName;
+      base.capacityKw = parseFloat(String(prefillCustomerDraft.capacity ?? "").replace(/[^\d.]/g, "")) || 0;
+    }
+    return Object.keys(base).length > 0 ? base : undefined;
+  }, [initialStateOverride, prefillQuotationId, prefillCustomerDraft, quotations]);
 
   const handleCreate = useCallback(
-    async (payload: any) => {
+    async (state: UnifiedProjectWizardState) => {
       try {
-        const projectId = generateId("PRJ");
-        const dateNow = new Date().toISOString();
-        
-        // Execute the Creation payload mapping
-        const newProject = {
-          id: projectId,
-          ...payload,
-          lifecycleStatus: "New",
-          status: "New",
-          createdAt: dateNow,
-          startDate: dateNow.split("T")[0],
-          amountReceived: 0,
-          amountInvoiced: 0,
-          executionLineItems: [],
-          siteChecklist: [],
+        const ctx = {
+          generateId,
+          partners,
+          incGiverCompanies,
+          vendorshipCompanies,
+          enquiries,
+          quotations,
         };
-        
-        await addProject(newProject);
+        const projectDraft = buildProjectFromUnifiedWizardState(state, ctx);
+        const intake = buildIntakeFromUnifiedWizardState(state, ctx);
 
-        // ==========================================
-        // PHASE 4: AUTOMATED GENESIS DRAFTS
-        // ==========================================
-        
-        // 1. Client Draft Invoice
-        // Axiom 1: If MSS owns vendorship, we MUST bill the client.
-        if (payload.vendorshipOwner === "MSS") {
+        const result =
+          state.soloPipeline === "quotation" && projectDraft.quotationId
+            ? await createProjectFromConfirmedQuotation(projectDraft)
+            : await createProjectIntake({
+                project: projectDraft,
+                intake,
+                quotationId: projectDraft.quotationId,
+              });
+
+        if (!result.ok) {
+          throw new Error(result.error ?? "Could not create project");
+        }
+
+        const projectId = result.projectId ?? projectDraft.id;
+
+        if (state.vendorshipOwner === "MSS") {
           const clientInvoice: Invoice = {
             id: generateId("INV"),
             invoiceNumber: `DRAFT-${projectId}-C`,
             type: "invoice",
             documentTypeSource: "user",
-            customerId: payload.client, // Simplification for prototype (should be customerId)
-            customerName: payload.client,
-            customerContact: payload.clientPhone,
-            projectId: projectId,
-            projectName: payload.name,
-            items: [{
-              description: `Solar EPC Execution - ${payload.capacity}`,
-              hsn: "8541",
-              quantity: 1,
-              rate: payload.contractAmount,
-              gstRate: 0,
-            }],
+            customerId: projectDraft.customerId ?? projectDraft.client,
+            customerName: projectDraft.client,
+            customerContact: state.endCustomer.phone,
+            projectId,
+            projectName: projectDraft.name,
+            items: [
+              {
+                description: `Solar EPC — ${projectDraft.capacity}`,
+                hsn: "8541",
+                quantity: 1,
+                rate: projectDraft.contractAmount,
+                gstRate: 0,
+              },
+            ],
             services: [],
-            subtotal: payload.contractAmount,
+            subtotal: projectDraft.contractAmount,
             cgst: 0,
             sgst: 0,
             igst: 0,
-            total: payload.contractAmount,
+            total: projectDraft.contractAmount,
             status: "draft",
-            invoiceDate: dateNow.split("T")[0],
-            dueDate: dateNow.split("T")[0],
-            createdAt: dateNow,
+            invoiceDate: new Date().toISOString().split("T")[0],
+            dueDate: new Date().toISOString().split("T")[0],
+            createdAt: new Date().toISOString(),
           };
           addInvoice(clientInvoice);
         }
 
-        // 2. B2B Receivable Draft (Partner / Third Party)
-        // Axiom 2: If Partner/Third Party owns code, MSS bills them for the Backend Rate.
-        if (payload.dealOrigin === "PARTNER" && payload.vendorshipOwner !== "MSS") {
-          const backendTotal = (payload.mssBackendFixedRate || 0) * (parseFloat(payload.capacity) || 0);
-          
-          if (backendTotal > 0) {
-            const b2bInvoice: Invoice = {
-              id: generateId("INV"),
-              invoiceNumber: `DRAFT-${projectId}-B2B`,
-              type: "invoice",
-              documentTypeSource: "user",
-              customerId: payload.counterpartyId || "UNKNOWN_PARTNER",
-              customerName: "B2B Counterparty",
-              projectId: projectId,
-              projectName: payload.name,
-              items: [],
-              services: [{
-                description: `B2B Backend Execution Fee - ${payload.capacity}`,
-                sac: "9983",
-                rate: backendTotal,
-                gstRate: payload.partnerProvidesGst === false ? 0 : 18,
-              }],
-              subtotal: backendTotal,
-              cgst: 0,
-              sgst: 0,
-              igst: 0,
-              total: backendTotal, // Simplified GST math for prototype draft
-              status: "draft",
-              invoiceDate: dateNow.split("T")[0],
-              dueDate: dateNow.split("T")[0],
-              createdAt: dateNow,
-            };
-            addInvoice(b2bInvoice);
-          }
-        }
-        
         toast({
           title: "Project created",
-          description: "Genesis drafts generated successfully.",
+          description: "Project saved with genesis billing drafts where applicable.",
         });
 
         navigate(`/projects/${projectId}`);
-      } catch (err: any) {
-         toast({
-            title: "Could not create project",
-            description: friendlyCommandErrorMessage(err, "Creation failed"),
-            variant: "destructive",
-          });
-          throw err; 
+      } catch (err: unknown) {
+        toast({
+          title: "Could not create project",
+          description: friendlyCommandErrorMessage(err, "Creation failed"),
+          variant: "destructive",
+        });
+        throw err;
       }
     },
-    [addProject, addInvoice, generateId, navigate]
+    [
+      addInvoice,
+      generateId,
+      partners,
+      incGiverCompanies,
+      vendorshipCompanies,
+      enquiries,
+      quotations,
+      createProjectFromConfirmedQuotation,
+      createProjectIntake,
+      navigate,
+    ],
   );
 
   return (
@@ -141,6 +158,7 @@ export function CreateProjectWizardContainer({
       open={open}
       onOpenChange={onOpenChange}
       onComplete={handleCreate}
+      initialPrefill={initialPrefill}
     />
   );
 }

@@ -30,7 +30,7 @@ export interface ProjectCapabilityInput {
  * new combination needed a new kind. The resolver is rule-based, so new combinations are free.
  */
 export function resolveProjectCapabilities(input: ProjectCapabilityInput): ProjectCapabilities {
-  const visibleTabs: string[] = ["overview", "commercial", "parties", "billing", "collections", "tasks", "audit"];
+  let visibleTabs: string[] = ["overview", "commercial", "parties", "billing", "collections", "tasks", "audit"];
   const requiredDocuments: string[] = [];
   const forbiddenActions: string[] = [];
   const allowedBillingDirections: BillingDirection[] = ["company_to_customer"];
@@ -55,8 +55,19 @@ export function resolveProjectCapabilities(input: ProjectCapabilityInput): Proje
   if (input.projectMode === "INC_GIVEN_TO_US") {
     forbiddenActions.push("material_dispatch", "partner_settlement");
     requiredDocuments.push("work_completion", "handover");
-  } else if (input.executionScope === "full") {
+    // INC giver pays MSS via collections — no customer-facing billing/commercial tabs.
+    visibleTabs = visibleTabs.filter((t) => t !== "billing" && t !== "commercial");
+  } else if (input.executionScope === "full" && !input.outsource) {
     visibleTabs.push("materials_sent");
+  }
+
+  if (input.partnerRole === "vendorship_only") {
+    visibleTabs = visibleTabs.filter((t) => t !== "commercial" && t !== "materials_sent");
+  }
+
+  if (input.outsource) {
+    forbiddenActions.push("material_dispatch");
+    visibleTabs = visibleTabs.filter((t) => t !== "materials_sent");
   }
 
   if (input.projectMode === "PARTNER_NETWORK") {

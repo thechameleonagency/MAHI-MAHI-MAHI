@@ -31,7 +31,7 @@ import {
   PROJECT_KIND_UI_TONES,
   projectMatchesKindFilter,
 } from "@/lib/projectTaxonomyDisplay";
-import type { CreateProjectWizardState } from "@/types/createProjectWizard";
+import type { UnifiedProjectWizardState } from "@/types/createProjectWizard";
 import {
   buildCustomerToProjectDraft,
   loadCreateDraft,
@@ -95,7 +95,7 @@ const Projects = () => {
   const [prefillQuotationId, setPrefillQuotationId] = useState<string | undefined>();
   const [prefillCustomerDraft, setPrefillCustomerDraft] = useState<ProjectDraftFromCustomer | undefined>();
   const [createWizardOverride, setCreateWizardOverride] = useState<
-    Partial<CreateProjectWizardState> | undefined
+    Partial<UnifiedProjectWizardState> | undefined
   >();
   const _eligibleQuotations = useMemo(() => getProjectEligibleQuotations(), [getProjectEligibleQuotations, projects]);
   
@@ -310,7 +310,7 @@ const Projects = () => {
     return map;
   }, [scopedProjects, payments, expenses]);
 
-  const openCreateProjectWizard = (override?: Partial<CreateProjectWizardState>) => {
+  const openCreateProjectWizard = (override?: Partial<UnifiedProjectWizardState>) => {
     setCreateWizardOverride(override);
     setIsCreateProjectOpen(true);
   };
