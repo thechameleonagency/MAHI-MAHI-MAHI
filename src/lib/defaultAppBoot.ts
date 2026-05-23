@@ -1,7 +1,6 @@
 import type { AppState } from "@/contexts/AppDataContext";
 import { buildEmptyAppState } from "@/data/appSeedBuilder";
-import { buildBusinessSeed, type SeedProfile } from "@/data/seed";
-import { persistMastersData } from "@/data/seed/seedMastersSync";
+import { persistMastersData } from "@/data/mastersSync";
 import { bootstrapSessionAfterSeed } from "@/lib/seedSessionBootstrap";
 import { clearAllAppStorage } from "@/lib/clearAppStorage";
 import { persistFreshAppStateSeed } from "@/lib/appDataStorage";
@@ -39,26 +38,25 @@ export function isEmptyWorkspaceState(state: AppState): boolean {
   );
 }
 
-/** Build full business seed in memory (hydrated). */
-export function materializeDefaultBusinessBoot(profile: SeedProfile = "full"): AppState {
-  const { state } = buildBusinessSeed(profile);
-  return state;
+/** Build empty state in memory. (No longer building business seed) */
+export function materializeDefaultBusinessBoot(): AppState {
+  return buildEmptyAppState();
 }
 
 /**
- * Default opening state: full business seed + masters + super_admin session.
+ * Default opening state: empty business seed + masters + super_admin session.
  * Used on first visit, localStorage clear, and legacy empty upgrades.
  */
-export function persistDefaultBusinessBoot(profile: SeedProfile = "full"): AppState {
+export function persistDefaultBusinessBoot(): AppState {
   clearAllAppStorage();
-  const state = materializeDefaultBusinessBoot(profile);
+  const state = materializeDefaultBusinessBoot();
   setWorkspaceMode("business");
   persistFreshAppStateSeed(state);
   persistMastersData();
   bootstrapSessionAfterSeed(state);
   if (import.meta.env.DEV) {
     console.info(
-      `[MSS] Default boot — business seed (${state.projects.length} projects, ${state.customers.length} customers).`,
+      `[MSS] Default boot — clean seed booted.`,
     );
   }
   return state;

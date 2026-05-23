@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Building2, History } from "lucide-react";
+﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft, AlertTriangle, Briefcase, Calendar, Camera, CheckCircle2, ClipboardList, Edit,
@@ -237,6 +238,33 @@ const ProjectDetail = () => {
   const canDeleteClientPayment = useCanAction("finance:delete_payment");
 
   const project = id ? getProjectById(id) : undefined;
+
+  const formatCurrency = (val: number) => `₹ ${(val || 0).toLocaleString()}`;
+
+  const getDealOriginBadge = () => {
+    const origin = project?.dealOrigin;
+    switch(origin) {
+      case "DIRECT": return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200">Direct Client (Solo EPC)</Badge>;
+      case "PARTNER": return <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-200">Partner Network</Badge>;
+      case "INC_TAKEN": return <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-200">INC Taken</Badge>;
+      case "OUTSOURCED_INC": return <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200">Outsourced INC</Badge>;
+      case "VENDORSHIP_ONLY": return <Badge className="bg-slate-100 text-slate-800 hover:bg-slate-200">Vendorship Only</Badge>;
+      default: return <Badge variant="outline">Legacy Format</Badge>;
+    }
+  };
+
+  const getBillerText = () => {
+    switch (project?.vendorshipOwner) {
+      case "MSS": return "MSS (Direct)";
+      case "PARTNER": return "Partner";
+      case "THIRD_PARTY": return "Third Party Code";
+      default: return "Unknown";
+    }
+  };
+
+  const showDocumentVault = project?.vendorshipOwner === "MSS" || project?.dealOrigin === "VENDORSHIP_ONLY";
+
+  
   const projectAccessDenied = useMemo(() => {
     if (!project) return false;
     return !isProjectVisibleToActor(
@@ -397,6 +425,7 @@ const ProjectDetail = () => {
     }));
 
   // Modal states
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isSiteVisitOpen, setIsSiteVisitOpen] = useState(false);
   const [isChangeRequestOpen, setIsChangeRequestOpen] = useState(false);
@@ -749,6 +778,7 @@ const ProjectDetail = () => {
     );
   }
 
+  
   const kind = canonicalProjectKind(project);
   const projectMode = canonicalProjectMode(project);
   const partnerRow = resolveProjectPartnerRow(project);
@@ -758,15 +788,15 @@ const ProjectDetail = () => {
   const billed = projectInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
   const collected = projectPayments.filter((payment) => payment.direction === "in").reduce((sum, payment) => sum + payment.amount, 0);
   // BL-1: actualCost is derived from linked expenses when project.totalCost is not stored.
-  // Profit must use the same derived cost — otherwise profit collapses to contractAmount
+  // Profit must use the same derived cost ÔÇö otherwise profit collapses to contractAmount
   // when totalCost is 0/undefined (the historical "Profit == Contract" bug).
   const actualCost = project.totalCost && project.totalCost > 0
     ? project.totalCost
     : projectExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   // BL-5: Three distinct profit lenses (see audit report Round 3 BL-5).
-  // - expectedProfit:  contract − cost (what we'll earn if the deal completes as priced)
-  // - accrualProfit:   billed   − cost (what's already earned in books)
-  // - realizedProfit:  collected − cost (what's earned in cash)
+  // - expectedProfit:  contract ÔêÆ cost (what we'll earn if the deal completes as priced)
+  // - accrualProfit:   billed   ÔêÆ cost (what's already earned in books)
+  // - realizedProfit:  collected ÔêÆ cost (what's earned in cash)
   const projectProfit = (project.contractAmount || 0) - actualCost;
   const accrualProfit = billed - actualCost;
   const realizedProfit = collected - actualCost;
@@ -794,295 +824,13 @@ const ProjectDetail = () => {
   const contractDisplay = project?.contractAmount || 0;
   const _pendingDisplay = Math.max(0, contractDisplay - collected);
 
+ 
   return (
-    <PageShell className="space-y-4 md:space-y-6">
+    <PageShell className="space-y-6 pb-20">
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Projects", to: "/projects" }, { label: project.name }]}
-        title={
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xl md:text-2xl font-semibold">{project.name}</span>
-            <Badge
-              variant="outline"
-              className={PROJECT_KIND_UI_TONES[kind]}
-              title={`${projectModeUiLabel(projectMode)} · ${PROJECT_KIND_UI_LABELS[kind]}`}
-            >
-              {PROJECT_KIND_UI_LABELS[kind]}
-            </Badge>
-            <Badge variant="secondary" className="h-5 text-2xs uppercase tracking-wider">{project.status}</Badge>
-            {project.progressStage && <Badge variant="outline" className="h-5 text-2xs uppercase">{project.progressStage}</Badge>}
-          </div>
-        }
-        subRow={
-          <div className="flex flex-col gap-4 w-full">
-            <div className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
-              <span className="flex min-w-0 flex-col gap-0.5 sm:col-span-2 lg:col-span-1">
-                <span className="flex min-w-0 items-center gap-1.5 truncate">
-                  <User className="w-3.5 h-3.5 shrink-0" />
-                  Client:{" "}
-                  <span className="text-foreground font-medium truncate">
-                    {projectClientDisplay?.name ?? project.client}
-                  </span>
-                  {projectClientDisplay?.customerId && (
-                    <Link
-                      to={`/customers/${projectClientDisplay.customerId}`}
-                      className="shrink-0 text-2xs text-primary hover:underline"
-                    >
-                      {projectClientDisplay.customerId}
-                    </Link>
-                  )}
-                </span>
-                <CustomerSnapshotDriftHint
-                  visible={Boolean(projectClientDisplay?.snapshotDiffersFromCustomer)}
-                  snapshotClient={projectClientDisplay?.snapshot.client ?? project.client}
-                  className="pl-5"
-                />
-              </span>
-              <span className="flex min-w-0 items-center gap-1.5 truncate"><MapPin className="w-3.5 h-3.5 shrink-0" />{project.location}</span>
-              <span className="flex min-w-0 items-center gap-1.5 truncate"><Zap className="w-3.5 h-3.5 shrink-0" />{project.capacity}</span>
-              <span className="flex min-w-0 items-center gap-1.5 truncate"><Calendar className="w-3.5 h-3.5 shrink-0" />Started: <span className="text-foreground font-medium">{project.startDate}</span></span>
-              {project.executionPhase && (
-                <Badge variant="outline" className="h-5 w-fit text-2xs">Phase: {project.executionPhase}</Badge>
-              )}
-              {(partnerRow || linkedPartner) && (
-                <Badge variant="secondary" className="h-5 w-fit bg-primary/5 text-primary border-primary/10 text-2xs">
-                  <Handshake className="w-3 h-3 mr-1" />{partnerRow?.partnerName ?? linkedPartner?.name}
-                </Badge>
-              )}
-              {project.quotationId && quotation && (
-                <Badge variant="outline" className="h-5 w-fit text-2xs">
-                  <FileText className="w-3 h-3 mr-1" />
-                  <Link to="/quotations" state={{ focusQuotationId: project.quotationId }} className="hover:underline">
-                    Quotation: {quotation.quotationNumber}
-                  </Link>
-                </Badge>
-              )}
-              {(() => {
-                const accruals = getAccrualsByProject(project.id);
-                if (accruals.length === 0) return null;
-                const totalExpected = accruals.reduce((s, a) => s + (a.expectedAmount ?? 0), 0);
-                const paid = accruals.filter((a) => a.status === "paid").length;
-                const payable = accruals.filter((a) => a.status === "payable").length;
-                const pending = accruals.filter((a) => a.status === "pending").length;
-                return (
-                  <Badge variant="outline" className="h-5 w-fit text-2xs">
-                    Commission {formatINR(totalExpected)} · {pending}p / {payable}a / {paid}✓
-                  </Badge>
-                );
-              })()}
-            </div>
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <InlineKpiStrip
-                className="w-full min-w-0 flex-wrap justify-start"
-                items={[
-                  { label: "Contract", value: formatINR(project.contractAmount) },
-                  { label: "Actual cost", value: formatINR(actualCost) },
-                  { label: "Profit", value: formatINR(projectProfit) },
-                  { label: "Collected", value: formatINR(collected) },
-                  { label: "Outstanding", value: formatINR(Math.max(0, (project.contractAmount || 0) - collected)) },
-                  // BL-7: completion % derived from timeline milestones (file login, subsidy,
-                  // bank file, work status, DISCOM, payment). Shows "—" if no timeline yet.
-                  { label: "Completion", value: projectTimeline ? `${getTimelineCompletionPercent(projectTimeline)}%` : "—" },
-                ]}
-              />
-              {hasFinancialDetail && canViewCommercial && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => setShowFinancialDetail((v) => !v)}
-                >
-                  {showFinancialDetail ? "Hide financial detail" : "Show financial detail"}
-                </Button>
-              )}
-            </div>
-            {hasFinancialDetail && canViewCommercial && showFinancialDetail && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground border-t pt-3">
-                {project.bankDocumentationAmount != null && (<div><span className="block text-2xs uppercase">Bank Doc Amount</span><span className="text-foreground font-medium">{formatINR(project.bankDocumentationAmount)}</span></div>)}
-                {project.totalPartnerInvestment != null && (<div><span className="block text-2xs uppercase">Partner Investment</span><span className="text-foreground font-medium">{formatINR(project.totalPartnerInvestment)}</span></div>)}
-                {project.mssBackendAmount != null && (<div><span className="block text-2xs uppercase">MSS Backend</span><span className="text-foreground font-medium">{formatINR(project.mssBackendAmount)}</span></div>)}
-                {project.externalVendorshipEntity && (<div><span className="block text-2xs uppercase">External Vendorship</span><span className="text-foreground font-medium">{project.externalVendorshipEntity}</span></div>)}
-                {project.loanReceiptHandling && (<div><span className="block text-2xs uppercase">Loan Receipt</span><span className="text-foreground font-medium">{project.loanReceiptHandling}</span></div>)}
-                {project.cashHandling && (<div><span className="block text-2xs uppercase">Cash Handling</span><span className="text-foreground font-medium">{project.cashHandling}</span></div>)}
-                {project.incScope && (<div><span className="block text-2xs uppercase">INC Scope</span><span className="text-foreground font-medium">{project.incScope}</span></div>)}
-                {project.vendorNetworkCommissionType && (<div><span className="block text-2xs uppercase">Network Commission</span><span className="text-foreground font-medium">{project.vendorNetworkCommissionType}{project.vendorNetworkFeePerKw ? ` (₹${project.vendorNetworkFeePerKw}/kW)` : project.vendorNetworkFlatFee ? ` (${formatINR(project.vendorNetworkFlatFee)})` : ""}</span></div>)}
-                {project.commercialBaseline?.capturedAt && (<div><span className="block text-2xs uppercase">Baseline Locked</span><span className="text-foreground font-medium">{new Date(project.commercialBaseline.capturedAt).toLocaleDateString()}</span></div>)}
-              </div>
-            )}
-          </div>
-        }
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Phase 2.5: Schedule / Site readiness / Start project pills. */}
-          <ProjectStartActions project={project} />
-          {/* Primary CTA — state-derived. Filled style so it stands out from secondary outline buttons. */}
-          {project?.archivedAt ? (
-            !ceoReadOnly ? (
-            <Button
-              size="sm"
-              className="h-8"
-              onClick={() => {
-                if (!project) return;
-                updateProject(project.id, { archivedAt: null, archivedReason: undefined });
-                setLastConfirm({ variant: "success", title: "Project restored", description: project.name });
-              }}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />Unarchive
-            </Button>
-            ) : null
-          ) : isProjectCompleted ? (
-            <Button size="sm" className="h-8" onClick={() => navigate("/audit/audit-logs")}>
-              <FileText className="w-3.5 h-3.5 mr-1.5" />Open audit
-            </Button>
-          ) : canWriteInvoice ? (
-            <Button size="sm" className="h-8" onClick={handleOpenNewInvoiceForProject}>
-              <FileText className="w-3.5 h-3.5 mr-1.5" />Invoice
-            </Button>
-          ) : null}
-          {!ceoReadOnly && (
-          <Button variant="outline" size="sm" className="h-8" onClick={() => setIsSiteVisitOpen(true)}>
-            <ClipboardList className="w-3.5 h-3.5 mr-1.5" />Site visit
-          </Button>
-          )}
-          {canWriteExecution && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              disabled={isProjectCompleted || forbidWorkTracking}
-              title={
-                forbidWorkTracking
-                  ? "Work tracking is not used for this project kind."
-                  : isProjectCompleted
-                    ? "Reactivate the project to assign tasks."
-                    : undefined
-              }
-              onClick={() => setTaskAssignmentOpen(true)}
-            >
-              <ClipboardList className="w-3.5 h-3.5 mr-1.5" />
-              Assign task
-            </Button>
-          )}
-          {canWriteExpense && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-destructive border-destructive/30"
-              disabled={isProjectCompleted}
-              title={isProjectCompleted ? "Reactivate the project to record expenses." : undefined}
-              onClick={handleOpenExpenseForProject}
-            >
-              <Plus className="w-3.5 h-3.5 mr-1.5" />Expense
-            </Button>
-          )}
-          {!isProjectCompleted && canWriteProjectComplete && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-success border-success/30"
-              disabled={Boolean(completionBlockReason)}
-              title={completionBlockReason ?? undefined}
-              onClick={handleMarkProjectCompleted}
-            >
-              <CheckSquare className="w-3.5 h-3.5 mr-1.5" />Complete
-            </Button>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem
-                onClick={() => { if (isProjectCompleted || forbidWorkTracking) return; setIsAddOutsourceOpen(true); }}
-                disabled={isProjectCompleted || forbidWorkTracking}
-              >
-                <Users className="w-4 h-4 mr-2" /> Outsource Work
-              </DropdownMenuItem>
-              {!ceoReadOnly && (
-              <DropdownMenuItem onClick={() => { if (isProjectCompleted) return; openEditProjectModal(); }} disabled={isProjectCompleted}>
-                <Edit className="w-4 h-4 mr-2" /> Edit Details
-              </DropdownMenuItem>
-              )}
-              {lifecycleTransitions.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  {lifecycleTransitions.map((to) => (
-                    <DropdownMenuItem
-                      key={to}
-                      disabled={
-                        to === "Completed" &&
-                        (Boolean(completionBlockReason) || !canMarkProjectComplete)
-                      }
-                      title={
-                        to === "Completed"
-                          ? (completionBlockReason ??
-                            (!canMarkProjectComplete ? "Your role cannot mark projects complete." : undefined))
-                          : undefined
-                      }
-                      onClick={() => {
-                        if (!project) return;
-                        if (to === "Completed") {
-                          if (!canMarkProjectComplete) {
-                            toast({
-                              title: "Cannot mark complete",
-                              description: "Your role cannot mark projects complete.",
-                              variant: "destructive",
-                            });
-                            return;
-                          }
-                          const reason = completionBlockReason;
-                          if (reason) {
-                            toast({ title: "Cannot move to Completed", description: reason, variant: "destructive" });
-                            return;
-                          }
-                        }
-                        updateProject(project.id, {
-                          lifecycleStatus: to,
-                          status: legacyStatusFromLifecycle(to),
-                          ...(to === "Completed" || to === "Closed"
-                            ? { endDate: new Date().toISOString().slice(0, 10) }
-                            : {}),
-                        });
-                      }}
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-2" /> Move to {to}
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-              <DropdownMenuSeparator />
-              {project?.archivedAt ? (
-                <DropdownMenuItem
-                  onClick={() => {
-                    if (!project) return;
-                    updateProject(project.id, { archivedAt: null, archivedReason: undefined });
-                    setLastConfirm({ variant: "success", title: "Project restored", description: project.name });
-                  }}
-                >
-                  <CheckCircle2 className="w-4 h-4 mr-2" /> Unarchive project
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem
-                  onClick={() => {
-                    if (!project) return;
-                    setArchiveProjectReason("");
-                    setIsArchiveProjectOpen(true);
-                  }}
-                >
-                  <Edit className="w-4 h-4 mr-2" /> Archive project
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                className="flex items-center"
-                onClick={() => navigate(-1)}
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" /> Back
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </StickyPageHeader>
+        title={<span className="text-xl md:text-2xl font-semibold">{project.name}</span>}
+      />
 
       {lastConfirm && (
         <InlineConfirmBanner
@@ -1111,7 +859,7 @@ const ProjectDetail = () => {
           description={
             <span>
               Archived on {new Date(project.archivedAt).toLocaleDateString()}
-              {project.archivedReason ? <> · Reason: {project.archivedReason}</> : null}. Read-only — restore to make changes.
+              {project.archivedReason ? <> ┬À Reason: {project.archivedReason}</> : null}. Read-only ÔÇö restore to make changes.
             </span>
           }
           primaryActionLabel="Unarchive"
@@ -1126,24 +874,157 @@ const ProjectDetail = () => {
         <LifecycleTerminalBanner
           variant="completed"
           title="Project completed"
-          description="All work signed off. Audit-only access — re-open from Project menu if rework is needed."
+          description="All work signed off. Audit-only access ÔÇö re-open from Project menu if rework is needed."
           primaryActionLabel="Open audit"
           onPrimaryAction={() => navigate("/audit/audit-logs")}
         />
       )}
 
-      <Tabs defaultValue={tabDefs[0]?.value ?? "progress-report"} className="space-y-4">
-        <TabsList className="flex h-auto flex-wrap justify-start">
-          {tabDefs.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        
+        {/* Main Identity Card (Takes up 2 cols on md screens) */}
+        <Card className="md:col-span-2 bg-gradient-to-br from-slate-50 to-white shadow-sm border-slate-200">
+          <CardContent className="p-6 flex flex-col justify-between h-full">
+            <div>
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+                  <p className="text-muted-foreground mt-1 flex items-center gap-1">
+                    <Building2 className="h-4 w-4" />
+                    {project.client}
+                  </p>
+                </div>
+                {getDealOriginBadge()}
+              </div>
+              <div className="flex gap-4 mt-4 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1"><Zap className="h-4 w-4"/> {project.capacity}</span>
+                <span className="flex items-center gap-1"><MapPin className="h-4 w-4"/> {project.location || "No Location"}</span>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-between border-t pt-4">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Status</p>
+                <Badge variant={project.lifecycleStatus === "Completed" ? "default" : "secondary"}>
+                  {project.lifecycleStatus}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-right">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Customer Biller</p>
+                <p className="font-semibold text-sm">{getBillerText()}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* â•â•â• Progress Report â•â•â• */}
-        <TabsContent value="progress-report" className="space-y-4">
-          <ProgressReportTab
+        {/* Financial KPI */}
+        <Card className="shadow-sm">
+          <CardContent className="p-6 flex flex-col justify-center h-full">
+            <div className="flex items-center gap-2 mb-2 text-muted-foreground">
+              <IndianRupee className="h-5 w-5" />
+              <span className="font-medium text-sm">Contract Value</span>
+            </div>
+            <p className="text-3xl font-bold text-slate-900">{formatCurrency(project.contractAmount)}</p>
+            <div className="mt-4 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Collected</span>
+                <span className="font-medium text-emerald-600">{formatCurrency(project.amountReceived || 0)}</span>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-1.5">
+                <div 
+                  className="bg-emerald-500 h-1.5 rounded-full" 
+                  style={{ width: `${Math.min(100, ((project.amountReceived || 0) / (project.contractAmount || 1)) * 100)}%` }}
+                ></div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Audit / History Overview Card */}
+        
+        {/* Project Actions Panel */}
+        <Card className="shadow-sm border-slate-200 bg-slate-50">
+          <CardHeader className="pb-2 pt-4 px-4"><CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Quick Actions</CardTitle></CardHeader>
+          <CardContent className="px-4 pb-4">
+            {project?.archivedAt ? (
+            !ceoReadOnly && (
+              <Button size="sm" className="w-full" onClick={() => {
+                updateProject(project.id, { archivedAt: null, archivedReason: undefined });
+                setLastConfirm({ variant: "success", title: "Project restored", description: project.name });
+              }}>
+                <CheckCircle2 className="w-4 h-4 mr-2" /> Unarchive
+              </Button>
+            )
+          ) : isProjectCompleted ? (
+            <div className="flex flex-col gap-2 w-full">
+              <Button size="sm" variant="outline" className="w-full" onClick={() => navigate("/audit/audit-logs")}>
+                <FileText className="w-4 h-4 mr-2" /> Open Audit
+              </Button>
+              {canWriteInvoice && (
+                <Button size="sm" className="w-full" onClick={handleOpenNewInvoiceForProject}>
+                  <FileText className="w-4 h-4 mr-2" /> Invoice
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 w-full">
+              {canWriteProjectComplete && (
+                <Button 
+                  size="sm" 
+                  className="col-span-2 bg-success text-success-foreground hover:bg-success/90" 
+                  disabled={Boolean(completionBlockReason)}
+                  title={completionBlockReason ?? undefined}
+                  onClick={handleMarkProjectCompleted}
+                >
+                  <CheckSquare className="w-4 h-4 mr-2" /> Complete Project
+                </Button>
+              )}
+              {canWriteExecution && !forbidWorkTracking && (
+                <Button size="sm" variant="outline" onClick={() => setTaskAssignmentOpen(true)}>
+                  <ClipboardList className="w-4 h-4 mr-2" /> Task
+                </Button>
+              )}
+              {canWriteExpense && (
+                <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={handleOpenExpenseForProject}>
+                  <Plus className="w-4 h-4 mr-2" /> Expense
+                </Button>
+              )}
+              {!ceoReadOnly && (
+                <Button size="sm" variant="outline" onClick={() => setIsSiteVisitOpen(true)}>
+                  <MapPin className="w-4 h-4 mr-2" /> Site Visit
+                </Button>
+              )}
+              {!ceoReadOnly && (
+                <Button size="sm" variant="outline" onClick={() => openEditProjectModal()}>
+                  <Edit className="w-4 h-4 mr-2" /> Edit
+                </Button>
+              )}
+              {!forbidWorkTracking && (
+                <Button size="sm" variant="outline" onClick={() => setIsAddOutsourceOpen(true)}>
+                  <Users className="w-4 h-4 mr-2" /> Outsource
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" className="col-span-2 text-muted-foreground hover:text-foreground" onClick={() => {
+                setArchiveProjectReason("");
+                setIsArchiveProjectOpen(true);
+              }}>
+                Archive Project
+              </Button>
+            </div>
+          )}
+          </CardContent>
+        </Card>
+
+
+      </div>
+
+      {/* CONTINUOUS SECTIONS */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
+        {/* MAIN COLUMN */}
+        <div className="xl:col-span-2 space-y-8">
+          {tabDefs.some(t => t.value === "progress-report") && (
+            <section id="progress-report" className="scroll-mt-24 space-y-4">
+              <h2 className="text-lg font-semibold tracking-tight">Progress & Timeline</h2>
+              <ProgressReportTab
             projectId={project.id}
             projectName={project.name}
             projectStatus={project.lifecycleStatus ?? project.status}
@@ -1191,1007 +1072,13 @@ const ProjectDetail = () => {
             outsource={project.outsource ?? null}
             projectMode={project.projectMode}
           />
-        </TabsContent>
-
-        {/* Quotations tab removed — the linked quotation now surfaces as a chip in the header. */}
-
-        <TabsContent value="team-roster" className="space-y-4">
-          <TeamRosterTab project={project} />
-        </TabsContent>
-
-        {/* â•â•â• Document Creator â•â•â• */}
-        <TabsContent value="document-creator" className="space-y-4">
-          <ProjectDocumentsStudio
-            project={project}
-            quotation={quotation}
-            updateProject={updateProject}
-            generateId={generateId}
-          />
-        </TabsContent>
-
-        {/* â•â•â• Materials Sent â•â•â• */}
-        <TabsContent value="materials-sent" className="space-y-4">
-          {forbidMaterialDispatch ? (
-            <Card><CardContent className="py-8 text-sm text-muted-foreground">Material dispatch is disabled for this project kind.</CardContent></Card>
-          ) : (
-          <MaterialsSentTab
-            projectName={project.name}
-            projectId={project.id}
-            materials={getProjectMaterialsForTab()}
-            presetItems={getPresetItems().map(p => ({ id: p.id, name: p.itemName, quantity: p.quantity, unit: p.unit }))}
-            inventoryItems={inventoryItems}
-            siteChecklist={project.siteChecklist ?? []}
-            isSuperAdmin={canDo("project:update_commercial")}
-            onUpdateSiteChecklist={(next) => { updateProject(project.id, { siteChecklist: next } as Partial<typeof project>); }}
-            executionLineItems={project.executionLineItems ?? []}
-            onIssueMaterials={async (items, _exp, _task, meta) => {
-              const gid =
-                meta?.movementGroupId ??
-                (typeof crypto !== "undefined" && "randomUUID" in crypto
-                  ? crypto.randomUUID()
-                  : `mvg-${Date.now()}`);
-              for (const item of items) {
-                await recordProjectMaterialMovement({
-                  projectId: project.id,
-                  itemId: item.id,
-                  movementType: "IssueToSite",
-                  quantity: item.quantity,
-                  clientRequestId: `${gid}:issue:${item.id}:${item.quantity}`,
-                });
-              }
-            }}
-            onReturnMaterial={async (itemId, qty, movMeta) => {
-              await recordProjectMaterialMovement({
-                projectId: project.id,
-                itemId,
-                movementType: "ReturnToWarehouse",
-                quantity: qty,
-                clientRequestId: movMeta?.clientRequestId,
-              });
-              return { ok: true };
-            }}
-            onScrapMaterial={async (itemId, qty, movMeta) => {
-              await recordProjectMaterialMovement({
-                projectId: project.id,
-                itemId,
-                movementType: "ScrapSite",
-                quantity: qty,
-                clientRequestId: movMeta?.clientRequestId,
-              });
-              return { ok: true };
-            }}
-            onConsumeMaterial={async (itemId, qty, movMeta) => {
-              await recordProjectMaterialMovement({
-                projectId: project.id,
-                itemId,
-                movementType: "ConsumptionAtSite",
-                quantity: qty,
-                clientRequestId: movMeta?.clientRequestId,
-              });
-              return { ok: true };
-            }}
-          />
-          )}
-          {!forbidMaterialDispatch && (
-            <TabCard title="Material reservations" icon={<Package className="h-4 w-4 text-primary" />}>
-              {projectReservations.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No active reservations. Checklist lines auto-reserve stock when added to the site checklist.
-                </p>
-              ) : (
-                <DataTableShell variant="inline">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Material</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead>Source</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {projectReservations.map((res) => {
-                      const inv = globalInvItems.find((i) => i.id === res.itemId);
-                      const label = inv?.size ? `${inv.name} (${inv.size})` : inv?.name ?? `Item #${res.itemId}`;
-                      return (
-                        <TableRow key={res.id}>
-                          <TableCell className="font-medium">{label}</TableCell>
-                          <TableCell className="text-right tabular-nums">{res.qty}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="text-2xs capitalize">
-                              {res.source.replace(/-/g, " ")}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </DataTableShell>
-              )}
-              <p className="mt-2 text-xs text-muted-foreground">
-                Reservations reduce effective stock for other projects in Need-to-get and procurement views.
-              </p>
-            </TabCard>
-          )}
-          {projectMaterialDamage.length > 0 && (
-            <TabCard title="Material damage log" icon={<AlertTriangle className="h-4 w-4 text-destructive" />}>
-              <DataTableShell variant="inline">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead>Stage</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Impact</TableHead>
-                    <TableHead>Reason</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {projectMaterialDamage.map((dmg) => {
-                    const inv = globalInvItems.find((i) => i.id === dmg.itemId);
-                    return (
-                      <TableRow key={dmg.id}>
-                        <TableCell>{inv?.name ?? `Item #${dmg.itemId}`}</TableCell>
-                        <TableCell className="capitalize">{dmg.stage}</TableCell>
-                        <TableCell className="text-right">{dmg.qty}</TableCell>
-                        <TableCell className="text-right">
-                          {dmg.costImpact != null ? formatINR(dmg.costImpact) : "—"}
-                        </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-muted-foreground text-sm" title={dmg.notes}>
-                          {dmg.notes?.trim() || "—"}
-                          {(dmg.photoUrls?.length ?? 0) > 0 && (
-                            <span className="block text-2xs text-muted-foreground/80">
-                              {dmg.photoUrls!.length} photo URL(s)
-                            </span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </DataTableShell>
-            </TabCard>
-          )}
-        </TabsContent>
-
-        <TabsContent value="vendorship" className="space-y-4">
-          <TabCard title="Partner Economics" icon={<Users className="h-4 w-4 text-accent-foreground" />}>
-            {(forbidPartnerSettlement || forbidChannelFee) && (
-              <div className="mb-4 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
-                {forbidPartnerSettlement && (
-                  <p>This project kind does not model partner settlement in MSS; record partner payouts only on projects where settlement applies.</p>
-                )}
-                {forbidChannelFee && (
-                  <p>Channel / billing-fee offsets are not tracked for this project kind.</p>
-                )}
-              </div>
-            )}
-            <div className="grid gap-4 md:grid-cols-4">
-              <MiniMetric label="Lead Origin" value={project.scope?.leadSource === "PARTNER" ? "Partner Network" : "Direct / Other"} />
-              <MiniMetric label="Vendorship Fee" value={formatINR(project.scope?.vendorshipFeeAmount || 0)} />
-              <MiniMetric
-                label="Billing Fee (%)"
-                value={forbidChannelFee ? "—" : `${project.scope?.partnerBillingFeePercentage || 0}%`}
-              />
-              <MiniMetric label="Partner Earning" value={formatINR(partnerEarning)} />
-            </div>
-            
-            {project.scope?.leadSource === "PARTNER" && (
-              <div className="mt-6 p-4 rounded-lg bg-primary/5 border border-primary/10 space-y-3">
-                <div className="flex items-center gap-2 font-medium text-primary">
-                  <Handshake className="w-4 h-4" />
-                  <span>Commercial Agreements</span>
-                </div>
-                <ul className="text-sm space-y-2 text-muted-foreground">
-                  <li className="flex justify-between">
-                    <span>Vendorship Code Owner:</span>
-                    <span className="text-foreground font-medium uppercase">{project.scope.vendorshipOwner}</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Billing Responsibility:</span>
-                    <span className="text-foreground font-medium uppercase">{project.scope.billingParty}</span>
-                  </li>
-                  {project.scope.partnerBillingFeePercentage ? (
-                    <li className="flex justify-between">
-                      <span>Billing Offset (GST Recovery):</span>
-                      <span className="text-warning font-medium">-{project.scope.partnerBillingFeePercentage}% from profit</span>
-                    </li>
-                  ) : null}
-                </ul>
-              </div>
-            )}
-
-            {linkedPartner && (
-              <Button className="mt-4" variant="outline" size="sm" asChild>
-                <Link to={`/partners/${linkedPartner.id}`}>Open partner profile</Link>
-              </Button>
-            )}
-          </TabCard>
-        </TabsContent>
-
-        <TabsContent value="billing" className="space-y-4">
-          <TabCard title="Company to Customer Billing" icon={<ReceiptText className="h-4 w-4 text-primary" />}>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <div className="grid flex-1 gap-3 md:grid-cols-3">
-              <MiniMetric label="Contract value" value={formatINR(project.contractAmount)} />
-              <MiniMetric label="Billed so far" value={formatINR(billed)} />
-              <MiniMetric label="Collected so far" value={formatINR(collected)} />
-              </div>
-              {canWriteInvoice && (
-              <Button type="button" size="sm" className="shrink-0" onClick={handleOpenNewInvoiceForProject}>
-                <Plus className="mr-1 h-4 w-4" />
-                New invoice
-              </Button>
-              )}
-            </div>
-            <DataTableShell
-            variant="inline" >
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Received</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {projectInvoices.map((invoice) => (
-                  <TableRow key={invoice.id}>
-                    <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                    <TableCell>{invoice.invoiceDate}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{invoice.status}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right">{formatINR(invoice.total)}</TableCell>
-                    <TableCell className="text-right">{formatINR(invoice.amountReceived)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </DataTableShell>
-            <h3 className="mb-2 mt-5 text-sm font-medium">Payment flow</h3>
-            <DataTableShell
-            variant="inline" >
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Stage</TableHead>
-                  <TableHead>Recipient</TableHead>
-                  <TableHead>Mode</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {projectPayments.map((payment) => (
-                  <TableRow key={payment.id}>
-                    <TableCell>{payment.date}</TableCell>
-                    <TableCell>{payment.reference ?? "other"}</TableCell>
-                    <TableCell>
-                      <PaymentRecipient payment={payment} />
-                    </TableCell>
-                    <TableCell>{payment.paymentMode}</TableCell>
-                    <TableCell className="text-right">{formatINR(payment.amount)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </DataTableShell>
-          </TabCard>
-        </TabsContent>
-
-        <TabsContent value="costs" className="space-y-4">
-          <TabCard title="Actual Cost" icon={<IndianRupee className="h-4 w-4 text-primary" />}>
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
-              <div className="grid flex-1 gap-3 md:grid-cols-4">
-              <MiniMetric label="Material" value={formatINR(projectExpenses.filter((e) => e.category === "Material").reduce((sum, e) => sum + e.amount, 0))} />
-              <MiniMetric label="Labour" value={formatINR(projectExpenses.filter((e) => e.category === "Labour").reduce((sum, e) => sum + e.amount, 0))} />
-              <MiniMetric label="Transport" value={formatINR(projectExpenses.filter((e) => e.category === "Transport").reduce((sum, e) => sum + e.amount, 0))} />
-              <MiniMetric label="Total cost" value={formatINR(actualCost)} />
-              </div>
-              {canWriteExpense && (
-              <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => setIsAddExpenseOpen(true)}>
-                <Plus className="mr-1 h-4 w-4" />
-                Add expense
-              </Button>
-              )}
-            </div>
-            <DataTableShell
-            variant="inline" >
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Notes</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {projectExpenses.map((expense) => (
-                  <TableRow key={expense.id}>
-                    <TableCell>{expense.date}</TableCell>
-                    <TableCell>
-                      {expense.category}
-                      {expense.subCategory ? <span className="text-muted-foreground"> / {expense.subCategory}</span> : null}
-                    </TableCell>
-                    <TableCell className="max-w-md text-muted-foreground">{expense.notes ?? expense.description ?? ""}</TableCell>
-                    <TableCell className="text-right">{formatINR(expense.amount)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </DataTableShell>
-          </TabCard>
-        </TabsContent>
-
-        <TabsContent value="execution" className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <TabCard title={kind === "INC" ? "INC Execution Scope" : "Execution"} icon={<ClipboardList className="h-4 w-4 text-primary" />}>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <MiniMetric label="Start date" value={project.startDate} />
-                <MiniMetric label="End date" value={project.endDate ?? "Active"} />
-                <MiniMetric label="Sites" value={projectSitesFiltered.length} />
-                <MiniMetric label="Field tasks" value={projectFieldTasks.length} />
-              </div>
-            </TabCard>
-            <TabCard title="Materials Summary" icon={<Package className="h-4 w-4 text-primary" />}>
-              {(project.materialsSent ?? []).length === 0 ? (
-                <ListEmptyState density="compact" icon={Package} title="No material movement recorded" />
-              ) : (
-                <div className="space-y-2">
-                  {(project.materialsSent ?? []).slice(0, 5).map((item) => (
-                    <div key={`${item.itemId}-${item.dateIssued}`} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                      <span>{item.itemName}</span>
-                      <span className="font-medium">{item.quantity} - {formatINR(item.quantity * item.unitPrice)}</span>
-                    </div>
-                  ))}
-                  {(project.materialsSent ?? []).length > 5 && <p className="text-xs text-muted-foreground text-center pt-1">+ {(project.materialsSent ?? []).length - 5} more items (see Materials Sent tab)</p>}
-                </div>
-              )}
-            </TabCard>
-            <TabCard title="Field notes & milestones" icon={<ClipboardList className="h-4 w-4 text-muted-foreground" />}>
-              <p className="mb-2 text-xs text-muted-foreground">Log site progress, milestone completions, and follow-ups. Saved on the project record.</p>
-              <Textarea
-                rows={5}
-                value={executionNotesDraft}
-                onChange={(e) => setExecutionNotesDraft(e.target.value)}
-                placeholder="e.g. 12 Apr - Structure complete, awaiting DISCOM inspection..."
-                className="text-sm"
-                readOnly={ceoReadOnly}
-                disabled={ceoReadOnly}
-              />
-              {canWriteExecution && (
-              <div className="mt-3 flex justify-end">
-                <Button type="button" size="sm" onClick={handleSaveExecutionNotes}>
-                  Save notes
-                </Button>
-              </div>
-              )}
-            </TabCard>
-            <TabCard title="Scheduled installations" icon={<Calendar className="h-4 w-4 text-primary" />}>
-              {projectSchedules.length === 0 ? (
-                <ListEmptyState
-                  density="compact"
-                  icon={Calendar}
-                  title="No installs scheduled"
-                  description="Use Schedule installation in the project header."
-                />
-              ) : (
-                <div className="space-y-2">
-                  {projectSchedules.map((sch) => (
-                    <div key={sch.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
-                      <div>
-                        <p className="font-medium">{sch.scheduledDate}</p>
-                        {sch.notes && <p className="text-xs text-muted-foreground">{sch.notes}</p>}
-                        {sch.doubleBookingOverrideReason && (
-                          <p className="text-xs text-warning">
-                            Double-booked: {sch.doubleBookingOverrideReason}
-                          </p>
-                        )}
-                      </div>
-                      <Badge variant="outline" className="capitalize">{sch.status.replace("_", " ")}</Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabCard>
-            <TabCard title="Site visits" icon={<ClipboardList className="h-4 w-4 text-primary" />}>
-              <div className="mb-3 flex justify-end">
-                {!ceoReadOnly && (
-                <Button type="button" size="sm" variant="outline" onClick={() => setIsSiteVisitOpen(true)}>
-                  <Plus className="mr-1 h-4 w-4" /> Record visit
-                </Button>
-                )}
-              </div>
-              {projectSiteVisits.length === 0 ? (
-                <ListEmptyState
-                  density="compact"
-                  icon={MapPin}
-                  title="No site visits yet"
-                  description='Use "Record visit" to log field activity.'
-                />
-              ) : (
-                <div className="space-y-2">
-                  {projectSiteVisits.map((visit) => {
-                    const installer = employees.find((e) => e.id === visit.visitedBy);
-                    return (
-                      <div key={visit.id} className="rounded-md border px-3 py-2 text-sm">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-medium">{visit.visitDate}</span>
-                          <Badge variant="outline">{installer?.name ?? `Employee #${visit.visitedBy}`}</Badge>
-                        </div>
-                        <p className="mt-1 text-muted-foreground">{visit.items.length} item(s)</p>
-                        {visit.blockers && (
-                          <p className="mt-1 text-warning text-xs">Blockers: {visit.blockers}</p>
-                        )}
-                        <div className="mt-2 flex gap-2">
-                          {visit.reconciledChecklistAt ? (
-                            <Badge variant="secondary" className="text-xs">
-                              Reconciled {new Date(visit.reconciledChecklistAt).toLocaleDateString()}
-                            </Badge>
-                          ) : !ceoReadOnly ? (
-                            <Button type="button" size="sm" variant="outline" onClick={() => handleReconcileSiteVisit(visit.id)}>
-                              Reconcile to checklist
-                            </Button>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </TabCard>
-          </div>
-        </TabsContent>
-
-        {/* â•â•â• Attendance â•â•â• */}
-        <TabsContent value="attendance" className="space-y-4">
-          <TabCard title="Attendance Records" icon={<Users className="h-4 w-4 text-primary" />}>
-            {attendanceRows.length === 0 ? (
-              <ListEmptyState density="compact" icon={Users} title="No attendance for this project yet" />
-            ) : (
-              <DataTableShell
-            variant="inline" >
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Employee</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {attendanceRows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>{row.date}</TableCell>
-                      <TableCell>{row.employeeName}</TableCell>
-                      <TableCell><Badge variant="outline">{row.status}</Badge></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </DataTableShell>
-            )}
-          </TabCard>
-
-          {/* Client Payment History */}
-          <ClientPaymentHistory
-            projectId={project.id}
-            clientName={project.client}
-            contractAmount={project.contractAmount}
-            payments={clientPayments}
-            onRecordPayment={(payment) =>
-              recordCustomerInflow({
-                path: "project_fifo",
-                record: { ...payment, id: generateId("CPR"), recordedAt: new Date().toISOString() },
-              })
-            }
-            canDeletePayment={canDeleteClientPayment}
-            onDeletePayment={(cprId) => deletePayment(clientPaymentRecordPaymentId(cprId))}
-            partnerName={partnerRow?.partnerName}
-            forbidPartnerSettlement={forbidPartnerSettlement}
-          />
-
-          {/* Outsourced Work Log */}
-          {outsourcedWorkRows.length > 0 && (
-            <TabCard title="Outsourced Work Log" icon={<Briefcase className="h-4 w-4 text-warning" />}>
-              <DataTableShell
-            variant="inline" >
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Workers</TableHead>
-                    <TableHead className="text-right">Days</TableHead>
-                    <TableHead className="text-right">Rate/Day</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {outsourcedWorkRows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>{row.date}</TableCell>
-                      <TableCell>{row.description}</TableCell>
-                      <TableCell className="text-right">{row.employees || "-"}</TableCell>
-                      <TableCell className="text-right">{row.days || "-"}</TableCell>
-                      <TableCell className="text-right">{row.ratePerDay ? `₹${row.ratePerDay}` : "-"}</TableCell>
-                      <TableCell className="text-right font-medium">{formatINR(row.total)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </DataTableShell>
-              <div className="mt-2 text-right text-sm font-semibold">Total Outsourced: {formatINR(outsourcedTotal)}</div>
-            </TabCard>
-          )}
-        </TabsContent>
-        {/* â•â•â• Sites â•â•â• */}
-        <TabsContent value="sites" className="space-y-4">
-          <TabCard title="Project Installation Sites" icon={<MapPin className="h-4 w-4 text-primary" />}>
-            {projectSites.length > 0 && (
-              <div className="mb-4 flex justify-end">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setNewSiteName("");
-                    setNewSiteWorkStart(new Date().toISOString().split("T")[0]);
-                    setNewSiteStatus("active");
-                    setIsAddSiteOpen(true);
-                  }}
-                >
-                  <Plus className="mr-1 h-4 w-4" />
-                  Add site
-                </Button>
-              </div>
-            )}
-            {projectSites.length === 0 ? (
-              <ListEmptyState
-                density="compact"
-                icon={MapPin}
-                title="No sites for this project"
-                description="Add installation sites to track checklists and dispatch."
-                actionLabel="Add site"
-                onAction={() => {
-                  setNewSiteName("");
-                  setNewSiteWorkStart(new Date().toISOString().split("T")[0]);
-                  setNewSiteStatus("active");
-                  setIsAddSiteOpen(true);
-                }}
-                className="rounded-lg border border-dashed bg-muted/20"
-              />
-            ) : (
-              <div className="space-y-4">
-                {projectSites.map((site) => (
-                  <Card key={site.id} className="overflow-hidden">
-                    <CardHeader className="bg-muted/30 py-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <MapPin className="w-4 h-4 text-primary" />
-                          <span className="font-semibold">{site.name}</span>
-                          <Badge variant="outline" className="text-2xs uppercase">{site.status || "Active"}</Badge>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 text-destructive"
-                            onClick={() => {
-                              const result = deleteSite(String(site.id));
-                              if (!result.ok) {
-                                toast({
-                                  title: "Cannot delete site",
-                                  description: friendlyCommandErrorMessage(result.error, "Could not delete site."),
-                                  variant: "destructive",
-                                });
-                                return;
-                              }
-                              toast({ title: "Site removed", description: site.name });
-                            }}
-                          >
-                            Delete
-                          </Button>
-                          <Select 
-                            value={siteTemplateChoice[site.id] || ""} 
-                            onValueChange={(val) => setSiteTemplateChoice(prev => ({ ...prev, [site.id]: val }))}
-                          >
-                            <SelectTrigger className="h-8 w-[200px]">
-                              <SelectValue placeholder="Select Checklist Preset" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {getSiteChecklistPresets().map(p => (
-                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Button 
-                            size="sm" 
-                            variant="secondary" 
-                            className="h-8"
-                            disabled={!siteTemplateChoice[site.id]}
-                            onClick={() => {
-                              const preset = getSiteChecklistPresets().find(p => p.id === siteTemplateChoice[site.id]);
-                              if (preset) {
-                                const res = applySiteChecklistFromTemplate(project.id, site.id, preset);
-                                if (res.ok) toast({ title: "Checklist Applied", description: `Applied ${preset.name} to ${site.name}` });
-                                else
-                                  toast({
-                                    title: "Error",
-                                    description: friendlyCommandErrorMessage(res.error),
-                                    variant: "destructive",
-                                  });
-                              }
-                            }}
-                          >
-                            Apply Preset
-                          </Button>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-0">
-          <DataTableShell
-            variant="inline">
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Material Item</TableHead>
-                            <TableHead className="text-right">Required Qty</TableHead>
-                            <TableHead>Status</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {site.checklistItems?.length ? (
-                            site.checklistItems.map((item) => (
-                              <TableRow key={item.id}>
-                                <TableCell >{item.materialName}</TableCell>
-                                <TableCell className="text-right font-medium">{item.requiredQuantity}</TableCell>
-                                <TableCell>
-                                  {item.status === "dispatched" ? (
-                                    <Badge className="bg-primary/10 text-primary border-0 text-2xs">
-                                      <CheckCircle2 className="w-3 h-3 mr-1" />
-                                      Dispatched
-                                    </Badge>
-                                  ) : (
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline" 
-                                      className="h-7 text-2xs px-2 border-primary text-primary hover:bg-primary hover:text-white"
-                                      onClick={async () => {
-                                        const res = await dispatchSiteMaterial(project.id, site.id, item.id);
-                                        if (res.ok) toast({ title: "Material Dispatched", description: `${item.materialName} deducted from warehouse.` });
-                                        else
-                                  toast({
-                                    title: "Error",
-                                    description: friendlyCommandErrorMessage(res.error),
-                                    variant: "destructive",
-                                  });
-                                      }}
-                                    >
-                                      <Truck className="w-3 h-3 mr-1" />
-                                      Dispatch
-                                    </Button>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          ) : (
-                            <TableEmptyRow
-                              colSpan={3}
-                              icon={ClipboardList}
-                              title="No checklist items"
-                              description="Apply a preset above to initialize."
-                            />
-                          )}
-                        </TableBody>
-                      </DataTableShell>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </TabCard>
-        </TabsContent>
-
-        {/* â•â•â• Team Roster â•â•â• */}
-        {/* Duplicate Team Roster TabsContent removed — single panel lives earlier. */}
-
-        {/* â•â•â• Financials (merged Billing + Costs) â•â•â• */}
-        <TabsContent value="financials" className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
-            <MiniMetric label="Contract" value={formatINR(project.contractAmount)} />
-            <MiniMetric label="Billed" value={formatINR(billed)} />
-            <MiniMetric label="Collected" value={formatINR(collected)} />
-            <MiniMetric label="Outstanding" value={formatINR(Math.max(0, (project.contractAmount || 0) - collected))} />
-            <MiniMetric label="Actual Cost" value={formatINR(actualCost)} />
-            <MiniMetric label="Profit" value={formatINR(projectProfit)} />
-            <MiniMetric label="Margin" value={(project.contractAmount || 0) > 0 ? `${((projectProfit / (project.contractAmount || 1)) * 100).toFixed(1)}%` : "—"} />
-          </div>
-          {/* BL-5: profit-by-recognition split (expected vs accrual vs realized). */}
-          <div className="grid gap-3 md:grid-cols-3 rounded-md border border-border/60 bg-muted/20 p-3">
-            <MiniMetric
-              label="Expected profit"
-              value={formatINR(projectProfit)}
-              hint="Contract − Actual cost"
-            />
-            <MiniMetric
-              label="Accrual profit"
-              value={formatINR(accrualProfit)}
-              hint="Billed − Actual cost"
-            />
-            <MiniMetric
-              label="Realized profit"
-              value={formatINR(realizedProfit)}
-              hint="Collected − Actual cost"
-            />
-          </div>
-
-          <TabCard title="Change requests" icon={<FileText className="h-4 w-4 text-primary" />}>
-            {project.quotationId && quotation && (
-              <ProjectScopeChangeGuidance
-                className="mb-4"
-                projectId={project.id}
-                quotationId={quotation.id}
-                quotationNumber={quotation.quotationNumber}
-              />
-            )}
-            <div className="mb-3 flex flex-wrap gap-2 justify-end">
-              {kind === "INC_GIVEN" && !ceoReadOnly && (
-                <Button type="button" size="sm" variant="secondary" onClick={() => setIsAdditionalWorkOpen(true)}>
-                  <Plus className="mr-1 h-4 w-4" />
-                  Additional work
-                </Button>
-              )}
-              {!ceoReadOnly && (
-              <Button type="button" size="sm" onClick={() => setIsChangeRequestOpen(true)}>
-                <Plus className="mr-1 h-4 w-4" />
-                New change request
-              </Button>
-              )}
-            </div>
-            {projectChangeRequests.length === 0 ? (
-              <ListEmptyState density="compact" icon={FileText} title="No change requests yet" />
-            ) : (
-              <DataTableShell variant="inline">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Delta</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {projectChangeRequests.map((cr) => {
-                    const est = resolveChangeRequestDeltaAmount(project, cr);
-                    return (
-                      <TableRow key={cr.id}>
-                        <TableCell className="capitalize">{cr.type.replace("-", " ")}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {cr.deltaKw ? `${cr.deltaKw} kW` : null}
-                          {cr.deltaAmount ? ` ${formatINR(cr.deltaAmount)}` : null}
-                          {!cr.deltaAmount && est > 0 ? ` ~${formatINR(est)}` : null}
-                          {cr.materialDelta?.length ? ` · ${cr.materialDelta.length} material line(s)` : null}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="capitalize">
-                            {cr.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right space-x-2">
-                          {cr.status === "draft" && (
-                            <>
-                              <PermissionGatedButton
-                                allowed={canApproveChangeRequest}
-                                deniedHint={PERMISSION_DENIED_HINTS.changeRequestApprove}
-                                type="button"
-                                size="sm"
-                                variant="default"
-                                onClick={() => {
-                                  const res = approveProjectChangeRequest(cr.id);
-                                  if (!res.ok) {
-                                    toast({
-                                      title: "Cannot approve",
-                                      description: friendlyCommandErrorMessage(res.error, "Could not approve."),
-                                      variant: "destructive",
-                                    });
-                                    return;
-                                  }
-                                  toast({
-                                    title: "Change request approved",
-                                    description: res.generatedInvoiceNumber
-                                      ? `Delta invoice ${res.generatedInvoiceNumber} issued to books.`
-                                      : "Project commercial baseline updated.",
-                                  });
-                                  if (res.generatedInvoiceId) {
-                                    navigate(`/invoices?invoice=${res.generatedInvoiceId}`);
-                                  }
-                                }}
-                              >
-                                Approve
-                              </PermissionGatedButton>
-                              <PermissionGatedButton
-                                allowed={canApproveChangeRequest}
-                                deniedHint={PERMISSION_DENIED_HINTS.changeRequestApprove}
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  rejectProjectChangeRequest(cr.id, "Rejected from project detail");
-                                  toast({ title: "Change request rejected" });
-                                }}
-                              >
-                                Reject
-                              </PermissionGatedButton>
-                            </>
-                          )}
-                          {cr.generatedInvoiceId && cr.status === "approved" && (() => {
-                            const inv = projectInvoices.find((i) => i.id === cr.generatedInvoiceId);
-                            const open =
-                              inv &&
-                              inv.status !== "draft" &&
-                              inv.status !== "voided" &&
-                              inv.total - (inv.amountReceived ?? 0) > 0.01;
-                            return (
-                              <span className="inline-flex items-center gap-1">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="link"
-                                  className="h-8"
-                                  onClick={() =>
-                                    navigate(`/invoices?invoice=${cr.generatedInvoiceId}`)
-                                  }
-                                >
-                                  {inv?.invoiceNumber ?? "View invoice"}
-                                </Button>
-                                {open && inv && (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8"
-                                    onClick={() => {
-                                      saveCreateDraft(
-                                        "payment-create-draft",
-                                        buildInvoiceToPaymentDraft(inv),
-                                      );
-                                      navigate(
-                                        `/invoices?invoice=${cr.generatedInvoiceId}&recordPayment=1`,
-                                      );
-                                    }}
-                                  >
-                                    Record payment
-                                  </Button>
-                                )}
-                              </span>
-                            );
-                          })()}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </DataTableShell>
-            )}
-            {(project.additionalWorkLines?.length ?? 0) > 0 && (
-              <>
-                <h3 className="mt-5 mb-2 text-sm font-medium">Additional work (INC)</h3>
-                <DataTableShell variant="inline">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Basis</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {project.additionalWorkLines!.map((line) => (
-                      <TableRow key={line.id}>
-                        <TableCell>{line.description}</TableCell>
-                        <TableCell className="capitalize">{line.basis.replace("_", " ")}</TableCell>
-                        <TableCell className="text-right">{formatINR(line.total)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </DataTableShell>
-              </>
-            )}
-          </TabCard>
-
-          {/* Invoices - only for kinds that bill */}
-          {!["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(kind) && (
-            <TabCard title="Invoices" icon={<ReceiptText className="h-4 w-4 text-primary" />}>
-              {canWriteInvoice && (
-              <div className="mb-3 flex justify-end">
-                <Button type="button" size="sm" onClick={handleOpenNewInvoiceForProject}>
-                  <Plus className="mr-1 h-4 w-4" />New invoice
-                </Button>
-              </div>
-              )}
-              <DataTableShell variant="inline">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Invoice #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Received</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {projectInvoices.map((invoice) => (
-                    <TableRow key={invoice.id}>
-                      <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                      <TableCell>{invoice.invoiceDate}</TableCell>
-                      <TableCell><Badge variant="outline">{invoice.status}</Badge></TableCell>
-                      <TableCell className="text-right">{formatINR(invoice.total)}</TableCell>
-                      <TableCell className="text-right">{formatINR(invoice.amountReceived ?? 0)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </DataTableShell>
-              {projectPayments.length > 0 && (
-                <>
-                  <h3 className="mb-2 mt-5 text-sm font-medium">Payment Flow</h3>
-                  <DataTableShell variant="inline">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Stage</TableHead>
-                        <TableHead>Recipient</TableHead>
-                        <TableHead>Mode</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {projectPayments.map((payment) => (
-                        <TableRow key={payment.id}>
-                          <TableCell>{payment.date}</TableCell>
-                          <TableCell>{payment.reference ?? "other"}</TableCell>
-                          <TableCell><PaymentRecipient payment={payment} /></TableCell>
-                          <TableCell>{payment.paymentMode}</TableCell>
-                          <TableCell className="text-right">{formatINR(payment.amount)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </DataTableShell>
-                </>
-              )}
-            </TabCard>
+            </section>
           )}
 
-          {/* Expenses */}
-          <TabCard title="Expenses" icon={<IndianRupee className="h-4 w-4 text-primary" />}>
-            <div className="mb-3 flex flex-wrap items-center gap-3">
-              <div className="grid flex-1 gap-3 md:grid-cols-3">
-                <MiniMetric label="Material" value={formatINR(projectExpenses.filter((e) => e.category === "Material").reduce((s, e) => s + e.amount, 0))} />
-                <MiniMetric label="Labour" value={formatINR(projectExpenses.filter((e) => e.category === "Labour").reduce((s, e) => s + e.amount, 0))} />
-                <MiniMetric label="Total" value={formatINR(actualCost)} />
-              </div>
-              {canWriteExpense && (
-              <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => setIsAddExpenseOpen(true)}>
-                <Plus className="mr-1 h-4 w-4" />Add expense
-              </Button>
-              )}
-            </div>
-            <DataTableShell variant="inline">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Notes</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {projectExpenses.map((expense) => (
-                  <TableRow key={expense.id}>
-                    <TableCell>{expense.date}</TableCell>
-                    <TableCell>{expense.category}{expense.subCategory ? <span className="text-muted-foreground"> / {expense.subCategory}</span> : null}</TableCell>
-                    <TableCell className="max-w-md text-muted-foreground">{expense.notes ?? expense.description ?? ""}</TableCell>
-                    <TableCell className="text-right">{formatINR(expense.amount)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </DataTableShell>
-          </TabCard>
-        </TabsContent>
-
-        {/* â•â•â• Field Operations (merged Execution + Sites + Team Roster + Attendance) â•â•â• */}
-        <TabsContent value="field-operations" className="space-y-4">
-          <Tabs defaultValue="team-schedule">
+          {tabDefs.some(t => t.value === "field-operations") && (
+            <section id="field-operations" className="scroll-mt-24 space-y-4">
+              <h2 className="text-lg font-semibold tracking-tight">Field Operations</h2>
+              <Tabs defaultValue="team-schedule">
             <TabsList>
               <TabsTrigger value="team-schedule">Team &amp; Schedule</TabsTrigger>
               <TabsTrigger value="sites-tab">Sites</TabsTrigger>
@@ -2445,10 +1332,555 @@ const ProjectDetail = () => {
               />
             </TabsContent>
           </Tabs>
-        </TabsContent>
-      </Tabs>
+            </section>
+          )}
 
-      {/* â•â•â• MODALS â•â•â• */}
+          {tabDefs.some(t => t.value === "financials") && (
+            <section id="financials" className="scroll-mt-24 space-y-4">
+              <h2 className="text-lg font-semibold tracking-tight">Financials</h2>
+              <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
+            <MiniMetric label="Contract" value={formatINR(project.contractAmount)} />
+            <MiniMetric label="Billed" value={formatINR(billed)} />
+            <MiniMetric label="Collected" value={formatINR(collected)} />
+            <MiniMetric label="Outstanding" value={formatINR(Math.max(0, (project.contractAmount || 0) - collected))} />
+            <MiniMetric label="Actual Cost" value={formatINR(actualCost)} />
+            <MiniMetric label="Profit" value={formatINR(projectProfit)} />
+            <MiniMetric label="Margin" value={(project.contractAmount || 0) > 0 ? `${((projectProfit / (project.contractAmount || 1)) * 100).toFixed(1)}%` : "ÔÇö"} />
+          </div>
+          {/* BL-5: profit-by-recognition split (expected vs accrual vs realized). */}
+          <div className="grid gap-3 md:grid-cols-3 rounded-md border border-border/60 bg-muted/20 p-3">
+            <MiniMetric
+              label="Expected profit"
+              value={formatINR(projectProfit)}
+              hint="Contract ÔêÆ Actual cost"
+            />
+            <MiniMetric
+              label="Accrual profit"
+              value={formatINR(accrualProfit)}
+              hint="Billed ÔêÆ Actual cost"
+            />
+            <MiniMetric
+              label="Realized profit"
+              value={formatINR(realizedProfit)}
+              hint="Collected ÔêÆ Actual cost"
+            />
+          </div>
+
+          <TabCard title="Change requests" icon={<FileText className="h-4 w-4 text-primary" />}>
+            {project.quotationId && quotation && (
+              <ProjectScopeChangeGuidance
+                className="mb-4"
+                projectId={project.id}
+                quotationId={quotation.id}
+                quotationNumber={quotation.quotationNumber}
+              />
+            )}
+            <div className="mb-3 flex flex-wrap gap-2 justify-end">
+              {kind === "INC_GIVEN" && !ceoReadOnly && (
+                <Button type="button" size="sm" variant="secondary" onClick={() => setIsAdditionalWorkOpen(true)}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Additional work
+                </Button>
+              )}
+              {!ceoReadOnly && (
+              <Button type="button" size="sm" onClick={() => setIsChangeRequestOpen(true)}>
+                <Plus className="mr-1 h-4 w-4" />
+                New change request
+              </Button>
+              )}
+            </div>
+            {projectChangeRequests.length === 0 ? (
+              <ListEmptyState density="compact" icon={FileText} title="No change requests yet" />
+            ) : (
+              <DataTableShell variant="inline">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Delta</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projectChangeRequests.map((cr) => {
+                    const est = resolveChangeRequestDeltaAmount(project, cr);
+                    return (
+                      <TableRow key={cr.id}>
+                        <TableCell className="capitalize">{cr.type.replace("-", " ")}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {cr.deltaKw ? `${cr.deltaKw} kW` : null}
+                          {cr.deltaAmount ? ` ${formatINR(cr.deltaAmount)}` : null}
+                          {!cr.deltaAmount && est > 0 ? ` ~${formatINR(est)}` : null}
+                          {cr.materialDelta?.length ? ` ┬À ${cr.materialDelta.length} material line(s)` : null}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">
+                            {cr.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right space-x-2">
+                          {cr.status === "draft" && (
+                            <>
+                              <PermissionGatedButton
+                                allowed={canApproveChangeRequest}
+                                deniedHint={PERMISSION_DENIED_HINTS.changeRequestApprove}
+                                type="button"
+                                size="sm"
+                                variant="default"
+                                onClick={() => {
+                                  const res = approveProjectChangeRequest(cr.id);
+                                  if (!res.ok) {
+                                    toast({
+                                      title: "Cannot approve",
+                                      description: friendlyCommandErrorMessage(res.error, "Could not approve."),
+                                      variant: "destructive",
+                                    });
+                                    return;
+                                  }
+                                  toast({
+                                    title: "Change request approved",
+                                    description: res.generatedInvoiceNumber
+                                      ? `Delta invoice ${res.generatedInvoiceNumber} issued to books.`
+                                      : "Project commercial baseline updated.",
+                                  });
+                                  if (res.generatedInvoiceId) {
+                                    navigate(`/invoices?invoice=${res.generatedInvoiceId}`);
+                                  }
+                                }}
+                              >
+                                Approve
+                              </PermissionGatedButton>
+                              <PermissionGatedButton
+                                allowed={canApproveChangeRequest}
+                                deniedHint={PERMISSION_DENIED_HINTS.changeRequestApprove}
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  rejectProjectChangeRequest(cr.id, "Rejected from project detail");
+                                  toast({ title: "Change request rejected" });
+                                }}
+                              >
+                                Reject
+                              </PermissionGatedButton>
+                            </>
+                          )}
+                          {cr.generatedInvoiceId && cr.status === "approved" && (() => {
+                            const inv = projectInvoices.find((i) => i.id === cr.generatedInvoiceId);
+                            const open =
+                              inv &&
+                              inv.status !== "draft" &&
+                              inv.status !== "voided" &&
+                              inv.total - (inv.amountReceived ?? 0) > 0.01;
+                            return (
+                              <span className="inline-flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="link"
+                                  className="h-8"
+                                  onClick={() =>
+                                    navigate(`/invoices?invoice=${cr.generatedInvoiceId}`)
+                                  }
+                                >
+                                  {inv?.invoiceNumber ?? "View invoice"}
+                                </Button>
+                                {open && inv && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8"
+                                    onClick={() => {
+                                      saveCreateDraft(
+                                        "payment-create-draft",
+                                        buildInvoiceToPaymentDraft(inv),
+                                      );
+                                      navigate(
+                                        `/invoices?invoice=${cr.generatedInvoiceId}&recordPayment=1`,
+                                      );
+                                    }}
+                                  >
+                                    Record payment
+                                  </Button>
+                                )}
+                              </span>
+                            );
+                          })()}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </DataTableShell>
+            )}
+            {(project.additionalWorkLines?.length ?? 0) > 0 && (
+              <>
+                <h3 className="mt-5 mb-2 text-sm font-medium">Additional work (INC)</h3>
+                <DataTableShell variant="inline">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Basis</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {project.additionalWorkLines!.map((line) => (
+                      <TableRow key={line.id}>
+                        <TableCell>{line.description}</TableCell>
+                        <TableCell className="capitalize">{line.basis.replace("_", " ")}</TableCell>
+                        <TableCell className="text-right">{formatINR(line.total)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </DataTableShell>
+              </>
+            )}
+          </TabCard>
+
+          {/* Invoices - only for kinds that bill */}
+          {!["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(kind) && (
+            <TabCard title="Invoices" icon={<ReceiptText className="h-4 w-4 text-primary" />}>
+              {canWriteInvoice && (
+              <div className="mb-3 flex justify-end">
+                <Button type="button" size="sm" onClick={handleOpenNewInvoiceForProject}>
+                  <Plus className="mr-1 h-4 w-4" />New invoice
+                </Button>
+              </div>
+              )}
+              <DataTableShell variant="inline">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice #</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Received</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projectInvoices.map((invoice) => (
+                    <TableRow key={invoice.id}>
+                      <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
+                      <TableCell>{invoice.invoiceDate}</TableCell>
+                      <TableCell><Badge variant="outline">{invoice.status}</Badge></TableCell>
+                      <TableCell className="text-right">{formatINR(invoice.total)}</TableCell>
+                      <TableCell className="text-right">{formatINR(invoice.amountReceived ?? 0)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </DataTableShell>
+              {projectPayments.length > 0 && (
+                <>
+                  <h3 className="mb-2 mt-5 text-sm font-medium">Payment Flow</h3>
+                  <DataTableShell variant="inline">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Stage</TableHead>
+                        <TableHead>Recipient</TableHead>
+                        <TableHead>Mode</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {projectPayments.map((payment) => (
+                        <TableRow key={payment.id}>
+                          <TableCell>{payment.date}</TableCell>
+                          <TableCell>{payment.reference ?? "other"}</TableCell>
+                          <TableCell><PaymentRecipient payment={payment} /></TableCell>
+                          <TableCell>{payment.paymentMode}</TableCell>
+                          <TableCell className="text-right">{formatINR(payment.amount)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </DataTableShell>
+                </>
+              )}
+            </TabCard>
+          )}
+
+          {/* Expenses */}
+          <TabCard title="Expenses" icon={<IndianRupee className="h-4 w-4 text-primary" />}>
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <div className="grid flex-1 gap-3 md:grid-cols-3">
+                <MiniMetric label="Material" value={formatINR(projectExpenses.filter((e) => e.category === "Material").reduce((s, e) => s + e.amount, 0))} />
+                <MiniMetric label="Labour" value={formatINR(projectExpenses.filter((e) => e.category === "Labour").reduce((s, e) => s + e.amount, 0))} />
+                <MiniMetric label="Total" value={formatINR(actualCost)} />
+              </div>
+              {canWriteExpense && (
+              <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => setIsAddExpenseOpen(true)}>
+                <Plus className="mr-1 h-4 w-4" />Add expense
+              </Button>
+              )}
+            </div>
+            <DataTableShell variant="inline">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Notes</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {projectExpenses.map((expense) => (
+                  <TableRow key={expense.id}>
+                    <TableCell>{expense.date}</TableCell>
+                    <TableCell>{expense.category}{expense.subCategory ? <span className="text-muted-foreground"> / {expense.subCategory}</span> : null}</TableCell>
+                    <TableCell className="max-w-md text-muted-foreground">{expense.notes ?? expense.description ?? ""}</TableCell>
+                    <TableCell className="text-right">{formatINR(expense.amount)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </DataTableShell>
+          </TabCard>
+            </section>
+          )}
+
+          {tabDefs.some(t => t.value === "materials-sent") && (
+            <section id="materials-sent" className="scroll-mt-24 space-y-4">
+              <h2 className="text-lg font-semibold tracking-tight">Materials Sent</h2>
+              {forbidMaterialDispatch ? (
+            <Card><CardContent className="py-8 text-sm text-muted-foreground">Material dispatch is disabled for this project kind.</CardContent></Card>
+          ) : (
+          <MaterialsSentTab
+            projectName={project.name}
+            projectId={project.id}
+            materials={getProjectMaterialsForTab()}
+            presetItems={getPresetItems().map(p => ({ id: p.id, name: p.itemName, quantity: p.quantity, unit: p.unit }))}
+            inventoryItems={inventoryItems}
+            siteChecklist={project.siteChecklist ?? []}
+            isSuperAdmin={canDo("project:update_commercial")}
+            onUpdateSiteChecklist={(next) => { updateProject(project.id, { siteChecklist: next } as Partial<typeof project>); }}
+            executionLineItems={project.executionLineItems ?? []}
+            onIssueMaterials={async (items, _exp, _task, meta) => {
+              const gid =
+                meta?.movementGroupId ??
+                (typeof crypto !== "undefined" && "randomUUID" in crypto
+                  ? crypto.randomUUID()
+                  : `mvg-${Date.now()}`);
+              for (const item of items) {
+                await recordProjectMaterialMovement({
+                  projectId: project.id,
+                  itemId: item.id,
+                  movementType: "IssueToSite",
+                  quantity: item.quantity,
+                  clientRequestId: `${gid}:issue:${item.id}:${item.quantity}`,
+                });
+              }
+            }}
+            onReturnMaterial={async (itemId, qty, movMeta) => {
+              await recordProjectMaterialMovement({
+                projectId: project.id,
+                itemId,
+                movementType: "ReturnToWarehouse",
+                quantity: qty,
+                clientRequestId: movMeta?.clientRequestId,
+              });
+              return { ok: true };
+            }}
+            onScrapMaterial={async (itemId, qty, movMeta) => {
+              await recordProjectMaterialMovement({
+                projectId: project.id,
+                itemId,
+                movementType: "ScrapSite",
+                quantity: qty,
+                clientRequestId: movMeta?.clientRequestId,
+              });
+              return { ok: true };
+            }}
+            onConsumeMaterial={async (itemId, qty, movMeta) => {
+              await recordProjectMaterialMovement({
+                projectId: project.id,
+                itemId,
+                movementType: "ConsumptionAtSite",
+                quantity: qty,
+                clientRequestId: movMeta?.clientRequestId,
+              });
+              return { ok: true };
+            }}
+          />
+          )}
+          {!forbidMaterialDispatch && (
+            <TabCard title="Material reservations" icon={<Package className="h-4 w-4 text-primary" />}>
+              {projectReservations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No active reservations. Checklist lines auto-reserve stock when added to the site checklist.
+                </p>
+              ) : (
+                <DataTableShell variant="inline">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Material</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead>Source</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {projectReservations.map((res) => {
+                      const inv = globalInvItems.find((i) => i.id === res.itemId);
+                      const label = inv?.size ? `${inv.name} (${inv.size})` : inv?.name ?? `Item #${res.itemId}`;
+                      return (
+                        <TableRow key={res.id}>
+                          <TableCell className="font-medium">{label}</TableCell>
+                          <TableCell className="text-right tabular-nums">{res.qty}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-2xs capitalize">
+                              {res.source.replace(/-/g, " ")}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </DataTableShell>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Reservations reduce effective stock for other projects in Need-to-get and procurement views.
+              </p>
+            </TabCard>
+          )}
+          {projectMaterialDamage.length > 0 && (
+            <TabCard title="Material damage log" icon={<AlertTriangle className="h-4 w-4 text-destructive" />}>
+              <DataTableShell variant="inline">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead>Stage</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Impact</TableHead>
+                    <TableHead>Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projectMaterialDamage.map((dmg) => {
+                    const inv = globalInvItems.find((i) => i.id === dmg.itemId);
+                    return (
+                      <TableRow key={dmg.id}>
+                        <TableCell>{inv?.name ?? `Item #${dmg.itemId}`}</TableCell>
+                        <TableCell className="capitalize">{dmg.stage}</TableCell>
+                        <TableCell className="text-right">{dmg.qty}</TableCell>
+                        <TableCell className="text-right">
+                          {dmg.costImpact != null ? formatINR(dmg.costImpact) : "ÔÇö"}
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate text-muted-foreground text-sm" title={dmg.notes}>
+                          {dmg.notes?.trim() || "ÔÇö"}
+                          {(dmg.photoUrls?.length ?? 0) > 0 && (
+                            <span className="block text-2xs text-muted-foreground/80">
+                              {dmg.photoUrls!.length} photo URL(s)
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </DataTableShell>
+            </TabCard>
+          )}
+            </section>
+          )}
+        </div>
+
+        {/* SIDE COLUMN */}
+        <div className="space-y-6">
+          {tabDefs.some(t => t.value === "team-roster") && (
+            <section id="team-roster" className="scroll-mt-24 space-y-4">
+              <h2 className="text-lg font-semibold tracking-tight">Team Roster</h2>
+              <TeamRosterTab project={project} />
+            </section>
+          )}
+
+          {tabDefs.some(t => t.value === "document-creator") && (
+            <section id="document-creator" className="scroll-mt-24 space-y-4">
+              <h2 className="text-lg font-semibold tracking-tight">Documents</h2>
+              <ProjectDocumentsStudio
+            project={project}
+            quotation={quotation}
+            updateProject={updateProject}
+            generateId={generateId}
+          />
+            </section>
+          )}
+
+          {tabDefs.some(t => t.value === "vendorship") && (
+            <section id="vendorship" className="scroll-mt-24 space-y-4">
+              <h2 className="text-lg font-semibold tracking-tight">Partner Economics</h2>
+              <TabCard title="Partner Economics" icon={<Users className="h-4 w-4 text-accent-foreground" />}>
+            {(forbidPartnerSettlement || forbidChannelFee) && (
+              <div className="mb-4 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                {forbidPartnerSettlement && (
+                  <p>This project kind does not model partner settlement in MSS; record partner payouts only on projects where settlement applies.</p>
+                )}
+                {forbidChannelFee && (
+                  <p>Channel / billing-fee offsets are not tracked for this project kind.</p>
+                )}
+              </div>
+            )}
+            <div className="grid gap-4 md:grid-cols-4">
+              <MiniMetric label="Lead Origin" value={project.scope?.leadSource === "PARTNER" ? "Partner Network" : "Direct / Other"} />
+              <MiniMetric label="Vendorship Fee" value={formatINR(project.scope?.vendorshipFeeAmount || 0)} />
+              <MiniMetric
+                label="Billing Fee (%)"
+                value={forbidChannelFee ? "ÔÇö" : `${project.scope?.partnerBillingFeePercentage || 0}%`}
+              />
+              <MiniMetric label="Partner Earning" value={formatINR(partnerEarning)} />
+            </div>
+            
+            {project.scope?.leadSource === "PARTNER" && (
+              <div className="mt-6 p-4 rounded-lg bg-primary/5 border border-primary/10 space-y-3">
+                <div className="flex items-center gap-2 font-medium text-primary">
+                  <Handshake className="w-4 h-4" />
+                  <span>Commercial Agreements</span>
+                </div>
+                <ul className="text-sm space-y-2 text-muted-foreground">
+                  <li className="flex justify-between">
+                    <span>Vendorship Code Owner:</span>
+                    <span className="text-foreground font-medium uppercase">{project.scope.vendorshipOwner}</span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span>Billing Responsibility:</span>
+                    <span className="text-foreground font-medium uppercase">{project.scope.billingParty}</span>
+                  </li>
+                  {project.scope.partnerBillingFeePercentage ? (
+                    <li className="flex justify-between">
+                      <span>Billing Offset (GST Recovery):</span>
+                      <span className="text-warning font-medium">-{project.scope.partnerBillingFeePercentage}% from profit</span>
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
+            )}
+
+            {linkedPartner && (
+              <Button className="mt-4" variant="outline" size="sm" asChild>
+                <Link to={`/partners/${linkedPartner.id}`}>Open partner profile</Link>
+              </Button>
+            )}
+          </TabCard>
+            </section>
+          )}
+
+          <section id="audit-preview" className="scroll-mt-24 space-y-4">
+            <h2 className="text-lg font-semibold tracking-tight">Audit History</h2>
+            <Card className="shadow-sm border-dashed border-slate-300 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate("/audit/audit-logs")}>
+              <CardContent className="p-4 flex flex-col items-center justify-center text-center space-y-2">
+                <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center">
+                  <History className="h-5 w-5 text-slate-500" />
+                </div>
+                <div>
+                  <p className="font-medium text-slate-900">View Audit Logs</p>
+                  <p className="text-xs text-slate-500">Track all changes & approvals</p>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        </div>
+      </div>
+
+      {/* ├óÔÇó┬É├óÔÇó┬É├óÔÇó┬É MODALS ├óÔÇó┬É├óÔÇó┬É├óÔÇó┬É */}
 
       {/* Edit Project Modal */}
       <Sheet open={isEditProjectOpen} onOpenChange={setIsEditProjectOpen}>
@@ -2566,7 +1998,7 @@ const ProjectDetail = () => {
               </div>
 
               <div className="space-y-2 col-span-2">
-                <Label>Contract Value (₹)</Label>
+                <Label>Contract Value (Ôé╣)</Label>
                 <Input type="number" value={editProjectContractValue} onChange={(e) => setEditProjectContractValue(e.target.value)} />
               </div>
             </div>
@@ -2601,15 +2033,15 @@ const ProjectDetail = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="profit">Profit Sharing (%)</SelectItem>
-                        <SelectItem value="fixed">Fixed Share (₹)</SelectItem>
-                        <SelectItem value="vendorship">Vendorship Fee (₹)</SelectItem>
+                        <SelectItem value="fixed">Fixed Share (Ôé╣)</SelectItem>
+                        <SelectItem value="vendorship">Vendorship Fee (Ôé╣)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2 col-span-2">
                     <Label>
-                      {editPartnerType === "profit" ? "Profit Share Percentage (%)" : editPartnerType === "fixed" ? "Our Backend Rate (₹ per kW or total)" : "Vendorship Fee Payable (₹)"}
+                      {editPartnerType === "profit" ? "Profit Share Percentage (%)" : editPartnerType === "fixed" ? "Our Backend Rate (Ôé╣ per kW or total)" : "Vendorship Fee Payable (Ôé╣)"}
                     </Label>
                     <Input 
                       type="number"
@@ -2656,7 +2088,7 @@ const ProjectDetail = () => {
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-2"><Label>Workers</Label><Input type="number" placeholder="0" value={outsourceEmployees} onChange={(e) => setOutsourceEmployees(e.target.value)} /></div>
                 <div className="space-y-2"><Label>Days</Label><Input type="number" placeholder="0" value={outsourceDays} onChange={(e) => setOutsourceDays(e.target.value)} /></div>
-                <div className="space-y-2"><Label>Rate/Day (₹)</Label><Input type="number" placeholder="0" value={outsourceRate} onChange={(e) => setOutsourceRate(e.target.value)} /></div>
+                <div className="space-y-2"><Label>Rate/Day (Ôé╣)</Label><Input type="number" placeholder="0" value={outsourceRate} onChange={(e) => setOutsourceRate(e.target.value)} /></div>
               </div>
               {outsourceEmployees && outsourceDays && outsourceRate && (
                 <div className="p-3 bg-muted/30 rounded-lg text-sm">
@@ -2676,7 +2108,7 @@ const ProjectDetail = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>Amount (₹)</Label><Input type="number" placeholder="0" value={otherWorkAmount} onChange={(e) => setOtherWorkAmount(e.target.value)} /></div>
+              <div className="space-y-2"><Label>Amount (Ôé╣)</Label><Input type="number" placeholder="0" value={otherWorkAmount} onChange={(e) => setOtherWorkAmount(e.target.value)} /></div>
               <div className="space-y-2"><Label>Notes</Label><Textarea placeholder="Details..." value={otherWorkNotes} onChange={(e) => setOtherWorkNotes(e.target.value)} rows={2} /></div>
             </TabsContent>
           </Tabs>
@@ -2809,4 +2241,3 @@ const ProjectDetail = () => {
 };
 
 export default ProjectDetail;
-

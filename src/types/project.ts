@@ -211,12 +211,9 @@ export interface Project {
     requiresClientInvoice?: boolean;
   };
 
-  // New project taxonomy (3 types + attribute fields). See [domain/projectTypes/types.ts].
-  /** 3-value type: DIRECT_CLIENT | PARTNER_NETWORK | INC_GIVEN_TO_US. Field name is `projectMode`
-   *  because `projectType` (residential / commercial / industrial) is already taken. */
-  projectMode?: "DIRECT_CLIENT" | "PARTNER_NETWORK" | "INC_GIVEN_TO_US";
-  vendorshipOwner?: "MSS" | "partner" | "none";
-  partnerRole?: "epc" | "fixed_margin" | "vendor_channel" | "vendorship_only";
+  // Unified Deal Architecture Fields
+  dealOrigin?: "DIRECT" | "PARTNER" | "INC_TAKEN" | "OUTSOURCED_INC" | "VENDORSHIP_ONLY";
+  vendorshipOwner?: "MSS" | "PARTNER" | "THIRD_PARTY";
   executionScope?: "full" | "service_only" | "none";
   /** Per-project site checklist — seeded from quotation BOM, editable by super admin per project. */
   siteChecklist?: ProjectSiteChecklistItem[];

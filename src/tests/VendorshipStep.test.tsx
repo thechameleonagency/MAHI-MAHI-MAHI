@@ -53,7 +53,7 @@ describe("VendorshipStep", () => {
     render(
       <VendorshipStep
         state={createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "MSS_DIRECT",
         })}
         onChange={vi.fn()}
@@ -69,7 +69,7 @@ describe("VendorshipStep", () => {
     render(
       <VendorshipStep
         state={createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "MSS_DIRECT",
           vendorshipChoice: "THIRD_PARTY",
         })}
@@ -87,7 +87,7 @@ describe("VendorshipStep", () => {
     render(
       <VendorshipStep
         state={createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "MSS_DIRECT",
           vendorshipChoice: "THIRD_PARTY",
           vendorshipCompanyId: "VC-1",
@@ -113,9 +113,10 @@ describe("VendorshipStep", () => {
     render(
       <VendorshipStep
         state={createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "PARTNER",
           partnerType: "profit_share",
+          selectedPartnerId: "P-1",
         })}
         onChange={vi.fn()}
         catalog={{ vendorshipCompanies: [makeVendorshipCompany()] }}
@@ -132,9 +133,10 @@ describe("VendorshipStep", () => {
     render(
       <VendorshipStep
         state={createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "PARTNER",
           partnerType: "fixed_rate",
+          selectedPartnerId: "P-1",
           partnerVendorshipChoice: "THIRD_PARTY",
         })}
         onChange={vi.fn()}
@@ -150,6 +152,7 @@ describe("VendorshipStep", () => {
     render(
       <VendorshipStep
         state={createInitialCreateProjectWizardState({
+          flow: "quotation",
           source: "quotation",
           selectedQuotationId: "Q-1",
         })}
@@ -166,9 +169,10 @@ describe("VendorshipStep", () => {
     render(
       <VendorshipStep
         state={createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "PARTNER",
           partnerType: "profit_share",
+          selectedPartnerId: "P-1",
           partnerGstInvoice: "no",
         })}
         onChange={vi.fn()}

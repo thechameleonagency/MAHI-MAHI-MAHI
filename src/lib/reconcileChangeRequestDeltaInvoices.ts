@@ -4,7 +4,7 @@ import { resolveChangeRequestDeltaAmount } from "@/lib/changeRequestApproval";
 import { isPlaceholderChangeRequestInvoiceId } from "@/lib/changeRequestDeltaInvoice";
 import { issueChangeRequestDeltaBilling } from "@/lib/issueChangeRequestDeltaBilling";
 import { reconcileProjectsAmountInvoiced } from "@/lib/billingSelectors";
-import { seedId, SEED_ID_PREFIX } from "@/data/seed/seedIdRegistry";
+import { createId } from "@/lib/idFactory";
 
 /**
  * Backfill real delta invoices for approved change requests (seed + persisted stores).
@@ -50,7 +50,7 @@ export function reconcileChangeRequestDeltaInvoices(state: AppState): AppState {
       customer: state.customers.find((c) => c.id === project.customerId),
       changeRequest: cr,
       existingInvoices: invoices,
-      invoiceId: seedId(SEED_ID_PREFIX.invoice),
+      invoiceId: createId("INV"),
       issuedAt: cr.approvedAt?.slice(0, 10),
     });
     if (!billing) {
@@ -76,7 +76,7 @@ export function reconcileChangeRequestDeltaInvoices(state: AppState): AppState {
       const { reason, event } = posting.reviewQueueItem;
       accountingReviewQueue = [
         {
-          id: seedId(SEED_ID_PREFIX.reviewQueue),
+          id: createId("ARQ"),
           reason,
           eventType: event.type,
           sourceDocumentId: event.sourceDocumentId,

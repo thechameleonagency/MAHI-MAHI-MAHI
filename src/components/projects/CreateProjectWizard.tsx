@@ -10,16 +10,16 @@ import { formatINR } from "@/lib/formatCurrency";
 import {
   buildWizardReviewSummary,
   getVisibleWizardSteps,
+  isQuotationPrefillComplete,
   isStepVisible,
   validateVisibleWizardSteps,
   validateWizardStep,
   type ValidateWizardContext,
 } from "@/lib/createProjectWizardLogic";
+import { getInitialWizardStep, getWizardFlowSubtitle, getWizardStepLabel } from "@/lib/wizardFlow";
 import { PROJECT_KIND_UI_LABELS, PROJECT_KIND_UI_TONES } from "@/lib/projectTaxonomyDisplay";
 import { WizardStepContent } from "@/components/projects/wizard/WizardStepContent";
 import {
-  WIZARD_STEP_LABELS,
-  WIZARD_STEPS,
   createInitialCreateProjectWizardState,
   type CreateProjectWizardState,
   type WizardStep,
@@ -54,6 +54,14 @@ export interface CreateProjectWizardProps {
   ) => ReactNode;
 }
 
+function resolveInitialStep(initial?: Partial<CreateProjectWizardState>): WizardStep {
+  const state = createInitialCreateProjectWizardState(initial);
+  if (isQuotationPrefillComplete(state)) {
+    return "REVIEW";
+  }
+  return getInitialWizardStep(state.flow ?? "intake");
+}
+
 function WizardStepIndicator({
   state,
   currentStep,
@@ -69,12 +77,10 @@ function WizardStepIndicator({
   return (
     <>
       <nav className="hidden md:flex flex-col gap-1" aria-label="Wizard steps">
-        {WIZARD_STEPS.map((step, index) => {
-          const visible = isStepVisible(step, state);
+        {visibleSteps.map((step, index) => {
           const stepIndex = visibleSteps.indexOf(step);
           const isCurrent = step === currentStep;
           const isComplete =
-            visible &&
             stepIndex >= 0 &&
             stepIndex < currentIndex &&
             validateWizardStep(step, state).length === 0;
@@ -84,13 +90,12 @@ function WizardStepIndicator({
             <button
               key={step}
               type="button"
-              disabled={!visible || (!isCurrent && !canJump)}
+              disabled={!isCurrent && !canJump}
               onClick={() => canJump && onSelectStep(step)}
               data-testid={`wizard-step-nav-${step}`}
               className={cn(
                 "flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
-                !visible && "opacity-40 cursor-not-allowed",
-                visible && !isCurrent && !canJump && "opacity-60 cursor-default",
+                !isCurrent && !canJump && "opacity-60 cursor-default",
                 isCurrent && "bg-primary/10 text-primary font-medium",
                 canJump && "hover:bg-muted cursor-pointer",
               )}
@@ -105,14 +110,14 @@ function WizardStepIndicator({
               >
                 {isComplete ? <Check className="h-3.5 w-3.5" /> : index + 1}
               </span>
-              <span>{WIZARD_STEP_LABELS[step]}</span>
+              <span>{getWizardStepLabel(step, state)}</span>
             </button>
           );
         })}
       </nav>
 
       <div className="md:hidden -mx-1 flex gap-2 overflow-x-auto pb-1 custom-scrollbar" aria-label="Wizard steps">
-        {WIZARD_STEPS.filter((step) => isStepVisible(step, state)).map((step) => {
+        {visibleSteps.map((step) => {
           const isCurrent = step === currentStep;
           const stepIndex = visibleSteps.indexOf(step);
           const isComplete =
@@ -137,7 +142,7 @@ function WizardStepIndicator({
               )}
             >
               {isComplete && !isCurrent ? "✓ " : ""}
-              {WIZARD_STEP_LABELS[step]}
+              {getWizardStepLabel(step, state)}
             </button>
           );
         })}
@@ -212,7 +217,7 @@ export function CreateProjectWizard({
   const [state, setState] = useState<CreateProjectWizardState>(() =>
     createInitialCreateProjectWizardState(initialState),
   );
-  const [currentStep, setCurrentStep] = useState<WizardStep>("SOURCE");
+  const [currentStep, setCurrentStep] = useState<WizardStep>(() => resolveInitialStep(initialState));
   const [stepErrors, setStepErrors] = useState<{ field: string; message: string }[]>([]);
 
   const validateContext = useMemo<ValidateWizardContext>(
@@ -232,6 +237,7 @@ export function CreateProjectWizard({
     [state, validateContext],
   );
   const canCreate = allErrors.length === 0 && !isSubmitting;
+  const flowSubtitle = getWizardFlowSubtitle(state);
 
   const updateState = useCallback((patch: Partial<CreateProjectWizardState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -240,24 +246,22 @@ export function CreateProjectWizard({
 
   useEffect(() => {
     if (!open) return;
-    setState(createInitialCreateProjectWizardState(initialState));
-    setCurrentStep("SOURCE");
+    const next = createInitialCreateProjectWizardState(initialState);
+    setState(next);
+    setCurrentStep(resolveInitialStep(initialState));
     setStepErrors([]);
   }, [open, initialState]);
 
   useEffect(() => {
     if (!visibleSteps.includes(currentStep)) {
-      setCurrentStep(visibleSteps[0] ?? "SOURCE");
+      setCurrentStep(visibleSteps[0] ?? getInitialWizardStep(state.flow ?? "intake"));
     }
-  }, [visibleSteps, currentStep]);
+  }, [visibleSteps, currentStep, state.flow]);
 
   const currentIndex = visibleSteps.indexOf(currentStep);
   const isFirstStep = currentIndex <= 0;
   const isLastVisibleStep = currentIndex >= visibleSteps.length - 1;
-  const hasLockedStepsAhead = WIZARD_STEPS.slice(WIZARD_STEPS.indexOf(currentStep) + 1).some(
-    (step) => !visibleSteps.includes(step),
-  );
-  const showNext = !isLastVisibleStep || hasLockedStepsAhead;
+  const showNext = !isLastVisibleStep;
 
   const goNext = () => {
     const errors = validateWizardStep(currentStep, state, validateContext);
@@ -266,6 +270,16 @@ export function CreateProjectWizard({
       return;
     }
     setStepErrors([]);
+
+    if (
+      currentStep === "QUOTATION" &&
+      isQuotationPrefillComplete(state) &&
+      !state.quotationEditDetails
+    ) {
+      setCurrentStep("REVIEW");
+      return;
+    }
+
     if (!isLastVisibleStep) {
       setCurrentStep(visibleSteps[currentIndex + 1]!);
     }
@@ -309,13 +323,20 @@ export function CreateProjectWizard({
     />
   );
 
+  const showSideReview = currentStep !== "REVIEW";
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <AppSheetContent size="wide" mobileFullScreen layout="bare" className="flex h-full flex-col">
         <SheetHeader className="shrink-0 border-b px-4 py-4 sm:px-6">
           <SheetTitle>Create Project</SheetTitle>
+          {flowSubtitle && (
+            <p className="text-sm text-muted-foreground" data-testid="wizard-flow-subtitle">
+              {flowSubtitle}
+            </p>
+          )}
           <SheetDescription className="sr-only">
-            Unified project creation wizard — source, deal structure, customer, commercial terms, and team.
+            Create a project using a tailored flow for quotations, intake, exceptions, or outsource attach.
           </SheetDescription>
         </SheetHeader>
 
@@ -336,7 +357,7 @@ export function CreateProjectWizard({
               <div className="min-w-0 space-y-4">
                 <div>
                   <h2 className="text-base font-semibold" data-testid="wizard-step-heading">
-                    {WIZARD_STEP_LABELS[currentStep]}
+                    {getWizardStepLabel(currentStep, state)}
                   </h2>
                   <p className="text-xs text-muted-foreground">
                     Step {currentIndex + 1} of {visibleSteps.length}
@@ -360,9 +381,11 @@ export function CreateProjectWizard({
                 <div data-testid={`wizard-step-content-${currentStep}`}>{stepContent}</div>
               </div>
 
-              <div className="lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1">
-                <WizardReviewPanel state={state} catalog={catalog} />
-              </div>
+              {showSideReview && (
+                <div className="lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1">
+                  <WizardReviewPanel state={state} catalog={catalog} />
+                </div>
+              )}
             </div>
 
             <div className="flex shrink-0 items-center justify-between gap-2 border-t px-4 py-3 sm:px-6">
@@ -376,13 +399,13 @@ export function CreateProjectWizard({
                 <ChevronLeft className="mr-1 h-4 w-4" />
                 Back
               </Button>
-              {!showNext ? (
-                <span className="text-xs text-muted-foreground">Last step — use Create below</span>
-              ) : (
+              {showNext ? (
                 <Button type="button" onClick={goNext} disabled={isSubmitting} data-testid="wizard-next">
                   Next
                   <ChevronRight className="ml-1 h-4 w-4" />
                 </Button>
+              ) : (
+                <span className="text-xs text-muted-foreground">Last step — use Create below</span>
               )}
             </div>
           </div>

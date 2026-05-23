@@ -21,8 +21,7 @@ import type {
 } from "@/types/project";
 import { DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
 import { buildEmptyAppState } from "@/data/appSeedBuilder";
-import { buildBusinessSeed } from "@/data/seed/buildBusinessSeed";
-import { persistMastersData } from "@/data/seed/seedMastersSync";
+import { persistMastersData } from "@/data/mastersSync";
 import { bootstrapSessionAfterReset, bootstrapSessionAfterSeed } from "@/lib/seedSessionBootstrap";
 import { persistEmptyWorkspaceBoot, setWorkspaceMode } from "@/lib/defaultAppBoot";
 import { APP_DATA_RESET_EPOCH_KEY, clearAllAppStorage } from "@/lib/clearAppStorage";
@@ -1023,48 +1022,12 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [actorRole, roleMatrixOverride]);
 
   const loadBusinessSeed = useCallback((profile: "full" | "smoke" = "full") => {
-    if (!canFeature(actorRole, "resetPrototype", "create", roleMatrixOverride)) {
-      showPermissionDeniedToast(
-        `The ${ROLE_LABELS[actorRole] ?? actorRole} role cannot load business seed data.`,
-      );
-      return;
-    }
-    clearAllAppStorage();
-    try {
-      const { state, verification } = buildBusinessSeed(profile);
-      if (!verification.ok) {
-        if (import.meta.env.DEV) {
-          console.warn("[MSS] Seed verification errors:", verification.errors);
-        }
-        toast({
-          title: "Seed loaded with verification issues",
-          description: `Seed verification reported ${verification.errors.length} issue(s). See console in dev.`,
-          variant: "destructive",
-        });
-      } else if (verification.warnings.length > 0 && import.meta.env.DEV) {
-        toast({
-          title: "Seed loaded",
-          description: verification.warnings[0]?.slice(0, 120),
-        });
-      }
-      setWorkspaceMode("business");
-      persistFreshAppStateSeed(state);
-      persistMastersData();
-      bootstrapSessionAfterSeed(state);
-      window.location.reload();
-    } catch (err) {
-      console.error("[MSS] buildBusinessSeed failed:", err);
-      const fresh = buildDefaultBootState();
-      persistFreshAppStateSeed(fresh);
-      bootstrapSessionAfterReset();
-      toast({
-        title: "Seed build failed",
-        description: err instanceof Error ? err.message : "Restored empty workspace.",
-        variant: "destructive",
-      });
-      window.location.reload();
-    }
-  }, [actorRole, roleMatrixOverride]);
+    toast({
+      title: "Deprecated",
+      description: "Business seed loading has been replaced by the Autonomous Data Engine.",
+      variant: "destructive",
+    });
+  }, []);
 
   // ============ PROJECTS CRUD ============
   const createProjectFromConfirmedQuotation = useCallback(

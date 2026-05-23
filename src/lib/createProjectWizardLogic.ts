@@ -6,7 +6,8 @@ import type {
   WizardStep,
   WizardValidationError,
 } from "@/types/createProjectWizard";
-import { WIZARD_STEPS, createInitialCreateProjectWizardState } from "@/types/createProjectWizard";
+import { WIZARD_FLOW_STEPS, createInitialCreateProjectWizardState } from "@/types/createProjectWizard";
+import { getWizardFlow, legacyLeadPathFromDealKind } from "@/lib/wizardFlow";
 
 /** Optional catalog data for cross-entity validation (quotation eligibility, dates). */
 export type ValidateWizardContext = {
@@ -45,34 +46,44 @@ function isQuotationEligible(quotation: { status: string; linkedProjectId?: stri
   return quotation.status === "approved" && !trim(quotation.linkedProjectId ?? undefined);
 }
 
-/** Lead path used for customer/commercial validation (quotation & direct exception map to equivalents). */
+function resolvedDealKind(state: CreateProjectWizardState): ProjectKind | undefined {
+  if (state.leadPath) return deriveProjectKindFromLeadPathOnly(state);
+  if (state.dealKind) return state.dealKind;
+  if (state.source === "direct_exception" && state.directExceptionProjectKind) {
+    return state.directExceptionProjectKind;
+  }
+  if (state.source === "quotation") return "SOLO_EPC";
+  if (state.source === "attach_outsourced") return "OUTSOURCED_INC";
+  return undefined;
+}
+
+function deriveProjectKindFromLeadPathOnly(state: CreateProjectWizardState): ProjectKind {
+  if (state.leadPath === "MSS_DIRECT") return "SOLO_EPC";
+  if (state.leadPath === "PARTNER") {
+    switch (state.partnerType) {
+      case "fixed_rate":
+        return "FIXED_EPC";
+      case "vendor_channel":
+        return "VENDOR_NETWORK";
+      case "vendorship_only":
+        return "VENDORSHIP_ONLY";
+      default:
+        return "PARTNER_EPC";
+    }
+  }
+  if (state.leadPath === "INC_GIVEN") return "INC_GIVEN";
+  if (state.leadPath === "OUTSOURCED_INC") return "OUTSOURCED_INC";
+  return "SOLO_EPC";
+}
+
+/** Lead path used for customer/commercial validation. */
 export function effectiveLeadPath(
   state: CreateProjectWizardState,
 ): CreateProjectWizardLeadPath | undefined {
-  if (state.source === "quotation") {
-    return "MSS_DIRECT";
-  }
-  if (state.source === "new") {
-    return state.leadPath;
-  }
-  if (state.source === "direct_exception" && state.directExceptionProjectKind) {
-    switch (state.directExceptionProjectKind) {
-      case "SOLO_EPC":
-      case "INC":
-        return "MSS_DIRECT";
-      case "PARTNER_EPC":
-      case "FIXED_EPC":
-      case "VENDOR_NETWORK":
-      case "VENDORSHIP_ONLY":
-        return "PARTNER";
-      case "INC_GIVEN":
-        return "INC_GIVEN";
-      case "OUTSOURCED_INC":
-        return "OUTSOURCED_INC";
-      default:
-        return undefined;
-    }
-  }
+  if (state.source === "quotation") return "MSS_DIRECT";
+  if (state.leadPath) return state.leadPath;
+  const kind = resolvedDealKind(state);
+  if (kind) return legacyLeadPathFromDealKind(kind).leadPath;
   return state.leadPath;
 }
 
@@ -80,24 +91,23 @@ export function effectiveLeadPath(
 export function effectivePartnerType(
   state: CreateProjectWizardState,
 ): CreateProjectWizardPartnerType | undefined {
-  if (state.leadPath === "PARTNER" && state.partnerType) {
-    return state.partnerType;
-  }
-  if (state.source === "direct_exception" && state.directExceptionProjectKind) {
-    switch (state.directExceptionProjectKind) {
-      case "PARTNER_EPC":
-        return "profit_share";
-      case "FIXED_EPC":
-        return "fixed_rate";
-      case "VENDOR_NETWORK":
-        return "vendor_channel";
-      case "VENDORSHIP_ONLY":
-        return "vendorship_only";
-      default:
-        return undefined;
-    }
-  }
+  if (state.leadPath === "PARTNER" && state.partnerType) return state.partnerType;
+  const kind = resolvedDealKind(state);
+  if (kind) return legacyLeadPathFromDealKind(kind).partnerType;
   return state.partnerType;
+}
+
+function requiresPartnerSelection(kind: ProjectKind): boolean {
+  return kind === "PARTNER_EPC" || kind === "FIXED_EPC";
+}
+
+function validatePartnerDealRequirements(state: CreateProjectWizardState): WizardValidationError[] {
+  const errors: WizardValidationError[] = [];
+  const kind = deriveProjectKind(state);
+  if (requiresPartnerSelection(kind) && !trim(state.selectedPartnerId)) {
+    pushError(errors, "selectedPartnerId", "Select the partner who brought this deal.");
+  }
+  return errors;
 }
 
 /** INC Given computed contract total (matches legacy create-project rate logic). */
@@ -119,7 +129,7 @@ export function computeIncGivenTotal(state: CreateProjectWizardState): number {
 }
 
 export function isAttachOutsourcedSource(state: CreateProjectWizardState): boolean {
-  return state.source === "attach_outsourced";
+  return getWizardFlow(state) === "attach" || state.source === "attach_outsourced";
 }
 
 /** Computed outsource total when attaching INC scope to an existing project. */
@@ -139,50 +149,37 @@ export function computeOutsourceAttachTotal(
   return qty > 0 ? rate * qty : 0;
 }
 
-function validateSourceStep(
+function validateQuotationStep(
   state: CreateProjectWizardState,
   context?: ValidateWizardContext,
 ): WizardValidationError[] {
   const errors: WizardValidationError[] = [];
-
-  switch (state.source) {
-    case "direct_exception":
-      if (!trim(state.directExceptionReason)) {
-        pushError(errors, "directExceptionReason", "Direct exception reason is required.");
-      }
-      if (!state.directExceptionProjectKind) {
-        pushError(errors, "directExceptionProjectKind", "Select a deal kind for this exception.");
-      }
-      break;
-    case "quotation":
-      if (!trim(state.selectedQuotationId)) {
-        pushError(errors, "selectedQuotationId", "Select an approved quotation.");
-      } else if (context?.quotations) {
-        const quotation = context.quotations.find((q) => q.id === state.selectedQuotationId);
-        if (!quotation) {
-          pushError(errors, "selectedQuotationId", "Selected quotation was not found.");
-        } else if (!isQuotationEligible(quotation)) {
-          pushError(
-            errors,
-            "selectedQuotationId",
-            "Quotation must be approved and not already converted to a project.",
-          );
-        }
-      }
-      break;
-    case "attach_outsourced":
-      if (!trim(state.attachToProjectId)) {
-        pushError(errors, "attachToProjectId", "Select a project to attach outsourced INC work to.");
-      }
-      break;
-    default:
-      break;
+  if (!trim(state.selectedQuotationId)) {
+    pushError(errors, "selectedQuotationId", "Select an approved quotation.");
+  } else if (context?.quotations) {
+    const quotation = context.quotations.find((q) => q.id === state.selectedQuotationId);
+    if (!quotation) {
+      pushError(errors, "selectedQuotationId", "Selected quotation was not found.");
+    } else if (!isQuotationEligible(quotation)) {
+      pushError(
+        errors,
+        "selectedQuotationId",
+        "Quotation must be approved and not already converted to a project.",
+      );
+    }
   }
-
   return errors;
 }
 
-function validateLeadPathStep(state: CreateProjectWizardState): WizardValidationError[] {
+function validateExceptionStep(state: CreateProjectWizardState): WizardValidationError[] {
+  const errors: WizardValidationError[] = [];
+  if (!trim(state.directExceptionReason)) {
+    pushError(errors, "directExceptionReason", "Direct exception reason is required.");
+  }
+  return [...errors, ...validateDealStructureStep(state)];
+}
+
+function validateDealStructureStep(state: CreateProjectWizardState): WizardValidationError[] {
   const errors: WizardValidationError[] = [];
 
   if (!state.leadPath) {
@@ -195,16 +192,53 @@ function validateLeadPathStep(state: CreateProjectWizardState): WizardValidation
       pushError(errors, "partnerType", "Select a partner network type.");
     }
     const partnerType = state.partnerType;
-    if (
-      partnerType === "profit_share" ||
-      partnerType === "fixed_rate"
-    ) {
+    if (partnerType === "profit_share" || partnerType === "fixed_rate") {
       if (!trim(state.selectedPartnerId)) {
         pushError(errors, "selectedPartnerId", "Select the partner who brought this deal.");
       }
     }
   }
 
+  return errors;
+}
+
+function validateDealTypeStep(state: CreateProjectWizardState): WizardValidationError[] {
+  return validateDealStructureStep(state);
+}
+
+function validateAttachPartiesStep(state: CreateProjectWizardState): WizardValidationError[] {
+  const errors: WizardValidationError[] = [];
+  if (!trim(state.attachToProjectId)) {
+    pushError(errors, "attachToProjectId", "Select a project to attach outsourced INC work to.");
+  }
+  if (!trim(state.selectedSubcontractorId)) {
+    pushError(errors, "selectedSubcontractorId", "Select the installation subcontractor.");
+  }
+  return errors;
+}
+
+function validateOutsourceTermsStep(state: CreateProjectWizardState): WizardValidationError[] {
+  return validateCommercialStep(state);
+}
+
+function validatePartiesStep(state: CreateProjectWizardState): WizardValidationError[] {
+  const errors = validateCustomerStep(state);
+  return [...errors, ...validatePartnerDealRequirements(state)];
+}
+
+function validateReviewStep(
+  state: CreateProjectWizardState,
+  context?: ValidateWizardContext,
+): WizardValidationError[] {
+  const flow = getWizardFlow(state);
+  if (flow === "attach") return [];
+
+  const errors: WizardValidationError[] = [];
+  if (isVendorshipStepApplicable(state)) {
+    errors.push(...validateVendorshipStep(state));
+  }
+  errors.push(...validateAgentStep(state));
+  errors.push(...validateTeamStep(state, context));
   return errors;
 }
 
@@ -409,20 +443,22 @@ export function validateWizardStep(
   }
 
   switch (step) {
-    case "SOURCE":
-      return validateSourceStep(state, context);
-    case "LEAD_PATH":
-      return validateLeadPathStep(state);
-    case "CUSTOMER":
-      return validateCustomerStep(state);
+    case "QUOTATION":
+      return validateQuotationStep(state, context);
+    case "EXCEPTION":
+      return validateExceptionStep(state);
+    case "DEAL_TYPE":
+      return validateDealTypeStep(state);
+    case "ATTACH_PARTIES":
+      return validateAttachPartiesStep(state);
+    case "OUTSOURCE_TERMS":
+      return validateOutsourceTermsStep(state);
+    case "PARTIES":
+      return validatePartiesStep(state);
     case "COMMERCIAL":
       return validateCommercialStep(state);
-    case "VENDORSHIP":
-      return validateVendorshipStep(state);
-    case "AGENT":
-      return validateAgentStep(state);
-    case "TEAM":
-      return validateTeamStep(state, context);
+    case "REVIEW":
+      return validateReviewStep(state, context);
     default:
       return [];
   }
@@ -446,60 +482,57 @@ export function validateVisibleWizardSteps(
  * 4. Lead path + partner sub-type → derived kind.
  */
 export function deriveProjectKind(state: CreateProjectWizardState): ProjectKind {
-  if (state.source === "quotation") {
-    return "SOLO_EPC";
-  }
-
-  if (state.source === "direct_exception" && state.directExceptionProjectKind) {
-    return state.directExceptionProjectKind;
-  }
-
-  if (state.source === "attach_outsourced") {
-    return "OUTSOURCED_INC";
-  }
-
-  if (state.leadPath === "MSS_DIRECT") {
-    return "SOLO_EPC";
-  }
-
-  if (state.leadPath === "PARTNER") {
-    switch (state.partnerType) {
-      case "fixed_rate":
-        return "FIXED_EPC";
-      case "vendor_channel":
-        return "VENDOR_NETWORK";
-      case "vendorship_only":
-        return "VENDORSHIP_ONLY";
-      case "profit_share":
-        return "PARTNER_EPC";
-      default:
-        return "PARTNER_EPC";
-    }
-  }
-
-  if (state.leadPath === "INC_GIVEN") {
-    return "INC_GIVEN";
-  }
-
-  if (state.leadPath === "OUTSOURCED_INC") {
-    return "OUTSOURCED_INC";
-  }
-
-  return "SOLO_EPC";
+  const kind = resolvedDealKind(state);
+  if (kind) return kind;
+  if (state.source === "quotation") return "SOLO_EPC";
+  if (state.source === "attach_outsourced") return "OUTSOURCED_INC";
+  return deriveProjectKindFromLeadPathOnly(state);
 }
 
-/** Whether deal structure is resolved enough to show steps after lead path. */
+function isLeadPathStructureResolved(state: CreateProjectWizardState): boolean {
+  if (!state.leadPath) return false;
+  if (state.leadPath === "PARTNER") {
+    if (!state.partnerType) return false;
+    if (
+      (state.partnerType === "profit_share" || state.partnerType === "fixed_rate") &&
+      !trim(state.selectedPartnerId)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Whether deal structure is resolved enough for downstream steps. */
+export function isDealKindResolved(state: CreateProjectWizardState): boolean {
+  const flow = getWizardFlow(state);
+  if (flow === "attach") {
+    return Boolean(trim(state.attachToProjectId) && trim(state.selectedSubcontractorId));
+  }
+  if (flow === "quotation") {
+    return Boolean(trim(state.selectedQuotationId));
+  }
+  if (flow === "direct_exception") {
+    return Boolean(trim(state.directExceptionReason) && isLeadPathStructureResolved(state));
+  }
+  return isLeadPathStructureResolved(state);
+}
+
+/** @deprecated Use {@link isDealKindResolved} */
 export function isLeadPathResolved(state: CreateProjectWizardState): boolean {
-  if (state.source === "attach_outsourced") {
-    return Boolean(trim(state.attachToProjectId));
-  }
-  if (state.source === "quotation") {
-    return true;
-  }
-  if (state.source === "direct_exception") {
-    return Boolean(state.directExceptionProjectKind);
-  }
-  return Boolean(state.leadPath);
+  return isDealKindResolved(state);
+}
+
+export function isQuotationPrefillComplete(state: CreateProjectWizardState): boolean {
+  if (getWizardFlow(state) !== "quotation") return false;
+  return (
+    Boolean(trim(state.selectedQuotationId)) &&
+    Boolean(trim(state.projectName)) &&
+    parsePositive(state.contractAmount) > 0 &&
+    (state.customerMode === "select"
+      ? Boolean(trim(state.selectedCustomerId))
+      : Boolean(trim(state.newCustomerName)))
+  );
 }
 
 const VENDORSHIP_APPLICABLE_KINDS = new Set<ProjectKind>([
@@ -509,52 +542,41 @@ const VENDORSHIP_APPLICABLE_KINDS = new Set<ProjectKind>([
   "VENDOR_NETWORK",
 ]);
 
-/** Step 5 — vendorship & GST (not shown for INC-only or vendorship-only fee paths). */
+/** Vendorship & GST on Review (not for INC-only or vendorship-only fee paths). */
 export function isVendorshipStepApplicable(state: CreateProjectWizardState): boolean {
-  if (!isLeadPathResolved(state)) {
-    return false;
-  }
+  if (!isDealKindResolved(state)) return false;
   return VENDORSHIP_APPLICABLE_KINDS.has(deriveProjectKind(state));
 }
 
-/**
- * Whether a wizard step should appear in the linear flow for the current selections.
- */
 export function isStepVisible(step: WizardStep, state: CreateProjectWizardState): boolean {
-  if (state.source === "attach_outsourced") {
-    if (step === "SOURCE") return true;
-    if (step === "CUSTOMER" || step === "COMMERCIAL") {
-      return isLeadPathResolved(state);
-    }
+  const flow = getWizardFlow(state);
+  const manifest = WIZARD_FLOW_STEPS[flow];
+  if (!manifest.includes(step)) return false;
+
+  if (flow === "quotation") {
+    if (step === "QUOTATION" || step === "REVIEW") return true;
+    if ((step === "PARTIES" || step === "COMMERCIAL") && state.quotationEditDetails) return true;
     return false;
   }
 
-  switch (step) {
-    case "SOURCE":
-      return true;
-
-    case "LEAD_PATH":
-      return state.source === "new";
-
-    case "CUSTOMER":
-    case "COMMERCIAL":
-      return isLeadPathResolved(state);
-
-    case "VENDORSHIP":
-      return isVendorshipStepApplicable(state);
-
-    case "AGENT":
-    case "TEAM":
-      return isLeadPathResolved(state);
-
-    default:
-      return false;
+  if (flow === "attach") {
+    if (step === "ATTACH_PARTIES") return true;
+    if (step === "OUTSOURCE_TERMS") return isDealKindResolved(state);
+    return false;
   }
+
+  if (step === "EXCEPTION" || step === "DEAL_TYPE" || step === "QUOTATION") return true;
+
+  if (step === "PARTIES" || step === "COMMERCIAL" || step === "REVIEW") {
+    return isDealKindResolved(state);
+  }
+
+  return false;
 }
 
 /** Ordered list of steps visible for the current wizard state. */
 export function getVisibleWizardSteps(state: CreateProjectWizardState): WizardStep[] {
-  return WIZARD_STEPS.filter((step) => isStepVisible(step, state));
+  return WIZARD_FLOW_STEPS[getWizardFlow(state)].filter((step) => isStepVisible(step, state));
 }
 
 /** Convenience helper for tests and review panel — merges partial state onto defaults. */

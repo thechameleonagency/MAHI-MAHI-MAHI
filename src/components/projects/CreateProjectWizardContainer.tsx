@@ -1,195 +1,146 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CreateProjectWizard } from "@/components/projects/CreateProjectWizard";
+import { UnifiedProjectWizard } from "./wizard/UnifiedProjectWizard";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "@/hooks/use-toast";
 import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
-import { buildWizardInitialState } from "@/lib/createProjectWizardInitialState";
-import { filterEligibleWizardQuotations, filterOpenWizardProjects } from "@/lib/createProjectWizardPrefill";
-import { executeCreateProjectWizard } from "@/lib/executeCreateProjectWizard";
-import type { ProjectDraftFromCustomer } from "@/lib/createFromContext";
-import type { CreateProjectWizardState } from "@/types/createProjectWizard";
-import { useAppSession } from "@/app/providers/AppSessionProvider";
-import { useFoundation } from "@/app/providers/FoundationProvider";
+import type { Invoice } from "@/types/finance";
 
 export interface CreateProjectWizardContainerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  prefillQuotationId?: string;
-  prefillCustomerDraft?: ProjectDraftFromCustomer;
-  /** Merged on top of URL/draft prefill (e.g. `{ source: "direct_exception" }`). */
-  initialStateOverride?: Partial<CreateProjectWizardState>;
 }
 
 export function CreateProjectWizardContainer({
   open,
   onOpenChange,
-  prefillQuotationId,
-  prefillCustomerDraft,
-  initialStateOverride,
 }: CreateProjectWizardContainerProps) {
   const navigate = useNavigate();
-  const { currentRole } = useAppSession();
-  const { permissionService } = useFoundation();
   const {
-    customers,
-    partners,
-    incGiverCompanies,
-    vendorshipCompanies,
-    agents,
-    quotations,
-    projects,
-    loans,
-    employees,
+    addProject,
+    addInvoice,
     generateId,
-    allocateCustomerId,
-    addCustomer,
-    addExpense,
-    convertEnquiryToCustomer,
-    createProjectFromConfirmedQuotation,
-    createProjectIntake,
-    createDirectProjectException,
-    updateProject,
   } = useAppData();
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const canDirectException = permissionService.canPerformAction(
-    currentRole,
-    "project:create_direct_exception",
-  );
-
-  const initialState = useMemo(
-    () => ({
-      ...buildWizardInitialState({
-        prefillQuotationId,
-        prefillCustomerDraft,
-        quotations,
-        customers,
-      }),
-      ...initialStateOverride,
-    }),
-    [prefillQuotationId, prefillCustomerDraft, quotations, customers, initialStateOverride],
-  );
-
-  const catalog = useMemo(
-    () => ({
-      customers,
-      incGiverCompanies,
-      quotations: filterEligibleWizardQuotations(quotations),
-      projects: filterOpenWizardProjects(projects),
-      partners,
-      loans,
-      vendorshipCompanies,
-      agents,
-      employees,
-      canDirectException,
-    }),
-    [
-      customers,
-      incGiverCompanies,
-      quotations,
-      projects,
-      partners,
-      loans,
-      vendorshipCompanies,
-      agents,
-      employees,
-      canDirectException,
-    ],
-  );
-
   const handleCreate = useCallback(
-    async (state: CreateProjectWizardState) => {
-      setIsSubmitting(true);
+    async (payload: any) => {
       try {
-        const result = await executeCreateProjectWizard({
-          state,
-          customers,
-          partners,
-          incGiverCompanies,
-          vendorshipCompanies,
-          agents,
-          quotations,
-          projects,
-          generateId,
-          allocateCustomerId,
-          addCustomer,
-          addExpense,
-          convertEnquiryToCustomer,
-          createProjectFromConfirmedQuotation,
-          createProjectIntake,
-          createDirectProjectException,
-          updateProject,
+        const projectId = generateId("PRJ");
+        const dateNow = new Date().toISOString();
+        
+        // Execute the Creation payload mapping
+        const newProject = {
+          id: projectId,
+          ...payload,
+          lifecycleStatus: "New",
+          status: "New",
+          createdAt: dateNow,
+          startDate: dateNow.split("T")[0],
+          amountReceived: 0,
+          amountInvoiced: 0,
+          executionLineItems: [],
+          siteChecklist: [],
+        };
+        
+        await addProject(newProject);
+
+        // ==========================================
+        // PHASE 4: AUTOMATED GENESIS DRAFTS
+        // ==========================================
+        
+        // 1. Client Draft Invoice
+        // Axiom 1: If MSS owns vendorship, we MUST bill the client.
+        if (payload.vendorshipOwner === "MSS") {
+          const clientInvoice: Invoice = {
+            id: generateId("INV"),
+            invoiceNumber: `DRAFT-${projectId}-C`,
+            type: "invoice",
+            documentTypeSource: "user",
+            customerId: payload.client, // Simplification for prototype (should be customerId)
+            customerName: payload.client,
+            customerContact: payload.clientPhone,
+            projectId: projectId,
+            projectName: payload.name,
+            items: [{
+              description: `Solar EPC Execution - ${payload.capacity}`,
+              hsn: "8541",
+              quantity: 1,
+              rate: payload.contractAmount,
+              gstRate: 0,
+            }],
+            services: [],
+            subtotal: payload.contractAmount,
+            cgst: 0,
+            sgst: 0,
+            igst: 0,
+            total: payload.contractAmount,
+            status: "draft",
+            invoiceDate: dateNow.split("T")[0],
+            dueDate: dateNow.split("T")[0],
+            createdAt: dateNow,
+          };
+          addInvoice(clientInvoice);
+        }
+
+        // 2. B2B Receivable Draft (Partner / Third Party)
+        // Axiom 2: If Partner/Third Party owns code, MSS bills them for the Backend Rate.
+        if (payload.dealOrigin === "PARTNER" && payload.vendorshipOwner !== "MSS") {
+          const backendTotal = (payload.mssBackendFixedRate || 0) * (parseFloat(payload.capacity) || 0);
+          
+          if (backendTotal > 0) {
+            const b2bInvoice: Invoice = {
+              id: generateId("INV"),
+              invoiceNumber: `DRAFT-${projectId}-B2B`,
+              type: "invoice",
+              documentTypeSource: "user",
+              customerId: payload.counterpartyId || "UNKNOWN_PARTNER",
+              customerName: "B2B Counterparty",
+              projectId: projectId,
+              projectName: payload.name,
+              items: [],
+              services: [{
+                description: `B2B Backend Execution Fee - ${payload.capacity}`,
+                sac: "9983",
+                rate: backendTotal,
+                gstRate: payload.partnerProvidesGst === false ? 0 : 18,
+              }],
+              subtotal: backendTotal,
+              cgst: 0,
+              sgst: 0,
+              igst: 0,
+              total: backendTotal, // Simplified GST math for prototype draft
+              status: "draft",
+              invoiceDate: dateNow.split("T")[0],
+              dueDate: dateNow.split("T")[0],
+              createdAt: dateNow,
+            };
+            addInvoice(b2bInvoice);
+          }
+        }
+        
+        toast({
+          title: "Project created",
+          description: "Genesis drafts generated successfully.",
         });
 
-        if (!result.ok) {
-          toast({
+        navigate(`/projects/${projectId}`);
+      } catch (err: any) {
+         toast({
             title: "Could not create project",
-            description: friendlyCommandErrorMessage(result.error, result.error),
+            description: friendlyCommandErrorMessage(err, "Creation failed"),
             variant: "destructive",
           });
-          return;
-        }
-
-        if (state.source === "attach_outsourced") {
-          toast({
-            title: `Outsourced to ${result.attachSubcontractorName || "subcontractor"}`,
-            description: `Attached to project ${result.projectId}.`,
-          });
-        } else if (state.source === "direct_exception") {
-          const reason = result.directExceptionReason ?? "";
-          toast({
-            title: "Direct exception project created",
-            description: reason.length > 120 ? `${reason.slice(0, 117)}…` : reason,
-          });
-        } else {
-          toast({
-            title: "Project created",
-            description: "The project was created successfully.",
-          });
-        }
-
-        onOpenChange(false);
-        navigate(`/projects/${result.projectId}`, {
-          state: result.directExceptionReason
-            ? { directExceptionReason: result.directExceptionReason }
-            : undefined,
-        });
-      } finally {
-        setIsSubmitting(false);
+          throw err; 
       }
     },
-    [
-      customers,
-      partners,
-      incGiverCompanies,
-      vendorshipCompanies,
-      agents,
-      quotations,
-      projects,
-      generateId,
-      allocateCustomerId,
-      addCustomer,
-      addExpense,
-      convertEnquiryToCustomer,
-      createProjectFromConfirmedQuotation,
-      createProjectIntake,
-      createDirectProjectException,
-      updateProject,
-      onOpenChange,
-      navigate,
-    ],
+    [addProject, addInvoice, generateId, navigate]
   );
 
   return (
-    <CreateProjectWizard
+    <UnifiedProjectWizard
       open={open}
       onOpenChange={onOpenChange}
-      initialState={initialState}
-      catalog={catalog}
-      onCreate={handleCreate}
-      isSubmitting={isSubmitting}
+      onComplete={handleCreate}
     />
   );
 }

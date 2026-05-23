@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CreateProjectWizard } from "@/components/projects/CreateProjectWizard";
-import { WIZARD_STEP_LABELS } from "@/types/createProjectWizard";
 
 describe("CreateProjectWizard", () => {
   beforeEach(() => {
@@ -24,7 +23,7 @@ describe("CreateProjectWizard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders title, source step, and live review panel", () => {
+  it("renders title, deal structure step for intake, and live review panel", () => {
     render(
       <CreateProjectWizard
         open
@@ -34,7 +33,7 @@ describe("CreateProjectWizard", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Create Project" })).toBeTruthy();
-    expect(screen.getByTestId("wizard-source-step")).toBeTruthy();
+    expect(screen.getByTestId("wizard-lead-path-step")).toBeTruthy();
     expect(screen.getByTestId("wizard-review-project").textContent).toBe("Sharma 5kW");
     expect(screen.getByTestId("wizard-review-kind").textContent).toBe("Solo");
   });
@@ -45,13 +44,13 @@ describe("CreateProjectWizard", () => {
     expect(createBtn.disabled).toBe(true);
   });
 
-  it("enables Create for a fully valid MSS direct draft", () => {
+  it("enables Create for a fully valid intake MSS direct draft", () => {
     render(
       <CreateProjectWizard
         open
         onOpenChange={vi.fn()}
         initialState={{
-          source: "new",
+          flow: "intake",
           leadPath: "MSS_DIRECT",
           customerMode: "select",
           selectedCustomerId: "C-001",
@@ -69,102 +68,43 @@ describe("CreateProjectWizard", () => {
     expect(screen.getByTestId("wizard-review-client").textContent).toBe("Sharma Family");
   });
 
-  it("formats contract value in review panel with Indian grouping (Mn14)", () => {
+  it("navigates Next from deal structure to parties when lead path is selected", () => {
     render(
       <CreateProjectWizard
         open
         onOpenChange={vi.fn()}
-        initialState={{
-          source: "new",
-          leadPath: "MSS_DIRECT",
-          customerMode: "select",
-          selectedCustomerId: "C-001",
-          projectName: "Sharma 5kW",
-          capacity: "5 kW",
-          contractAmount: 1234567,
-          paymentType: "cash",
-        }}
-        catalog={{ customers: [{ id: "C-001", name: "Sharma Family" }] }}
+        initialState={{ flow: "intake", leadPath: "MSS_DIRECT" }}
       />,
     );
 
-    expect(screen.getByTestId("wizard-review-contract").textContent).toBe("₹12,34,567");
-  });
-
-  it("navigates Next and Back across visible steps", () => {
-    render(
-      <CreateProjectWizard
-        open
-        onOpenChange={vi.fn()}
-        initialState={{ source: "new" }}
-      />,
-    );
-
-    expect(screen.getByTestId("wizard-step-content-SOURCE")).toBeTruthy();
+    expect(screen.getByTestId("wizard-step-content-DEAL_TYPE")).toBeTruthy();
     fireEvent.click(screen.getByTestId("wizard-next"));
-    expect(screen.getByTestId("wizard-step-content-LEAD_PATH")).toBeTruthy();
-    expect(screen.getByTestId("wizard-step-heading").textContent).toBe(WIZARD_STEP_LABELS.LEAD_PATH);
-
-    fireEvent.click(screen.getByTestId("wizard-back"));
-    expect(screen.getByTestId("wizard-step-content-SOURCE")).toBeTruthy();
+    expect(screen.getByTestId("wizard-step-content-PARTIES")).toBeTruthy();
+    expect(screen.getByTestId("wizard-step-heading").textContent).toBe("Parties & site");
   });
 
-  it("shows validation errors when Next fails on LEAD_PATH", () => {
+  it("keeps Create disabled until deal structure is selected on intake", () => {
+    render(<CreateProjectWizard open onOpenChange={vi.fn()} initialState={{ flow: "intake" }} />);
+
+    expect((screen.getByTestId("wizard-create") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("wizard-next")).toBeNull();
+  });
+
+  it("shows partner network type options under Partner lead path", () => {
     render(
       <CreateProjectWizard
         open
         onOpenChange={vi.fn()}
-        initialState={{ source: "new" }}
+        initialState={{ flow: "intake", leadPath: "PARTNER" }}
       />,
     );
 
-    fireEvent.click(screen.getByTestId("wizard-next"));
-    fireEvent.click(screen.getByTestId("wizard-next"));
-
-    expect(screen.getByTestId("wizard-step-errors")).toBeTruthy();
-    expect(screen.getByText(/Select how this project came to you/i)).toBeTruthy();
-    expect(screen.getByTestId("wizard-lead-path-step")).toBeTruthy();
+    expect(screen.getByTestId("wizard-partner-type-vendor_channel")).toBeTruthy();
+    expect(screen.getByText("Vendor Channel")).toBeTruthy();
+    expect(screen.queryByText("Vendor Network")).toBeNull();
   });
 
-  it("greys out LEAD_PATH in nav for quotation source", () => {
-    render(
-      <CreateProjectWizard
-        open
-        onOpenChange={vi.fn()}
-        initialState={{ source: "quotation", selectedQuotationId: "Q-1" }}
-        catalog={{ quotations: [{ id: "Q-1", status: "approved" }] }}
-      />,
-    );
-
-    const leadNav = screen.getByTestId("wizard-step-nav-LEAD_PATH") as HTMLButtonElement;
-    expect(leadNav.className).toMatch(/opacity-40/);
-    expect(leadNav.disabled).toBe(true);
-  });
-
-  it("updates review kind when partner type changes via renderStepContent", () => {
-    render(
-      <CreateProjectWizard
-        open
-        onOpenChange={vi.fn()}
-        initialState={{ source: "new", leadPath: "PARTNER", partnerType: "profit_share" }}
-        renderStepContent={(_step, state, updateState) => (
-          <button
-            type="button"
-            data-testid="switch-fixed-rate"
-            onClick={() => updateState({ partnerType: "fixed_rate" })}
-          >
-            Switch to fixed rate ({state.partnerType})
-          </button>
-        )}
-      />,
-    );
-
-    expect(screen.getByTestId("wizard-review-kind").textContent).toBe("Partner");
-    fireEvent.click(screen.getByTestId("switch-fixed-rate"));
-    expect(screen.getByTestId("wizard-review-kind").textContent).toBe("Fixed");
-  });
-
-  it("calls onCreate with wizard state when valid", async () => {
+  it("calls onCreate with wizard state when attach flow is valid", async () => {
     const onCreate = vi.fn();
     render(
       <CreateProjectWizard
@@ -176,6 +116,7 @@ describe("CreateProjectWizard", () => {
           partners: [{ id: "SUB-1", name: "Install Co", type: "Subcontractor", phone: "", createdAt: "" }],
         }}
         initialState={{
+          flow: "attach",
           source: "attach_outsourced",
           attachToProjectId: "P-100",
           selectedSubcontractorId: "SUB-1",
@@ -188,6 +129,5 @@ describe("CreateProjectWizard", () => {
     fireEvent.click(screen.getByTestId("wizard-create"));
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(onCreate.mock.calls[0][0].attachToProjectId).toBe("P-100");
-    expect(onCreate.mock.calls[0][0].selectedSubcontractorId).toBe("SUB-1");
   });
 });

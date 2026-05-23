@@ -62,6 +62,7 @@ import AuditDataFlow from "./pages/audit/AuditDataFlow";
 import ChartOfAccounts from "./pages/audit/ChartOfAccounts";
 import Login from "./pages/Login";
 import InviteAccept from "./pages/InviteAccept";
+import SuperAdminDataEngine from "./pages/SuperAdminDataEngine";
 import { AuthGate } from "./components/auth/AuthGate";
 import { ThemeAppearanceProvider } from "@/app/providers/ThemeAppearanceProvider";
 
@@ -140,6 +141,7 @@ const App = () => (
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/settings/design-system" element={<DesignSystem />} />
+                <Route path="/super-admin/data-engine" element={<SuperAdminDataEngine />} />
                 <Route path="/audit" element={<AuditDashboard />} />
                 <Route path="/audit/chart-of-accounts" element={<ChartOfAccounts />} />
                 <Route path="/audit/profit-loss" element={<ProfitLoss />} />

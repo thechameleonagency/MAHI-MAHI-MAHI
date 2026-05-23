@@ -758,55 +758,17 @@ const Settings = () => {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Use <strong>Reset to empty workspace</strong> to demo masters-only boot. Use <strong>Load business seed</strong> to rebuild the portfolio from scratch. See `SEEDING DATA.md`.
+                  The fake static seed architecture has been replaced by the Autonomous Data Engine.
                 </p>
-                {canViewData && !canResetPrototype && (
-                  <p className="text-sm text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
-                    Load and reset require Super Admin. Log in as Rajesh Kulkarni (super_admin) from the login page.
-                  </p>
-                )}
                 {canResetPrototype && (
-                  <>
-                    <div className="flex flex-wrap items-end gap-3">
-                      <div className="space-y-1">
-                        <Label htmlFor="seed-profile">Seed profile</Label>
-                        <Select value={seedProfile} onValueChange={(v) => setSeedProfile(v as "full" | "smoke")}>
-                          <SelectTrigger id="seed-profile" className="w-[180px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="full">Full (4–5 months)</SelectItem>
-                            <SelectItem value="smoke">Smoke (CI ~30%)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button
-                        type="button"
-                        className="gap-2"
-                        onClick={() => setIsLoadSeedConfirmOpen(true)}
-                      >
-                        <Database className="h-4 w-4" />
-                        Load business seed
-                      </Button>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="gap-2"
-                      onClick={() => window.open("/prototype-wipe.html", "_blank", "noopener,noreferrer")}
-                    >
-                      Open full storage wipe (localStorage)
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      className="gap-2"
-                      onClick={() => setIsResetDataConfirmOpen(true)}
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                      Reset to empty workspace
-                    </Button>
-                  </>
+                  <Button
+                    type="button"
+                    className="gap-2"
+                    onClick={() => navigate("/super-admin/data-engine")}
+                  >
+                    <Database className="h-4 w-4" />
+                    Open Data Engine Control Center
+                  </Button>
                 )}
               </CardContent>
             </Card>

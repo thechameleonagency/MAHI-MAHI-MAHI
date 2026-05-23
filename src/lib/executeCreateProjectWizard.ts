@@ -1,6 +1,7 @@
 import type { ProjectIntakePayload } from "@/application/services/ProjectTypeService";
 import type { ProjectKind } from "@/domain/projectTypes/types";
 import { buildProjectFromWizardState } from "@/lib/buildProjectFromWizardState";
+import { normalizeWizardState } from "@/lib/normalizeWizardState";
 import { computeIncGivenTotal, effectiveLeadPath } from "@/lib/createProjectWizardLogic";
 import { applyTeamAssignmentToProject } from "@/lib/projectTeamAssignment";
 import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
@@ -291,7 +292,7 @@ function recordVendorshipExpense(
 export async function executeCreateProjectWizard(
   deps: ExecuteCreateProjectWizardDeps,
 ): Promise<ExecuteCreateProjectWizardResult> {
-  const { state } = deps;
+  const state = normalizeWizardState(deps.state);
 
   if (state.source === "attach_outsourced") {
     const projectId = trim(state.attachToProjectId);

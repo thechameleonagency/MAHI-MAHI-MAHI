@@ -1,4 +1,4 @@
-import type { Project } from "@/types/project";
+﻿import type { Project } from "@/types/project";
 import type { UserRole } from "@/domain/entities/identity";
 
 /** Work-area tab keys rendered on ProjectDetail (distinct from settings-style `visibleTabs` keys). */
@@ -6,7 +6,7 @@ export type ProjectDetailWorkTab = { value: string; label: string; snapshotKeys:
 
 const BASE_DEFS: ProjectDetailWorkTab[] = [
   { value: "progress-report", label: "Progress Report", snapshotKeys: ["work", "progress_report"] },
-  // Quotations tab removed — quotation surfaces as a chip in the header card now.
+  // Quotations tab removed ÔÇö quotation surfaces as a chip in the header card now.
   { value: "document-creator", label: "Document Creator", snapshotKeys: ["documents", "document_creator"] },
   { value: "materials-sent", label: "Materials Sent", snapshotKeys: ["materials", "materials_sent"] },
   { value: "financials", label: "Financials", snapshotKeys: ["billing", "collections"] },
@@ -20,7 +20,7 @@ function visibleSet(project: Project): Set<string> {
   return new Set(tabs);
 }
 
-/** Full tab definitions before visibility filter. Identity helper — all kinds get the same set,
+/** Full tab definitions before visibility filter. Identity helper ÔÇö all kinds get the same set,
  *  capability differences come from the snapshot. */
 export function projectKindTabDefs(_project: Project): ProjectDetailWorkTab[] {
   return BASE_DEFS;
@@ -59,11 +59,11 @@ export function projectForbidsAction(project: Project | undefined, action: strin
  *
  * - `super_admin` / `admin` / `management`: every tab.
  * - `ceo`: every tab (rendered with a "Read-only" badge by the page itself).
- * - `installation_team`: execution-related tabs only — no financials, no partner economics.
+ * - `installation_team`: execution-related tabs only ÔÇö no financials, no partner economics.
  * - `salesperson`: only the progress-report tab (sees won-from-own-quotation projects in a basic view).
  *
  * Apply this *after* `filterWorkTabsBySnapshot` so kind-specific tabs (which depend on
- * `projectKindConfigSnapshot.visibleTabs`) are still respected. Result: role × kind intersection.
+ * `projectKindConfigSnapshot.visibleTabs`) are still respected. Result: role ├ù kind intersection.
  */
 const EXECUTION_TABS_FOR_INSTALLATION = new Set([
   "progress-report",

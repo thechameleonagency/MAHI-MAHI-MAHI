@@ -44,5 +44,5 @@ export function clearAllAppStorage(): string[] {
 
 /** Bump when every browser must drop stale data and re-bootstrap (default = business seed). */
 /** Bump when default boot behavior changes (v2 = business seed on first open / LS clear). */
-export const APP_DATA_RESET_EPOCH = "2026-05-21-business-seed-v2-default-boot";
+export const APP_DATA_RESET_EPOCH = "2026-05-23-unified-wizard-redesign";
 export const APP_DATA_RESET_EPOCH_KEY = "mahi_solar_app_reset_epoch";

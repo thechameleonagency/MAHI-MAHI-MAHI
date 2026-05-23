@@ -365,7 +365,9 @@ const Projects = () => {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => openCreateProjectWizard({ source: "direct_exception" })}
+              onClick={() =>
+                openCreateProjectWizard({ flow: "direct_exception", source: "direct_exception" })
+              }
             >
               Direct exception
             </Button>

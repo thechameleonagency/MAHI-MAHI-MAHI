@@ -1,4 +1,5 @@
 import { buildQuotationPrefillPatch } from "@/lib/createProjectWizardPrefill";
+import { syncFlowAndSource } from "@/lib/wizardFlow";
 import type { ProjectDraftFromCustomer } from "@/lib/createFromContext";
 import type { Customer } from "@/types/finance";
 import type { Quotation } from "@/types/project";
@@ -7,7 +8,8 @@ import type { CreateProjectWizardState } from "@/types/createProjectWizard";
 export function buildWizardInitialStateFromCustomerDraft(
   draft: ProjectDraftFromCustomer,
 ): Partial<CreateProjectWizardState> {
-  return {
+  return syncFlowAndSource({
+    flow: "intake",
     source: "new",
     leadPath: "MSS_DIRECT",
     customerMode: "select",
@@ -17,7 +19,7 @@ export function buildWizardInitialStateFromCustomerDraft(
     newCustomerPhone: undefined,
     newCustomerEmail: undefined,
     newCustomerAddress: undefined,
-  };
+  });
 }
 
 export function buildWizardInitialStateFromQuotation(

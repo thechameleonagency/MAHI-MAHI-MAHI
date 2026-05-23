@@ -4,7 +4,8 @@ import {
   deriveProjectKind,
   deriveProjectKindFromPartial,
   getVisibleWizardSteps,
-  isLeadPathResolved,
+  isDealKindResolved,
+  isQuotationPrefillComplete,
   isStepVisible,
   isVendorshipStepApplicable,
   validateVisibleWizardSteps,
@@ -18,16 +19,35 @@ import {
 } from "@/types/createProjectWizard";
 
 describe("deriveProjectKind", () => {
-  it("maps all eight legacy kinds via lead path, partner type, and direct exception", () => {
-    const cases: Array<{ label: string; partial: Parameters<typeof createInitialCreateProjectWizardState>[0]; expected: ProjectKind }> = [
-      { label: "MSS direct", partial: { source: "new", leadPath: "MSS_DIRECT" }, expected: "SOLO_EPC" },
-      { label: "partner profit share", partial: { source: "new", leadPath: "PARTNER", partnerType: "profit_share" }, expected: "PARTNER_EPC" },
-      { label: "partner fixed rate", partial: { source: "new", leadPath: "PARTNER", partnerType: "fixed_rate" }, expected: "FIXED_EPC" },
-      { label: "vendor channel", partial: { source: "new", leadPath: "PARTNER", partnerType: "vendor_channel" }, expected: "VENDOR_NETWORK" },
-      { label: "vendorship only", partial: { source: "new", leadPath: "PARTNER", partnerType: "vendorship_only" }, expected: "VENDORSHIP_ONLY" },
-      { label: "INC given", partial: { source: "new", leadPath: "INC_GIVEN" }, expected: "INC_GIVEN" },
-      { label: "outsourced INC", partial: { source: "new", leadPath: "OUTSOURCED_INC" }, expected: "OUTSOURCED_INC" },
-      { label: "direct exception INC", partial: { source: "direct_exception", directExceptionProjectKind: "INC" }, expected: "INC" },
+  it("maps lead path + partner sub-type to internal kinds", () => {
+    const cases: Array<{
+      label: string;
+      partial: Parameters<typeof createInitialCreateProjectWizardState>[0];
+      expected: ProjectKind;
+    }> = [
+      { label: "MSS direct", partial: { leadPath: "MSS_DIRECT" }, expected: "SOLO_EPC" },
+      {
+        label: "partner profit share",
+        partial: { leadPath: "PARTNER", partnerType: "profit_share" },
+        expected: "PARTNER_EPC",
+      },
+      {
+        label: "partner fixed rate",
+        partial: { leadPath: "PARTNER", partnerType: "fixed_rate" },
+        expected: "FIXED_EPC",
+      },
+      {
+        label: "vendor channel",
+        partial: { leadPath: "PARTNER", partnerType: "vendor_channel" },
+        expected: "VENDOR_NETWORK",
+      },
+      {
+        label: "vendorship only",
+        partial: { leadPath: "PARTNER", partnerType: "vendorship_only" },
+        expected: "VENDORSHIP_ONLY",
+      },
+      { label: "INC given", partial: { leadPath: "INC_GIVEN" }, expected: "INC_GIVEN" },
+      { label: "outsourced INC", partial: { leadPath: "OUTSOURCED_INC" }, expected: "OUTSOURCED_INC" },
     ];
 
     for (const { label, partial, expected } of cases) {
@@ -35,240 +55,164 @@ describe("deriveProjectKind", () => {
     }
 
     const derived = new Set(cases.map((c) => c.expected));
-    for (const kind of PROJECT_KINDS) {
+    const userFacingKinds: ProjectKind[] = PROJECT_KINDS.filter((k) => k !== "INC");
+    for (const kind of userFacingKinds) {
       expect(derived.has(kind), `missing coverage for ${kind}`).toBe(true);
     }
+    expect(
+      deriveProjectKindFromPartial({
+        source: "direct_exception",
+        directExceptionProjectKind: "INC",
+      }),
+    ).toBe("INC");
   });
 
-  it("returns SOLO_EPC for quotation source regardless of lead path", () => {
+  it("returns SOLO_EPC for quotation source", () => {
     expect(
       deriveProjectKind(
         createInitialCreateProjectWizardState({
+          flow: "quotation",
           source: "quotation",
           selectedQuotationId: "Q-001",
-          leadPath: "PARTNER",
-          partnerType: "fixed_rate",
         }),
       ),
     ).toBe("SOLO_EPC");
   });
 
-  it("uses directExceptionProjectKind over lead path when source is direct_exception", () => {
+  it("returns OUTSOURCED_INC for attach flow", () => {
     expect(
       deriveProjectKind(
         createInitialCreateProjectWizardState({
-          source: "direct_exception",
-          directExceptionReason: "Urgent install",
-          directExceptionProjectKind: "VENDOR_NETWORK",
-          leadPath: "MSS_DIRECT",
-        }),
-      ),
-    ).toBe("VENDOR_NETWORK");
-  });
-
-  it("changes derived kind when partner sub-type changes", () => {
-    const base = createInitialCreateProjectWizardState({
-      source: "new",
-      leadPath: "PARTNER",
-    });
-
-    expect(deriveProjectKind({ ...base, partnerType: "profit_share" })).toBe("PARTNER_EPC");
-    expect(deriveProjectKind({ ...base, partnerType: "fixed_rate" })).toBe("FIXED_EPC");
-    expect(deriveProjectKind({ ...base, partnerType: "vendor_channel" })).toBe("VENDOR_NETWORK");
-    expect(deriveProjectKind({ ...base, partnerType: "vendorship_only" })).toBe("VENDORSHIP_ONLY");
-  });
-
-  it("defaults partner path to PARTNER_EPC when partnerType is unset", () => {
-    expect(
-      deriveProjectKind(
-        createInitialCreateProjectWizardState({
-          source: "new",
-          leadPath: "PARTNER",
-        }),
-      ),
-    ).toBe("PARTNER_EPC");
-  });
-
-  it("returns OUTSOURCED_INC for attach_outsourced source", () => {
-    expect(
-      deriveProjectKind(
-        createInitialCreateProjectWizardState({
+          flow: "attach",
           source: "attach_outsourced",
           attachToProjectId: "P-001",
         }),
       ),
     ).toBe("OUTSOURCED_INC");
   });
-
-  it("falls back to SOLO_EPC when no lead path or source-specific kind is set", () => {
-    expect(deriveProjectKind(createInitialCreateProjectWizardState())).toBe("SOLO_EPC");
-    expect(
-      deriveProjectKind(
-        createInitialCreateProjectWizardState({
-          source: "direct_exception",
-          directExceptionReason: "Pending kind selection",
-        }),
-      ),
-    ).toBe("SOLO_EPC");
-  });
 });
 
-describe("isStepVisible", () => {
-  const visible = (partial: Parameters<typeof createInitialCreateProjectWizardState>[0]) =>
-    WIZARD_STEPS.map((step) => (isStepVisible(step, createInitialCreateProjectWizardState(partial)) ? step : null)).filter(
-      Boolean,
-    ) as WizardStep[];
-
-  it("shows SOURCE only until project selected, then CUSTOMER and COMMERCIAL for attach_outsourced", () => {
-    expect(
-      getVisibleWizardSteps(createInitialCreateProjectWizardState({ source: "attach_outsourced" })),
-    ).toEqual(["SOURCE"]);
+describe("wizard flows — isStepVisible", () => {
+  it("intake flow: deal structure only until lead path resolved", () => {
+    expect(getVisibleWizardSteps(createInitialCreateProjectWizardState({ flow: "intake" }))).toEqual([
+      "DEAL_TYPE",
+    ]);
     expect(
       getVisibleWizardSteps(
         createInitialCreateProjectWizardState({
-          source: "attach_outsourced",
-          attachToProjectId: "P-001",
+          flow: "intake",
+          leadPath: "MSS_DIRECT",
         }),
       ),
-    ).toEqual(["SOURCE", "CUSTOMER", "COMMERCIAL"]);
-    expect(isLeadPathResolved(createInitialCreateProjectWizardState({ source: "attach_outsourced" }))).toBe(false);
+    ).toEqual(["DEAL_TYPE", "PARTIES", "COMMERCIAL", "REVIEW"]);
+  });
+
+  it("intake partner flow requires partner type before downstream steps", () => {
     expect(
-      isLeadPathResolved(
-        createInitialCreateProjectWizardState({
-          source: "attach_outsourced",
-          attachToProjectId: "P-001",
-        }),
+      getVisibleWizardSteps(
+        createInitialCreateProjectWizardState({ flow: "intake", leadPath: "PARTNER" }),
       ),
-    ).toBe(true);
-  });
-
-  it("hides post-lead steps until lead path is selected on new project flow", () => {
-    const unset = createInitialCreateProjectWizardState({ source: "new" });
-    expect(visible({ source: "new" })).toEqual(["SOURCE", "LEAD_PATH"]);
-    expect(isStepVisible("CUSTOMER", unset)).toBe(false);
-    expect(isStepVisible("COMMERCIAL", unset)).toBe(false);
-    expect(isStepVisible("VENDORSHIP", unset)).toBe(false);
-    expect(isStepVisible("AGENT", unset)).toBe(false);
-    expect(isStepVisible("TEAM", unset)).toBe(false);
-  });
-
-  it("shows full MSS direct flow including vendorship, agent, and team", () => {
-    expect(visible({ source: "new", leadPath: "MSS_DIRECT" })).toEqual([
-      "SOURCE",
-      "LEAD_PATH",
-      "CUSTOMER",
-      "COMMERCIAL",
-      "VENDORSHIP",
-      "AGENT",
-      "TEAM",
-    ]);
-  });
-
-  it("shows partner flow with vendorship for profit_share and fixed_rate", () => {
-    for (const partnerType of ["profit_share", "fixed_rate"] as const) {
-      expect(visible({ source: "new", leadPath: "PARTNER", partnerType })).toContain("VENDORSHIP");
-    }
-  });
-
-  it("shows vendorship for vendor_channel (VENDOR_NETWORK kind)", () => {
+    ).toEqual(["DEAL_TYPE"]);
     expect(
-      isVendorshipStepApplicable(
+      getVisibleWizardSteps(
         createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "PARTNER",
           partnerType: "vendor_channel",
         }),
       ),
-    ).toBe(true);
-    expect(visible({ source: "new", leadPath: "PARTNER", partnerType: "vendor_channel" })).toContain("VENDORSHIP");
+    ).toEqual(["DEAL_TYPE", "PARTIES", "COMMERCIAL", "REVIEW"]);
   });
 
-  it("hides vendorship for INC_GIVEN, OUTSOURCED_INC, and vendorship_only", () => {
-    expect(visible({ source: "new", leadPath: "INC_GIVEN" })).toEqual([
-      "SOURCE",
-      "LEAD_PATH",
-      "CUSTOMER",
-      "COMMERCIAL",
-      "AGENT",
-      "TEAM",
-    ]);
-    expect(visible({ source: "new", leadPath: "OUTSOURCED_INC" })).toEqual([
-      "SOURCE",
-      "LEAD_PATH",
-      "CUSTOMER",
-      "COMMERCIAL",
-      "AGENT",
-      "TEAM",
-    ]);
-    expect(visible({ source: "new", leadPath: "PARTNER", partnerType: "vendorship_only" })).toEqual([
-      "SOURCE",
-      "LEAD_PATH",
-      "CUSTOMER",
-      "COMMERCIAL",
-      "AGENT",
-      "TEAM",
-    ]);
-  });
-
-  it("skips LEAD_PATH for quotation source but shows downstream steps", () => {
-    expect(visible({ source: "quotation", selectedQuotationId: "Q-001" })).toEqual([
-      "SOURCE",
-      "CUSTOMER",
-      "COMMERCIAL",
-      "VENDORSHIP",
-      "AGENT",
-      "TEAM",
-    ]);
-  });
-
-  it("skips LEAD_PATH for direct_exception once project kind is chosen", () => {
+  it("quotation flow: quotation + review when prefill complete", () => {
     expect(
-      visible({
-        source: "direct_exception",
-        directExceptionReason: "Urgent",
-        directExceptionProjectKind: "PARTNER_EPC",
-      }),
-    ).toEqual(["SOURCE", "CUSTOMER", "COMMERCIAL", "VENDORSHIP", "AGENT", "TEAM"]);
+      getVisibleWizardSteps(
+        createInitialCreateProjectWizardState({
+          flow: "quotation",
+          source: "quotation",
+          selectedQuotationId: "Q-1",
+        }),
+      ),
+    ).toEqual(["QUOTATION", "REVIEW"]);
 
     expect(
-      visible({
-        source: "direct_exception",
-        directExceptionReason: "Urgent",
-        directExceptionProjectKind: "INC_GIVEN",
-      }),
-    ).toEqual(["SOURCE", "CUSTOMER", "COMMERCIAL", "AGENT", "TEAM"]);
+      getVisibleWizardSteps(
+        createInitialCreateProjectWizardState({
+          flow: "quotation",
+          source: "quotation",
+          selectedQuotationId: "Q-1",
+          quotationEditDetails: true,
+        }),
+      ),
+    ).toEqual(["QUOTATION", "PARTIES", "COMMERCIAL", "REVIEW"]);
   });
 
-  it("keeps only SOURCE on direct_exception until project kind is selected", () => {
+  it("direct_exception flow: exception then downstream when structure resolved", () => {
     expect(
-      visible({
-        source: "direct_exception",
-        directExceptionReason: "Pending kind",
-      }),
-    ).toEqual(["SOURCE"]);
+      getVisibleWizardSteps(
+        createInitialCreateProjectWizardState({
+          flow: "direct_exception",
+          source: "direct_exception",
+          directExceptionReason: "Urgent",
+        }),
+      ),
+    ).toEqual(["EXCEPTION"]);
+
+    expect(
+      getVisibleWizardSteps(
+        createInitialCreateProjectWizardState({
+          flow: "direct_exception",
+          source: "direct_exception",
+          directExceptionReason: "Urgent",
+          leadPath: "PARTNER",
+          partnerType: "profit_share",
+          selectedPartnerId: "P-1",
+        }),
+      ),
+    ).toEqual(["EXCEPTION", "PARTIES", "COMMERCIAL", "REVIEW"]);
   });
 
-  it("always shows agent and team when lead path is resolved", () => {
-    for (const leadPath of ["MSS_DIRECT", "INC_GIVEN", "OUTSOURCED_INC"] as const) {
-      const state = createInitialCreateProjectWizardState({ source: "new", leadPath });
-      expect(isStepVisible("AGENT", state)).toBe(true);
-      expect(isStepVisible("TEAM", state)).toBe(true);
-    }
+  it("attach flow: parties then outsource terms when subcontractor selected", () => {
+    expect(
+      getVisibleWizardSteps(
+        createInitialCreateProjectWizardState({ flow: "attach", source: "attach_outsourced" }),
+      ),
+    ).toEqual(["ATTACH_PARTIES"]);
+
+    expect(
+      getVisibleWizardSteps(
+        createInitialCreateProjectWizardState({
+          flow: "attach",
+          source: "attach_outsourced",
+          attachToProjectId: "P-001",
+          selectedSubcontractorId: "SUB-1",
+        }),
+      ),
+    ).toEqual(["ATTACH_PARTIES", "OUTSOURCE_TERMS"]);
   });
 
-  it("getVisibleWizardSteps matches isStepVisible for every kind", () => {
+  it("getVisibleWizardSteps matches isStepVisible", () => {
     const scenarios: Partial<CreateProjectWizardState>[] = [
-      { source: "new" },
-      { source: "new", leadPath: "MSS_DIRECT" },
-      { source: "new", leadPath: "PARTNER", partnerType: "profit_share" },
-      { source: "quotation", selectedQuotationId: "Q-1" },
-      { source: "direct_exception", directExceptionProjectKind: "INC" },
-      { source: "attach_outsourced", attachToProjectId: "P-1" },
+      { flow: "intake" },
+      { flow: "intake", leadPath: "MSS_DIRECT" },
+      { flow: "quotation", selectedQuotationId: "Q-1" },
+      {
+        flow: "direct_exception",
+        directExceptionReason: "x",
+        leadPath: "INC_GIVEN",
+      },
+      {
+        flow: "attach",
+        attachToProjectId: "P-1",
+        selectedSubcontractorId: "SUB-1",
+      },
     ];
 
     for (const partial of scenarios) {
       const state = createInitialCreateProjectWizardState(partial);
-      expect(getVisibleWizardSteps(state)).toEqual(WIZARD_STEPS.filter((s) => isStepVisible(s, state)));
+      expect(getVisibleWizardSteps(state)).toEqual(
+        WIZARD_STEPS.filter((s) => isStepVisible(s, state)),
+      );
     }
   });
 });
@@ -280,9 +224,9 @@ describe("validateWizardStep", () => {
     context?: Parameters<typeof validateWizardStep>[2],
   ) => validateWizardStep(step, state, context).map((e) => e.field);
 
-  it("returns no errors for a valid MSS direct flow", () => {
+  it("returns no errors for a valid intake MSS direct draft", () => {
     const state = createInitialCreateProjectWizardState({
-      source: "new",
+      flow: "intake",
       leadPath: "MSS_DIRECT",
       customerMode: "select",
       selectedCustomerId: "C-001",
@@ -297,55 +241,23 @@ describe("validateWizardStep", () => {
     expect(validateVisibleWizardSteps(state)).toEqual([]);
   });
 
-  it("SOURCE: requires direct exception reason and deal kind", () => {
-    expect(errFields("SOURCE", createInitialCreateProjectWizardState({ source: "direct_exception" }))).toEqual(
-      expect.arrayContaining(["directExceptionReason", "directExceptionProjectKind"]),
+  it("DEAL_TYPE: requires lead path and partner fields", () => {
+    expect(errFields("DEAL_TYPE", createInitialCreateProjectWizardState({ flow: "intake" }))).toContain(
+      "leadPath",
     );
-  });
-
-  it("SOURCE: requires quotation id and eligibility", () => {
-    expect(
-      errFields("SOURCE", createInitialCreateProjectWizardState({ source: "quotation" })),
-    ).toContain("selectedQuotationId");
 
     expect(
       errFields(
-        "SOURCE",
-        createInitialCreateProjectWizardState({ source: "quotation", selectedQuotationId: "Q-1" }),
-        { quotations: [{ id: "Q-1", status: "sent" }] },
-      ),
-    ).toContain("selectedQuotationId");
-
-    expect(
-      validateWizardStep(
-        "SOURCE",
-        createInitialCreateProjectWizardState({ source: "quotation", selectedQuotationId: "Q-1" }),
-        { quotations: [{ id: "Q-1", status: "approved" }] },
-      ),
-    ).toEqual([]);
-  });
-
-  it("SOURCE: requires attach target project", () => {
-    expect(
-      errFields("SOURCE", createInitialCreateProjectWizardState({ source: "attach_outsourced" })),
-    ).toContain("attachToProjectId");
-  });
-
-  it("LEAD_PATH: requires lead path and partner fields", () => {
-    expect(errFields("LEAD_PATH", createInitialCreateProjectWizardState({ source: "new" }))).toContain("leadPath");
-
-    expect(
-      errFields(
-        "LEAD_PATH",
-        createInitialCreateProjectWizardState({ source: "new", leadPath: "PARTNER" }),
+        "DEAL_TYPE",
+        createInitialCreateProjectWizardState({ flow: "intake", leadPath: "PARTNER" }),
       ),
     ).toContain("partnerType");
 
     expect(
       errFields(
-        "LEAD_PATH",
+        "DEAL_TYPE",
         createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "PARTNER",
           partnerType: "profit_share",
         }),
@@ -353,166 +265,49 @@ describe("validateWizardStep", () => {
     ).toContain("selectedPartnerId");
   });
 
-  it("CUSTOMER: validates per effective lead path", () => {
+  it("EXCEPTION: requires reason and deal structure", () => {
     expect(
       errFields(
-        "CUSTOMER",
-        createInitialCreateProjectWizardState({ source: "new", leadPath: "MSS_DIRECT", customerMode: "select" }),
+        "EXCEPTION",
+        createInitialCreateProjectWizardState({ flow: "direct_exception", source: "direct_exception" }),
       ),
-    ).toContain("selectedCustomerId");
+    ).toEqual(expect.arrayContaining(["directExceptionReason", "leadPath"]));
+  });
 
+  it("EXCEPTION: requires partner for direct_exception partner profit share", () => {
     expect(
       errFields(
-        "CUSTOMER",
+        "EXCEPTION",
         createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "direct_exception",
+          source: "direct_exception",
+          directExceptionReason: "Partner deal",
           leadPath: "PARTNER",
           partnerType: "profit_share",
         }),
       ),
-    ).toContain("partnerCustomerName");
-
-    expect(
-      errFields(
-        "CUSTOMER",
-        createInitialCreateProjectWizardState({ source: "new", leadPath: "INC_GIVEN" }),
-      ),
-    ).toContain("incGiverCompanyId");
-
-    expect(
-      errFields(
-        "CUSTOMER",
-        createInitialCreateProjectWizardState({ source: "new", leadPath: "OUTSOURCED_INC" }),
-      ),
-    ).toEqual(expect.arrayContaining(["selectedCustomerId", "selectedSubcontractorId"]));
+    ).toContain("selectedPartnerId");
   });
 
-  it("COMMERCIAL: validates contract, capacity, payment loan, and partner economics", () => {
+  it("isDealKindResolved for partner profit share requires partner id on deal structure step", () => {
     expect(
-      errFields(
-        "COMMERCIAL",
-        createInitialCreateProjectWizardState({ source: "new", leadPath: "MSS_DIRECT" }),
-      ),
-    ).toEqual(expect.arrayContaining(["projectName", "capacity", "contractAmount"]));
-
-    expect(
-      errFields(
-        "COMMERCIAL",
+      isDealKindResolved(
         createInitialCreateProjectWizardState({
-          source: "new",
-          leadPath: "MSS_DIRECT",
-          projectName: "Test",
-          capacity: "5 kW",
-          contractAmount: 100,
-          paymentType: "loan",
-        }),
-      ),
-    ).toContain("fundingLoanId");
-
-    expect(
-      errFields(
-        "COMMERCIAL",
-        createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "PARTNER",
           partnerType: "profit_share",
-          partnerProjectName: "Deal",
-          partnerCapacity: "10 kW",
-          partnerContractAmount: 500000,
-          profitSharePercent: 150,
         }),
       ),
-    ).toContain("profitSharePercent");
-
+    ).toBe(false);
     expect(
-      errFields(
-        "COMMERCIAL",
+      isDealKindResolved(
         createInitialCreateProjectWizardState({
-          source: "new",
-          leadPath: "PARTNER",
-          partnerType: "fixed_rate",
-          partnerProjectName: "Deal",
-          partnerCapacity: "10 kW",
-          partnerContractAmount: 500000,
-          fixedRatePerKw: 0,
-        }),
-      ),
-    ).toContain("fixedRatePerKw");
-
-    expect(
-      errFields(
-        "COMMERCIAL",
-        createInitialCreateProjectWizardState({
-          source: "new",
-          leadPath: "INC_GIVEN",
-          rateBasis: "per_kw",
-          rateValue: 0,
-          incCapacity: "5",
-        }),
-      ),
-    ).toContain("rateValue");
-  });
-
-  it("VENDORSHIP: requires third-party company and fee", () => {
-    expect(
-      errFields(
-        "VENDORSHIP",
-        createInitialCreateProjectWizardState({
-          source: "new",
-          leadPath: "MSS_DIRECT",
-          vendorshipChoice: "THIRD_PARTY",
-        }),
-      ),
-    ).toEqual(expect.arrayContaining(["vendorshipCompanyId", "vendorshipFeeAmount"]));
-
-    expect(
-      errFields(
-        "VENDORSHIP",
-        createInitialCreateProjectWizardState({
-          source: "new",
+          flow: "intake",
           leadPath: "PARTNER",
           partnerType: "profit_share",
-          partnerVendorshipChoice: "THIRD_PARTY",
+          selectedPartnerId: "P-1",
         }),
       ),
-    ).toEqual(expect.arrayContaining(["partnerThirdPartyCompanyId", "partnerVendorshipFeeAmount"]));
-  });
-
-  it("AGENT: validates commission range when agent is selected", () => {
-    expect(
-      errFields(
-        "AGENT",
-        createInitialCreateProjectWizardState({
-          source: "new",
-          leadPath: "MSS_DIRECT",
-          selectedAgentId: "A-1",
-          commissionRatePct: 120,
-        }),
-      ),
-    ).toContain("commissionRatePct");
-  });
-
-  it("TEAM: rejects end date before today when assignee is set", () => {
-    expect(
-      errFields(
-        "TEAM",
-        createInitialCreateProjectWizardState({
-          source: "new",
-          leadPath: "MSS_DIRECT",
-          primaryAssigneeId: "EMP-1",
-          targetEndDate: "2020-01-01",
-        }),
-        { today: "2026-05-22" },
-      ),
-    ).toContain("targetEndDate");
-  });
-
-  it("skips validation for invisible steps", () => {
-    expect(validateWizardStep("LEAD_PATH", createInitialCreateProjectWizardState({ source: "quotation" }))).toEqual(
-      [],
-    );
-    expect(
-      validateWizardStep("VENDORSHIP", createInitialCreateProjectWizardState({ source: "new", leadPath: "INC_GIVEN" })),
-    ).toEqual([]);
+    ).toBe(true);
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDealKindSelectionResetPatch,
   buildLeadPathSelectionResetPatch,
+  buildPartnerTypeSelectionPatch,
   buildQuotationPrefillPatch,
   buildSourceSelectionResetPatch,
   filterEligibleWizardQuotations,
@@ -61,11 +63,14 @@ describe("createProjectWizardPrefill", () => {
 
   it("buildSourceSelectionResetPatch clears source-specific fields", () => {
     expect(buildSourceSelectionResetPatch("new")).toEqual({
+      flow: "intake",
       source: "new",
       selectedQuotationId: undefined,
       directExceptionReason: undefined,
       directExceptionProjectKind: undefined,
+      dealKind: undefined,
       attachToProjectId: undefined,
+      quotationEditDetails: false,
     });
   });
 
@@ -121,6 +126,19 @@ describe("createProjectWizardPrefill", () => {
     expect(buildLeadPathSelectionResetPatch("MSS_DIRECT")).toEqual({
       leadPath: "MSS_DIRECT",
       partnerType: undefined,
+      dealKind: "SOLO_EPC",
+      directExceptionProjectKind: "SOLO_EPC",
+      selectedPartnerId: undefined,
+      outsourceMode: undefined,
+    });
+  });
+
+  it("buildDealKindSelectionResetPatch maps kind to legacy lead path", () => {
+    expect(buildDealKindSelectionResetPatch("PARTNER_EPC")).toEqual({
+      dealKind: "PARTNER_EPC",
+      directExceptionProjectKind: "PARTNER_EPC",
+      leadPath: "PARTNER",
+      partnerType: "profit_share",
       selectedPartnerId: undefined,
       outsourceMode: undefined,
     });
@@ -130,8 +148,19 @@ describe("createProjectWizardPrefill", () => {
     expect(buildLeadPathSelectionResetPatch("OUTSOURCED_INC")).toEqual({
       leadPath: "OUTSOURCED_INC",
       partnerType: undefined,
+      dealKind: "OUTSOURCED_INC",
+      directExceptionProjectKind: "OUTSOURCED_INC",
       selectedPartnerId: undefined,
       outsourceMode: "new",
+    });
+  });
+
+  it("buildPartnerTypeSelectionPatch maps vendor channel to internal kind without exposing Vendor Network label", () => {
+    expect(buildPartnerTypeSelectionPatch("vendor_channel")).toEqual({
+      partnerType: "vendor_channel",
+      dealKind: "VENDOR_NETWORK",
+      directExceptionProjectKind: "VENDOR_NETWORK",
+      selectedPartnerId: undefined,
     });
   });
 });

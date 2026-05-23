@@ -9,6 +9,7 @@ import {
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import type { Agent, Customer, INCGiverCompany, Partner, VendorshipCompany } from "@/types/finance";
 import type { Project, ProjectScopeConfig, Quotation } from "@/types/project";
+import { normalizeWizardState } from "@/lib/normalizeWizardState";
 import type { CreateProjectWizardState } from "@/types/createProjectWizard";
 
 export interface BuildProjectFromWizardContext {
@@ -259,9 +260,10 @@ function buildIntakePayload(
 }
 
 export function buildProjectFromWizardState(
-  state: CreateProjectWizardState,
+  rawState: CreateProjectWizardState,
   ctx: BuildProjectFromWizardContext,
 ): BuildProjectFromWizardResult {
+  const state = normalizeWizardState(rawState);
   const lead = effectiveLeadPath(state);
   if (!lead) {
     throw new Error("Deal structure is not resolved.");

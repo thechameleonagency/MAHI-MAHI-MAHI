@@ -1,198 +1,162 @@
-import type { ProjectKind } from "@/domain/projectTypes/types";
+import { z } from "zod";
 
-/** Step 1 — how the project enters the wizard. */
-export type CreateProjectWizardSource =
-  | "new"
-  | "quotation"
-  | "direct_exception"
-  | "attach_outsourced";
+// Core Deal Origin Types
+export type DealOrigin = "DIRECT" | "PARTNER" | "INC_TAKEN" | "OUTSOURCED_INC" | "VENDORSHIP_ONLY";
+export type PartnerModifier = "PROFIT_SHARE" | "FIXED_RATE";
+export type IncModifier = "LABOR_ONLY" | "LABOR_MATERIALS";
 
-/** Step 2 — deal structure (maps to {@link ProjectKind} via derivation). */
-export type CreateProjectWizardLeadPath =
-  | "MSS_DIRECT"
-  | "PARTNER"
-  | "INC_GIVEN"
-  | "OUTSOURCED_INC";
+export type VendorshipOwner = "MSS" | "PARTNER" | "THIRD_PARTY";
 
-/** Partner-network sub-type when {@link CreateProjectWizardLeadPath} is `PARTNER`. */
-export type CreateProjectWizardPartnerType =
-  | "profit_share"
-  | "fixed_rate"
-  | "vendor_channel"
-  | "vendorship_only";
+// Unified State Interface
+export interface UnifiedProjectWizardState {
+  // Step 1
+  dealOrigin: DealOrigin;
+  partnerModifier?: PartnerModifier;
+  incModifier?: IncModifier;
+  
+  // Step 2
+  vendorshipOwner?: VendorshipOwner; // Irrelevant for INC Taken - Labor Only
+  vendorshipFeeAmount?: number; // MSS charging counterparty
+  thirdPartyCompanyName?: string; // If Third Party code
+  thirdPartyFeeAmount?: number;
 
-export type CreateProjectWizardProjectType = "Residential" | "Commercial" | "Industrial";
-export type CreateProjectWizardProjectCategory = "solar" | "other";
-export type CreateProjectWizardPaymentType = "cash" | "loan" | "cash-and-loan";
-export type CreateProjectWizardCustomerMode = "select" | "add";
-export type CreateProjectWizardVendorshipChoice = "OUR_CODE" | "THIRD_PARTY";
-export type CreateProjectWizardBillingParty = "MSS" | "PARTNER";
-export type CreateProjectWizardIncScope = "labour" | "labour_and_materials";
-export type CreateProjectWizardRateBasis = "per_kw" | "per_sqft" | "fixed";
-export type CreateProjectWizardOutsourceMode = "existing" | "new";
+  // Step 3
+  endCustomer: { name: string; phone: string; address: string; kNumber: string };
+  counterpartyId?: string; // Async CRM Lookup
 
-/** Ordered wizard steps (Issue 1.1). */
-export const WIZARD_STEPS = [
-  "SOURCE",
-  "LEAD_PATH",
-  "CUSTOMER",
-  "COMMERCIAL",
-  "VENDORSHIP",
-  "AGENT",
-  "TEAM",
-] as const;
+  // Step 4
+  capacityKw: number;
+  projectType: "Residential" | "Commercial" | "Industrial";
+  grossContractValue: number;
+  
+  // Economics
+  partnerProfitSharePct?: number;
+  mssBackendFixedRate?: number;
+  incRateBasis?: "PER_KW" | "PER_SQFT" | "FIXED";
+  incRateValue?: number;
+  incMaterialCost?: number;
+  subcontractorPayoutRate?: number;
+  partnerProvidesGst?: boolean;
 
-export type WizardStep = (typeof WIZARD_STEPS)[number];
-
-/** Human-readable step labels for the wizard chrome. */
-export const WIZARD_STEP_LABELS: Record<WizardStep, string> = {
-  SOURCE: "Source",
-  LEAD_PATH: "Deal structure",
-  CUSTOMER: "Customer",
-  COMMERCIAL: "Commercial",
-  VENDORSHIP: "Vendorship & GST",
-  AGENT: "Agent",
-  TEAM: "Team",
-};
-
-/**
- * Unified create-project wizard state — single source of truth for all entry paths.
- */
-export interface CreateProjectWizardState {
-  // --- Step 1: Source ---
-  source: CreateProjectWizardSource;
-  selectedQuotationId?: string;
-  directExceptionReason?: string;
-  /** Direct-exception dialog allows explicit kind selection (all 8 kinds). */
-  directExceptionProjectKind?: ProjectKind;
-  /** Outsourced INC — attach subcontract scope to an existing project. */
-  attachToProjectId?: string;
-  outsourceMode?: CreateProjectWizardOutsourceMode;
-
-  // --- Step 2: Lead / deal structure ---
-  leadPath?: CreateProjectWizardLeadPath;
-  partnerType?: CreateProjectWizardPartnerType;
-
-  // --- Step 3: Customer & location ---
-  customerMode?: CreateProjectWizardCustomerMode;
-  selectedCustomerId?: string;
-  newCustomerName?: string;
-  newCustomerPhone?: string;
-  newCustomerEmail?: string;
-  newCustomerAddress?: string;
-  /** Site / service location (distinct from CRM address on direct-exception path). */
-  location?: string;
-  kNumber?: string;
-
-  /** Partner-path end customer label (may differ from CRM customer row). */
-  partnerCustomerName?: string;
-
-  incGiverCompanyId?: string;
-  incAddress?: string;
-
-  selectedSubcontractorId?: string;
-  outsourceRateBasis?: CreateProjectWizardRateBasis;
-  outsourceRateValue?: number;
-  outsourceQuantity?: number;
-  outsourceNotes?: string;
-
-  // --- Step 4: Commercial ---
-  projectName?: string;
-  /** Partner lead path may capture a separate display name before merge. */
-  partnerProjectName?: string;
-  incProjectName?: string;
-  projectType?: CreateProjectWizardProjectType;
-  partnerProjectType?: CreateProjectWizardProjectType;
-  projectCategory?: CreateProjectWizardProjectCategory;
-  capacity?: string;
-  partnerCapacity?: string;
-  incCapacity?: string;
-  incArea?: string;
-  contractAmount?: number;
-  partnerContractAmount?: number;
-  internalCostEstimate?: number;
-  paymentType?: CreateProjectWizardPaymentType;
-  fundingLoanId?: string;
-
-  selectedPartnerId?: string;
-  profitSharePercent?: number;
-  fixedRatePerKw?: number;
-  backendPrice?: number;
-  partnerSellPrice?: number;
-  commissionRule?: string;
-  /** SOLO / direct-exception vendor or DISCOM of record. */
-  vendorOrDiscom?: string;
-  /** Vendor-channel free-text parties (direct-exception dialog). */
-  channelPartnerName?: string;
-  externalNetworkName?: string;
-
-  rateBasis?: CreateProjectWizardRateBasis;
-  /** Primary INC rate input (per-kW, per-sqft, or fixed lump sum). */
-  rateValue?: number;
-  /** Additional INC rate inputs keyed by basis-specific field id. */
-  incRateInputs?: Record<string, number>;
-  incFixedAmount?: number;
-  incScope?: CreateProjectWizardIncScope;
-
-  // --- Step 5: Vendorship & GST ---
-  vendorshipChoice?: CreateProjectWizardVendorshipChoice;
-  vendorshipCompanyId?: string;
-  vendorshipFeeAmount?: number;
-  partnerVendorshipChoice?: CreateProjectWizardVendorshipChoice;
-  partnerThirdPartyCompanyId?: string;
-  partnerVendorshipFeeAmount?: number;
-  billingParty?: CreateProjectWizardBillingParty;
-  partnerGstInvoice?: "yes" | "no";
-
-  // --- Step 6: Agent ---
-  selectedAgentId?: string;
-  commissionRatePct?: number;
-
-  // --- Step 7: Team ---
-  primaryAssigneeId?: string;
-  targetEndDate?: string;
+  // Added for submission mapping
+  projectName?: string; 
 }
 
-/** Whether a wizard field should render for the current selections. */
-export type WizardFieldVisibilityPredicate = (
-  state: CreateProjectWizardState,
-) => boolean;
+// Zod Schemas for Validation
 
-/** Registry of field visibility predicates keyed by wizard state field. */
-export type WizardVisibility = Partial<
-  Record<keyof CreateProjectWizardState, WizardFieldVisibilityPredicate>
->;
+export const Step1Schema = z.object({
+  dealOrigin: z.enum(["DIRECT", "PARTNER", "INC_TAKEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"]),
+  partnerModifier: z.enum(["PROFIT_SHARE", "FIXED_RATE"]).optional(),
+  incModifier: z.enum(["LABOR_ONLY", "LABOR_MATERIALS"]).optional(),
+}).superRefine((data, ctx) => {
+  if (data.dealOrigin === "PARTNER" && !data.partnerModifier) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerModifier"], message: "Partner deal requires a modifier." });
+  }
+  if (data.dealOrigin === "INC_TAKEN" && !data.incModifier) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["incModifier"], message: "INC Taken requires a modifier." });
+  }
+});
 
-export interface WizardValidationError {
-  field: string;
-  message: string;
-}
+export const Step2Schema = z.object({
+  dealOrigin: z.enum(["DIRECT", "PARTNER", "INC_TAKEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"]), // passed in for context
+  incModifier: z.enum(["LABOR_ONLY", "LABOR_MATERIALS"]).optional(),
+  vendorshipOwner: z.enum(["MSS", "PARTNER", "THIRD_PARTY"]).optional(),
+  vendorshipFeeAmount: z.number().optional(),
+  thirdPartyCompanyName: z.string().optional(),
+  thirdPartyFeeAmount: z.number().optional(),
+}).superRefine((data, ctx) => {
+  const isLaborOnly = data.dealOrigin === "INC_TAKEN" && data.incModifier === "LABOR_ONLY";
+  if (isLaborOnly) return; // Skip validation entirely
 
-/** Validates one wizard step; returns inline field errors (Issue 1.2 implements). */
-export type WizardStepValidator = (
-  state: CreateProjectWizardState,
-) => WizardValidationError[];
+  if (!data.vendorshipOwner) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["vendorshipOwner"], message: "Vendorship owner is required." });
+  }
 
-/** Per-step validation registry. */
-export type WizardValidation = Record<WizardStep, WizardStepValidator>;
+  if (data.vendorshipOwner === "MSS" && (data.dealOrigin === "PARTNER" || data.dealOrigin === "INC_TAKEN")) {
+     // Usually there's a fee, but let's not strictly require >0 unless specified, but it must be a number
+     if (data.vendorshipFeeAmount === undefined) {
+         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["vendorshipFeeAmount"], message: "Vendorship fee amount required." });
+     }
+  }
 
-/** Default wizard state — `source: "new"`, no lead path selected yet. */
-export function createInitialCreateProjectWizardState(
-  overrides?: Partial<CreateProjectWizardState>,
-): CreateProjectWizardState {
+  if (data.vendorshipOwner === "THIRD_PARTY") {
+    if (!data.thirdPartyCompanyName?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["thirdPartyCompanyName"], message: "Third party company name required." });
+    }
+    if (data.thirdPartyFeeAmount === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["thirdPartyFeeAmount"], message: "Third party fee required." });
+    }
+  }
+});
+
+export const Step3Schema = z.object({
+  dealOrigin: z.enum(["DIRECT", "PARTNER", "INC_TAKEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"]),
+  endCustomer: z.object({
+    name: z.string().min(1, "Customer name is required"),
+    phone: z.string().min(10, "Valid phone is required"),
+    address: z.string().min(1, "Address is required"),
+    kNumber: z.string().min(1, "K-Number is mandatory globally"),
+  }),
+  counterpartyId: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (["PARTNER", "INC_TAKEN", "OUTSOURCED_INC"].includes(data.dealOrigin) && !data.counterpartyId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["counterpartyId"], message: "Counterparty selection is required for this deal origin." });
+  }
+});
+
+export const Step4Schema = z.object({
+  dealOrigin: z.enum(["DIRECT", "PARTNER", "INC_TAKEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"]),
+  partnerModifier: z.enum(["PROFIT_SHARE", "FIXED_RATE"]).optional(),
+  incModifier: z.enum(["LABOR_ONLY", "LABOR_MATERIALS"]).optional(),
+  
+  capacityKw: z.number().min(0.1, "Capacity must be greater than 0"),
+  projectType: z.enum(["Residential", "Commercial", "Industrial"]),
+  grossContractValue: z.number().min(0, "Gross contract value must be at least 0"),
+  
+  partnerProfitSharePct: z.number().optional(),
+  mssBackendFixedRate: z.number().optional(),
+  incRateBasis: z.enum(["PER_KW", "PER_SQFT", "FIXED"]).optional(),
+  incRateValue: z.number().optional(),
+  incMaterialCost: z.number().optional(),
+  subcontractorPayoutRate: z.number().optional(),
+  partnerProvidesGst: z.boolean().optional(),
+}).superRefine((data, ctx) => {
+  if (data.dealOrigin === "PARTNER") {
+    if (data.partnerModifier === "PROFIT_SHARE" && data.partnerProfitSharePct === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerProfitSharePct"], message: "Profit share % is required." });
+    }
+    if (data.partnerModifier === "FIXED_RATE" && data.mssBackendFixedRate === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["mssBackendFixedRate"], message: "MSS Backend fixed rate is required." });
+    }
+    if (data.partnerProvidesGst === undefined) {
+       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerProvidesGst"], message: "Must specify if Partner provides GST." });
+    }
+  }
+
+  if (data.dealOrigin === "INC_TAKEN") {
+    if (!data.incRateBasis) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["incRateBasis"], message: "Rate basis is required." });
+    }
+    if (data.incRateValue === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["incRateValue"], message: "Rate value is required." });
+    }
+    if (data.incModifier === "LABOR_MATERIALS" && data.incMaterialCost === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["incMaterialCost"], message: "Material cost is required." });
+    }
+  }
+
+  if (data.dealOrigin === "OUTSOURCED_INC" && data.subcontractorPayoutRate === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["subcontractorPayoutRate"], message: "Subcontractor payout rate is required." });
+  }
+});
+
+// Default State Factory
+export function createInitialUnifiedWizardState(): UnifiedProjectWizardState {
   return {
-    source: "new",
-    customerMode: "select",
-    vendorshipChoice: "OUR_CODE",
-    partnerVendorshipChoice: "OUR_CODE",
-    billingParty: "MSS",
-    partnerGstInvoice: "yes",
-    outsourceMode: "existing",
-    projectCategory: "solar",
+    dealOrigin: "DIRECT",
+    endCustomer: { name: "", phone: "", address: "", kNumber: "" },
+    capacityKw: 0,
     projectType: "Residential",
-    partnerProjectType: "Residential",
-    rateBasis: "per_kw",
-    outsourceRateBasis: "fixed",
-    ...overrides,
+    grossContractValue: 0,
   };
 }
