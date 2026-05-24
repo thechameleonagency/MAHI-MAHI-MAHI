@@ -1225,7 +1225,7 @@ export async function runExhaustiveIteration(
     store.setActiveFlow(`${flow.scenario.label} — ${flow.step}`);
 
     if (flow.step === "customer") {
-      ctx().addCustomer({
+      const added = ctx().addCustomer({
         id: flow.customerId,
         name: flow.scenario.customerName,
         phone: "9999999999",
@@ -1236,6 +1236,14 @@ export async function runExhaustiveIteration(
         totalPurchases: 0,
         createdAt: dateNow,
       });
+      if (added === false) {
+        throw new Error(`Customer creation denied for ${flow.scenario.customerName}`);
+      }
+      store.addLog(
+        "success",
+        `Customer created: ${flow.scenario.customerName} (${flow.customerId})`,
+        "entity",
+      );
       flow.step = "enquiry";
       return;
     }
@@ -1264,6 +1272,7 @@ export async function runExhaustiveIteration(
       };
       const resEnq = await ctx().addEnquiry(enquiry);
       if (resEnq && !resEnq.ok) throw new Error(`Enquiry creation failed: ${resEnq.error}`);
+      store.addLog("success", `Enquiry created: ${flow.enquiryId} (${flow.scenario.label})`, "scenario");
       store.incrementCounter("enquiries");
       flow.step = "quotation";
       return;
@@ -1300,6 +1309,7 @@ export async function runExhaustiveIteration(
       };
       const resQtn = await ctx().addQuotation(quotation);
       if (resQtn && !resQtn.ok) throw new Error(`Quotation creation failed: ${resQtn.error}`);
+      store.addLog("success", `Quotation created: ${flow.quotationId} (${flow.scenario.label})`, "scenario");
       store.incrementCounter("quotations");
       flow.step = "project";
       return;
@@ -1322,6 +1332,11 @@ export async function runExhaustiveIteration(
       const resPrj = await ctx().createProjectFromConfirmedQuotation(projectDraft);
       if (resPrj && !resPrj.ok) throw new Error(`Project creation failed: ${resPrj.error}`);
       flow.projectId = resPrj.projectId || projectDraft.id;
+      store.addLog(
+        "success",
+        `Project created: ${flow.projectId} (${flow.scenario.projectKind} — ${flow.scenario.label})`,
+        "scenario",
+      );
       store.incrementCounter("projects");
       flow.step = "artifacts";
       return;
@@ -1331,10 +1346,9 @@ export async function runExhaustiveIteration(
       try {
         await runScenarioArtifacts(ctx, store, flow, dateNow);
       } catch (artifactErr: unknown) {
-        console.warn(
-          "Scenario artifact warning:",
-          artifactErr instanceof Error ? artifactErr.message : artifactErr,
-        );
+        const msg = artifactErr instanceof Error ? artifactErr.message : String(artifactErr);
+        store.addLog("warn", `Scenario artifact warning (${flow.scenario.label}): ${msg}`, "scenario");
+        console.warn("Scenario artifact warning:", msg);
       }
       generatorStateIndex++;
       pendingScenario = null;

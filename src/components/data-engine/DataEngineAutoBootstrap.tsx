@@ -7,31 +7,31 @@ import { useDataEngineStore } from "@/lib/data-engine/useDataEngineStore";
 import {
   isAutoSeedDone,
   isAutoSeedPending,
-  markAutoSeedDone,
+  clearAutoSeedDone,
   clearAutoSeedPending,
 } from "@/lib/data-engine/autoSeedStorage";
+import { ensureDataEngineActorSession } from "@/lib/data-engine/ensureDataEngineSession";
 import {
   getExhaustiveGenerationProgressPercent,
-  isExhaustiveGenerationComplete,
   resetExhaustiveGeneratorState,
 } from "@/lib/data-engine/exhaustiveGenerator";
+import { isWorkspacePipelineSeeded, readWorkspaceDataCounts } from "@/lib/data-engine/workspaceDataCounts";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 
-function shouldAutoStartGeneration(
-  projects: number,
-  customers: number,
-  enquiries: number,
-  quotations: number,
-): boolean {
+function shouldAutoStartGeneration(counts: ReturnType<typeof readWorkspaceDataCounts>): boolean {
   const workspaceMode = getWorkspaceMode();
   if (workspaceMode === "empty") return false;
 
-  const empty = projects === 0 && customers === 0 && enquiries === 0 && quotations === 0;
+  const empty = !isWorkspacePipelineSeeded(counts);
   if (!empty) return false;
 
   if (isAutoSeedPending()) return true;
-  if (isAutoSeedDone()) return false;
+
+  if (isAutoSeedDone()) {
+    clearAutoSeedDone();
+    return true;
+  }
 
   return true;
 }
@@ -53,19 +53,20 @@ export function DataEngineAutoBootstrap() {
     if (startedRef.current) return;
     if (status !== "idle") return;
 
-    const shouldStart = shouldAutoStartGeneration(
-      appData.projects.length,
-      appData.customers.length,
-      appData.enquiries.length,
-      appData.quotations.length,
-    );
-    if (!shouldStart) return;
+    const counts = readWorkspaceDataCounts(appData);
+    if (!shouldAutoStartGeneration(counts)) return;
 
     startedRef.current = true;
     clearAutoSeedPending();
     resetExhaustiveGeneratorState();
     useDataEngineStore.getState().clearState();
     useDataEngineStore.getState().setBannerDismissed(false);
+    ensureDataEngineActorSession();
+    useDataEngineStore.getState().addLog(
+      "info",
+      "Auto-starting background demo data generation for empty workspace.",
+      "system",
+    );
     start();
   }, [
     appData.projects.length,
@@ -74,13 +75,8 @@ export function DataEngineAutoBootstrap() {
     appData.quotations.length,
     status,
     start,
+    appData,
   ]);
-
-  useEffect(() => {
-    if (status === "idle" && isExhaustiveGenerationComplete()) {
-      markAutoSeedDone();
-    }
-  }, [status]);
 
   if (status !== "running" || dismissed) {
     return null;

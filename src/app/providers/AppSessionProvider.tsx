@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { type UserRole } from "@/domain/entities/identity";
 import { DEMO_LOGIN_USERS, DEMO_PASSWORD, findDemoUserByEmail } from "@/domain/demoCredentials";
 import type { SettingsTeamMember } from "@/types/project";
@@ -17,6 +17,7 @@ import {
   type AuthenticatedSession,
 } from "@/lib/sessionActorStorage";
 import { normalizeTeamMemberStatus } from "@/lib/seedSessionBootstrap";
+import { DATA_ENGINE_SESSION_SYNC_EVENT } from "@/lib/data-engine/ensureDataEngineSession";
 
 export type LoginResult = { ok: true } | { ok: false; error: string };
 
@@ -42,6 +43,22 @@ export const AppSessionProvider = ({ children }: { children: ReactNode }) => {
   const [demoUserName, setDemoUserNameState] = useState(loadStoredDemoUserName);
   const [memberId, setMemberId] = useState(loadStoredMemberId);
   const [email, setEmail] = useState(loadStoredEmail);
+
+  const syncSessionFromStorage = useCallback(() => {
+    if (!isSessionAuthenticated()) return;
+    setAuthenticated(true);
+    setCurrentRoleState(loadStoredSessionRole());
+    setDemoUserNameState(loadStoredDemoUserName());
+    setMemberId(loadStoredMemberId());
+    setEmail(loadStoredEmail());
+  }, []);
+
+  useEffect(() => {
+    syncSessionFromStorage();
+    const onSync = () => syncSessionFromStorage();
+    window.addEventListener(DATA_ENGINE_SESSION_SYNC_EVENT, onSync);
+    return () => window.removeEventListener(DATA_ENGINE_SESSION_SYNC_EVENT, onSync);
+  }, [syncSessionFromStorage]);
 
   const setCurrentRole = useCallback((role: UserRole) => {
     setCurrentRoleState(role);

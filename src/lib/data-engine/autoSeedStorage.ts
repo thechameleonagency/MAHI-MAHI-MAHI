@@ -21,6 +21,24 @@ export function markAutoSeedDone(): void {
   }
 }
 
+/** Mark auto-seed done only when canonical pipeline rows exist in persisted workspace. */
+export function markAutoSeedDoneIfSeeded(counts: {
+  projects: number;
+  customers: number;
+  enquiries: number;
+  quotations: number;
+}): boolean {
+  const seeded =
+    counts.projects > 0 &&
+    counts.customers > 0 &&
+    counts.enquiries > 0 &&
+    counts.quotations > 0;
+  if (seeded) {
+    markAutoSeedDone();
+  }
+  return seeded;
+}
+
 export function clearAutoSeedDone(): void {
   try {
     localStorage.removeItem(AUTO_SEED_DONE_KEY);

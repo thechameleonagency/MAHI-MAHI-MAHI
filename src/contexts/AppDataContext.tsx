@@ -764,6 +764,8 @@ interface AppDataContextType extends AppState {
   /** Next sequential customer id (`CUST-0001` …), aware of legacy `C001` seeds. */
   allocateCustomerId: () => string;
   resetToDefaults: () => void;
+  /** Immediately write current app state to localStorage (bypasses debounce). Used by data engine on completion. */
+  flushPersistAppState: () => void;
   /** Load full business seed (Settings → App data). Requires resetPrototype permission. */
   loadBusinessSeed: (profile?: "full" | "smoke") => void;
   /** Returns true when the current role is allowed to perform the action. Use to disable/hide UI elements. */
@@ -1057,6 +1059,19 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     bootstrapSessionAfterReset();
     window.location.reload();
   }, [actorRole, roleMatrixOverride]);
+
+  const flushPersistAppState = useCallback(() => {
+    try {
+      const serialized = serializeAppState(stateRef.current);
+      lastPersistedSnapshotRef.current = serialized;
+      localStorage.setItem(STORAGE_KEY, serialized);
+      localStorage.setItem(STORAGE_VERSION_KEY, String(STORAGE_VERSION));
+    } catch (e) {
+      if (import.meta.env.DEV) {
+        console.warn("Failed to flush persist state:", e);
+      }
+    }
+  }, []);
 
   const loadBusinessSeed = useCallback((profile: "full" | "smoke" = "full") => {
     toast({
@@ -6229,6 +6244,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     generateId,
     allocateCustomerId,
     resetToDefaults,
+    flushPersistAppState,
     loadBusinessSeed,
     canDo,
   };

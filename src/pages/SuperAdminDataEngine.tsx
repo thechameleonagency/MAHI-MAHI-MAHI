@@ -8,11 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
-import { Play, Pause, Square, Trash2, Activity, AlertCircle, FileText, Briefcase, IndianRupee, ScrollText, RefreshCw } from "lucide-react";
+import { Play, Pause, Square, Trash2, Activity, AlertCircle, FileText, Briefcase, IndianRupee, ScrollText, RefreshCw, Download } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { persistRegenerateBusinessBoot } from "@/lib/defaultAppBoot";
 import { isExhaustiveGenerationComplete, getExhaustiveTotalPermutations, getExhaustiveGeneratorIndex, getShowcaseScenarioCount, getPipelineExtraCount } from "@/lib/data-engine/exhaustiveGenerator";
 import { isAutoSeedDone } from "@/lib/data-engine/autoSeedStorage";
+import { exportDataEngineLogsPdf } from "@/lib/data-engine/dataEngineLogExport";
+import { isWorkspacePipelineSeeded, readWorkspaceDataCounts } from "@/lib/data-engine/workspaceDataCounts";
 import {
   Table,
   TableBody,
@@ -25,9 +28,13 @@ import {
 export default function SuperAdminDataEngine() {
   const store = useDataEngineStore();
   const { start, pause, stop } = useAutonomousEngine();
-  const { resetToDefaults } = useAppData();
+  const appData = useAppData();
+  const { currentRole } = useAppSession();
+  const { resetToDefaults } = appData;
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
+
+  const liveCounts = readWorkspaceDataCounts(appData);
 
   const confirmClear = () => {
     resetToDefaults();
@@ -40,8 +47,25 @@ export default function SuperAdminDataEngine() {
     window.location.reload();
   };
 
+  const handleExportLogsPdf = () => {
+    exportDataEngineLogsPdf(store.logs, {
+      exportedAt: new Date().toISOString(),
+      engineStatus: store.status,
+      progressPercent: store.progress,
+      generationComplete: isAutoSeedDone() && isExhaustiveGenerationComplete() && isWorkspacePipelineSeeded(liveCounts),
+      sessionRole: currentRole,
+      engineCounters: store.counters,
+      liveCounts,
+      showcaseScenarios: getShowcaseScenarioCount(),
+      pipelineExtras: getPipelineExtraCount(),
+    });
+  };
+
   const generationComplete =
-    isAutoSeedDone() && isExhaustiveGenerationComplete() && store.status === "idle";
+    isAutoSeedDone() &&
+    isExhaustiveGenerationComplete() &&
+    isWorkspacePipelineSeeded(liveCounts) &&
+    store.status !== "error";
   const totalSteps = getExhaustiveTotalPermutations();
   const completedSteps = Math.min(getExhaustiveGeneratorIndex() + (isExhaustiveGenerationComplete() ? getPipelineExtraCount() : 0), totalSteps);
   const showcaseCount = getShowcaseScenarioCount();
@@ -128,6 +152,12 @@ export default function SuperAdminDataEngine() {
                 {generationComplete && (
                   <p className="text-sm text-success font-medium">
                     100% complete — {showcaseCount} showcase scenarios + {pipelineCount} pipeline extras seeded.
+                    Workspace: {liveCounts.projects} projects, {liveCounts.enquiries} enquiries visible in app.
+                  </p>
+                )}
+                {!generationComplete && isAutoSeedDone() && store.status === "idle" && (
+                  <p className="text-sm text-destructive font-medium">
+                    Engine reported done but workspace is empty — use Clear &amp; Regenerate or Start Generation.
                   </p>
                 )}
                 {!generationComplete && store.status === "running" && (
@@ -150,8 +180,19 @@ export default function SuperAdminDataEngine() {
           </Card>
 
           <Card>
-            <CardHeader className="pb-3 border-b border-border">
+            <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Event Logs</CardTitle>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleExportLogsPdf}
+                disabled={store.logs.length === 0}
+              >
+                <Download className="h-4 w-4" />
+                Export PDF
+              </Button>
             </CardHeader>
             <CardContent className="p-0 max-h-[400px] overflow-y-auto">
               <Table>
@@ -184,7 +225,12 @@ export default function SuperAdminDataEngine() {
                             {log.level}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-sm">{log.message}</TableCell>
+                        <TableCell className="text-sm">
+                          {log.category && (
+                            <span className="text-xs text-muted-foreground mr-2">[{log.category}]</span>
+                          )}
+                          {log.message}
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -197,7 +243,22 @@ export default function SuperAdminDataEngine() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Sales & Projects</CardTitle>
+              <CardTitle className="text-lg">Live workspace (UI)</CardTitle>
+              <CardDescription>Rows AppDataContext exposes to list pages</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <CounterRow icon={<ScrollText />} label="Enquiries" value={liveCounts.enquiries} />
+              <CounterRow icon={<FileText />} label="Quotations" value={liveCounts.quotations} />
+              <CounterRow icon={<Briefcase />} label="Projects" value={liveCounts.projects} />
+              <CounterRow icon={<FileText />} label="Invoices" value={liveCounts.invoices} />
+              <CounterRow icon={<Briefcase />} label="Employees" value={liveCounts.employees} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Engine counters</CardTitle>
+              <CardDescription>Generator step metrics (may differ until persist)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <CounterRow icon={<ScrollText />} label="Enquiries" value={store.counters.enquiries} />

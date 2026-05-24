@@ -2,11 +2,20 @@ import { create } from "zustand";
 
 export type EngineStatus = "idle" | "running" | "paused" | "error";
 
+export type LogCategory =
+  | "session"
+  | "bootstrap"
+  | "scenario"
+  | "entity"
+  | "persist"
+  | "system";
+
 export interface LogEntry {
   id: string;
   level: "info" | "warn" | "error" | "success";
   message: string;
   timestamp: string;
+  category?: LogCategory;
 }
 
 export interface EngineCounters {
@@ -19,7 +28,6 @@ export interface EngineCounters {
   inventoryLogs: number;
   attendanceLogs: number;
   schedules: number;
-  // New metrics
   blockages: number;
   tickets: number;
   changeRequests: number;
@@ -46,16 +54,22 @@ interface DataEngineState {
   activeFlow: string | null;
   logs: LogEntry[];
   bannerDismissed: boolean;
-  
-  // Actions
+
   setStatus: (status: EngineStatus) => void;
   setProgress: (progress: number) => void;
   incrementCounter: (key: keyof EngineCounters) => void;
   setActiveFlow: (flowName: string | null) => void;
-  addLog: (level: LogEntry["level"], message: string) => void;
+  addLog: (
+    level: LogEntry["level"],
+    message: string,
+    category?: LogCategory,
+  ) => void;
   setBannerDismissed: (dismissed: boolean) => void;
   clearState: () => void;
 }
+
+const DATA_ENGINE_LOGS_KEY = "mahi_solar_data_engine_logs";
+const MAX_PERSISTED_LOGS = 2000;
 
 const initialCounters: EngineCounters = {
   enquiries: 0,
@@ -86,12 +100,31 @@ const initialCounters: EngineCounters = {
   siteChecklistTemplates: 0,
 };
 
+function loadPersistedLogs(): LogEntry[] {
+  try {
+    const raw = localStorage.getItem(DATA_ENGINE_LOGS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as LogEntry[];
+    return Array.isArray(parsed) ? parsed.slice(0, MAX_PERSISTED_LOGS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistLogs(logs: LogEntry[]): void {
+  try {
+    localStorage.setItem(DATA_ENGINE_LOGS_KEY, JSON.stringify(logs.slice(0, MAX_PERSISTED_LOGS)));
+  } catch {
+    /* ignore quota */
+  }
+}
+
 export const useDataEngineStore = create<DataEngineState>((set) => ({
   status: "idle",
   progress: 0,
   counters: { ...initialCounters },
   activeFlow: null,
-  logs: [],
+  logs: loadPersistedLogs(),
   bannerDismissed: false,
 
   setStatus: (status) => set({ status }),
@@ -101,20 +134,24 @@ export const useDataEngineStore = create<DataEngineState>((set) => ({
       counters: { ...state.counters, [key]: state.counters[key] + 1 },
     })),
   setActiveFlow: (activeFlow) => set({ activeFlow }),
-  addLog: (level, message) =>
-    set((state) => ({
-      logs: [
+  addLog: (level, message, category) =>
+    set((state) => {
+      const logs = [
         {
-          id: Math.random().toString(36).substring(2, 9),
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           level,
           message,
           timestamp: new Date().toISOString(),
+          category,
         },
         ...state.logs,
-      ].slice(0, 100), // keep last 100 logs
-    })),
+      ].slice(0, MAX_PERSISTED_LOGS);
+      persistLogs(logs);
+      return { logs };
+    }),
   setBannerDismissed: (bannerDismissed) => set({ bannerDismissed }),
-  clearState: () =>
+  clearState: () => {
+    persistLogs([]);
     set({
       status: "idle",
       progress: 0,
@@ -122,5 +159,14 @@ export const useDataEngineStore = create<DataEngineState>((set) => ({
       activeFlow: null,
       logs: [],
       bannerDismissed: false,
-    }),
+    });
+  },
 }));
+
+export function clearPersistedDataEngineLogs(): void {
+  try {
+    localStorage.removeItem(DATA_ENGINE_LOGS_KEY);
+  } catch {
+    /* ignore */
+  }
+}
