@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, User, Briefcase, Upload, X, ChevronLeft, ChevronRight, IndianRupee, AlertCircle, Check, Filter, ClipboardList, Users } from "lucide-react";
+﻿import { useEffect, useMemo, useState } from "react";
+import { Plus, User, Briefcase, Upload, X, ChevronLeft, ChevronRight, IndianRupee, AlertCircle, Filter, ClipboardList, Users } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +32,7 @@ import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
 import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { useCan } from "@/hooks/useCan";
-import { formPrimaryLabel, FORM_CREATE_LABEL } from "@/lib/formActionLabels";
+import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { formatINR } from "@/lib/formatCurrency";
 
 // Data is pulled from AppDataContext and MastersContext
@@ -48,7 +48,7 @@ const Employees = () => {
   const canCreateEmployee = useCan("employee", "create");
   const canEditEmployee = useCan("employee", "edit");
   const canCreatePayroll = useCan("payroll", "create");
-  const { employees: contextEmployees, attendanceRecords, expenses: contextExpenses, sites, addEmployee, addEmployeePayrollRecord, updateEmployee, addExpense, generateId } = useAppData();
+  const { employees: contextEmployees, attendanceRecords, expenses: contextExpenses, addEmployee, addEmployeePayrollRecord, updateEmployee, generateId } = useAppData();
 
   // Use context employees with extended fields for display
   const employees = contextEmployees.map(emp => ({
@@ -77,7 +77,7 @@ const Employees = () => {
       const pick = [...attendanceRecords]
         .filter((r) => r.employeeId === emp.id && (r.status === "present" || r.status === "half-day"))
         .sort((a, b) => b.date.localeCompare(a.date))[0];
-      const site = pick?.sites?.[0]?.trim() || "—";
+      const site = pick?.sites?.[0]?.trim() || "â€”";
       map.set(emp.id, { currentSite: site, hoursThisMonth: hours });
     }
     return map;
@@ -120,20 +120,10 @@ const Employees = () => {
   const [isEmployeeSavedOpen, setIsEmployeeSavedOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isPaySalaryOpen, setIsPaySalaryOpen] = useState(false);
-  const [isExpenseConfirmOpen, setIsExpenseConfirmOpen] = useState(false);
   const [selectedEmployeeForExpense, setSelectedEmployeeForExpense] = useState<typeof employees[0] | null>(null);
   const [selectedEmployeeForPayment, setSelectedEmployeeForPayment] = useState<typeof employees[0] | null>(null);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [selectedEmployeeForTask, setSelectedEmployeeForTask] = useState<typeof employees[0] | null>(null);
-  
-  // Expense form state
-  const [expenseSite, setExpenseSite] = useState("");
-  const [expenseCategory, setExpenseCategory] = useState("");
-  const [expenseItem, setExpenseItem] = useState("");
-  const [expenseCostAllocation, setExpenseCostAllocation] = useState("reimburse");
-  const [_isInventoryItem, setIsInventoryItem] = useState(false);
-  const [expenseWhoPaid, setExpenseWhoPaid] = useState("company");
-  const [expenseAmount, setExpenseAmount] = useState("");
   
   // Pay salary form state
   const [selectedMonths, setSelectedMonths] = useState<string[]>(["dec-2024"]);
@@ -166,7 +156,7 @@ const Employees = () => {
     setPaymentAmount(String(suggested));
   }, [isPaySalaryOpen, selectedEmployeeForPayment, selectedMonths, contextEmployees, attendanceRecords, contextExpenses]);
 
-  // Add employee form state (B9 — was fully uncontrolled)
+  // Add employee form state (B9 â€” was fully uncontrolled)
   const [newEmpName, setNewEmpName] = useState("");
   const [newEmpPhone, setNewEmpPhone] = useState("");
   const [newEmpAddress, setNewEmpAddress] = useState("");
@@ -236,7 +226,7 @@ const Employees = () => {
   const [uploadedOthers, setUploadedOthers] = useState<UploadedDoc | null>(null);
 
   // Prototype document picker. Opens an ephemeral <input type="file"> via the browser so the
-  // upload buttons below are not "dead" — selected images are previewed locally without leaving
+  // upload buttons below are not "dead" â€” selected images are previewed locally without leaving
   // the browser. Replace with the real backend upload once persistence is in place.
   const pickDocument = (setter: (doc: UploadedDoc | null) => void, label: string) => {
     const input = document.createElement("input");
@@ -325,13 +315,6 @@ const Employees = () => {
 
   const handleAddExpense = (emp: typeof employees[0]) => {
     setSelectedEmployeeForExpense(emp);
-    setExpenseSite("");
-    setExpenseCategory("");
-    setExpenseItem("");
-    setExpenseCostAllocation("reimburse");
-    setIsInventoryItem(false);
-    setExpenseWhoPaid("company");
-    setExpenseAmount("");
     setIsAddExpenseOpen(true);
   };
 
@@ -361,11 +344,6 @@ const Employees = () => {
         ? prev.filter(m => m !== monthValue)
         : [...prev, monthValue]
     );
-  };
-
-  const handleExpenseSubmit = () => {
-    setIsAddExpenseOpen(false);
-    setIsExpenseConfirmOpen(true);
   };
 
   const handleEmployeeClick = (empId: number) => {
@@ -422,22 +400,6 @@ const Employees = () => {
     deploymentPage,
     deploymentPageSize,
   );
-
-  // Check if same employee paid and will be reimbursed
-  const isSameEmployeePaidAndReimbursed = () => {
-    return expenseWhoPaid === `emp-${selectedEmployeeForExpense?.id}` && expenseCostAllocation === "reimburse";
-  };
-
-  // Get confirmation message based on cost allocation
-  const getConfirmationMessage = () => {
-    if (isSameEmployeePaidAndReimbursed()) {
-      return "No changes in amount will be made as the same employee paid and will be reimbursed.";
-    }
-    if (expenseCostAllocation === "deduct") {
-      return "This amount will be deducted from the employee's next salary payment.";
-    }
-    return "This expense will be added to the project costs and the employee will be reimbursed.";
-  };
 
   return (
     <PageShell className="space-y-4 px-2 md:space-y-6 md:px-0">
@@ -554,7 +516,7 @@ const Employees = () => {
                     <TableCell className="text-center text-destructive font-medium">{emp.daysAbsent}</TableCell>
                     <TableCell className="text-center text-muted-foreground">{emp.holidays}</TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-[140px] truncate" title={payrollRowExtras.get(emp.id)?.currentSite}>
-                      {payrollRowExtras.get(emp.id)?.currentSite ?? "—"}
+                      {payrollRowExtras.get(emp.id)?.currentSite ?? "â€”"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {payrollRowExtras.get(emp.id)?.hoursThisMonth ?? 0}
@@ -827,7 +789,7 @@ const Employees = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="salary">Salary (Monthly)</Label>
-                  <Input id="salary" placeholder="₹ Enter amount" value={newEmpSalary} onChange={e => setNewEmpSalary(e.target.value)} />
+                  <Input id="salary" placeholder="â‚¹ Enter amount" value={newEmpSalary} onChange={e => setNewEmpSalary(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="role">Role *</Label>
@@ -1039,7 +1001,7 @@ const Employees = () => {
                 <div className="space-y-2">
                   <Label>Payment Amount</Label>
                   <Input
-                    placeholder="₹ Enter amount"
+                    placeholder="â‚¹ Enter amount"
                     value={paymentAmount}
                     onChange={(e) => setPaymentAmount(e.target.value)}
                   />
@@ -1053,7 +1015,7 @@ const Employees = () => {
                     const computed = Math.round(totalPresent * (emp.salary / 26));
                     return (
                       <p className="text-xs text-muted-foreground">
-                        Auto-computed: {totalPresent} days × {formatINR(Math.round(emp.salary / 26))}/day = <span className="font-medium text-foreground">{formatINR(computed)}</span>
+                        Auto-computed: {totalPresent} days Ã— {formatINR(Math.round(emp.salary / 26))}/day = <span className="font-medium text-foreground">{formatINR(computed)}</span>
                       </p>
                     );
                   })()}
@@ -1134,233 +1096,13 @@ const Employees = () => {
         </AppSheetContent>
       </Sheet>
 
-      {/* Add Expense Sheet - Enhanced with Office as site and cost messaging */}
-      <Sheet open={isAddExpenseOpen} onOpenChange={setIsAddExpenseOpen}>
-        <AppSheetContent layout="scroll" size="xl">
-          <SheetHeader>
-            <SheetTitle className="text-xl font-semibold">Add Expense</SheetTitle>
-          </SheetHeader>
-          
-          {selectedEmployeeForExpense && (
-            <div className="space-y-4 py-4">
-              {/* Info Banner */}
-              <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg text-sm">
-                <p className="text-muted-foreground">This expense will be added to the project/site it's marked for.</p>
-              </div>
-
-              <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                <Avatar className="h-10 w-10">
-                  <AvatarFallback className="bg-primary/10 text-primary">{selectedEmployeeForExpense.initial}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <p className="font-medium">{selectedEmployeeForExpense.name}</p>
-                  <p className="text-sm text-muted-foreground">{selectedEmployeeForExpense.role}</p>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {/* Site Selection First - Includes Office */}
-                <div className="space-y-2">
-                  <Label>Site</Label>
-                  <Select value={expenseSite} onValueChange={setExpenseSite}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select site" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sites.map(site => (
-                        <SelectItem key={site.id} value={site.name}>{site.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Category After Site - Only employee-related costs */}
-                {expenseSite && (
-                  <div className="space-y-2">
-                    <Label>Category</Label>
-                    <Select value={expenseCategory} onValueChange={(val) => {
-                      setExpenseCategory(val);
-                      setExpenseItem("");
-                      setIsInventoryItem(false);
-                    }}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="food">Food</SelectItem>
-                        <SelectItem value="travel">Travel</SelectItem>
-                        <SelectItem value="stay">Stay</SelectItem>
-                        <SelectItem value="medical">Medical</SelectItem>
-                        <SelectItem value="others">Others</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Note: Site costs (material, labour, transport) should be added from Projects or Finance page.
-                    </p>
-                  </div>
-                )}
-
-                {expenseCategory && (
-                  <>
-                    <div className="space-y-2">
-                      <Label>Date</Label>
-                      <Input type="date" defaultValue={new Date().toISOString().split('T')[0]} />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Amount</Label>
-                      <Input 
-                        placeholder="₹ Enter amount" 
-                        value={expenseAmount}
-                        onChange={(e) => setExpenseAmount(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Reason / Notes</Label>
-                      <Input placeholder="Enter reason" />
-                    </div>
-
-                    {/* Who Paid */}
-                    <div className="space-y-2">
-                      <Label>Who Paid?</Label>
-                      <Select value={expenseWhoPaid} onValueChange={setExpenseWhoPaid}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select payer" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="company">Company Paid</SelectItem>
-                          {employees.map(emp => (
-                            <SelectItem key={emp.id} value={`emp-${emp.id}`}>{emp.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Cost Allocation */}
-                    <div className="space-y-2 pt-2 border-t">
-                      <Label>Cost Allocation</Label>
-                      <div className="space-y-2">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="radio" 
-                            name="costAllocation" 
-                            value="reimburse"
-                            checked={expenseCostAllocation === "reimburse"}
-                            onChange={(e) => setExpenseCostAllocation(e.target.value)}
-                            className="accent-primary"
-                          />
-                          <span className="text-sm">Company will reimburse</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="radio" 
-                            name="costAllocation" 
-                            value="deduct"
-                            checked={expenseCostAllocation === "deduct"}
-                            onChange={(e) => setExpenseCostAllocation(e.target.value)}
-                            className="accent-primary"
-                          />
-                          <span className="text-sm">Employee needs to bear this cost</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Show messaging based on who paid and cost allocation */}
-                    {isSameEmployeePaidAndReimbursed() && (
-                      <div className="p-3 bg-muted/30 border rounded-lg">
-                        <p className="text-sm text-muted-foreground">
-                          <strong>Note:</strong> No changes in amount will be made as the same employee paid and will be reimbursed.
-                        </p>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={() => setIsAddExpenseOpen(false)}>Cancel</Button>
-            <Button className="bg-primary text-primary-foreground" onClick={handleExpenseSubmit}>Continue</Button>
-          </div>
-        </AppSheetContent>
-      </Sheet>
-
-      {/* Expense Confirmation Sheet */}
-      <Sheet open={isExpenseConfirmOpen} onOpenChange={setIsExpenseConfirmOpen}>
-        <AppSheetContent layout="form" size="xs">
-          <SheetHeader>
-            <SheetTitle className="text-xl font-semibold">Confirm Expense</SheetTitle>
-          </SheetHeader>
-          
-          <div className="space-y-4 py-4">
-            <div className="p-4 bg-muted/30 rounded-lg space-y-3">
-              <div className="flex items-center gap-2">
-                {expenseCostAllocation === "reimburse" && !isSameEmployeePaidAndReimbursed() ? (
-                  <Check className="w-5 h-5 text-primary" />
-                ) : expenseCostAllocation === "deduct" ? (
-                  <AlertCircle className="w-5 h-5 text-warning" />
-                ) : (
-                  <Check className="w-5 h-5 text-muted-foreground" />
-                )}
-                <span className="font-medium">
-                  {isSameEmployeePaidAndReimbursed() 
-                    ? "No Amount Change" 
-                    : expenseCostAllocation === "reimburse" 
-                      ? "Marked as Project Cost" 
-                      : "Will be Deducted from Salary"}
-                </span>
-              </div>
-              
-              {expenseAmount && (
-                <div className="text-sm">
-                  <strong>Amount:</strong> {formatINR(parseFloat(expenseAmount))}
-                </div>
-              )}
-              
-              <p className="text-sm text-muted-foreground">
-                {getConfirmationMessage()}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={() => setIsExpenseConfirmOpen(false)}>Go Back</Button>
-            <Button className="bg-primary text-primary-foreground" onClick={() => {
-              const parsedAmt = parseFloat(expenseAmount);
-              if (!isNaN(parsedAmt) && parsedAmt > 0 && selectedEmployeeForExpense) {
-                addExpense({
-                  id: generateId("EXP"),
-                  category: expenseCategory || "general",
-                  description: expenseItem || expenseCategory || "Employee expense",
-                  amount: parsedAmt,
-                  date: new Date().toISOString().slice(0, 10),
-                  paidBy:
-                    expenseWhoPaid === "company"
-                      ? { type: "company", entityName: "Company" }
-                      : { type: "employee", entityId: String(selectedEmployeeForExpense.id), entityName: selectedEmployeeForExpense.name },
-                  employeeId: String(selectedEmployeeForExpense.id),
-                });
-                if (expenseCostAllocation === "deduct") {
-                  updateEmployee(selectedEmployeeForExpense.id, {
-                    pendingAmount: Math.max(0, (selectedEmployeeForExpense.pendingAmount || 0) - parsedAmt),
-                  });
-                }
-              }
-              setIsExpenseConfirmOpen(false);
-              setExpenseAmount(""); setExpenseSite(""); setExpenseCategory(""); setExpenseItem(""); setExpenseWhoPaid("company"); setExpenseCostAllocation("reimburse");
-            }}>
-              {FORM_CREATE_LABEL}
-            </Button>
-          </div>
-        </AppSheetContent>
-      </Sheet>
-
       {/* Unified Expense Modal */}
       <UnifiedExpenseSheet
         isOpen={isAddExpenseOpen}
-        onClose={() => setIsAddExpenseOpen(false)}
+        onClose={() => {
+          setIsAddExpenseOpen(false);
+          setSelectedEmployeeForExpense(null);
+        }}
         employeeId={selectedEmployeeForExpense?.id}
         employeeName={selectedEmployeeForExpense?.name}
       />
