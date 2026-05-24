@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useDataEngineStore } from "@/lib/data-engine/useDataEngineStore";
 import { useAutonomousEngine } from "@/lib/data-engine/useAutonomousEngine";
 import { PageShell } from "@/components/layout/PageShell";
@@ -6,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { DestructiveConfirmDialog } from "@/components/ui/DestructiveConfirmDialog";
 import { Play, Pause, Square, Trash2, Activity, AlertCircle, FileText, Briefcase, IndianRupee, ScrollText, RefreshCw } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { persistRegenerateBusinessBoot } from "@/lib/defaultAppBoot";
@@ -24,24 +26,18 @@ export default function SuperAdminDataEngine() {
   const store = useDataEngineStore();
   const { start, pause, stop } = useAutonomousEngine();
   const { resetToDefaults } = useAppData();
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+  const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
 
-  const handleClear = () => {
-    if (window.confirm("Are you sure you want to clear all data? This will reset the workspace to empty (no auto-generation).")) {
-      resetToDefaults();
-      store.clearState();
-    }
+  const confirmClear = () => {
+    resetToDefaults();
+    store.clearState();
   };
 
-  const handleClearAndRegenerate = () => {
-    if (
-      window.confirm(
-        "Clear all data and regenerate 100% demo data? The app will reload and generation will run in the background.",
-      )
-    ) {
-      persistRegenerateBusinessBoot();
-      store.clearState();
-      window.location.reload();
-    }
+  const confirmClearAndRegenerate = () => {
+    persistRegenerateBusinessBoot();
+    store.clearState();
+    window.location.reload();
   };
 
   const generationComplete =
@@ -107,7 +103,7 @@ export default function SuperAdminDataEngine() {
                 </Button>
                 <div className="flex-1" />
                 <Button
-                  onClick={handleClearAndRegenerate}
+                  onClick={() => setIsRegenerateConfirmOpen(true)}
                   variant="outline"
                   className="gap-2"
                   disabled={store.status === "running"}
@@ -115,7 +111,7 @@ export default function SuperAdminDataEngine() {
                   <RefreshCw className="h-4 w-4" /> Clear &amp; Regenerate
                 </Button>
                 <Button 
-                  onClick={handleClear} 
+                  onClick={() => setIsClearConfirmOpen(true)} 
                   variant="destructive"
                   className="gap-2"
                 >
@@ -256,6 +252,25 @@ export default function SuperAdminDataEngine() {
           )}
         </div>
       </div>
+
+      <DestructiveConfirmDialog
+        open={isClearConfirmOpen}
+        onOpenChange={setIsClearConfirmOpen}
+        title="Clear all data?"
+        description="This resets the workspace to empty with no auto-generation. All local business rows, engine progress, and event logs will be wiped."
+        confirmLabel="Clear all data"
+        onConfirm={confirmClear}
+      />
+
+      <DestructiveConfirmDialog
+        open={isRegenerateConfirmOpen}
+        onOpenChange={setIsRegenerateConfirmOpen}
+        title="Clear and regenerate demo data?"
+        description="All current data will be wiped and 100% demo data generation will run in the background after the page reloads."
+        typedConfirmation="REGENERATE"
+        confirmLabel="Clear & regenerate"
+        onConfirm={confirmClearAndRegenerate}
+      />
     </PageShell>
   );
 }
