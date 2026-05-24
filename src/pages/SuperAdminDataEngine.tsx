@@ -6,8 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Play, Pause, Square, Trash2, Activity, AlertCircle, FileText, Briefcase, IndianRupee, ScrollText } from "lucide-react";
+import { Play, Pause, Square, Trash2, Activity, AlertCircle, FileText, Briefcase, IndianRupee, ScrollText, RefreshCw } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
+import { persistRegenerateBusinessBoot } from "@/lib/defaultAppBoot";
+import { isExhaustiveGenerationComplete, getExhaustiveTotalPermutations, getExhaustiveGeneratorIndex } from "@/lib/data-engine/exhaustiveGenerator";
+import { isAutoSeedDone } from "@/lib/data-engine/autoSeedStorage";
 import {
   Table,
   TableBody,
@@ -23,11 +26,28 @@ export default function SuperAdminDataEngine() {
   const { resetToDefaults } = useAppData();
 
   const handleClear = () => {
-    if (window.confirm("Are you sure you want to clear all data? This will reset the workspace entirely.")) {
+    if (window.confirm("Are you sure you want to clear all data? This will reset the workspace to empty (no auto-generation).")) {
       resetToDefaults();
       store.clearState();
     }
   };
+
+  const handleClearAndRegenerate = () => {
+    if (
+      window.confirm(
+        "Clear all data and regenerate 100% demo data? The app will reload and generation will run in the background.",
+      )
+    ) {
+      persistRegenerateBusinessBoot();
+      store.clearState();
+      window.location.reload();
+    }
+  };
+
+  const generationComplete =
+    isAutoSeedDone() && isExhaustiveGenerationComplete() && store.status === "idle";
+  const totalPermutations = getExhaustiveTotalPermutations();
+  const completedPermutations = Math.min(getExhaustiveGeneratorIndex(), totalPermutations);
 
   return (
     <PageShell className="space-y-6">
@@ -45,9 +65,9 @@ export default function SuperAdminDataEngine() {
                     <Activity className="h-5 w-5 text-primary" />
                     Autonomous Business Simulator
                   </CardTitle>
-                  <CardDescription>
-                    Programmatically traverse real application flows to generate operational data over time.
-                  </CardDescription>
+                <CardDescription>
+                  On first open the engine auto-generates 100% demo data in the background. Use controls below to pause, clear, or regenerate.
+                </CardDescription>
                 </div>
                 <Badge variant={
                   store.status === "running" ? "default" :
@@ -84,6 +104,14 @@ export default function SuperAdminDataEngine() {
                   <Square className="h-4 w-4" /> Stop
                 </Button>
                 <div className="flex-1" />
+                <Button
+                  onClick={handleClearAndRegenerate}
+                  variant="outline"
+                  className="gap-2"
+                  disabled={store.status === "running"}
+                >
+                  <RefreshCw className="h-4 w-4" /> Clear &amp; Regenerate
+                </Button>
                 <Button 
                   onClick={handleClear} 
                   variant="destructive"
@@ -95,10 +123,15 @@ export default function SuperAdminDataEngine() {
 
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Current Progress (Loop)</span>
+                  <span className="text-muted-foreground">Generation progress</span>
                   <span className="font-medium">{store.progress}%</span>
                 </div>
                 <Progress value={store.progress} className="h-2" />
+                {generationComplete && (
+                  <p className="text-sm text-success font-medium">
+                    100% complete — {completedPermutations}/{totalPermutations} project permutations generated.
+                  </p>
+                )}
               </div>
 
               {store.activeFlow && (

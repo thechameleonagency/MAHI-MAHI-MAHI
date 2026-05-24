@@ -65,6 +65,7 @@ import ChartOfAccounts from "./pages/audit/ChartOfAccounts";
 import Login from "./pages/Login";
 import InviteAccept from "./pages/InviteAccept";
 import SuperAdminDataEngine from "./pages/SuperAdminDataEngine";
+import { DataEngineAutoBootstrap } from "./components/data-engine/DataEngineAutoBootstrap";
 import { AuthGate } from "./components/auth/AuthGate";
 import { ThemeAppearanceProvider } from "@/app/providers/ThemeAppearanceProvider";
 
@@ -81,6 +82,7 @@ const App = () => (
             <MastersProvider>
               <TooltipProvider>
                 <Toaster />
+                <DataEngineAutoBootstrap />
                 <BrowserRouter>
                   <Routes>
                 <Route path="/login" element={<Login />} />

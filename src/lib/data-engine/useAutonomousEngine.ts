@@ -1,7 +1,8 @@
 import { useCallback, useRef } from "react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useDataEngineStore } from "./useDataEngineStore";
-import { runExhaustiveIteration } from "./exhaustiveGenerator";
+import { runExhaustiveIteration, isExhaustiveGenerationComplete, getExhaustiveGenerationProgressPercent } from "./exhaustiveGenerator";
+import { markAutoSeedDone } from "./autoSeedStorage";
 
 export function useAutonomousEngine() {
   const context = useAppData();
@@ -17,9 +18,12 @@ export function useAutonomousEngine() {
 
     try {
       await runExhaustiveIteration(() => contextRef.current, store);
+      store.setProgress(getExhaustiveGenerationProgressPercent());
 
-      // Advance progress purely as a visual indicator of ticks
-      store.setProgress(Math.min((store.progress + 1) % 100, 100));
+      if (isExhaustiveGenerationComplete()) {
+        markAutoSeedDone();
+        store.addLog("success", "100% generation complete — all permutations generated.");
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       store.addLog("error", `Flow Failed: ${msg}`);

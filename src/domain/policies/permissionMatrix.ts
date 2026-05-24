@@ -172,6 +172,7 @@ const routePermissions: RoutePermissionConfig[] = [
   { exact: "/calendar", roles: ["super_admin", "admin", "ceo", "management", "salesperson", "installation_team"] },
   { exact: "/inventory", roles: ["super_admin", "admin", "ceo", "management", "salesperson", "installation_team"] },
   { exact: "/settings/design-system", roles: ["super_admin", "admin", "ceo", "management"] },
+  { exact: "/super-admin/data-engine", roles: ["super_admin"] },
 ];
 
 /** Exact paths used in route ACL — each must be recognized by `isRegisteredAppRoute`. Patterns are excluded. */

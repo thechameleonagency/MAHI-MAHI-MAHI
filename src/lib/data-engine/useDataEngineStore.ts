@@ -43,6 +43,7 @@ interface DataEngineState {
   counters: EngineCounters;
   activeFlow: string | null;
   logs: LogEntry[];
+  bannerDismissed: boolean;
   
   // Actions
   setStatus: (status: EngineStatus) => void;
@@ -50,6 +51,7 @@ interface DataEngineState {
   incrementCounter: (key: keyof EngineCounters) => void;
   setActiveFlow: (flowName: string | null) => void;
   addLog: (level: LogEntry["level"], message: string) => void;
+  setBannerDismissed: (dismissed: boolean) => void;
   clearState: () => void;
 }
 
@@ -86,6 +88,7 @@ export const useDataEngineStore = create<DataEngineState>((set) => ({
   counters: { ...initialCounters },
   activeFlow: null,
   logs: [],
+  bannerDismissed: false,
 
   setStatus: (status) => set({ status }),
   setProgress: (progress) => set({ progress }),
@@ -106,6 +109,7 @@ export const useDataEngineStore = create<DataEngineState>((set) => ({
         ...state.logs,
       ].slice(0, 100), // keep last 100 logs
     })),
+  setBannerDismissed: (bannerDismissed) => set({ bannerDismissed }),
   clearState: () =>
     set({
       status: "idle",
@@ -113,5 +117,6 @@ export const useDataEngineStore = create<DataEngineState>((set) => ({
       counters: { ...initialCounters },
       activeFlow: null,
       logs: [],
+      bannerDismissed: false,
     }),
 }));

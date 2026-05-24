@@ -333,6 +333,45 @@ export function getExhaustiveGeneratorIndex() {
   return generatorStateIndex;
 }
 
+export function getExhaustiveTotalPermutations(): number {
+  return PROJECT_TYPES.length * LIFECYCLE_STAGES.length;
+}
+
+export function isExhaustiveGenerationComplete(): boolean {
+  return generatorStateIndex >= getExhaustiveTotalPermutations() && pendingPermutation === null;
+}
+
+export function getExhaustiveGenerationProgressPercent(): number {
+  if (!bootstrapComplete()) {
+    const bootstrapSteps =
+      GENERATOR_ENTITY_LIMITS.employees +
+      GENERATOR_ENTITY_LIMITS.agents +
+      PARTNER_TYPES.length * GENERATOR_ENTITY_LIMITS.partnersPerType +
+      GENERATOR_ENTITY_LIMITS.vendors +
+      GENERATOR_ENTITY_LIMITS.teams +
+      GENERATOR_ENTITY_LIMITS.inventoryItems +
+      GENERATOR_ENTITY_LIMITS.tools +
+      GENERATOR_ENTITY_LIMITS.loans +
+      GENERATOR_ENTITY_LIMITS.vendorshipCompanies +
+      GENERATOR_ENTITY_LIMITS.incGiverCompanies;
+    const bootstrapDone =
+      bootstrapEmployeesCreated +
+      bootstrapAgentsCreated +
+      Object.values(bootstrapPartnersCreated).reduce((s, n) => s + n, 0) +
+      bootstrapVendorsCreated +
+      bootstrapTeamsCreated +
+      bootstrapInventoryCreated +
+      bootstrapToolsCreated +
+      bootstrapLoansCreated +
+      bootstrapVendorshipCosCreated +
+      bootstrapIncGiversCreated;
+    return Math.min(99, Math.round((bootstrapDone / bootstrapSteps) * 40));
+  }
+  const total = getExhaustiveTotalPermutations();
+  if (total === 0) return 100;
+  return Math.min(100, 40 + Math.round((generatorStateIndex / total) * 60));
+}
+
 function bootstrapComplete(): boolean {
   const partnersDone = PARTNER_TYPES.every(
     (t) => (bootstrapPartnersCreated[t] ?? 0) >= GENERATOR_ENTITY_LIMITS.partnersPerType,

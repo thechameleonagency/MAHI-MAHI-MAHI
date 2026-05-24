@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
-  runExhaustiveIteration,
   resetExhaustiveGeneratorState,
   GENERATOR_ENTITY_LIMITS,
 } from "@/lib/data-engine/exhaustiveGenerator";
+import { runExhaustiveToCompletion } from "@/lib/data-engine/runExhaustiveToCompletion";
 import { useDataEngineStore } from "@/lib/data-engine/useDataEngineStore";
 
 import { renderHook, act, waitFor } from "@testing-library/react";
@@ -52,15 +52,13 @@ describe("Autonomous Engine Runner", () => {
     });
 
     const store = useDataEngineStore.getState();
-    store.setStatus("running");
 
-    for (let i = 0; i < 220; i++) {
-      await act(async () => {
-        await runExhaustiveIteration(() => result.current, store);
-      });
-    }
+    const { completed, iterations } = await act(async () =>
+      runExhaustiveToCompletion(() => result.current, store, { resetBeforeRun: true }),
+    );
 
-    // Generator may still be running in test timing; verify master data + diverse projects.
+    expect(completed).toBe(true);
+    expect(iterations).toBeGreaterThan(0);
 
     expect(result.current.employees.length).toBe(GENERATOR_ENTITY_LIMITS.employees);
     expect(result.current.agents.length).toBe(GENERATOR_ENTITY_LIMITS.agents);

@@ -753,12 +753,12 @@ const Settings = () => {
               <CardHeader>
                 <CardTitle className="text-base font-medium">App data</CardTitle>
                 <CardDescription>
-                  The app opens with a full business seed by default (4–5 months of solar EPC data). All roles see this data after sign-in. Clearing browser storage reloads the default seed automatically.
+                  On first open the app auto-generates demo data in the background via the Autonomous Data Engine. All roles share the same workspace. Use the Data Engine to clear or regenerate.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  The fake static seed architecture has been replaced by the Autonomous Data Engine.
+                  Static seed files were replaced by the Autonomous Data Engine — data fills in automatically on first load.
                 </p>
                 {canResetPrototype && (
                   <Button

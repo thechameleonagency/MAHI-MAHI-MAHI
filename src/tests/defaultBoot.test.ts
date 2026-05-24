@@ -17,14 +17,14 @@ describe("defaultAppBoot", () => {
 
   it("isEmptyWorkspaceState detects empty boot", () => {
     expect(isEmptyWorkspaceState(buildEmptyAppState())).toBe(true);
-    expect(isEmptyWorkspaceState(persistDefaultBusinessBoot())).toBe(false);
+    expect(isEmptyWorkspaceState(persistDefaultBusinessBoot())).toBe(true);
   });
 
-  it("readPersistedAppState bootstrap persists full business seed by default", () => {
+  it("readPersistedAppState bootstrap persists empty shell in business mode (auto-seed fills later)", () => {
     const state = readPersistedAppState({ persistOnBootstrap: true });
     expect(getWorkspaceMode()).toBe("business");
-    expect(state.projects.length).toBeGreaterThanOrEqual(28);
-    expect(state.customers.length).toBeGreaterThanOrEqual(30);
+    expect(state.projects.length).toBe(0);
+    expect(state.customers.length).toBe(0);
     expect(localStorage.getItem(APP_DATA_RESET_EPOCH_KEY)).toBeTruthy();
   });
 
@@ -36,11 +36,11 @@ describe("defaultAppBoot", () => {
     expect(localStorage.getItem(WORKSPACE_MODE_KEY)).toBe("empty");
   });
 
-  it("cleared localStorage re-seeds business data on bootstrap", () => {
+  it("cleared localStorage re-boots empty business shell on bootstrap", () => {
     persistEmptyWorkspaceBoot();
     localStorage.clear();
     const state = readPersistedAppState({ persistOnBootstrap: true });
     expect(getWorkspaceMode()).toBe("business");
-    expect(state.projects.length).toBeGreaterThanOrEqual(28);
+    expect(state.projects.length).toBe(0);
   });
 });

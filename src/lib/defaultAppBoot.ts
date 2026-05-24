@@ -4,6 +4,7 @@ import { persistMastersData } from "@/data/mastersSync";
 import { bootstrapSessionAfterSeed } from "@/lib/seedSessionBootstrap";
 import { clearAllAppStorage } from "@/lib/clearAppStorage";
 import { persistFreshAppStateSeed } from "@/lib/appDataStorage";
+import { markAutoSeedPending } from "@/lib/data-engine/autoSeedStorage";
 
 /** Tracks whether the user chose an empty workspace vs default business seed. */
 export const WORKSPACE_MODE_KEY = "mahi_solar_workspace_mode";
@@ -44,7 +45,7 @@ export function materializeDefaultBusinessBoot(): AppState {
 }
 
 /**
- * Default opening state: empty business seed + masters + super_admin session.
+ * Default opening state: empty shell; Autonomous Data Engine fills data in the background.
  * Used on first visit, localStorage clear, and legacy empty upgrades.
  */
 export function persistDefaultBusinessBoot(): AppState {
@@ -72,4 +73,18 @@ export function persistEmptyWorkspaceBoot(): AppState {
     console.info("[MSS] Empty workspace boot (masters only).");
   }
   return empty;
+}
+
+/**
+ * Wipe data and reload into business mode with auto-generation pending (Data Engine clear & regenerate).
+ */
+export function persistRegenerateBusinessBoot(): AppState {
+  clearAllAppStorage();
+  const state = materializeDefaultBusinessBoot();
+  setWorkspaceMode("business");
+  persistFreshAppStateSeed(state);
+  persistMastersData();
+  bootstrapSessionAfterSeed(state);
+  markAutoSeedPending();
+  return state;
 }

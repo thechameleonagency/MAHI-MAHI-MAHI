@@ -184,4 +184,13 @@ describe("PermissionService", () => {
       expect(permissionService.canPerformAction("installation_team", "project:update_commercial")).toBe(false);
     });
   });
+
+  it("allows super_admin on data engine route", () => {
+    expect(permissionService.canAccessPath("super_admin", "/super-admin/data-engine")).toBe(true);
+  });
+
+  it("blocks non-super_admin from data engine route", () => {
+    expect(permissionService.canAccessPath("admin", "/super-admin/data-engine")).toBe(false);
+    expect(permissionService.canAccessPath("ceo", "/super-admin/data-engine")).toBe(false);
+  });
 });
