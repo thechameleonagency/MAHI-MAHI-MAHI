@@ -29,6 +29,7 @@ import {
   LayoutTemplate,
   FileStack,
   HardHat,
+  Hammer,
   Palette,
 } from "lucide-react";
 
@@ -94,6 +95,7 @@ export const sidebarNavSections: SidebarNavSection[] = [
       { label: "Loans", icon: CreditCard, path: "/loans" },
       { label: "Partners", icon: Handshake, path: "/partners" },
       { label: "Vendorship Code Companies", icon: ShieldCheck, path: "/vendorship-companies" },
+      { label: "Subcontractors", icon: Hammer, path: "/subcontractors" },
       { label: "INC Work Sources", icon: HardHat, path: "/inc-work-sources" },
     ],
   },

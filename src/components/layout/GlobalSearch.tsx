@@ -17,6 +17,7 @@ import {
   ListTodo,
   ShieldCheck,
   HardHat,
+  Hammer,
   MapPin,
   LayoutTemplate,
 } from "lucide-react";
@@ -71,6 +72,7 @@ type SearchResult = {
     | "task"
     | "vendorship_company"
     | "inc_source"
+    | "subcontractor"
     | "site"
     | "template";
   subtitle?: string;
@@ -108,6 +110,7 @@ const typeConfig = {
   task: { icon: ListTodo, label: "Task", color: "bg-warning/20 text-warning" },
   vendorship_company: { icon: ShieldCheck, label: "Vendorship", color: "bg-primary/20 text-primary" },
   inc_source: { icon: HardHat, label: "INC source", color: "bg-warning/20 text-warning" },
+  subcontractor: { icon: Hammer, label: "Subcontractor", color: "bg-emerald-500/20 text-emerald-600" },
   site: { icon: MapPin, label: "Site", color: "bg-lime-500/20 text-lime-400" },
   template: { icon: LayoutTemplate, label: "Template", color: "bg-accent/20 text-accent-foreground" },
 };
@@ -150,6 +153,7 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
     tasks,
     vendorshipCompanies,
     incGiverCompanies,
+    subcontractors,
     sites,
     quotationTemplates,
   } = useAppData();
@@ -465,6 +469,22 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
         false,
       );
       });
+
+      (subcontractors ?? []).forEach((s) => {
+        pushSearchMatch(
+          searchResults,
+          searchQuery,
+          [s.name, s.phone, s.email],
+          {
+            id: s.id,
+            name: s.name,
+            type: "subcontractor",
+            subtitle: s.phone,
+            path: `/subcontractor/${s.id}`,
+          },
+          false,
+        );
+      });
     }
 
     sites.forEach((s) => {
@@ -534,6 +554,7 @@ const GlobalSearch = ({ onNavigate, embedded = false }: GlobalSearchProps) => {
     tasks,
     vendorshipCompanies,
     incGiverCompanies,
+    subcontractors,
     sites,
     quotationTemplates,
   ]);

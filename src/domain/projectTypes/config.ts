@@ -21,6 +21,9 @@ export interface ProjectCapabilityInput {
   partnerRole?: PartnerRole;
   executionScope: ExecutionScope;
   outsource?: unknown | null;
+  /** INC Taken: materials not yet enabled on project detail. */
+  materialSupplyPending?: boolean;
+  hasMaterial?: boolean;
 }
 
 /**
@@ -53,10 +56,19 @@ export function resolveProjectCapabilities(input: ProjectCapabilityInput): Proje
   }
 
   if (input.projectMode === "INC_GIVEN_TO_US") {
-    forbiddenActions.push("material_dispatch", "partner_settlement");
+    forbiddenActions.push("partner_settlement");
     requiredDocuments.push("work_completion", "handover");
-    // INC giver pays MSS via collections — no customer-facing billing/commercial tabs.
     visibleTabs = visibleTabs.filter((t) => t !== "billing" && t !== "commercial");
+    if (input.vendorshipOwner === "MSS") {
+      visibleTabs.push("document_creator");
+    } else {
+      forbiddenActions.push("full_epc_document_set");
+    }
+    if (input.materialSupplyPending && !input.hasMaterial) {
+      forbiddenActions.push("material_dispatch");
+    } else if (input.hasMaterial) {
+      visibleTabs.push("materials_sent");
+    }
   } else if (input.executionScope === "full" && !input.outsource) {
     visibleTabs.push("materials_sent");
   }
@@ -68,6 +80,15 @@ export function resolveProjectCapabilities(input: ProjectCapabilityInput): Proje
   if (input.outsource) {
     forbiddenActions.push("material_dispatch");
     visibleTabs = visibleTabs.filter((t) => t !== "materials_sent");
+    visibleTabs.push("outsource_execution");
+  }
+
+  if (input.projectMode === "PARTNER_NETWORK" && input.vendorshipOwner === "partner") {
+    forbiddenActions.push("full_epc_document_set");
+    visibleTabs = visibleTabs.filter((t) => t !== "document_creator");
+    if (!input.outsource) {
+      visibleTabs.push("materials_sent");
+    }
   }
 
   if (input.projectMode === "PARTNER_NETWORK") {

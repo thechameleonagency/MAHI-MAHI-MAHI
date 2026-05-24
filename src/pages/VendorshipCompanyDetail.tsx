@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { ArrowLeft, Building2, MapPin, Phone, Mail, Code, IndianRupee } from "lucide-react";
+import { ArrowLeft, Building2, MapPin, Phone, Mail, Code, IndianRupee, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,11 +19,25 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { findByRouteId } from "@/lib/resolveEntityId";
 import { formatINR } from "@/lib/formatCurrency";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { deriveVendorshipCompanyEconomics } from "@/lib/deriveVendorshipEconomics";
+import type { VendorshipCompanyTransaction } from "@/types/finance";
 
 const VendorshipCompanyDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { vendorshipCompanies, projects, expenses } = useAppData();
+  const { vendorshipCompanies, projects, expenses, vendorshipCompanyTransactions, addVendorshipCompanyTransaction, generateId } = useAppData();
+  const [txnOpen, setTxnOpen] = useState(false);
+  const [txnForm, setTxnForm] = useState<{ amount: string; date: string; type: VendorshipCompanyTransaction["type"]; projectId: string; notes: string }>({
+    amount: "",
+    date: new Date().toISOString().split("T")[0]!,
+    type: "collection",
+    projectId: "",
+    notes: "",
+  });
 
   const company = useMemo(
     () => findByRouteId(vendorshipCompanies ?? [], id),
@@ -41,6 +55,30 @@ const VendorshipCompanyDetail = () => {
   );
 
   const totalFees = feeExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const ledgerTxns = useMemo(
+    () => (vendorshipCompanyTransactions ?? []).filter((t) => t.vendorshipCompanyId === id),
+    [vendorshipCompanyTransactions, id],
+  );
+  const economics = useMemo(
+    () => deriveVendorshipCompanyEconomics(id ?? "", projects ?? [], ledgerTxns),
+    [id, projects, ledgerTxns],
+  );
+
+  const recordTxn = () => {
+    if (!id || !txnForm.amount) return;
+    const project = linkedProjects.find((p) => p.id === txnForm.projectId);
+    addVendorshipCompanyTransaction({
+      id: generateId("VTX"),
+      vendorshipCompanyId: id,
+      projectId: txnForm.projectId || undefined,
+      projectName: project?.name,
+      date: txnForm.date,
+      amount: parseFloat(txnForm.amount) || 0,
+      type: txnForm.type,
+      notes: txnForm.notes,
+    });
+    setTxnOpen(false);
+  };
 
   if (!company) {
     return (
@@ -68,8 +106,10 @@ const VendorshipCompanyDetail = () => {
             className="w-full flex-wrap"
             items={[
               { label: "Linked projects", value: linkedProjects.length },
-              { label: "Fees paid (lifetime)", value: formatINR(totalFees) },
-              { label: "Fee entries", value: feeExpenses.length },
+              { label: "To collect", value: formatINR(economics.toCollect) },
+              { label: "Collected", value: formatINR(economics.collected) },
+              { label: "Pending", value: formatINR(economics.pending) },
+              { label: "Fees (expenses)", value: formatINR(totalFees) },
             ]}
           />
         }
@@ -117,6 +157,41 @@ const VendorshipCompanyDetail = () => {
               <MapPin className="h-4 w-4 text-muted-foreground" />
               <span>{company.address}</span>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base">Settlement ledger ({ledgerTxns.length})</CardTitle>
+          <Button size="sm" variant="outline" onClick={() => setTxnOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Record collection
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {ledgerTxns.length === 0 ? (
+            <ListEmptyState density="compact" icon={IndianRupee} title="No ledger entries" description="Record collections from code users here." />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ledgerTxns.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell>{t.date}</TableCell>
+                    <TableCell className="capitalize">{t.type}</TableCell>
+                    <TableCell>{t.projectName ?? "—"}</TableCell>
+                    <TableCell className="text-right font-mono">{formatINR(t.amount)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>
@@ -201,6 +276,39 @@ const VendorshipCompanyDetail = () => {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={txnOpen} onOpenChange={setTxnOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Record collection</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Amount</Label>
+              <Input value={txnForm.amount} onChange={(e) => setTxnForm({ ...txnForm, amount: e.target.value })} type="number" />
+            </div>
+            <div className="space-y-2">
+              <Label>Date</Label>
+              <Input value={txnForm.date} onChange={(e) => setTxnForm({ ...txnForm, date: e.target.value })} type="date" />
+            </div>
+            <div className="space-y-2">
+              <Label>Linked project (optional)</Label>
+              <Select value={txnForm.projectId} onValueChange={(v) => setTxnForm({ ...txnForm, projectId: v })}>
+                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {linkedProjects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={recordTxn}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 };

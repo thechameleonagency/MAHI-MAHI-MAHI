@@ -38,14 +38,23 @@ export function projectKindConfigSnapshot(kind: ProjectKind) {
  * allowedBillingDirections, requiredDocuments, forbiddenActions) is computed by the resolver
  * so it reflects the actual project attributes, not the legacy kind name.
  */
+function toResolverVendorshipOwner(p: Project): import("@/domain/projectTypes/types").VendorshipOwner {
+  const v = p.vendorshipOwner ?? p.scope?.vendorshipOwner;
+  if (v === "MSS") return "MSS";
+  if (v === "PARTNER" || v === "partner") return "partner";
+  return "none";
+}
+
 function computeCapabilitiesSnapshot(p: Project, legacyKind: ProjectKind) {
   const legacy = projectKindConfigs[legacyKind] ?? projectKindConfigs.SOLO_EPC;
   const caps = resolveProjectCapabilities({
     projectMode: (p.projectMode ?? LEGACY_KIND_TO_TYPE[legacyKind].projectType),
-    vendorshipOwner: (p.vendorshipOwner ?? LEGACY_KIND_TO_TYPE[legacyKind].vendorshipOwner),
+    vendorshipOwner: toResolverVendorshipOwner(p),
     partnerRole: p.partnerRole ?? LEGACY_KIND_TO_TYPE[legacyKind].partnerRole,
     executionScope: (p.executionScope ?? LEGACY_KIND_TO_TYPE[legacyKind].executionScope),
     outsource: p.outsource ?? null,
+    materialSupplyPending: p.scope?.materialSupplyPending,
+    hasMaterial: p.scope?.hasMaterial,
   });
   return {
     requiredParties: [...legacy.requiredParties],

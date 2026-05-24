@@ -45,7 +45,7 @@ import {
   unlinkQuotationFromEnquiries,
 } from "@/lib/quotationProjectConversionPolicy";
 import type { QuotationTemplate, SiteChecklistTemplate } from "@/types/templates";
-import type { BankReconciliationStatement, Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, INCGiverCompany, INCGiverTransaction } from "@/types/finance";
+import type { BankReconciliationStatement, Customer, Invoice, Expense, Income, Partner, PartnerTransaction, Loan, LoanRepayment, Payment, ServicePreset, OwnerInvestment, EmployeePaidHoliday, Agent, AuditLogEntry, AccountingReviewQueueItem, AccountingVoucher, AgentCommissionPayment, EmployeePayrollRecord, EmployeeWalletLedgerEntry, VendorshipCompany, VendorshipCompanyTransaction, INCGiverCompany, INCGiverTransaction, Subcontractor, SubcontractorTransaction } from "@/types/finance";
 import type {
   Blockage,
   Ticket,
@@ -308,6 +308,9 @@ export interface AppState {
   vendorshipCompanies: VendorshipCompany[];
   incGiverCompanies: INCGiverCompany[];
   incGiverTransactions: INCGiverTransaction[];
+  subcontractors: Subcontractor[];
+  subcontractorTransactions: SubcontractorTransaction[];
+  vendorshipCompanyTransactions: VendorshipCompanyTransaction[];
 
   /** B13: persisted uploaded statements for the BankReconciliation modal (prototype). */
   bankReconciliationStatements: BankReconciliationStatement[];
@@ -665,6 +668,20 @@ interface AppDataContextType extends AppState {
   updateINCGiverTransaction: (id: string, updates: Partial<INCGiverTransaction>) => void;
   deleteINCGiverTransaction: (id: string) => void;
   getTransactionsByIncGiverCompany: (companyId: string) => INCGiverTransaction[];
+
+  addSubcontractor: (subcontractor: Subcontractor) => void;
+  updateSubcontractor: (id: string, updates: Partial<Subcontractor>) => void;
+  deleteSubcontractor: (id: string) => void;
+  getSubcontractorById: (id: string) => Subcontractor | undefined;
+  addSubcontractorTransaction: (transaction: SubcontractorTransaction) => void;
+  updateSubcontractorTransaction: (id: string, updates: Partial<SubcontractorTransaction>) => void;
+  deleteSubcontractorTransaction: (id: string) => void;
+  getTransactionsBySubcontractor: (subcontractorId: string) => SubcontractorTransaction[];
+
+  addVendorshipCompanyTransaction: (transaction: VendorshipCompanyTransaction) => void;
+  updateVendorshipCompanyTransaction: (id: string, updates: Partial<VendorshipCompanyTransaction>) => void;
+  deleteVendorshipCompanyTransaction: (id: string) => void;
+  getTransactionsByVendorshipCompany: (companyId: string) => VendorshipCompanyTransaction[];
 
   // Bank reconciliation (prototype: persist uploaded statements across modal sessions; B13)
   bankReconciliationStatements: BankReconciliationStatement[];
@@ -5013,6 +5030,115 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     [state.incGiverTransactions],
   );
 
+  // ============ SUBCONTRACTORS ============
+  const addSubcontractor = useCallback((subcontractor: Subcontractor) => {
+    setState((prev) => ({
+      ...prev,
+      subcontractors: [...(prev.subcontractors ?? []), subcontractor],
+    }));
+  }, []);
+
+  const updateSubcontractor = useCallback((id: string, updates: Partial<Subcontractor>) => {
+    setState((prev) => ({
+      ...prev,
+      subcontractors: (prev.subcontractors ?? []).map((s) =>
+        s.id === id ? { ...s, ...updates } : s,
+      ),
+    }));
+  }, []);
+
+  const deleteSubcontractor = useCallback((id: string) => {
+    setState((prev) => ({
+      ...prev,
+      subcontractors: (prev.subcontractors ?? []).filter((s) => s.id !== id),
+    }));
+  }, []);
+
+  const getSubcontractorById = useCallback(
+    (id: string) => (state.subcontractors ?? []).find((s) => s.id === id),
+    [state.subcontractors],
+  );
+
+  const addSubcontractorTransaction = useCallback((transaction: SubcontractorTransaction) => {
+    if (!canPerformActionOrWarn("partner:add_transaction")) return;
+    const auditEntry = createAuditEntry(
+      "create",
+      "SubcontractorTransaction",
+      transaction.id,
+      `${transaction.type} — ${transaction.subcontractorId}`,
+    );
+    setState((prev) => ({
+      ...prev,
+      subcontractorTransactions: [transaction, ...(prev.subcontractorTransactions ?? [])],
+      auditLogs: [auditEntry, ...prev.auditLogs],
+    }));
+  }, [canPerformActionOrWarn, createAuditEntry]);
+
+  const updateSubcontractorTransaction = useCallback(
+    (id: string, updates: Partial<SubcontractorTransaction>) => {
+      if (!canPerformActionOrWarn("partner:update")) return;
+      setState((prev) => ({
+        ...prev,
+        subcontractorTransactions: (prev.subcontractorTransactions ?? []).map((t) =>
+          t.id === id ? { ...t, ...updates } : t,
+        ),
+      }));
+    },
+    [canPerformActionOrWarn],
+  );
+
+  const deleteSubcontractorTransaction = useCallback((id: string) => {
+    if (!canPerformActionOrWarn("partner:delete")) return;
+    setState((prev) => ({
+      ...prev,
+      subcontractorTransactions: (prev.subcontractorTransactions ?? []).filter((t) => t.id !== id),
+    }));
+  }, [canPerformActionOrWarn]);
+
+  const getTransactionsBySubcontractor = useCallback(
+    (subcontractorId: string) =>
+      (state.subcontractorTransactions ?? []).filter((t) => t.subcontractorId === subcontractorId),
+    [state.subcontractorTransactions],
+  );
+
+  // ============ VENDORSHIP COMPANY TRANSACTIONS ============
+  const addVendorshipCompanyTransaction = useCallback((transaction: VendorshipCompanyTransaction) => {
+    if (!canPerformActionOrWarn("partner:add_transaction")) return;
+    setState((prev) => ({
+      ...prev,
+      vendorshipCompanyTransactions: [transaction, ...(prev.vendorshipCompanyTransactions ?? [])],
+    }));
+  }, [canPerformActionOrWarn]);
+
+  const updateVendorshipCompanyTransaction = useCallback(
+    (id: string, updates: Partial<VendorshipCompanyTransaction>) => {
+      if (!canPerformActionOrWarn("partner:update")) return;
+      setState((prev) => ({
+        ...prev,
+        vendorshipCompanyTransactions: (prev.vendorshipCompanyTransactions ?? []).map((t) =>
+          t.id === id ? { ...t, ...updates } : t,
+        ),
+      }));
+    },
+    [canPerformActionOrWarn],
+  );
+
+  const deleteVendorshipCompanyTransaction = useCallback((id: string) => {
+    if (!canPerformActionOrWarn("partner:delete")) return;
+    setState((prev) => ({
+      ...prev,
+      vendorshipCompanyTransactions: (prev.vendorshipCompanyTransactions ?? []).filter(
+        (t) => t.id !== id,
+      ),
+    }));
+  }, [canPerformActionOrWarn]);
+
+  const getTransactionsByVendorshipCompany = useCallback(
+    (companyId: string) =>
+      (state.vendorshipCompanyTransactions ?? []).filter((t) => t.vendorshipCompanyId === companyId),
+    [state.vendorshipCompanyTransactions],
+  );
+
   // ============ BANK RECONCILIATION (B13 + E9) ============
   const setBankReconciliationStatements = useCallback((statements: BankReconciliationStatement[]) => {
     setState(prev => ({ ...prev, bankReconciliationStatements: statements }));
@@ -5990,6 +6116,22 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     updateINCGiverTransaction,
     deleteINCGiverTransaction,
     getTransactionsByIncGiverCompany,
+
+    subcontractors: state.subcontractors ?? [],
+    subcontractorTransactions: state.subcontractorTransactions ?? [],
+    vendorshipCompanyTransactions: state.vendorshipCompanyTransactions ?? [],
+    addSubcontractor,
+    updateSubcontractor,
+    deleteSubcontractor,
+    getSubcontractorById,
+    addSubcontractorTransaction,
+    updateSubcontractorTransaction,
+    deleteSubcontractorTransaction,
+    getTransactionsBySubcontractor,
+    addVendorshipCompanyTransaction,
+    updateVendorshipCompanyTransaction,
+    deleteVendorshipCompanyTransaction,
+    getTransactionsByVendorshipCompany,
 
     // Bank reconciliation (B13 + E9)
     setBankReconciliationStatements,

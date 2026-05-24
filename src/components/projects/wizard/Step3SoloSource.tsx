@@ -110,7 +110,12 @@ export function Step3SoloSource() {
               onValueChange={(id) => {
                 setField("selectedQuotationId", id);
                 const quotation = eligibleQuotations.find((q) => q.id === id);
-                if (quotation) applyPrefill(prefillUnifiedWizardFromQuotation(quotation));
+                if (quotation) {
+                  const linkedEnquiry = quotation.enquiryId
+                    ? enquiries.find((e) => e.id === quotation.enquiryId)
+                    : undefined;
+                  applyPrefill(prefillUnifiedWizardFromQuotation(quotation, linkedEnquiry));
+                }
               }}
             >
               <SelectTrigger>

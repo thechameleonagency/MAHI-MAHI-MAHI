@@ -28,6 +28,10 @@ export const LEGACY_APP_REDIRECT_PARAM_ROUTES: readonly {
     appPath: "/inc-work-sources/:id",
     test: (p) => /^\/inc-work-sources\/[^/]+$/.test(p),
   },
+  {
+    appPath: "/subcontractors/:id",
+    test: (p) => /^\/subcontractors\/[^/]+$/.test(p),
+  },
 ];
 
 /** Static paths (no dynamic segments). */
@@ -54,12 +58,14 @@ export const APP_ROUTE_EXACT_PATHS = [
   "/partners",
   "/vendorship-companies",
   "/inc-work-sources",
+  "/subcontractors",
   "/timeline",
   "/calendar",
   "/analytics",
   "/notifications",
   "/settings",
   "/settings/design-system",
+  "/super-admin/data-engine",
   "/audit",
   "/audit/chart-of-accounts",
   "/audit/profit-loss",
@@ -92,5 +98,6 @@ export const APP_ROUTE_PARAM_ROUTES: readonly {
   { appPath: "/partners/:id", test: (p) => /^\/partners\/[^/]+$/.test(p) },
   { appPath: "/vendorship/:id", test: (p) => /^\/vendorship\/[^/]+$/.test(p) },
   { appPath: "/inc-sources/:id", test: (p) => /^\/inc-sources\/[^/]+$/.test(p) },
+  { appPath: "/subcontractor/:id", test: (p) => /^\/subcontractor\/[^/]+$/.test(p) },
   { appPath: "/invite/:token", test: (p) => /^\/invite\/[^/]+$/.test(p) },
 ];

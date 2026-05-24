@@ -28,6 +28,8 @@ const BASE_DEFS: ProjectDetailWorkTab[] = [
 
   { value: "team-roster", label: "Team Roster", snapshotKeys: ["team_roster"] },
 
+  { value: "outsource-execution", label: "Outsource Execution", snapshotKeys: ["outsource_execution"] },
+
 ];
 
 
@@ -50,7 +52,7 @@ const KIND_TAB_ALLOWLIST: Partial<Record<ProjectKind, string[]>> = {
 
   OUTSOURCED_INC: ["progress-report", "document-creator", "financials", "field-operations", "team-roster"],
 
-  VENDORSHIP_ONLY: ["financials", "vendorship", "team-roster"],
+  VENDORSHIP_ONLY: ["financials", "document-creator", "vendorship"],
 
 };
 
@@ -230,6 +232,18 @@ export function projectForbidsAction(project: Project | undefined, action: strin
 
   return Boolean(project?.projectKindConfigSnapshot?.forbiddenActions?.includes(action));
 
+}
+
+/** Outsource execution section — Direct, Partner, INC Taken only (not Vendorship Only). */
+export function projectShowsOutsourceSection(project: Project): boolean {
+  const kind = project.projectKind ?? "SOLO_EPC";
+  if (kind === "VENDORSHIP_ONLY") return false;
+  return ["SOLO_EPC", "PARTNER_EPC", "FIXED_EPC", "INC_GIVEN", "OUTSOURCED_INC", "INC"].includes(kind);
+}
+
+/** INC Taken material dispatch toggle on project detail. */
+export function projectShowsMaterialSupplyToggle(project: Project): boolean {
+  return project.projectKind === "INC_GIVEN" && Boolean(project.scope?.materialSupplyPending);
 }
 
 

@@ -6,31 +6,30 @@ import { normalizeProject } from "@/lib/projectNormalize";
 import type { Project } from "@/types/project";
 
 describe("unified project wizard flow", () => {
-  it("excludes OUTSOURCED_INC as a deal origin step option", () => {
+  it("includes source step for direct deals", () => {
     const state = createInitialUnifiedWizardState();
     expect(state.dealOrigin).toBe("DIRECT");
     expect(getVisibleUnifiedWizardSteps(state)).toContain("source");
     expect(getVisibleUnifiedWizardSteps(state)).not.toContain("parties");
   });
 
-  it("supports outsource toggle on direct deals without a parties step", () => {
-    const state = createInitialUnifiedWizardState({
-      outsourceEnabled: true,
-      subcontractorId: "SUB-1",
-    });
-    const steps = getVisibleUnifiedWizardSteps(state);
-    expect(steps[0]).toBe("deal");
-    expect(steps).toContain("commercials");
-  });
-
-  it("skips vendorship for labor-only INC taken", () => {
+  it("always includes vendorship for INC taken", () => {
     const state = createInitialUnifiedWizardState({
       dealOrigin: "INC_TAKEN",
-      incModifier: "LABOR_ONLY",
     });
+    expect(skipVendorshipStep(state)).toBe(false);
+    expect(getVisibleUnifiedWizardSteps(state)).toContain("vendorship");
+    expect(getVisibleUnifiedWizardSteps(state)).toContain("parties");
+  });
+
+  it("skips vendorship for VENDORSHIP_ONLY deals", () => {
+    const state = createInitialUnifiedWizardState({
+      dealOrigin: "VENDORSHIP_ONLY",
+    });
+
     expect(skipVendorshipStep(state)).toBe(true);
     expect(getVisibleUnifiedWizardSteps(state)).not.toContain("vendorship");
-    expect(getVisibleUnifiedWizardSteps(state)).toContain("parties");
+    expect(getVisibleUnifiedWizardSteps(state)).toEqual(["deal", "details", "commercials", "review"]);
   });
 });
 
@@ -61,35 +60,34 @@ describe("project detail tab visibility by kind", () => {
     expect(tabs).toContain("financials");
   });
 
-  it("INC_GIVEN hides materials tab", () => {
-    const project = baseProject({ projectKind: "INC_GIVEN" });
+  it("INC_GIVEN hides materials until enabled", () => {
+    const project = baseProject({
+      projectKind: "INC_GIVEN",
+      scope: { hasMaterial: false, hasInstallation: true, materialSupplyPending: true, vendorshipOwner: "MSS", leadSource: "MSS_DIRECT", billingParty: "MSS" },
+    });
     const tabs = filterWorkTabsBySnapshot(project, "Document Vault").map((t) => t.value);
     expect(tabs).not.toContain("materials-sent");
     expect(tabs).toContain("field-operations");
   });
 
   it("VENDORSHIP_ONLY hides field operations and materials", () => {
-    const project = baseProject({ projectKind: "VENDORSHIP_ONLY" });
+    const project = baseProject({ projectKind: "VENDORSHIP_ONLY", vendorshipOwner: "MSS" });
     const tabs = filterWorkTabsBySnapshot(project, "Document Creator").map((t) => t.value);
     expect(tabs).not.toContain("field-operations");
     expect(tabs).not.toContain("materials-sent");
     expect(tabs).toContain("vendorship");
   });
 
-  it("OUTSOURCED_INC hides materials dispatch tab", () => {
+  it("partner external code shows materials not document creator", () => {
     const project = baseProject({
-      projectKind: "OUTSOURCED_INC",
-      outsource: {
-        partyId: "SUB-1",
-        partyName: "Sub Co",
-        rateBasis: "fixed",
-        rateValue: 50000,
-        total: 50000,
-        attachedAt: "2026-01-01",
-      },
+      projectKind: "PARTNER_EPC",
+      vendorshipOwner: "PARTNER",
+      projectMode: "PARTNER_NETWORK",
+      partnerRole: "epc",
+      scope: { hasMaterial: true, hasInstallation: true, vendorshipOwner: "PARTNER", leadSource: "PARTNER", billingParty: "MSS" },
     });
-    const tabs = filterWorkTabsBySnapshot(project, "Document Creator").map((t) => t.value);
-    expect(tabs).not.toContain("materials-sent");
-    expect(tabs).toContain("field-operations");
+    const tabs = filterWorkTabsBySnapshot(project, "Document Vault").map((t) => t.value);
+    expect(tabs).toContain("materials-sent");
+    expect(tabs).not.toContain("document-creator");
   });
 });

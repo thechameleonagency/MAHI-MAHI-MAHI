@@ -65,7 +65,10 @@ import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
 import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet";
 import { ProgressReportTab } from "@/components/projects/ProgressReportTab";
 import { TeamRosterTab } from "@/components/projects/TeamRosterTab";
-import { filterWorkTabsBySnapshot, filterWorkTabsByRole, projectForbidsAction, projectShowsClientInvoices, projectPrimaryPartyLabel } from "@/lib/projectDetailTabs";
+import { filterWorkTabsBySnapshot, filterWorkTabsByRole, projectForbidsAction, projectShowsClientInvoices, projectPrimaryPartyLabel, projectShowsOutsourceSection, projectShowsMaterialSupplyToggle } from "@/lib/projectDetailTabs";
+import { ProjectOutsourceSection } from "@/components/projects/ProjectOutsourceSection";
+import { ProjectIncMaterialSection } from "@/components/projects/ProjectIncMaterialSection";
+import { ProjectInstallmentTracker } from "@/components/projects/ProjectInstallmentTracker";
 import {
   buildProjectActorScopeContext,
   isProjectVisibleToActor,
@@ -1103,7 +1106,17 @@ const ProjectDetail = () => {
             scope={project.scope}
             outsource={project.outsource ?? null}
             projectMode={project.projectMode}
-          />
+              />
+              {projectShowsMaterialSupplyToggle(project) && (
+                <ProjectIncMaterialSection project={project} />
+              )}
+            </section>
+          )}
+
+          {projectShowsOutsourceSection(project) && (
+            <section id="outsource-execution" className="scroll-mt-24 space-y-4">
+              <h2 className="text-lg font-semibold tracking-tight">Outsource Execution</h2>
+              <ProjectOutsourceSection project={project} />
             </section>
           )}
 
@@ -1372,6 +1385,7 @@ const ProjectDetail = () => {
           {tabDefs.some(t => t.value === "financials") && (
             <section id="financials" className="scroll-mt-24 space-y-4">
               <h2 className="text-lg font-semibold tracking-tight">Financials</h2>
+              <ProjectInstallmentTracker project={project} timeline={projectTimeline ?? undefined} />
               <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
             <MiniMetric label={kind === "VENDORSHIP_ONLY" ? "Fee receivable" : kind === "INC_GIVEN" ? "Work value" : "Contract"} value={formatINR(kpiAmount)} />
             {showsClientInvoices && <MiniMetric label="Billed" value={formatINR(billed)} />}

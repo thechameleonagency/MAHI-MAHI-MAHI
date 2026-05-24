@@ -20,6 +20,8 @@ export const ROUTE_VIEW_FEATURE: { prefix: string; feature: Feature }[] = [
   { prefix: "/vendorship/", feature: "partner" },
   { prefix: "/inc-work-sources", feature: "partner" },
   { prefix: "/inc-sources/", feature: "partner" },
+  { prefix: "/subcontractors", feature: "partner" },
+  { prefix: "/subcontractor/", feature: "partner" },
   { prefix: "/vendors", feature: "vendor" },
   { prefix: "/loans", feature: "loan" },
   { prefix: "/inventory/materials", feature: "inventoryItem" },

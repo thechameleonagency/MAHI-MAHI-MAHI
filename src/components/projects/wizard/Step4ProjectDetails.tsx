@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Building, User, Phone, MapPin, Zap, Sun, Cpu } from "lucide-react";
 
 export function Step4ProjectDetails() {
-  const { endCustomer, systemDetails, itemDetails, projectName, vendorshipOwner, setField } =
+  const { endCustomer, systemDetails, itemDetails, projectName, vendorshipOwner, dealOrigin, setField } =
     useWizardStore();
 
   const handleCustomerChange = (field: keyof typeof endCustomer, value: string) => {
@@ -21,7 +21,8 @@ export function Step4ProjectDetails() {
     setField("itemDetails", { ...itemDetails, [field]: value });
   };
 
-  const showFullTechnical = vendorshipOwner === "MSS" || !vendorshipOwner;
+  const showFullTechnical = vendorshipOwner === "MSS" || (!vendorshipOwner && dealOrigin !== "PARTNER");
+  const isPartnerExternal = vendorshipOwner === "PARTNER_OWNED";
 
   return (
     <div className="space-y-8">
@@ -30,7 +31,9 @@ export function Step4ProjectDetails() {
         <p className="text-sm text-muted-foreground">
           {showFullTechnical
             ? "Capture end-customer, site, and BOM details for MSS vendorship projects."
-            : "End-customer site details. Technical BOM is optional when using an external code giver."}
+            : isPartnerExternal
+              ? "Site address and installation location for material supply tracking."
+              : "End-customer site details. Technical BOM is optional when using an external code giver."}
         </p>
       </div>
 

@@ -34,6 +34,8 @@ import VendorshipCompanies from "./pages/VendorshipCompanies";
 import VendorshipCompanyDetail from "./pages/VendorshipCompanyDetail";
 import INCWorkSources from "./pages/INCWorkSources";
 import INCWorkSourceDetail from "./pages/INCWorkSourceDetail";
+import Subcontractors from "./pages/Subcontractors";
+import SubcontractorDetail from "./pages/SubcontractorDetail";
 import Timeline from "./pages/Timeline";
 import CalendarPage from "./pages/Calendar";
 import Analytics from "./pages/Analytics";
@@ -135,6 +137,12 @@ const App = () => (
                   element={<ListPrefixDetailRedirect detailPrefix="/inc-sources" />}
                 />
                 <Route path="/inc-sources/:id" element={<INCWorkSourceDetail />} />
+                <Route path="/subcontractors" element={<Subcontractors />} />
+                <Route
+                  path="/subcontractors/:id"
+                  element={<ListPrefixDetailRedirect detailPrefix="/subcontractor" />}
+                />
+                <Route path="/subcontractor/:id" element={<SubcontractorDetail />} />
                 <Route path="/timeline" element={<Timeline />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/analytics" element={<Analytics />} />

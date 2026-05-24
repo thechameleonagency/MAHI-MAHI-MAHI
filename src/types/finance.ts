@@ -503,6 +503,42 @@ export interface INCGiverTransaction {
   notes?: string;
 }
 
+/** Subcontractor who receives outsourced labor work from MSS. */
+export interface Subcontractor {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  defaultRatePerKw?: number;
+  notes?: string;
+  createdAt: string;
+  /** Set when migrated from legacy Partner(Subcontractor) record. */
+  migratedFromPartnerId?: string;
+}
+
+export interface SubcontractorTransaction {
+  id: string;
+  subcontractorId: string;
+  projectId?: string;
+  projectName?: string;
+  date: string;
+  amount: number;
+  type: "payment" | "adjustment";
+  notes?: string;
+}
+
+export interface VendorshipCompanyTransaction {
+  id: string;
+  vendorshipCompanyId: string;
+  projectId?: string;
+  projectName?: string;
+  date: string;
+  amount: number;
+  type: "collection" | "adjustment";
+  notes?: string;
+}
+
 export interface EmployeePayrollRecord {
   id: string;
   employeeId: string;

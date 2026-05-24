@@ -1,4 +1,5 @@
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
+import { normalizeProjectPaymentType } from "@/domain/project/projectPaymentType";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import type {
   DealOrigin,
@@ -8,6 +9,7 @@ import type {
 import type { ProjectIntakePayload } from "@/application/services/ProjectTypeService";
 import type { Enquiry, Project, Quotation } from "@/types/project";
 import type { INCGiverCompany, Partner, VendorshipCompany } from "@/types/finance";
+import { requiresVendorshipFeeInput } from "@/lib/unifiedProjectWizardFlow";
 
 export interface BuildUnifiedProjectContext {
   generateId: (prefix: string) => string;
@@ -27,7 +29,7 @@ function deriveProjectKind(state: UnifiedProjectWizardState): ProjectKind {
     case "VENDORSHIP_ONLY":
       return "VENDORSHIP_ONLY";
     default:
-      return state.outsourceEnabled ? "OUTSOURCED_INC" : "SOLO_EPC";
+      return "SOLO_EPC";
   }
 }
 
@@ -40,11 +42,25 @@ function dealOriginForKind(kind: ProjectKind, state: UnifiedProjectWizardState):
       return "INC_TAKEN";
     case "VENDORSHIP_ONLY":
       return "VENDORSHIP_ONLY";
-    case "OUTSOURCED_INC":
-      return "OUTSOURCED_INC";
     default:
       return "DIRECT";
   }
+}
+
+function resolveScopeVendorshipOwner(state: UnifiedProjectWizardState): Project["scope"] extends infer S
+  ? S extends { vendorshipOwner: infer V }
+    ? V
+    : never
+  : never {
+  if (state.vendorshipOwner === "MSS" || state.dealOrigin === "VENDORSHIP_ONLY") return "MSS";
+  if (state.vendorshipOwner === "PARTNER_OWNED") return "PARTNER";
+  return "CLIENT";
+}
+
+function resolveProjectVendorshipOwner(state: UnifiedProjectWizardState): Project["vendorshipOwner"] {
+  if (state.vendorshipOwner === "MSS" || state.dealOrigin === "VENDORSHIP_ONLY") return "MSS";
+  if (state.vendorshipOwner === "PARTNER_OWNED") return "PARTNER";
+  return "THIRD_PARTY";
 }
 
 export function buildProjectFromUnifiedWizardState(
@@ -61,9 +77,6 @@ export function buildProjectFromUnifiedWizardState(
     state.dealOrigin === "INC_TAKEN"
       ? ctx.incGiverCompanies.find((c) => c.id === state.counterpartyId)
       : undefined;
-  const subcontractor = state.outsourceEnabled
-    ? ctx.partners.find((p) => p.id === state.subcontractorId && p.type === "Subcontractor")
-    : undefined;
   const vendorshipCo =
     state.vendorshipOwner === "CODE_GIVER"
       ? ctx.vendorshipCompanies.find((c) => c.id === state.vendorshipCompanyId)
@@ -84,17 +97,20 @@ export function buildProjectFromUnifiedWizardState(
       ? incGiver?.name ?? state.endCustomer.name
       : state.endCustomer.name;
 
-  const vendorshipOwnerEntity =
-    state.vendorshipOwner === "MSS"
-      ? "MSS"
-      : state.dealOrigin === "PARTNER"
-        ? "PARTNER"
-        : "CLIENT";
+  const scopeVendorshipOwner = resolveScopeVendorshipOwner(state);
+  const isIncGiven = projectKind === "INC_GIVEN";
+  const isPartnerMaterialOnly = state.vendorshipOwner === "PARTNER_OWNED";
+  const paymentType =
+    normalizeProjectPaymentType(state.paymentType) ??
+    (state.vendorshipOwner === "MSS" || state.dealOrigin === "VENDORSHIP_ONLY" ? "cash" : undefined);
 
   const scope: Project["scope"] = {
-    hasMaterial: projectKind !== "INC_GIVEN" && projectKind !== "VENDORSHIP_ONLY" && !state.outsourceEnabled,
+    hasMaterial: isIncGiven
+      ? false
+      : projectKind !== "VENDORSHIP_ONLY" && !isPartnerMaterialOnly,
     hasInstallation: projectKind !== "VENDORSHIP_ONLY",
-    vendorshipOwner: state.vendorshipOwner === "MSS" ? "MSS" : vendorshipOwnerEntity,
+    materialSupplyPending: isIncGiven ? true : undefined,
+    vendorshipOwner: scopeVendorshipOwner,
     leadSource:
       state.dealOrigin === "PARTNER"
         ? "PARTNER"
@@ -104,8 +120,8 @@ export function buildProjectFromUnifiedWizardState(
     billingParty: "MSS",
     kNumber: state.endCustomer.kNumber,
     vendorshipCompanyId: vendorshipCo?.id,
-    vendorshipFeeAmount: state.vendorshipFeeAmount,
-    partnerId: partner?.id ?? subcontractor?.id,
+    vendorshipFeeAmount: requiresVendorshipFeeInput(state) ? state.vendorshipFeeAmount : undefined,
+    partnerId: partner?.id,
     incGiverCompanyId: incGiver?.id,
     profitSharePercent:
       state.dealOrigin === "PARTNER" && state.partnerModifier === "PROFIT_SHARE"
@@ -124,20 +140,8 @@ export function buildProjectFromUnifiedWizardState(
             : "per_kw"
         : undefined,
     rateValue: state.dealOrigin === "INC_TAKEN" ? state.incRateValue : undefined,
-    installationBy: state.outsourceEnabled ? "Subcontractor" : "MSS",
+    installationBy: "MSS",
   };
-
-  const outsource =
-    state.outsourceEnabled && subcontractor
-      ? {
-          partyId: subcontractor.id,
-          partyName: subcontractor.name,
-          rateBasis: "per_kw" as const,
-          rateValue: state.subcontractorPayoutRate ?? 0,
-          total: (state.subcontractorPayoutRate ?? 0) * state.capacityKw,
-          attachedAt: new Date().toISOString(),
-        }
-      : null;
 
   const partners =
     partner && state.dealOrigin === "PARTNER"
@@ -170,11 +174,11 @@ export function buildProjectFromUnifiedWizardState(
     projectKind,
     projectKindConfigSnapshot: projectKindConfigSnapshot(projectKind),
     projectMode: legacy.projectType,
-    vendorshipOwner: state.vendorshipOwner === "MSS" ? "MSS" : legacy.vendorshipOwner,
+    vendorshipOwner: resolveProjectVendorshipOwner(state),
     partnerRole: legacy.partnerRole,
-    executionScope: state.outsourceEnabled ? "service_only" : legacy.executionScope,
+    executionScope: legacy.executionScope,
     dealOrigin: dealOriginForKind(projectKind, state),
-    type: projectKind === "INC_GIVEN" || projectKind === "OUTSOURCED_INC" ? "INC" : "EPC",
+    type: projectKind === "INC_GIVEN" ? "INC" : "EPC",
     projectType: state.projectType,
     projectCategory: "solar",
     capacity: capacityLabel,
@@ -186,15 +190,19 @@ export function buildProjectFromUnifiedWizardState(
     amountReceived: 0,
     createdAt: new Date().toISOString(),
     history: [],
-    paymentType: "cash",
+    paymentType: paymentType ?? "cash",
     scope,
     partners,
-    outsource,
+    outsource: null,
     internalCostEstimate: Math.round(state.grossContractValue * 0.65),
     backendPrice: state.mssBackendFixedRate,
     partnerSellPrice: state.dealOrigin === "PARTNER" ? state.grossContractValue : undefined,
     vendorshipFeeReceivable:
-      state.dealOrigin === "VENDORSHIP_ONLY" ? state.grossContractValue : state.vendorshipFeeAmount,
+      state.dealOrigin === "VENDORSHIP_ONLY"
+        ? state.grossContractValue
+        : requiresVendorshipFeeInput(state)
+          ? state.vendorshipFeeAmount
+          : undefined,
     systemNotes: [
       `Roof: ${state.systemDetails.roofType}`,
       `Phase: ${state.systemDetails.phase}`,
@@ -216,16 +224,13 @@ export function buildIntakeFromUnifiedWizardState(
   const kind = deriveProjectKind(state);
   const partner = ctx.partners.find((p) => p.id === state.counterpartyId);
   const incGiver = ctx.incGiverCompanies.find((c) => c.id === state.counterpartyId);
-  const subcontractor = state.outsourceEnabled
-    ? ctx.partners.find((p) => p.id === state.subcontractorId)
-    : undefined;
   const vendorshipCo = ctx.vendorshipCompanies.find((c) => c.id === state.vendorshipCompanyId);
+  const paymentType = normalizeProjectPaymentType(state.paymentType) ?? "cash";
 
   const parties: ProjectIntakePayload["parties"] = {
     customer: state.endCustomer.name,
     partner: partner?.name,
     incGiverCompany: incGiver?.name,
-    subcontractor: subcontractor?.name,
     vendorOrDiscom: state.vendorshipOwner === "MSS" ? "MSS" : vendorshipCo?.name,
   };
 
@@ -234,7 +239,7 @@ export function buildIntakeFromUnifiedWizardState(
     parties,
     commercial: {
       contractAmount: state.grossContractValue,
-      paymentType: "cash",
+      paymentType,
       internalCostEstimate: Math.round(state.grossContractValue * 0.65),
       backendPrice: state.mssBackendFixedRate,
       partnerSellPrice: state.dealOrigin === "PARTNER" ? state.grossContractValue : undefined,
@@ -264,8 +269,9 @@ export function prefillUnifiedWizardFromEnquiry(
 
 export function prefillUnifiedWizardFromQuotation(
   quotation: Quotation,
+  enquiry?: Enquiry | null,
 ): Partial<UnifiedProjectWizardState> {
-  return {
+  const fromQuotation: Partial<UnifiedProjectWizardState> = {
     soloPipeline: "quotation",
     selectedQuotationId: quotation.id,
     endCustomer: {
@@ -277,6 +283,25 @@ export function prefillUnifiedWizardFromQuotation(
     capacityKw: parseFloat(String(quotation.systemCapacity ?? "").replace(/[^\d.]/g, "")) || 0,
     grossContractValue: quotation.commercialAmount ?? quotation.totalAmount ?? 0,
     projectName: quotation.clientName,
+    paymentType: quotation.paymentType as UnifiedProjectWizardState["paymentType"],
+  };
+
+  if (!enquiry) return fromQuotation;
+
+  return {
+    ...fromQuotation,
+    endCustomer: {
+      name: fromQuotation.endCustomer?.name || enquiry.customerName,
+      phone: fromQuotation.endCustomer?.phone || enquiry.customerPhone || "",
+      address: fromQuotation.endCustomer?.address || enquiry.customerAddress || "",
+      kNumber: fromQuotation.endCustomer?.kNumber || "",
+    },
+    capacityKw:
+      fromQuotation.capacityKw ||
+      parseFloat(String(enquiry.systemCapacity).replace(/[^\d.]/g, "")) ||
+      0,
+    grossContractValue: fromQuotation.grossContractValue || enquiry.estimatedBudget || 0,
+    projectName: fromQuotation.projectName || `${enquiry.customerName} - ${enquiry.systemCapacity}`,
   };
 }
 
@@ -296,5 +321,12 @@ export function dealOriginLabel(origin: DealOrigin): string {
 export function partnerModifierLabel(mod?: PartnerModifier): string {
   if (mod === "FIXED_RATE") return "Fixed Rate";
   if (mod === "PROFIT_SHARE") return "Profit Share";
+  return "—";
+}
+
+export function vendorshipOwnerLabel(owner?: UnifiedProjectWizardState["vendorshipOwner"]): string {
+  if (owner === "MSS") return "MSS code";
+  if (owner === "CODE_GIVER") return "Code giver company";
+  if (owner === "PARTNER_OWNED") return "Partner's own code";
   return "—";
 }

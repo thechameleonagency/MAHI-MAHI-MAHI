@@ -143,6 +143,8 @@ export interface ExecutionLineItem extends CommercialBaselineLine {
 export interface ProjectScopeConfig {
   hasMaterial: boolean;
   hasInstallation: boolean;
+  /** INC Taken: material dispatch enabled later on project detail. */
+  materialSupplyPending?: boolean;
   vendorshipOwner: "MSS" | "PARTNER" | "CLIENT";
   vendorshipFeeAmount?: number;
   leadSource: "MSS_DIRECT" | "PARTNER" | "AGENT";

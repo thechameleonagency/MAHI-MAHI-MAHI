@@ -7,13 +7,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Calculator, AlertTriangle } from "lucide-react";
+import type { ProjectPaymentType } from "@/domain/project/projectPaymentType";
 
 export function Step6Commercials() {
   const {
     dealOrigin,
     partnerModifier,
-    incModifier,
-    outsourceEnabled,
+    vendorshipOwner,
+    paymentType,
     capacityKw,
     projectType,
     grossContractValue,
@@ -21,8 +22,6 @@ export function Step6Commercials() {
     mssBackendFixedRate,
     incRateBasis,
     incRateValue,
-    incMaterialCost,
-    subcontractorPayoutRate,
     partnerProvidesGst,
     setField,
   } = useWizardStore();
@@ -64,7 +63,7 @@ export function Step6Commercials() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Gross contract value</Label>
+            <Label>{dealOrigin === "VENDORSHIP_ONLY" ? "Vendorship fee receivable" : "Gross contract value"}</Label>
             <div className="relative">
               <span className="absolute left-3 top-2.5 text-muted-foreground">₹</span>
               <Input
@@ -77,6 +76,32 @@ export function Step6Commercials() {
           </div>
         </CardContent>
       </Card>
+
+      {dealOrigin === "VENDORSHIP_ONLY" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Funding type</CardTitle>
+            <CardDescription className="text-xs">
+              MSS vendorship code is used — select bank loan or cash file for payment tracking.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select
+              value={paymentType ?? ""}
+              onValueChange={(val) => setField("paymentType", val as ProjectPaymentType)}
+            >
+              <SelectTrigger className="max-w-md">
+                <SelectValue placeholder="Bank file or cash file" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cash">Cash file</SelectItem>
+                <SelectItem value="loan">Bank loan file</SelectItem>
+                <SelectItem value="cash-and-loan">Cash and loan</SelectItem>
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      )}
 
       {dealOrigin === "PARTNER" && (
         <Card className="border-purple-200 bg-purple-50/30">
@@ -134,6 +159,9 @@ export function Step6Commercials() {
         <Card className="border-amber-200 bg-amber-50/30">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">INC giver rates</CardTitle>
+            <CardDescription className="text-xs">
+              Material supply can be enabled later on the project detail page if needed.
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -157,37 +185,14 @@ export function Step6Commercials() {
                 onChange={(e) => setField("incRateValue", parseFloat(e.target.value) || 0)}
               />
             </div>
-            {incModifier === "LABOR_MATERIALS" && (
-              <div className="space-y-2">
-                <Label>Material cost deduction (₹)</Label>
-                <Input
-                  type="number"
-                  value={incMaterialCost || ""}
-                  onChange={(e) => setField("incMaterialCost", parseFloat(e.target.value) || 0)}
-                />
-              </div>
-            )}
           </CardContent>
         </Card>
       )}
 
-      {outsourceEnabled && (
-        <Card className="border-emerald-200 bg-emerald-50/30">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Subcontractor payout</CardTitle>
-            <CardDescription>Rate paid to the subcontractor for outsourced execution.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 max-w-sm">
-              <Label>Payout rate (₹/kW)</Label>
-              <Input
-                type="number"
-                value={subcontractorPayoutRate || ""}
-                onChange={(e) => setField("subcontractorPayoutRate", parseFloat(e.target.value) || 0)}
-              />
-            </div>
-          </CardContent>
-        </Card>
+      {vendorshipOwner === "MSS" && dealOrigin !== "VENDORSHIP_ONLY" && capacityKw > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Vendorship fee was set on the vendorship step. Update capacity here to recalculate on review if needed.
+        </p>
       )}
     </div>
   );

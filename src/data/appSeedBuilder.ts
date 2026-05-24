@@ -8,6 +8,7 @@ import { migrateQuotationProjectLink } from "@/lib/quotationProjectLink";
 import { normalizeBankReconciliationStatements } from "@/lib/bankReconciliationStatement";
 import type { AppState } from "@/contexts/AppDataContext";
 import type { Quotation } from "@/types/project";
+import { ensureSubcontractorMigration } from "@/lib/migrateSubcontractorsFromPartners";
 
 /** True empty baseline — no business rows. */
 export function buildEmptyAppState(): AppState {
@@ -58,6 +59,9 @@ export function buildEmptyAppState(): AppState {
     vendorshipCompanies: [],
     incGiverCompanies: [],
     incGiverTransactions: [],
+    subcontractors: [],
+    subcontractorTransactions: [],
+    vendorshipCompanyTransactions: [],
     bankReconciliationStatements: [],
     materialReservations: [],
     scheduledInstallations: [],
@@ -109,7 +113,7 @@ export function normalizeAppState(parsed: Partial<AppState> | null | undefined):
   const employees = ensureArray(parsed.employees);
   const tools = normalizeTools(ensureArray(parsed.tools), sites, employees);
 
-  return {
+  const normalized: AppState = {
     ...base,
     ...parsed,
     projects: ensureArray(parsed.projects),
@@ -161,6 +165,9 @@ export function normalizeAppState(parsed: Partial<AppState> | null | undefined):
     vendorshipCompanies: ensureArray(parsed.vendorshipCompanies),
     incGiverCompanies: ensureArray(parsed.incGiverCompanies),
     incGiverTransactions: ensureArray(parsed.incGiverTransactions),
+    subcontractors: ensureArray(parsed.subcontractors),
+    subcontractorTransactions: ensureArray(parsed.subcontractorTransactions),
+    vendorshipCompanyTransactions: ensureArray(parsed.vendorshipCompanyTransactions),
     bankReconciliationStatements: normalizeBankReconciliationStatements(
       parsed.bankReconciliationStatements,
     ),
@@ -174,4 +181,5 @@ export function normalizeAppState(parsed: Partial<AppState> | null | undefined):
     deletionRequests: ensureArray(parsed.deletionRequests),
     quotationShareDetails: ensureArray(parsed.quotationShareDetails),
   };
+  return ensureSubcontractorMigration(normalized);
 }

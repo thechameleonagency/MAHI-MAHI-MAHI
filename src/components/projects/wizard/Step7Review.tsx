@@ -6,7 +6,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   dealOriginLabel,
   partnerModifierLabel,
+  vendorshipOwnerLabel,
 } from "@/lib/buildProjectFromUnifiedWizardState";
+import { requiresVendorshipFeeInput } from "@/lib/unifiedProjectWizardFlow";
 
 export function Step7Review() {
   const state = useWizardStore();
@@ -24,25 +26,23 @@ export function Step7Review() {
       ? vendorshipCompanies.find((c) => c.id === state.vendorshipCompanyId)?.name
       : undefined;
 
-  const subcontractorName = state.outsourceEnabled
-    ? partners.find((p) => p.id === state.subcontractorId)?.name
-    : undefined;
-
   const reality = [
     `${dealOriginLabel(state.dealOrigin)}${state.partnerModifier ? ` (${partnerModifierLabel(state.partnerModifier)})` : ""}.`,
-    state.vendorshipOwner === "MSS"
-      ? "MSS owns the vendorship code and document set."
-      : codeGiverName
-        ? `Vendorship code supplied by ${codeGiverName}.`
-        : "External vendorship code selected.",
-    state.outsourceEnabled && subcontractorName
-      ? `Execution outsourced to ${subcontractorName}.`
-      : "Execution by MSS.",
-    state.soloPipeline === "quotation"
-      ? "Linked to an approved quotation."
-      : state.soloPipeline === "enquiry"
-        ? "Linked to a CRM enquiry."
-        : null,
+    state.dealOrigin === "VENDORSHIP_ONLY"
+      ? "MSS vendorship code — fee-only tracking."
+      : state.vendorshipOwner === "MSS"
+        ? "MSS owns the vendorship code and document set."
+        : state.vendorshipOwner === "PARTNER_OWNED"
+          ? "Partner uses their own code — MSS tracks material supply and site progress."
+          : codeGiverName
+            ? `Vendorship code supplied by ${codeGiverName}.`
+            : "External vendorship code selected.",
+    state.vendorshipOwner === "MSS" || state.dealOrigin === "VENDORSHIP_ONLY"
+      ? `Funding: ${state.paymentType ?? "cash"} file.`
+      : null,
+    requiresVendorshipFeeInput(state) && state.vendorshipFeeAmount != null
+      ? `Vendorship fee: ₹${state.vendorshipFeeAmount.toLocaleString()}.`
+      : null,
   ]
     .filter(Boolean)
     .join(" ");
@@ -69,7 +69,7 @@ export function Step7Review() {
             <p className="font-medium">{state.endCustomer.name || "—"}</p>
             <p>{state.endCustomer.phone}</p>
             <p>{state.endCustomer.address}</p>
-            <p>K-No: {state.endCustomer.kNumber}</p>
+            {state.endCustomer.kNumber && <p>K-No: {state.endCustomer.kNumber}</p>}
           </CardContent>
         </Card>
         <Card>
@@ -80,6 +80,7 @@ export function Step7Review() {
             <p>{state.capacityKw} kW · {state.projectType}</p>
             <p className="font-semibold text-primary">₹ {state.grossContractValue.toLocaleString()}</p>
             {counterpartyName !== "—" && <p>Counterparty: {counterpartyName}</p>}
+            {state.vendorshipOwner && <p>Vendorship: {vendorshipOwnerLabel(state.vendorshipOwner)}</p>}
           </CardContent>
         </Card>
       </div>

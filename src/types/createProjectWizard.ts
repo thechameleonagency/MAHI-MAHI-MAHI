@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ProjectPaymentType } from "@/domain/project/projectPaymentType";
 
 export * from "./createProjectWizardLegacy";
 
@@ -9,9 +10,8 @@ export type { CreateProjectWizardState } from "./createProjectWizardLegacy";
 
 export type DealOrigin = "DIRECT" | "PARTNER" | "INC_TAKEN" | "VENDORSHIP_ONLY";
 export type PartnerModifier = "PROFIT_SHARE" | "FIXED_RATE";
-export type IncModifier = "LABOR_ONLY" | "LABOR_MATERIALS";
-/** MSS owns the DISCOM code, or a registered code-giver company supplies it. */
-export type UnifiedVendorshipOwner = "MSS" | "CODE_GIVER";
+/** MSS owns the DISCOM code, a registered code-giver company supplies it, or partner uses their own. */
+export type UnifiedVendorshipOwner = "MSS" | "CODE_GIVER" | "PARTNER_OWNED";
 export type SoloPipelineSource = "new" | "enquiry" | "quotation";
 
 export type UnifiedWizardStep =
@@ -26,15 +26,12 @@ export type UnifiedWizardStep =
 export interface UnifiedProjectWizardState {
   dealOrigin: DealOrigin;
   partnerModifier?: PartnerModifier;
-  incModifier?: IncModifier;
-
-  /** Available on every deal type — attaches subcontractor execution scope. */
-  outsourceEnabled?: boolean;
-  subcontractorId?: string;
 
   vendorshipOwner?: UnifiedVendorshipOwner;
   vendorshipCompanyId?: string;
   vendorshipFeeAmount?: number;
+  /** Bank loan vs cash file — required when MSS vendorship code is used. */
+  paymentType?: ProjectPaymentType;
 
   soloPipeline?: SoloPipelineSource;
   selectedEnquiryId?: string;
@@ -66,8 +63,6 @@ export interface UnifiedProjectWizardState {
   mssBackendFixedRate?: number;
   incRateBasis?: "PER_KW" | "PER_SQFT" | "FIXED";
   incRateValue?: number;
-  incMaterialCost?: number;
-  subcontractorPayoutRate?: number;
   partnerProvidesGst?: boolean;
 
   projectName?: string;
@@ -75,49 +70,30 @@ export interface UnifiedProjectWizardState {
 
 const dealOriginEnum = z.enum(["DIRECT", "PARTNER", "INC_TAKEN", "VENDORSHIP_ONLY"]);
 
-export const Step1Schema = z
-  .object({
-    dealOrigin: dealOriginEnum,
-    partnerModifier: z.enum(["PROFIT_SHARE", "FIXED_RATE"]).optional(),
-    incModifier: z.enum(["LABOR_ONLY", "LABOR_MATERIALS"]).optional(),
-    outsourceEnabled: z.boolean().optional(),
-    subcontractorId: z.string().optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.dealOrigin === "PARTNER" && !data.partnerModifier) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["partnerModifier"],
-        message: "Partner deal requires a compensation model.",
-      });
-    }
-    if (data.dealOrigin === "INC_TAKEN" && !data.incModifier) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["incModifier"],
-        message: "INC Taken requires an execution scope.",
-      });
-    }
-    if (data.outsourceEnabled && !data.subcontractorId?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["subcontractorId"],
-        message: "Select a subcontractor when outsourcing execution.",
-      });
-    }
-  });
+export const Step1Schema = z.object({
+  dealOrigin: dealOriginEnum,
+  partnerModifier: z.enum(["PROFIT_SHARE", "FIXED_RATE"]).optional(),
+}).superRefine((data, ctx) => {
+  if (data.dealOrigin === "PARTNER" && !data.partnerModifier) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["partnerModifier"],
+      message: "Partner deal requires a compensation model.",
+    });
+  }
+});
 
 export const Step2Schema = z
   .object({
     dealOrigin: dealOriginEnum,
-    incModifier: z.enum(["LABOR_ONLY", "LABOR_MATERIALS"]).optional(),
-    vendorshipOwner: z.enum(["MSS", "CODE_GIVER"]).optional(),
+    vendorshipOwner: z.enum(["MSS", "CODE_GIVER", "PARTNER_OWNED"]).optional(),
     vendorshipCompanyId: z.string().optional(),
     vendorshipFeeAmount: z.number().optional(),
+    paymentType: z.enum(["cash", "loan", "cash-and-loan"]).optional(),
+    capacityKw: z.number().optional(),
   })
   .superRefine((data, ctx) => {
-    const isLaborOnly = data.dealOrigin === "INC_TAKEN" && data.incModifier === "LABOR_ONLY";
-    if (isLaborOnly) return;
+    if (data.dealOrigin === "VENDORSHIP_ONLY") return;
     if (!data.vendorshipOwner) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -131,6 +107,33 @@ export const Step2Schema = z
         path: ["vendorshipCompanyId"],
         message: "Select a vendorship code giver company.",
       });
+    }
+    if (data.vendorshipOwner === "PARTNER_OWNED" && data.dealOrigin !== "PARTNER") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["vendorshipOwner"],
+        message: "Partner-owned code is only valid for partner network deals.",
+      });
+    }
+    if (data.vendorshipOwner === "MSS") {
+      const feeRequired = data.dealOrigin !== "DIRECT";
+      if (
+        feeRequired &&
+        (data.vendorshipFeeAmount === undefined || data.vendorshipFeeAmount < 0)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["vendorshipFeeAmount"],
+          message: "Enter the vendorship fee amount.",
+        });
+      }
+      if (!data.paymentType) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["paymentType"],
+          message: "Select bank file (loan) or cash file.",
+        });
+      }
     }
   });
 
@@ -168,12 +171,13 @@ export const Step3Schema = z
 
 export const Step4Schema = z
   .object({
-    vendorshipOwner: z.enum(["MSS", "CODE_GIVER"]).optional(),
+    dealOrigin: dealOriginEnum,
+    vendorshipOwner: z.enum(["MSS", "CODE_GIVER", "PARTNER_OWNED"]).optional(),
     endCustomer: z.object({
-      name: z.string().min(1, "Customer name is required"),
-      phone: z.string().min(10, "Valid phone is required"),
-      address: z.string().min(1, "Address is required"),
-      kNumber: z.string().min(1, "K-Number is required"),
+      name: z.string(),
+      phone: z.string(),
+      address: z.string(),
+      kNumber: z.string(),
     }),
     systemDetails: z.object({
       roofType: z.string(),
@@ -191,7 +195,42 @@ export const Step4Schema = z
     }),
   })
   .superRefine((data, ctx) => {
-    if (data.vendorshipOwner !== "MSS") return;
+  const isPartnerExternal = data.vendorshipOwner === "PARTNER_OWNED";
+  const isMss = data.vendorshipOwner === "MSS";
+  const isVendorshipOnly = data.dealOrigin === "VENDORSHIP_ONLY";
+
+  if (isVendorshipOnly) {
+    if (!data.endCustomer.name.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endCustomer", "name"], message: "Counterparty name is required." });
+    }
+    return;
+  }
+
+  if (isPartnerExternal) {
+    if (!data.endCustomer.address.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endCustomer", "address"], message: "Site address is required." });
+    }
+    return;
+  }
+
+  if (!data.endCustomer.name.trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endCustomer", "name"], message: "Customer name is required." });
+  }
+  if (data.endCustomer.phone.length < 10) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endCustomer", "phone"], message: "Valid phone is required." });
+  }
+  if (!data.endCustomer.address.trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endCustomer", "address"], message: "Address is required." });
+  }
+
+  if (data.dealOrigin === "INC_TAKEN" && !isMss) {
+    return;
+  }
+
+  if (isMss || !data.vendorshipOwner) {
+    if (!data.endCustomer.kNumber.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endCustomer", "kNumber"], message: "K-Number is required for MSS vendorship." });
+    }
     if (!data.systemDetails.roofType.trim()) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["systemDetails", "roofType"], message: "Roof type is required for MSS vendorship." });
     }
@@ -222,7 +261,8 @@ export const Step4Schema = z
     if (!data.itemDetails.structureType.trim()) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["itemDetails", "structureType"], message: "Structure type is required for MSS vendorship." });
     }
-  });
+  }
+});
 
 export const Step5Schema = z
   .object({
@@ -243,8 +283,8 @@ export const Step6Schema = z
   .object({
     dealOrigin: dealOriginEnum,
     partnerModifier: z.enum(["PROFIT_SHARE", "FIXED_RATE"]).optional(),
-    incModifier: z.enum(["LABOR_ONLY", "LABOR_MATERIALS"]).optional(),
-    outsourceEnabled: z.boolean().optional(),
+    vendorshipOwner: z.enum(["MSS", "CODE_GIVER", "PARTNER_OWNED"]).optional(),
+    paymentType: z.enum(["cash", "loan", "cash-and-loan"]).optional(),
     capacityKw: z.number().min(0.1, "Capacity must be greater than 0"),
     projectType: z.enum(["Residential", "Commercial", "Industrial"]),
     grossContractValue: z.number().min(0, "Gross contract value must be at least 0"),
@@ -252,11 +292,16 @@ export const Step6Schema = z
     mssBackendFixedRate: z.number().optional(),
     incRateBasis: z.enum(["PER_KW", "PER_SQFT", "FIXED"]).optional(),
     incRateValue: z.number().optional(),
-    incMaterialCost: z.number().optional(),
-    subcontractorPayoutRate: z.number().optional(),
     partnerProvidesGst: z.boolean().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.dealOrigin === "VENDORSHIP_ONLY" && !data.paymentType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["paymentType"],
+        message: "Select bank file (loan) or cash file.",
+      });
+    }
     if (data.dealOrigin === "PARTNER") {
       if (data.partnerModifier === "PROFIT_SHARE" && data.partnerProfitSharePct === undefined) {
         ctx.addIssue({
@@ -295,20 +340,6 @@ export const Step6Schema = z
           message: "Rate value is required.",
         });
       }
-      if (data.incModifier === "LABOR_MATERIALS" && data.incMaterialCost === undefined) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["incMaterialCost"],
-          message: "Material cost is required.",
-        });
-      }
-    }
-    if (data.outsourceEnabled && data.subcontractorPayoutRate === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["subcontractorPayoutRate"],
-        message: "Subcontractor payout rate is required when outsourcing.",
-      });
     }
   });
 
@@ -331,7 +362,6 @@ export function createInitialUnifiedWizardState(
     capacityKw: 0,
     projectType: "Residential",
     grossContractValue: 0,
-    outsourceEnabled: false,
     ...overrides,
   };
 }

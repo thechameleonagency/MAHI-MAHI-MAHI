@@ -18,8 +18,11 @@ export const UNIFIED_WIZARD_STEP_LABELS: Record<UnifiedWizardStep, string> = {
   review: "Review",
 };
 
+/** Default vendorship fee rate (₹/kW) used to suggest fee in the wizard. */
+export const DEFAULT_VENDORSHIP_FEE_PER_KW = 3500;
+
 export function skipVendorshipStep(state: UnifiedProjectWizardState): boolean {
-  return state.dealOrigin === "INC_TAKEN" && state.incModifier === "LABOR_ONLY";
+  return state.dealOrigin === "VENDORSHIP_ONLY";
 }
 
 export function getVisibleUnifiedWizardSteps(state: UnifiedProjectWizardState): UnifiedWizardStep[] {
@@ -38,7 +41,9 @@ export function validateUnifiedWizardStep(
 ): { field: string; message: string }[] {
   try {
     if (step === "deal") Step1Schema.parse(state);
-    if (step === "vendorship" && !skipVendorshipStep(state)) Step2Schema.parse(state);
+    if (step === "vendorship" && !skipVendorshipStep(state)) {
+      Step2Schema.parse({ ...state, capacityKw: state.capacityKw });
+    }
     if (step === "source" && state.dealOrigin === "DIRECT") Step3Schema.parse(state);
     if (step === "details") Step4Schema.parse(state);
     if (step === "parties") Step5Schema.parse(state);
@@ -53,4 +58,18 @@ export function validateUnifiedWizardStep(
     }
   }
   return [];
+}
+
+export function suggestVendorshipFee(capacityKw: number): number {
+  if (capacityKw <= 0) return 0;
+  return Math.round(capacityKw * DEFAULT_VENDORSHIP_FEE_PER_KW);
+}
+
+/** Vendorship fee applies when MSS code is used for a third party — not on direct solo EPC (MSS bills self). */
+export function requiresVendorshipFeeInput(state: {
+  dealOrigin: UnifiedProjectWizardState["dealOrigin"];
+  vendorshipOwner?: UnifiedProjectWizardState["vendorshipOwner"];
+}): boolean {
+  if (state.vendorshipOwner !== "MSS") return false;
+  return state.dealOrigin !== "DIRECT";
 }

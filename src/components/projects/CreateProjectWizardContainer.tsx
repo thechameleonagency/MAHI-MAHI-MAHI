@@ -46,7 +46,12 @@ export function CreateProjectWizardContainer({
     const base: Partial<UnifiedProjectWizardState> = { ...initialStateOverride };
     if (prefillQuotationId) {
       const quotation = quotations.find((q) => q.id === prefillQuotationId);
-      if (quotation) Object.assign(base, prefillUnifiedWizardFromQuotation(quotation));
+      if (quotation) {
+        const linkedEnquiry = quotation.enquiryId
+          ? enquiries.find((e) => e.id === quotation.enquiryId)
+          : undefined;
+        Object.assign(base, prefillUnifiedWizardFromQuotation(quotation, linkedEnquiry));
+      }
     }
     if (prefillCustomerDraft) {
       base.endCustomer = {
@@ -59,7 +64,7 @@ export function CreateProjectWizardContainer({
       base.capacityKw = parseFloat(String(prefillCustomerDraft.capacity ?? "").replace(/[^\d.]/g, "")) || 0;
     }
     return Object.keys(base).length > 0 ? base : undefined;
-  }, [initialStateOverride, prefillQuotationId, prefillCustomerDraft, quotations]);
+  }, [initialStateOverride, prefillQuotationId, prefillCustomerDraft, quotations, enquiries]);
 
   const handleCreate = useCallback(
     async (state: UnifiedProjectWizardState) => {
