@@ -50,7 +50,7 @@ const KIND_TAB_ALLOWLIST: Partial<Record<ProjectKind, string[]>> = {
 
   INC_GIVEN: ["progress-report", "field-operations", "team-roster", "financials"],
 
-  OUTSOURCED_INC: ["progress-report", "document-creator", "financials", "field-operations", "team-roster"],
+  OUTSOURCED_INC: ["progress-report", "document-creator", "financials", "field-operations", "team-roster", "outsource-execution"],
 
   VENDORSHIP_ONLY: ["financials", "document-creator", "vendorship"],
 
@@ -298,6 +298,18 @@ export function filterWorkTabsByRole(
 
   }
 
+}
+
+/** Default work tab when opening project detail (URL may override via ?tab=). */
+export function defaultProjectDetailTab(
+  kind: ProjectKind,
+  tabs: ProjectDetailWorkTab[],
+): string {
+  if (tabs.length === 0) return "progress-report";
+  if (kind === "VENDORSHIP_ONLY") {
+    return tabs.find((t) => t.value === "financials")?.value ?? tabs[0].value;
+  }
+  return tabs.find((t) => t.value === "progress-report")?.value ?? tabs[0].value;
 }
 
 

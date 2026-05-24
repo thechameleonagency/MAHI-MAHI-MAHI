@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getVisibleUnifiedWizardSteps, skipVendorshipStep } from "@/lib/unifiedProjectWizardFlow";
 import { createInitialUnifiedWizardState } from "@/types/createProjectWizard";
-import { filterWorkTabsBySnapshot } from "@/lib/projectDetailTabs";
+import { SHOWCASE_PROJECT_KINDS } from "@/lib/data-engine/smartGeneratorScenarios";
+import { filterWorkTabsBySnapshot, defaultProjectDetailTab } from "@/lib/projectDetailTabs";
 import { normalizeProject } from "@/lib/projectNormalize";
 import type { Project } from "@/types/project";
 
@@ -89,5 +90,30 @@ describe("project detail tab visibility by kind", () => {
     const tabs = filterWorkTabsBySnapshot(project, "Document Vault").map((t) => t.value);
     expect(tabs).toContain("materials-sent");
     expect(tabs).not.toContain("document-creator");
+  });
+
+  it("default tab prefers financials for vendorship-only", () => {
+    const project = baseProject({ projectKind: "VENDORSHIP_ONLY", vendorshipOwner: "MSS" });
+    const tabs = filterWorkTabsBySnapshot(project, "Document Creator");
+    expect(defaultProjectDetailTab("VENDORSHIP_ONLY", tabs)).toBe("financials");
+  });
+
+  it("each showcase project kind exposes at least one work tab", () => {
+    for (const kind of SHOWCASE_PROJECT_KINDS) {
+      const project = baseProject({
+        projectKind: kind,
+        vendorshipOwner: kind === "VENDORSHIP_ONLY" || kind === "INC_GIVEN" ? "MSS" : "PARTNER",
+        lifecycleStatus: kind === "VENDORSHIP_ONLY" ? "Completed" : "In Progress",
+        scope:
+          kind === "INC_GIVEN"
+            ? { hasMaterial: false, hasInstallation: true, materialSupplyPending: true, vendorshipOwner: "MSS", leadSource: "MSS_DIRECT", billingParty: "MSS" }
+            : kind === "OUTSOURCED_INC"
+              ? { hasMaterial: false, hasInstallation: true, vendorshipOwner: "MSS", leadSource: "MSS_DIRECT", billingParty: "MSS" }
+              : { hasMaterial: true, hasInstallation: true, vendorshipOwner: "MSS", leadSource: "MSS_DIRECT", billingParty: "MSS" },
+      });
+      const tabs = filterWorkTabsBySnapshot(project, "Document Creator");
+      expect(tabs.length).toBeGreaterThan(0);
+      expect(defaultProjectDetailTab(kind, tabs)).toBeTruthy();
+    }
   });
 });

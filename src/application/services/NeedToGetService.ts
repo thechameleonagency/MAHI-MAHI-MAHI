@@ -65,12 +65,18 @@ function mergeBucketKey(mode: NeedToGetGroupMode, r: NeedToGetRow): string {
 }
 
 /** Build a readable “Where” label for merged rows (deduped location labels, capped length). */
+function safeStr(value: string | undefined | null): string {
+  return value ?? "";
+}
+
 function buildMergedWhereLabel(
   _mode: NeedToGetGroupMode,
   members: NeedToGetRow[],
   getLocationLabel: (r: NeedToGetRow) => string,
 ): string {
-  const labels = [...new Set(members.map((m) => getLocationLabel(m)))].sort((a, b) => a.localeCompare(b));
+  const labels = [...new Set(members.map((m) => getLocationLabel(m)))].sort((a, b) =>
+    safeStr(a).localeCompare(safeStr(b)),
+  );
   if (labels.length <= 1) return labels[0] ?? "—";
 
   if (labels.length <= 4) return labels.join(" · ");
@@ -115,9 +121,9 @@ export function aggregateNeedToGetRows(
   for (const members of buckets.values()) {
     members.sort(
       (a, b) =>
-        a.needByDate.localeCompare(b.needByDate) ||
-        a.projectName.localeCompare(b.projectName) ||
-        a.siteName.localeCompare(b.siteName),
+        safeStr(a.needByDate).localeCompare(safeStr(b.needByDate)) ||
+        safeStr(a.projectName).localeCompare(safeStr(b.projectName)) ||
+        safeStr(a.siteName).localeCompare(safeStr(b.siteName)),
     );
     const base = members[0];
     const qtySum = members.reduce((s, m) => s + m.qtyShort, 0);
@@ -158,17 +164,18 @@ export function aggregateNeedToGetRows(
   const sorted = [...out].sort((a, b) => {
     if (mode === "flat") {
       return (
-        a.displayWhere.localeCompare(b.displayWhere) || a.materialName.localeCompare(b.materialName)
+        safeStr(a.displayWhere).localeCompare(safeStr(b.displayWhere)) ||
+        safeStr(a.materialName).localeCompare(safeStr(b.materialName))
       );
     }
     if (mode === "project") {
       return (
-        a.projectName.localeCompare(b.projectName) ||
-        a.needByDate.localeCompare(b.needByDate) ||
-        a.materialName.localeCompare(b.materialName)
+        safeStr(a.projectName).localeCompare(safeStr(b.projectName)) ||
+        safeStr(a.needByDate).localeCompare(safeStr(b.needByDate)) ||
+        safeStr(a.materialName).localeCompare(safeStr(b.materialName))
       );
     }
-    return a.materialName.localeCompare(b.materialName);
+    return safeStr(a.materialName).localeCompare(safeStr(b.materialName));
   });
 
   return sorted;
@@ -231,7 +238,9 @@ export function buildLastPurchaseRateByMaterial(
   inventoryItems: InventoryItem[],
 ): Map<string, number> {
   const map = new Map<string, number>();
-  const sorted = [...vendorBills].sort((a, b) => b.billDate.localeCompare(a.billDate));
+  const sorted = [...vendorBills].sort((a, b) =>
+    (b.billDate ?? "").localeCompare(a.billDate ?? ""),
+  );
   for (const bill of sorted) {
     for (const line of bill.items ?? []) {
       if (line.inventoryItemId != null) {
@@ -419,7 +428,9 @@ export class NeedToGetService {
     }
 
     return rows.sort(
-      (a, b) => a.needByDate.localeCompare(b.needByDate) || a.projectName.localeCompare(b.projectName),
+      (a, b) =>
+        safeStr(a.needByDate).localeCompare(safeStr(b.needByDate)) ||
+        safeStr(a.projectName).localeCompare(safeStr(b.projectName)),
     );
   }
 }

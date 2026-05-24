@@ -57,7 +57,6 @@ import { matchesOpenReceivable } from "@/lib/billingListFilters";
 import { useCan } from "@/hooks/useCan";
 import { sanitizeMergedBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import {
-  deriveInvoiceStatusAfterReceipt,
   formatInvoiceBalanceLabel,
 } from "@/lib/invoicePaymentStatus";
 
@@ -357,6 +356,22 @@ const Invoices = () => {
     navigate(`/invoices${remaining ? `?${remaining}` : ""}`, { replace: true });
   }, [location.search, invoices, saleBills, navigate]);
 
+  // Keep detail sheet in sync when invoice rows update (e.g. after recordCustomerInflow).
+  useEffect(() => {
+    if (!selectedInvoice?.id) return;
+    const fresh =
+      invoices.find((i) => i.id === selectedInvoice.id) ??
+      saleBills.find((i) => i.id === selectedInvoice.id);
+    if (
+      fresh &&
+      (fresh.amountReceived !== selectedInvoice.amountReceived ||
+        fresh.status !== selectedInvoice.status ||
+        fresh.receivedIn !== selectedInvoice.receivedIn)
+    ) {
+      setSelectedInvoice(fresh);
+    }
+  }, [invoices, saleBills, selectedInvoice?.id, selectedInvoice?.amountReceived, selectedInvoice?.status, selectedInvoice?.receivedIn]);
+
   const handleInvoiceCreated = (
     invoice: Invoice,
     options?: { highValueJustification?: string },
@@ -425,24 +440,7 @@ const Invoices = () => {
       mssPortion = amount - partnerPortion;
     }
 
-    // Invoice always reflects FULL collected amount (regardless of routing)
-    const newReceived = (selectedInvoice.amountReceived || 0) + amount;
-    const newStatus = deriveInvoiceStatusAfterReceipt({
-      total: selectedInvoice.total,
-      amountReceived: newReceived,
-    });
-
-    const patch = {
-      amountReceived: newReceived,
-      status: newStatus as Invoice["status"],
-      receivedIn: paymentMode
-    };
-    if ((selectedInvoice.type ?? "invoice") === "sale-bill") {
-      updateSaleBill(selectedInvoice.id, patch);
-    } else {
-      updateInvoice(selectedInvoice.id, patch);
-    }
-
+    // Invoice amountReceived + status update through recordCustomerInflow only (single write path).
     // MSS-side Payment (recorded whenever mssPortion > 0)
     if (mssPortion > 0) {
       recordCustomerInflow({

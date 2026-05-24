@@ -1,8 +1,8 @@
-import { Building2, History } from "lucide-react";
-﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+﻿import { Building2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
-  ArrowLeft, AlertTriangle, Briefcase, Calendar, Camera, CheckCircle2, ClipboardList, Edit,
+  ArrowLeft, AlertTriangle, Calendar, Camera, CheckCircle2, ClipboardList, Edit,
   FileText, Handshake, IndianRupee, MapPin,
   MoreVertical, Package, Plus, ReceiptText, Truck, Users, CheckSquare, User, X, Zap,
 } from "lucide-react";
@@ -65,7 +65,7 @@ import { UnifiedExpenseSheet } from "@/components/expenses/UnifiedExpenseSheet";
 import { TaskAssignmentSheet } from "@/components/employees/TaskAssignmentSheet";
 import { ProgressReportTab } from "@/components/projects/ProgressReportTab";
 import { TeamRosterTab } from "@/components/projects/TeamRosterTab";
-import { filterWorkTabsBySnapshot, filterWorkTabsByRole, projectForbidsAction, projectShowsClientInvoices, projectPrimaryPartyLabel, projectShowsOutsourceSection, projectShowsMaterialSupplyToggle } from "@/lib/projectDetailTabs";
+import { filterWorkTabsBySnapshot, filterWorkTabsByRole, projectForbidsAction, projectShowsClientInvoices, projectPrimaryPartyLabel, projectShowsOutsourceSection, projectShowsMaterialSupplyToggle, defaultProjectDetailTab } from "@/lib/projectDetailTabs";
 import { ProjectOutsourceSection } from "@/components/projects/ProjectOutsourceSection";
 import { ProjectIncMaterialSection } from "@/components/projects/ProjectIncMaterialSection";
 import { ProjectInstallmentTracker } from "@/components/projects/ProjectInstallmentTracker";
@@ -236,14 +236,14 @@ const ProjectDetail = () => {
     generateId,
     canDo,
   } = useAppData();
-  const { getOutsourceWorkTags, getSiteChecklistPresets } = useMasters();
+  const { getSiteChecklistPresets } = useMasters();
   const COMPANY_STATE_CODE = (() => { try { return JSON.parse(localStorage.getItem("mss.settings.company") || "{}").companyState || "08"; } catch { return "08"; } })();
 
   const canDeleteClientPayment = useCanAction("finance:delete_payment");
 
   const project = id ? getProjectById(id) : undefined;
 
-  const formatCurrency = (val: number) => `₹ ${(val || 0).toLocaleString()}`;
+  const formatCurrency = (val: number) => `â‚¹ ${(val || 0).toLocaleString()}`;
 
   const showDocumentVault = project?.vendorshipOwner === "MSS" || project?.dealOrigin === "VENDORSHIP_ONLY";
 
@@ -409,6 +409,7 @@ const ProjectDetail = () => {
 
   // Modal states
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isSiteVisitOpen, setIsSiteVisitOpen] = useState(false);
   const [isChangeRequestOpen, setIsChangeRequestOpen] = useState(false);
@@ -420,8 +421,6 @@ const ProjectDetail = () => {
   );
   const [taskAssignmentOpen, setTaskAssignmentOpen] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
-  const [isAddOutsourceOpen, setIsAddOutsourceOpen] = useState(false);
-  const [_activeTab, _setActiveTab] = useState("progress-report");
   const [isArchiveProjectOpen, setIsArchiveProjectOpen] = useState(false);
   const [archiveProjectReason, setArchiveProjectReason] = useState("");
   const [lastConfirm, setLastConfirm] = useState<{ variant: "success" | "warning" | "error"; title: string; description?: string } | null>(null);
@@ -456,16 +455,6 @@ const ProjectDetail = () => {
     project?.lifecycleStatus ?? "New",
   );
   const [editProgressStage, setEditProgressStage] = useState(project?.progressStage || "");
-
-  // Outsource work state
-  const [outsourceTab, setOutsourceTab] = useState<"labour" | "other">("labour");
-  const [outsourceEmployees, setOutsourceEmployees] = useState("");
-  const [outsourceDays, setOutsourceDays] = useState("");
-  const [outsourceRate, setOutsourceRate] = useState("");
-  const [outsourceDescription, setOutsourceDescription] = useState("");
-  const [otherWorkTag, setOtherWorkTag] = useState("");
-  const [otherWorkAmount, setOtherWorkAmount] = useState("");
-  const [otherWorkNotes, setOtherWorkNotes] = useState("");
 
   // Site checklist template choice
   const [siteTemplateChoice, setSiteTemplateChoice] = useState<Record<number, string>>({});
@@ -604,32 +593,6 @@ const ProjectDetail = () => {
       });
     }, 200);
   };
-
-  const handleConfirmOutsource = () => {
-    if (!project || !id) return;
-    let total: number, notes: string;
-    if (outsourceTab === "labour") {
-      const emps = parseInt(outsourceEmployees) || 0;
-      const days = parseInt(outsourceDays) || 0;
-      const rate = parseFloat(outsourceRate) || 0;
-      total = emps * days * rate;
-      notes = `OUTSRC:${emps},${days},${rate}:${outsourceDescription.trim() || "Outsourced labour"}`;
-    } else {
-      total = parseFloat(otherWorkAmount) || 0;
-      const tagPrefix = otherWorkTag ? `[${otherWorkTag}] ` : "";
-      notes = `OUTSRC:0,0,0:${tagPrefix}${otherWorkNotes.trim() || "Other outsourced work"}`;
-    }
-    addExpense({ id: generateId("EX"), date: new Date().toISOString().split("T")[0], amount: total, mainCategory: "site", projectId: id, projectName: project.name, category: outsourceTab === "labour" ? "Labour" : "Other", subCategory: "Outsourced", notes, paidBy: { type: "company" } } as Expense);
-    toast({ title: "Outsource Work Added", description: `${formatINR(total)} recorded` });
-    setIsAddOutsourceOpen(false);
-    setOutsourceEmployees(""); setOutsourceDays(""); setOutsourceRate(""); setOutsourceDescription("");
-    setOtherWorkTag(""); setOtherWorkAmount(""); setOtherWorkNotes("");
-  };
-
-  const projectSiteVisits = id ? getSiteVisitsByProject(id) : [];
-  const projectReservations = id ? getReservationsForProject(id) : [];
-  const projectSchedules = id ? getSchedulesByProject(id) : [];
-  const projectMaterialDamage = id ? getDamageByProject(id) : [];
 
   const handleOpenNewInvoiceForProject = () => {
     if (!project || !id) return;
@@ -813,15 +776,15 @@ const ProjectDetail = () => {
   const billed = projectInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
   const collected = projectPayments.filter((payment) => payment.direction === "in").reduce((sum, payment) => sum + payment.amount, 0);
   // BL-1: actualCost is derived from linked expenses when project.totalCost is not stored.
-  // Profit must use the same derived cost ÔÇö otherwise profit collapses to contractAmount
+  // Profit must use the same derived cost Ã”Ã‡Ã¶ otherwise profit collapses to contractAmount
   // when totalCost is 0/undefined (the historical "Profit == Contract" bug).
   const actualCost = project.totalCost && project.totalCost > 0
     ? project.totalCost
     : projectExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   // BL-5: Three distinct profit lenses (see audit report Round 3 BL-5).
-  // - expectedProfit:  contract ÔêÆ cost (what we'll earn if the deal completes as priced)
-  // - accrualProfit:   billed   ÔêÆ cost (what's already earned in books)
-  // - realizedProfit:  collected ÔêÆ cost (what's earned in cash)
+  // - expectedProfit:  contract Ã”ÃªÃ† cost (what we'll earn if the deal completes as priced)
+  // - accrualProfit:   billed   Ã”ÃªÃ† cost (what's already earned in books)
+  // - realizedProfit:  collected Ã”ÃªÃ† cost (what's earned in cash)
   const projectProfit = (project.contractAmount || 0) - actualCost;
   const accrualProfit = billed - actualCost;
   const realizedProfit = collected - actualCost;
@@ -840,6 +803,34 @@ const ProjectDetail = () => {
   const scope = project.scope;
   const docLabel = scope?.vendorshipOwner === "MSS" ? "Document Creator" : "Document Vault";
   const tabDefs = filterWorkTabsByRole(filterWorkTabsBySnapshot(project, docLabel), currentRole);
+  const workTabs = (() => {
+    let tabs = tabDefs;
+    if (projectShowsOutsourceSection(project) && !tabs.some((t) => t.value === "outsource-execution")) {
+      tabs = [
+        ...tabs,
+        { value: "outsource-execution", label: "Outsource Execution", snapshotKeys: ["outsource_execution"] },
+      ];
+    }
+    return tabs;
+  })();
+  const defaultWorkTab = defaultProjectDetailTab(kind, workTabs);
+  const tabParam = searchParams.get("tab");
+  const activeWorkTab = workTabs.some((t) => t.value === tabParam) ? tabParam! : defaultWorkTab;
+  const handleWorkTabChange = (value: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("tab", value);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const projectSiteVisits = id ? getSiteVisitsByProject(id) : [];
+  const projectReservations = id ? getReservationsForProject(id) : [];
+  const projectSchedules = id ? getSchedulesByProject(id) : [];
+  const projectMaterialDamage = id ? getDamageByProject(id) : [];
 
   const forbidMaterialDispatch = projectForbidsAction(project, "material_dispatch");
   const forbidWorkTracking = projectForbidsAction(project, "work_tracking");
@@ -854,7 +845,6 @@ const ProjectDetail = () => {
     <PageShell className="space-y-6 pb-20">
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Projects", to: "/projects" }, { label: project.name }]}
-        title={<span className="text-xl md:text-2xl font-semibold">{project.name}</span>}
       />
 
       {lastConfirm && (
@@ -884,7 +874,7 @@ const ProjectDetail = () => {
           description={
             <span>
               Archived on {new Date(project.archivedAt).toLocaleDateString()}
-              {project.archivedReason ? <> ┬À Reason: {project.archivedReason}</> : null}. Read-only ÔÇö restore to make changes.
+              {project.archivedReason ? <> â”¬Ã€ Reason: {project.archivedReason}</> : null}. Read-only Ã”Ã‡Ã¶ restore to make changes.
             </span>
           }
           primaryActionLabel="Unarchive"
@@ -899,7 +889,7 @@ const ProjectDetail = () => {
         <LifecycleTerminalBanner
           variant="completed"
           title="Project completed"
-          description="All work signed off. Audit-only access ÔÇö re-open from Project menu if rework is needed."
+          description="All work signed off. Audit-only access Ã”Ã‡Ã¶ re-open from Project menu if rework is needed."
           primaryActionLabel="Open audit"
           onPrimaryAction={() => navigate("/audit/audit-logs")}
         />
@@ -1033,8 +1023,8 @@ const ProjectDetail = () => {
                   <Edit className="w-4 h-4 mr-2" /> Edit
                 </Button>
               )}
-              {!forbidWorkTracking && (
-                <Button size="sm" variant="outline" onClick={() => setIsAddOutsourceOpen(true)}>
+              {!forbidWorkTracking && projectShowsOutsourceSection(project) && (
+                <Button size="sm" variant="outline" onClick={() => handleWorkTabChange("outsource-execution")}>
                   <Users className="w-4 h-4 mr-2" /> Outsource
                 </Button>
               )}
@@ -1052,13 +1042,19 @@ const ProjectDetail = () => {
 
       </div>
 
-      {/* CONTINUOUS SECTIONS */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
-        {/* MAIN COLUMN */}
-        <div className="xl:col-span-2 space-y-8">
-          {tabDefs.some(t => t.value === "progress-report") && (
-            <section id="progress-report" className="scroll-mt-24 space-y-4">
-              <h2 className="text-lg font-semibold tracking-tight">Progress & Timeline</h2>
+      {/* Work area tabs â€” one panel visible at a time */}
+      <Tabs value={activeWorkTab} onValueChange={handleWorkTabChange} className="mt-6">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/40 p-1">
+          {workTabs.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value} className="text-xs sm:text-sm">
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        <div className="mt-6 space-y-6">
+          {workTabs.some((t) => t.value === "progress-report") && (
+            <TabsContent value="progress-report" className="mt-0 space-y-4">
               <ProgressReportTab
             projectId={project.id}
             projectName={project.name}
@@ -1110,19 +1106,17 @@ const ProjectDetail = () => {
               {projectShowsMaterialSupplyToggle(project) && (
                 <ProjectIncMaterialSection project={project} />
               )}
-            </section>
+            </TabsContent>
           )}
 
-          {projectShowsOutsourceSection(project) && (
-            <section id="outsource-execution" className="scroll-mt-24 space-y-4">
-              <h2 className="text-lg font-semibold tracking-tight">Outsource Execution</h2>
+          {workTabs.some((t) => t.value === "outsource-execution") && (
+            <TabsContent value="outsource-execution" className="mt-0 space-y-4">
               <ProjectOutsourceSection project={project} />
-            </section>
+            </TabsContent>
           )}
 
-          {tabDefs.some(t => t.value === "field-operations") && (
-            <section id="field-operations" className="scroll-mt-24 space-y-4">
-              <h2 className="text-lg font-semibold tracking-tight">Field Operations</h2>
+          {workTabs.some((t) => t.value === "field-operations") && (
+            <TabsContent value="field-operations" className="mt-0 space-y-4">
               <Tabs defaultValue="team-schedule">
             <TabsList>
               <TabsTrigger value="team-schedule">Team &amp; Schedule</TabsTrigger>
@@ -1379,12 +1373,11 @@ const ProjectDetail = () => {
               )}
             </TabsContent>
           </Tabs>
-            </section>
+            </TabsContent>
           )}
 
-          {tabDefs.some(t => t.value === "financials") && (
-            <section id="financials" className="scroll-mt-24 space-y-4">
-              <h2 className="text-lg font-semibold tracking-tight">Financials</h2>
+          {workTabs.some((t) => t.value === "financials") && (
+            <TabsContent value="financials" className="mt-0 space-y-4">
               <ProjectInstallmentTracker project={project} timeline={projectTimeline ?? undefined} />
               <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
             <MiniMetric label={kind === "VENDORSHIP_ONLY" ? "Fee receivable" : kind === "INC_GIVEN" ? "Work value" : "Contract"} value={formatINR(kpiAmount)} />
@@ -1397,7 +1390,7 @@ const ProjectDetail = () => {
             {kind !== "VENDORSHIP_ONLY" && (
               <>
                 <MiniMetric label="Profit" value={formatINR(projectProfit)} />
-                <MiniMetric label="Margin" value={(project.contractAmount || 0) > 0 ? `${((projectProfit / (project.contractAmount || 1)) * 100).toFixed(1)}%` : "—"} />
+                <MiniMetric label="Margin" value={(project.contractAmount || 0) > 0 ? `${((projectProfit / (project.contractAmount || 1)) * 100).toFixed(1)}%` : "â€”"} />
               </>
             )}
           </div>
@@ -1406,19 +1399,19 @@ const ProjectDetail = () => {
             <MiniMetric
               label="Expected profit"
               value={formatINR(projectProfit)}
-              hint="Contract − Actual cost"
+              hint="Contract âˆ’ Actual cost"
             />
             {showsClientInvoices && (
               <MiniMetric
                 label="Accrual profit"
                 value={formatINR(accrualProfit)}
-                hint="Billed − Actual cost"
+                hint="Billed âˆ’ Actual cost"
               />
             )}
             <MiniMetric
               label="Realized profit"
               value={formatINR(realizedProfit)}
-              hint="Collected − Actual cost"
+              hint="Collected âˆ’ Actual cost"
             />
           </div>
           )}
@@ -1469,7 +1462,7 @@ const ProjectDetail = () => {
                           {cr.deltaKw ? `${cr.deltaKw} kW` : null}
                           {cr.deltaAmount ? ` ${formatINR(cr.deltaAmount)}` : null}
                           {!cr.deltaAmount && est > 0 ? ` ~${formatINR(est)}` : null}
-                          {cr.materialDelta?.length ? ` ┬À ${cr.materialDelta.length} material line(s)` : null}
+                          {cr.materialDelta?.length ? ` â”¬Ã€ ${cr.materialDelta.length} material line(s)` : null}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="capitalize">
@@ -1602,7 +1595,7 @@ const ProjectDetail = () => {
           {!showsClientInvoices && (
             <p className="text-sm text-muted-foreground rounded-md border border-dashed px-3 py-2 bg-muted/20">
               {kind === "INC_GIVEN"
-                ? "Client invoices are not used for INC-given work — collections from the INC giver are tracked below."
+                ? "Client invoices are not used for INC-given work â€” collections from the INC giver are tracked below."
                 : "This project kind does not use MSS client invoicing."}
             </p>
           )}
@@ -1705,12 +1698,11 @@ const ProjectDetail = () => {
               </TableBody>
             </DataTableShell>
           </TabCard>
-            </section>
+            </TabsContent>
           )}
 
-          {tabDefs.some(t => t.value === "materials-sent") && (
-            <section id="materials-sent" className="scroll-mt-24 space-y-4">
-              <h2 className="text-lg font-semibold tracking-tight">Materials Sent</h2>
+          {workTabs.some((t) => t.value === "materials-sent") && (
+            <TabsContent value="materials-sent" className="mt-0 space-y-4">
               {forbidMaterialDispatch ? (
             <Card><CardContent className="py-8 text-sm text-muted-foreground">Material dispatch is disabled for this project kind.</CardContent></Card>
           ) : (
@@ -1832,10 +1824,10 @@ const ProjectDetail = () => {
                         <TableCell className="capitalize">{dmg.stage}</TableCell>
                         <TableCell className="text-right">{dmg.qty}</TableCell>
                         <TableCell className="text-right">
-                          {dmg.costImpact != null ? formatINR(dmg.costImpact) : "ÔÇö"}
+                          {dmg.costImpact != null ? formatINR(dmg.costImpact) : "Ã”Ã‡Ã¶"}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate text-muted-foreground text-sm" title={dmg.notes}>
-                          {dmg.notes?.trim() || "ÔÇö"}
+                          {dmg.notes?.trim() || "Ã”Ã‡Ã¶"}
                           {(dmg.photoUrls?.length ?? 0) > 0 && (
                             <span className="block text-2xs text-muted-foreground/80">
                               {dmg.photoUrls!.length} photo URL(s)
@@ -1849,34 +1841,28 @@ const ProjectDetail = () => {
               </DataTableShell>
             </TabCard>
           )}
-            </section>
+            </TabsContent>
           )}
-        </div>
 
-        {/* SIDE COLUMN */}
-        <div className="space-y-6">
-          {tabDefs.some(t => t.value === "team-roster") && (
-            <section id="team-roster" className="scroll-mt-24 space-y-4">
-              <h2 className="text-lg font-semibold tracking-tight">Team Roster</h2>
+          {workTabs.some((t) => t.value === "team-roster") && (
+            <TabsContent value="team-roster" className="mt-0 space-y-4">
               <TeamRosterTab project={project} />
-            </section>
+            </TabsContent>
           )}
 
-          {tabDefs.some(t => t.value === "document-creator") && (
-            <section id="document-creator" className="scroll-mt-24 space-y-4">
-              <h2 className="text-lg font-semibold tracking-tight">Documents</h2>
+          {workTabs.some((t) => t.value === "document-creator") && (
+            <TabsContent value="document-creator" className="mt-0 space-y-4">
               <ProjectDocumentsStudio
             project={project}
             quotation={quotation}
             updateProject={updateProject}
             generateId={generateId}
           />
-            </section>
+            </TabsContent>
           )}
 
-          {tabDefs.some(t => t.value === "vendorship") && (
-            <section id="vendorship" className="scroll-mt-24 space-y-4">
-              <h2 className="text-lg font-semibold tracking-tight">Partner Economics</h2>
+          {workTabs.some((t) => t.value === "vendorship") && (
+            <TabsContent value="vendorship" className="mt-0 space-y-4">
               <TabCard title="Partner Economics" icon={<Users className="h-4 w-4 text-accent-foreground" />}>
             {(forbidPartnerSettlement || forbidChannelFee) && (
               <div className="mb-4 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
@@ -1893,7 +1879,7 @@ const ProjectDetail = () => {
               <MiniMetric label="Vendorship Fee" value={formatINR(project.scope?.vendorshipFeeAmount || 0)} />
               <MiniMetric
                 label="Billing Fee (%)"
-                value={forbidChannelFee ? "ÔÇö" : `${project.scope?.partnerBillingFeePercentage || 0}%`}
+                value={forbidChannelFee ? "Ã”Ã‡Ã¶" : `${project.scope?.partnerBillingFeePercentage || 0}%`}
               />
               <MiniMetric label="Partner Earning" value={formatINR(partnerEarning)} />
             </div>
@@ -1929,27 +1915,12 @@ const ProjectDetail = () => {
               </Button>
             )}
           </TabCard>
-            </section>
+            </TabsContent>
           )}
-
-          <section id="audit-preview" className="scroll-mt-24 space-y-4">
-            <h2 className="text-lg font-semibold tracking-tight">Audit History</h2>
-            <Card className="shadow-sm border-dashed border-slate-300 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate("/audit/audit-logs")}>
-              <CardContent className="p-4 flex flex-col items-center justify-center text-center space-y-2">
-                <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center">
-                  <History className="h-5 w-5 text-slate-500" />
-                </div>
-                <div>
-                  <p className="font-medium text-slate-900">View Audit Logs</p>
-                  <p className="text-xs text-slate-500">Track all changes & approvals</p>
-                </div>
-              </CardContent>
-            </Card>
-          </section>
         </div>
-      </div>
+      </Tabs>
 
-      {/* ├óÔÇó┬É├óÔÇó┬É├óÔÇó┬É MODALS ├óÔÇó┬É├óÔÇó┬É├óÔÇó┬É */}
+      {/* MODALS */}
 
       {/* Edit Project Modal */}
       <Sheet open={isEditProjectOpen} onOpenChange={setIsEditProjectOpen}>
@@ -2067,7 +2038,7 @@ const ProjectDetail = () => {
               </div>
 
               <div className="space-y-2 col-span-2">
-                <Label>Contract Value (Ôé╣)</Label>
+                <Label>Contract Value (Ã”Ã©â•£)</Label>
                 <Input type="number" value={editProjectContractValue} onChange={(e) => setEditProjectContractValue(e.target.value)} />
               </div>
             </div>
@@ -2102,15 +2073,15 @@ const ProjectDetail = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="profit">Profit Sharing (%)</SelectItem>
-                        <SelectItem value="fixed">Fixed Share (Ôé╣)</SelectItem>
-                        <SelectItem value="vendorship">Vendorship Fee (Ôé╣)</SelectItem>
+                        <SelectItem value="fixed">Fixed Share (Ã”Ã©â•£)</SelectItem>
+                        <SelectItem value="vendorship">Vendorship Fee (Ã”Ã©â•£)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2 col-span-2">
                     <Label>
-                      {editPartnerType === "profit" ? "Profit Share Percentage (%)" : editPartnerType === "fixed" ? "Our Backend Rate (Ôé╣ per kW or total)" : "Vendorship Fee Payable (Ôé╣)"}
+                      {editPartnerType === "profit" ? "Profit Share Percentage (%)" : editPartnerType === "fixed" ? "Our Backend Rate (Ã”Ã©â•£ per kW or total)" : "Vendorship Fee Payable (Ã”Ã©â•£)"}
                     </Label>
                     <Input 
                       type="number"
@@ -2132,61 +2103,6 @@ const ProjectDetail = () => {
         </AppSheetContent>
       </Sheet>
 
-      {/* Outsource Work Modal */}
-      <Sheet open={isAddOutsourceOpen} onOpenChange={(open) => {
-        setIsAddOutsourceOpen(open);
-        if (!open) {
-          setOutsourceTab("labour");
-          setOutsourceEmployees("");
-          setOutsourceDays("");
-          setOutsourceRate("");
-          setOutsourceDescription("");
-          setOtherWorkTag("");
-          setOtherWorkAmount("");
-          setOtherWorkNotes("");
-        }
-      }}>
-        <AppSheetContent layout="scroll" size="xl">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2"><Briefcase className="w-5 h-5" />Outsource Work</SheetTitle>
-            <SheetDescription>Record outsourced labour or other work for {project.name}</SheetDescription>
-          </SheetHeader>
-          <Tabs value={outsourceTab} onValueChange={(v) => setOutsourceTab(v as "labour" | "other")}>
-            <TabsList className="w-full"><TabsTrigger value="labour" className="flex-1">Labour</TabsTrigger><TabsTrigger value="other" className="flex-1">Other Work</TabsTrigger></TabsList>
-            <TabsContent value="labour" className="space-y-4 pt-4">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-2"><Label>Workers</Label><Input type="number" placeholder="0" value={outsourceEmployees} onChange={(e) => setOutsourceEmployees(e.target.value)} /></div>
-                <div className="space-y-2"><Label>Days</Label><Input type="number" placeholder="0" value={outsourceDays} onChange={(e) => setOutsourceDays(e.target.value)} /></div>
-                <div className="space-y-2"><Label>Rate/Day (Ôé╣)</Label><Input type="number" placeholder="0" value={outsourceRate} onChange={(e) => setOutsourceRate(e.target.value)} /></div>
-              </div>
-              {outsourceEmployees && outsourceDays && outsourceRate && (
-                <div className="p-3 bg-muted/30 rounded-lg text-sm">
-                  Total: <span className="font-semibold text-primary">{formatINR((parseInt(outsourceEmployees, 10) || 0) * (parseInt(outsourceDays, 10) || 0) * (parseFloat(outsourceRate) || 0))}</span>
-                </div>
-              )}
-              <div className="space-y-2"><Label>Description</Label><Textarea placeholder="What work was done..." value={outsourceDescription} onChange={(e) => setOutsourceDescription(e.target.value)} rows={2} /></div>
-            </TabsContent>
-            <TabsContent value="other" className="space-y-4 pt-4">
-              <div className="space-y-2">
-                <Label>Work Type</Label>
-                <Select value={otherWorkTag} onValueChange={setOtherWorkTag}>
-                  <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
-                  <SelectContent>
-                    {getOutsourceWorkTags().map(tag => (<SelectItem key={tag.value} value={tag.value}>{tag.label}</SelectItem>))}
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2"><Label>Amount (Ôé╣)</Label><Input type="number" placeholder="0" value={otherWorkAmount} onChange={(e) => setOtherWorkAmount(e.target.value)} /></div>
-              <div className="space-y-2"><Label>Notes</Label><Textarea placeholder="Details..." value={otherWorkNotes} onChange={(e) => setOtherWorkNotes(e.target.value)} rows={2} /></div>
-            </TabsContent>
-          </Tabs>
-          <div className="flex justify-end gap-2 pt-4">
-            <Button variant="outline" onClick={() => setIsAddOutsourceOpen(false)}>Cancel</Button>
-            {!ceoReadOnly && <Button onClick={handleConfirmOutsource}>Confirm</Button>}
-          </div>
-        </AppSheetContent>
-      </Sheet>
 
       {/* Unified Expense Modal */}
       {isAddExpenseOpen && (

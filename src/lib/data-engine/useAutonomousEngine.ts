@@ -22,7 +22,7 @@ export function useAutonomousEngine() {
 
       if (isExhaustiveGenerationComplete()) {
         markAutoSeedDone();
-        store.addLog("success", "100% generation complete — all permutations generated.");
+        store.addLog("success", "100% generation complete — all showcase scenarios generated.");
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

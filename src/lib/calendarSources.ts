@@ -91,7 +91,7 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
       id: `task-${t.id}`,
       date: day,
       source: "task",
-      title: t.siteName || t.siteId,
+      title: t.siteName || t.siteId || "Site task",
       subtitle: t.workType,
       href: "/timeline",
       projectId: t.siteId,
@@ -214,7 +214,11 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
     }
   }
 
-  return events.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+  return events.sort(
+    (a, b) =>
+      (a.date ?? "").localeCompare(b.date ?? "") ||
+      (a.title ?? "").localeCompare(b.title ?? ""),
+  );
 }
 
 export function getEventsForDate(events: CalendarEvent[], day: string): CalendarEvent[] {

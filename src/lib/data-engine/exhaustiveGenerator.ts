@@ -1,19 +1,34 @@
 import { LEGACY_KIND_TO_TYPE, type ProjectKind } from "@/domain/projectTypes/types";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
 import { createId } from "@/lib/idFactory";
-import type { Enquiry, Project, Quotation, Task } from "@/types/project";
+import { MATERIAL_CATEGORY_OPTIONS } from "@/lib/formCategories";
+import type { Enquiry, Project, ProjectSiteChecklistItem, Quotation, Task } from "@/types/project";
 import type {
   Agent,
   Invoice,
   Loan,
   Partner,
   PartnerType,
+  Subcontractor,
   VendorshipCompany,
   INCGiverCompany,
 } from "@/types/finance";
 import type { VendorBill, InventoryItem } from "@/types/inventory";
+import type { SiteChecklistTemplate } from "@/types/templates";
 import type { useDataEngineStore } from "./useDataEngineStore";
-import { addDays } from "date-fns";
+import {
+  SHOWCASE_SCENARIOS,
+  PIPELINE_EXTRA_STEPS,
+  lifecycleToStage,
+  lifecycleStageIndex,
+  getShowcaseScenarioCount,
+  getPipelineExtraCount,
+  SHOWCASE_PROJECT_KINDS,
+  type ShowcaseScenario,
+} from "./smartGeneratorScenarios";
+
+export { getShowcaseScenarioCount, getPipelineExtraCount } from "./smartGeneratorScenarios";
+import { addDays, subDays } from "date-fns";
 
 const REALISTIC_FIRST_NAMES = [
   "Rajesh", "Amit", "Priya", "Sneha", "Vikram", "Neha", "Rahul", "Pooja", "Suresh", "Kavita",
@@ -22,41 +37,30 @@ const REALISTIC_LAST_NAMES = [
   "Sharma", "Verma", "Patel", "Singh", "Gupta", "Kumar", "Deshmukh", "Joshi", "Iyer", "Chauhan",
 ];
 const REALISTIC_VENDOR_TYPES = ["Cables", "Electronics", "Logistics", "Hardware", "Steel", "Fabrication"];
-const REALISTIC_CUSTOMER_NAMES = [
-  "Aarav Sharma", "Vihaan Patel", "Aditya Singh", "Arjun Kumar", "Sai Krishna",
-  "Ananya Reddy", "Diya Gupta", "Priya Desai", "Riya Joshi", "Neha Verma",
-  "Rahul Mehta", "Karan Malhotra", "Rohan Iyer", "Vikram Ahuja", "Arun Bhatia",
-  "Kavya Pillai", "Sneha Rao", "Pooja Nair", "Shruti Menon", "Anjali Das",
-];
 
-/** Small, realistic counts for supporting master data. */
+/** Curated master-data counts — depth over volume. */
 export const GENERATOR_ENTITY_LIMITS = {
   employees: 5,
-  agents: 3,
-  partnersPerType: 2,
+  agents: 5,
+  partnersPerType: 1,
   vendors: 4,
   teams: 3,
-  inventoryItems: 6,
-  tools: 4,
+  inventoryItems: 20,
+  tools: 11,
   loans: 2,
   vendorshipCompanies: 2,
   incGiverCompanies: 2,
+  subcontractors: 2,
+  siteChecklistTemplates: 2,
+  attendanceRecords: 10,
+  loanRepayments: 2,
+  toolMovements: 2,
 } as const;
 
-const PARTNER_TYPES: PartnerType[] = ["Profit-Share", "Fixed-Rate", "Channel", "Subcontractor"];
+const PARTNER_TYPES: PartnerType[] = ["Profit-Share", "Fixed-Rate", "Channel"];
 
-export const PROJECT_TYPES = [
-  "SOLO_EPC",
-  "PARTNER_EPC",
-  "FIXED_EPC",
-  "VENDOR_NETWORK",
-  "INC",
-  "INC_GIVEN",
-  "OUTSOURCED_INC",
-  "VENDORSHIP_ONLY",
-] as const satisfies readonly ProjectKind[];
-
-const LIFECYCLE_STAGES = ["New", "In Progress", "Completed", "Closed"] as const;
+/** @deprecated Use SHOWCASE_PROJECT_KINDS — kept for tests importing PROJECT_TYPES. */
+export const PROJECT_TYPES = SHOWCASE_PROJECT_KINDS;
 
 function getRandomName(idx: number) {
   return `${REALISTIC_FIRST_NAMES[idx % REALISTIC_FIRST_NAMES.length]} ${REALISTIC_LAST_NAMES[idx % REALISTIC_LAST_NAMES.length]}`;
@@ -76,8 +80,6 @@ function partnerTypeForKind(kind: ProjectKind): PartnerType {
       return "Fixed-Rate";
     case "VENDOR_NETWORK":
       return "Channel";
-    case "OUTSOURCED_INC":
-      return "Subcontractor";
     default:
       return "Profit-Share";
   }
@@ -89,7 +91,6 @@ function dealOriginForKind(kind: ProjectKind): Project["dealOrigin"] {
     case "FIXED_EPC":
     case "VENDOR_NETWORK":
       return "PARTNER";
-    case "INC":
     case "INC_GIVEN":
       return "INC_TAKEN";
     case "OUTSOURCED_INC":
@@ -107,6 +108,11 @@ function pickPartner(ctx: () => Record<string, unknown>, kind: ProjectKind, idx:
   return matches[idx % Math.max(1, matches.length)];
 }
 
+function pickSubcontractor(ctx: () => Record<string, unknown>, idx: number): Subcontractor | undefined {
+  const rows = (ctx().subcontractors as Subcontractor[]) ?? [];
+  return rows[idx % Math.max(1, rows.length)];
+}
+
 function pickAgent(ctx: () => Record<string, unknown>, idx: number): Agent | undefined {
   const agents = ctx().agents as Agent[];
   return agents[idx % Math.max(1, agents.length)];
@@ -122,23 +128,46 @@ function pickVendorshipCompany(ctx: () => Record<string, unknown>, idx: number):
   return rows[idx % Math.max(1, rows.length)];
 }
 
+function buildSiteChecklist(inventory: InventoryItem[], completed: boolean): ProjectSiteChecklistItem[] {
+  return inventory.slice(0, 4).map((item, i) => {
+    const planned = 10 + i * 2;
+    const sent = completed ? planned : Math.floor(planned / 3);
+    return {
+      id: createId("CL"),
+      name: item.name,
+      category: item.category,
+      unit: item.unit || "pcs",
+      qtyPlanned: planned,
+      qtySent: sent,
+      qtyReturned: 0,
+      qtyConsumed: completed ? sent : 0,
+      unitPrice: item.buyPrice,
+      source: "template" as const,
+    };
+  });
+}
+
 function buildProjectDraft(
   ctx: () => Record<string, unknown>,
-  pType: ProjectKind,
-  stage: (typeof LIFECYCLE_STAGES)[number],
+  scenario: ShowcaseScenario,
   idx: number,
   customerId: string,
-  customerName: string,
   enquiryId: string,
   quotationId: string,
   dateNow: string,
 ): Project {
+  const pType = scenario.projectKind;
+  const stage = lifecycleToStage(scenario.lifecycle);
   const legacy = LEGACY_KIND_TO_TYPE[pType];
   const partner = pickPartner(ctx, pType, idx);
+  const subcontractor = pickSubcontractor(ctx, idx);
   const agent = pickAgent(ctx, idx);
   const incGiver = pickIncGiver(ctx, idx);
   const vendorshipCo = pickVendorshipCompany(ctx, idx);
-  const contractAmount = 15000 + idx * 500;
+  const contractAmount = 250000 + idx * 15000;
+  const inventory = ctx().inventoryItems as InventoryItem[];
+  const siteChecklist =
+    pType !== "VENDORSHIP_ONLY" ? buildSiteChecklist(inventory, scenario.lifecycle === "completed") : undefined;
 
   const scope: Project["scope"] =
     pType === "INC_GIVEN"
@@ -159,7 +188,6 @@ function buildProjectDraft(
             vendorshipOwner: "CLIENT",
             leadSource: "MSS_DIRECT",
             billingParty: "MSS",
-            partnerId: partner?.id,
             installationBy: "Subcontractor",
           }
         : pType === "VENDORSHIP_ONLY"
@@ -205,17 +233,17 @@ function buildProjectDraft(
             sharePercentage: pType === "PARTNER_EPC" ? 20 : undefined,
             fixedAmount: pType === "FIXED_EPC" ? 4000 : undefined,
             feeAmount: pType === "VENDOR_NETWORK" ? 2500 : undefined,
-            calculatedEarning: 0,
+            calculatedEarning: scenario.lifecycle === "completed" ? 5000 : 0,
             settlementDirection: "company_pays_partner" as const,
           },
         ]
       : undefined;
 
   const outsource =
-    pType === "OUTSOURCED_INC" && partner
+    pType === "OUTSOURCED_INC" && subcontractor
       ? {
-          partyId: partner.id,
-          partyName: partner.name,
+          partyId: subcontractor.id,
+          partyName: subcontractor.name,
           rateBasis: "fixed" as const,
           rateValue: contractAmount,
           total: contractAmount,
@@ -223,17 +251,19 @@ function buildProjectDraft(
         }
       : null;
 
-  const clientName =
-    pType === "INC_GIVEN" ? incGiver?.name ?? "INC Giver Co" : customerName;
+  const clientName = pType === "INC_GIVEN" ? (incGiver?.name ?? "INC Giver Co") : scenario.customerName;
+  const teams = ctx().teams as { id: string }[];
+  const teamId = teams[idx % Math.max(1, teams.length)]?.id;
 
   const draft: Project = {
     id: createId("PRJ"),
-    name: `${clientName} - ${pType}`,
+    name: `${clientName} — ${scenario.label}`,
     client: clientName,
-    customerId: pType === "INC_GIVEN" ? customerId : customerId,
+    customerId,
     quotationId,
     enquiryId,
     startDate: dateNow.split("T")[0],
+    endDate: scenario.lifecycle === "completed" ? dateNow.split("T")[0] : undefined,
     status: stage,
     lifecycleStatus: stage,
     projectKind: pType,
@@ -250,14 +280,14 @@ function buildProjectDraft(
     partnerRole: legacy.partnerRole,
     executionScope: legacy.executionScope,
     dealOrigin: dealOriginForKind(pType),
-    type: pType === "INC" || pType === "INC_GIVEN" || pType === "OUTSOURCED_INC" ? "INC" : "EPC",
+    type: pType === "INC_GIVEN" || pType === "OUTSOURCED_INC" ? "INC" : "EPC",
     projectType: "Residential",
     projectCategory: "solar",
     capacity: "5 kW",
     location: "Mumbai",
     contractAmount,
-    amountInvoiced: 0,
-    amountReceived: 0,
+    amountInvoiced: scenario.lifecycle === "completed" ? contractAmount : Math.floor(contractAmount * 0.4),
+    amountReceived: scenario.lifecycle === "completed" ? contractAmount : Math.floor(contractAmount * 0.2),
     createdAt: dateNow,
     history: [],
     paymentType: "cash",
@@ -266,20 +296,21 @@ function buildProjectDraft(
     outsource,
     agentId: agent?.id,
     agentName: agent?.name,
+    teamId,
+    siteChecklist,
     vendorshipFeeReceivable: pType === "VENDORSHIP_ONLY" ? 3500 : undefined,
-    internalCostEstimate: 9000,
-    backendPrice: pType === "FIXED_EPC" ? 4000 : undefined,
+    internalCostEstimate: 90000,
+    backendPrice: pType === "FIXED_EPC" ? 40000 : undefined,
     partnerSellPrice: pType === "FIXED_EPC" ? contractAmount : undefined,
     commissionRule: pType === "VENDOR_NETWORK" ? "9% channel fee" : undefined,
-    incScope: pType === "INC" || pType === "OUTSOURCED_INC" ? "installation_commissioning" : undefined,
+    incScope: pType === "OUTSOURCED_INC" ? "installation_commissioning" : undefined,
   };
 
-  // Intake party hints consumed by createProjectFromConfirmedQuotation
   Object.assign(draft, {
     partner: partner?.name,
     channelPartner: pType === "VENDOR_NETWORK" ? partner?.name : undefined,
     externalNetwork: pType === "VENDOR_NETWORK" ? "Regional Solar Network" : undefined,
-    subcontractor: pType === "OUTSOURCED_INC" ? partner?.name : undefined,
+    subcontractor: subcontractor?.name,
     incGiverCompany: incGiver?.name,
     vendorOrDiscom: vendorshipCo?.name ?? "MSS DISCOM Code",
   });
@@ -288,6 +319,7 @@ function buildProjectDraft(
 }
 
 let generatorStateIndex = 0;
+let pipelineExtraIndex = 0;
 let bootstrapEmployeesCreated = 0;
 let bootstrapAgentsCreated = 0;
 let bootstrapPartnersCreated: Partial<Record<PartnerType, number>> = {};
@@ -298,25 +330,69 @@ let bootstrapToolsCreated = 0;
 let bootstrapLoansCreated = 0;
 let bootstrapVendorshipCosCreated = 0;
 let bootstrapIncGiversCreated = 0;
+let bootstrapSubcontractorsCreated = 0;
+let bootstrapTemplatesCreated = 0;
+let bootstrapAttendanceCreated = 0;
+let bootstrapLoanRepaymentsCreated = 0;
+let bootstrapToolMovementsCreated = 0;
 
-type PendingPermutation = {
-  permutationIndex: number;
+type PendingScenario = {
+  scenarioIndex: number;
+  scenario: ShowcaseScenario;
   step: "customer" | "enquiry" | "quotation" | "project" | "artifacts";
-  pType: ProjectKind;
-  stage: (typeof LIFECYCLE_STAGES)[number];
   stageIndex: number;
   customerId: string;
-  customerName: string;
   enquiryId?: string;
   quotationId?: string;
   projectId?: string;
 };
 
-let pendingPermutation: PendingPermutation | null = null;
+let pendingScenario: PendingScenario | null = null;
+
+function bootstrapStepCount(): number {
+  return (
+    GENERATOR_ENTITY_LIMITS.employees +
+    GENERATOR_ENTITY_LIMITS.agents +
+    PARTNER_TYPES.length * GENERATOR_ENTITY_LIMITS.partnersPerType +
+    GENERATOR_ENTITY_LIMITS.vendors +
+    GENERATOR_ENTITY_LIMITS.teams +
+    GENERATOR_ENTITY_LIMITS.inventoryItems +
+    GENERATOR_ENTITY_LIMITS.tools +
+    GENERATOR_ENTITY_LIMITS.loans +
+    GENERATOR_ENTITY_LIMITS.vendorshipCompanies +
+    GENERATOR_ENTITY_LIMITS.incGiverCompanies +
+    GENERATOR_ENTITY_LIMITS.subcontractors +
+    GENERATOR_ENTITY_LIMITS.siteChecklistTemplates +
+    GENERATOR_ENTITY_LIMITS.attendanceRecords +
+    GENERATOR_ENTITY_LIMITS.loanRepayments +
+    GENERATOR_ENTITY_LIMITS.toolMovements
+  );
+}
+
+function bootstrapDoneCount(): number {
+  return (
+    bootstrapEmployeesCreated +
+    bootstrapAgentsCreated +
+    Object.values(bootstrapPartnersCreated).reduce((s, n) => s + n, 0) +
+    bootstrapVendorsCreated +
+    bootstrapTeamsCreated +
+    bootstrapInventoryCreated +
+    bootstrapToolsCreated +
+    bootstrapLoansCreated +
+    bootstrapVendorshipCosCreated +
+    bootstrapIncGiversCreated +
+    bootstrapSubcontractorsCreated +
+    bootstrapTemplatesCreated +
+    bootstrapAttendanceCreated +
+    bootstrapLoanRepaymentsCreated +
+    bootstrapToolMovementsCreated
+  );
+}
 
 export function resetExhaustiveGeneratorState() {
   generatorStateIndex = 0;
-  pendingPermutation = null;
+  pipelineExtraIndex = 0;
+  pendingScenario = null;
   bootstrapEmployeesCreated = 0;
   bootstrapAgentsCreated = 0;
   bootstrapPartnersCreated = {};
@@ -327,6 +403,11 @@ export function resetExhaustiveGeneratorState() {
   bootstrapLoansCreated = 0;
   bootstrapVendorshipCosCreated = 0;
   bootstrapIncGiversCreated = 0;
+  bootstrapSubcontractorsCreated = 0;
+  bootstrapTemplatesCreated = 0;
+  bootstrapAttendanceCreated = 0;
+  bootstrapLoanRepaymentsCreated = 0;
+  bootstrapToolMovementsCreated = 0;
 }
 
 export function getExhaustiveGeneratorIndex() {
@@ -334,42 +415,30 @@ export function getExhaustiveGeneratorIndex() {
 }
 
 export function getExhaustiveTotalPermutations(): number {
-  return PROJECT_TYPES.length * LIFECYCLE_STAGES.length;
+  return getShowcaseScenarioCount() + getPipelineExtraCount();
 }
 
 export function isExhaustiveGenerationComplete(): boolean {
-  return generatorStateIndex >= getExhaustiveTotalPermutations() && pendingPermutation === null;
+  const total = getExhaustiveTotalPermutations();
+  return (
+    generatorStateIndex >= getShowcaseScenarioCount() &&
+    pipelineExtraIndex >= getPipelineExtraCount() &&
+    pendingScenario === null &&
+    bootstrapComplete()
+  );
 }
 
 export function getExhaustiveGenerationProgressPercent(): number {
   if (!bootstrapComplete()) {
-    const bootstrapSteps =
-      GENERATOR_ENTITY_LIMITS.employees +
-      GENERATOR_ENTITY_LIMITS.agents +
-      PARTNER_TYPES.length * GENERATOR_ENTITY_LIMITS.partnersPerType +
-      GENERATOR_ENTITY_LIMITS.vendors +
-      GENERATOR_ENTITY_LIMITS.teams +
-      GENERATOR_ENTITY_LIMITS.inventoryItems +
-      GENERATOR_ENTITY_LIMITS.tools +
-      GENERATOR_ENTITY_LIMITS.loans +
-      GENERATOR_ENTITY_LIMITS.vendorshipCompanies +
-      GENERATOR_ENTITY_LIMITS.incGiverCompanies;
-    const bootstrapDone =
-      bootstrapEmployeesCreated +
-      bootstrapAgentsCreated +
-      Object.values(bootstrapPartnersCreated).reduce((s, n) => s + n, 0) +
-      bootstrapVendorsCreated +
-      bootstrapTeamsCreated +
-      bootstrapInventoryCreated +
-      bootstrapToolsCreated +
-      bootstrapLoansCreated +
-      bootstrapVendorshipCosCreated +
-      bootstrapIncGiversCreated;
-    return Math.min(99, Math.round((bootstrapDone / bootstrapSteps) * 40));
+    const steps = bootstrapStepCount();
+    const done = bootstrapDoneCount();
+    return Math.min(35, Math.round((done / steps) * 35));
   }
-  const total = getExhaustiveTotalPermutations();
-  if (total === 0) return 100;
-  return Math.min(100, 40 + Math.round((generatorStateIndex / total) * 60));
+  const scenarioTotal = getShowcaseScenarioCount();
+  const pipelineTotal = getPipelineExtraCount();
+  const scenarioProgress = scenarioTotal > 0 ? (generatorStateIndex / scenarioTotal) * 60 : 60;
+  const pipelineProgress = pipelineTotal > 0 ? (pipelineExtraIndex / pipelineTotal) * 5 : 5;
+  return Math.min(100, Math.round(35 + scenarioProgress + pipelineProgress));
 }
 
 function bootstrapComplete(): boolean {
@@ -386,191 +455,426 @@ function bootstrapComplete(): boolean {
     bootstrapToolsCreated >= GENERATOR_ENTITY_LIMITS.tools &&
     bootstrapLoansCreated >= GENERATOR_ENTITY_LIMITS.loans &&
     bootstrapVendorshipCosCreated >= GENERATOR_ENTITY_LIMITS.vendorshipCompanies &&
-    bootstrapIncGiversCreated >= GENERATOR_ENTITY_LIMITS.incGiverCompanies
+    bootstrapIncGiversCreated >= GENERATOR_ENTITY_LIMITS.incGiverCompanies &&
+    bootstrapSubcontractorsCreated >= GENERATOR_ENTITY_LIMITS.subcontractors &&
+    bootstrapTemplatesCreated >= GENERATOR_ENTITY_LIMITS.siteChecklistTemplates &&
+    bootstrapAttendanceCreated >= GENERATOR_ENTITY_LIMITS.attendanceRecords &&
+    bootstrapLoanRepaymentsCreated >= GENERATOR_ENTITY_LIMITS.loanRepayments &&
+    bootstrapToolMovementsCreated >= GENERATOR_ENTITY_LIMITS.toolMovements
   );
 }
 
-async function runPermutationArtifacts(
+async function runScenarioArtifacts(
   ctx: () => Record<string, unknown>,
   store: ReturnType<typeof useDataEngineStore.getState>,
-  flow: PendingPermutation,
+  flow: PendingScenario,
   dateNow: string,
 ) {
-  const { pType, stageIndex, projectId, customerId, customerName } = flow;
+  const { scenario, stageIndex, projectId, customerId } = flow;
+  const customerName = scenario.customerName;
+  const pType = scenario.projectKind;
   if (!projectId) return;
 
-  if (stageIndex >= 1) {
-    const targetEmp = (ctx().employees as { id: string }[])[flow.permutationIndex % GENERATOR_ENTITY_LIMITS.employees];
-    if (targetEmp && pType !== "VENDORSHIP_ONLY") {
+  const completed = scenario.lifecycle === "completed";
+  const inventory = ctx().inventoryItems as InventoryItem[];
+  const projects = ctx().projects as Project[];
+  const project = projects.find((p) => p.id === projectId);
+  const contractAmount = project?.contractAmount ?? 250000;
+
+  if (pType !== "VENDORSHIP_ONLY") {
+    const siteNumericId = 1000 + flow.scenarioIndex;
+    const siteChecklist = buildSiteChecklist(inventory, completed);
+    ctx().updateProject(projectId, {
+      siteChecklist,
+      teamId: project?.teamId,
+      lifecycleStatus: lifecycleToStage(scenario.lifecycle),
+      status: lifecycleToStage(scenario.lifecycle),
+      amountReceived: completed ? contractAmount : Math.floor(contractAmount * 0.2),
+      amountInvoiced: completed ? contractAmount : Math.floor(contractAmount * 0.4),
+    });
+
+    const existingSites = (ctx().sites as { id: number; projectId: string }[]) ?? [];
+    if (!existingSites.some((s) => s.projectId === projectId)) {
+      ctx().addSite({
+        id: siteNumericId,
+        name: "Main Site",
+        projectId,
+        projectName: project?.name ?? scenario.label,
+        workStartDate: subDays(new Date(), completed ? 30 : 7).toISOString().split("T")[0],
+        status: completed ? "completed" : "active",
+        checklistItems: [],
+      });
+    }
+
+    const teams = ctx().teams as { id: string }[];
+    ctx().addScheduledInstallation({
+      id: createId("INST"),
+      projectId,
+      scheduledDate: completed
+        ? subDays(new Date(), 5).toISOString().split("T")[0]
+        : addDays(new Date(), 3).toISOString().split("T")[0],
+      teamId: teams[flow.scenarioIndex % Math.max(1, teams.length)]?.id,
+      status: completed ? "completed" : "scheduled",
+      notes: `Showcase install — ${scenario.label}`,
+      createdAt: dateNow,
+    });
+    store.incrementCounter("schedules");
+
+    if (completed) {
+      ctx().addSiteVisit({
+        id: createId("SV"),
+        projectId,
+        visitedBy: "Field Lead",
+        visitDate: subDays(new Date(), 3).toISOString().split("T")[0],
+        items: siteChecklist.slice(0, 2).map((line) => ({
+          name: line.name,
+          requiredQty: line.qtyPlanned,
+          unit: line.unit,
+        })),
+        reconciledChecklistAt: dateNow,
+        createdAt: dateNow,
+      });
+      store.incrementCounter("siteVisits");
+    }
+
+    if (!completed && inventory[0]) {
+      ctx().addMaterialReservation({
+        id: createId("RES"),
+        itemId: String(inventory[0].id),
+        qty: 8,
+        projectId,
+        reason: "Checklist shortfall hold",
+        createdAt: dateNow,
+        source: "auto-from-checklist",
+      });
+    }
+
+    const employees = ctx().employees as { id: string }[];
+    const emp = employees[flow.scenarioIndex % Math.max(1, employees.length)];
+    if (emp && !completed) {
+      ctx().addAttendanceRecord({
+        id: createId("ATT"),
+        employeeId: emp.id,
+        date: dateNow.split("T")[0],
+        status: "present",
+        sites: [projectId],
+        notes: `On site — ${scenario.label}`,
+      });
+      store.incrementCounter("attendanceLogs");
+    }
+
+    const targetEmp = employees[flow.scenarioIndex % Math.max(1, employees.length)];
+    if (targetEmp) {
       await ctx().addTask({
         id: createId("TSK"),
         projectId,
-        siteId: "S1",
+        siteId: String(siteNumericId),
         siteName: "Main Site",
-        workType: "Installation",
-        notes: `Auto-task for ${pType}`,
+        workType: completed ? "Commissioning" : "Installation",
+        notes: `Showcase task — ${scenario.label}`,
         createdDate: dateNow,
         employeeId: targetEmp.id,
-        workDate: dateNow,
-        status: stageIndex >= 2 ? "done" : "started",
-        createdBy: "Auto System",
+        workDate: dateNow.split("T")[0],
+        status: completed ? "done" : "started",
+        createdBy: "Data Engine",
       } as Task);
     }
+  }
 
-    const targetVendor = (ctx().vendors as { id: string }[])[flow.permutationIndex % GENERATOR_ENTITY_LIMITS.vendors];
-    if (targetVendor && !["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY", "INC"].includes(pType)) {
-      const bill: VendorBill = {
-        id: createId("VB"),
-        vendorId: targetVendor.id,
-        billNumber: `VB-${flow.permutationIndex}`,
-        date: dateNow.split("T")[0],
-        dueDate: dateNow.split("T")[0],
-        status: stageIndex >= 2 ? "paid" : "draft",
-        subtotal: 5000,
-        cgst: 0,
-        sgst: 0,
-        igst: 900,
-        total: 5900,
-        lines: [],
-        createdAt: dateNow,
-        projectId,
-        expenseCategoryId: "1",
-        expenseSubcategoryId: "1_1",
-        notes: `Auto vendor bill for ${pType}`,
-      };
-      await ctx().addVendorBill(bill);
-      store.incrementCounter("vendorBills");
-
-      if (stageIndex >= 2) {
-        await ctx().addVendorPayment({
-          id: createId("VP"),
-          vendorId: targetVendor.id,
-          billId: bill.id,
-          date: dateNow,
-          amount: 5900,
-          paymentMode: "Bank Transfer",
-          reference: "REF123",
-          status: "completed",
-        });
-        store.incrementCounter("vendorPayments");
-      }
-    }
-
-    try {
-      await ctx().addExpense({
-        id: createId("EXP"),
-        date: dateNow.split("T")[0],
-        category: pType === "OUTSOURCED_INC" ? "Labour" : "Transport",
-        amount: 500,
-        projectId,
-        paymentMethod: "Bank",
-        status: "paid",
-        createdAt: dateNow,
-        reimbursementRequested: false,
-        paidBy: { type: "company" },
-      });
-      store.incrementCounter("expenses");
-    } catch (e: unknown) {
-      console.warn("Ignoring expense error:", e instanceof Error ? e.message : e);
-    }
-
-    await ctx().addBlockage({
+  const targetVendor = (ctx().vendors as { id: string }[])[flow.scenarioIndex % GENERATOR_ENTITY_LIMITS.vendors];
+  if (targetVendor && !["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(pType)) {
+    const bill: VendorBill = {
+      id: createId("VB"),
+      vendorId: targetVendor.id,
+      billNumber: `VB-${flow.scenarioIndex}`,
+      billDate: dateNow.split("T")[0],
+      dueDate: addDays(new Date(), 15).toISOString().split("T")[0],
+      status: completed ? "paid" : "draft",
+      subtotal: 50000,
+      total: 59000,
+      amountPaid: completed ? 59000 : 0,
+      items: inventory.slice(0, 2).map((item) => ({
+        name: item.name,
+        description: item.name,
+        quantity: 5,
+        rate: item.buyPrice,
+        amount: item.buyPrice * 5,
+        inventoryItemId: String(item.id),
+      })),
       projectId,
-      severity: "high",
-      category: "client",
-      description: "Resolved blockage",
-      status: "resolved",
-      reportedAt: dateNow,
-      reportedBy: "SYSTEM",
-      reportedByName: "Data Engine",
-      impactDays: 2,
-      history: [],
-    });
-    store.incrementCounter("blockages");
+      notes: `Vendor bill — ${scenario.label}`,
+    };
+    await ctx().addVendorBill(bill);
+    store.incrementCounter("vendorBills");
 
-    if (pType !== "VENDORSHIP_ONLY") {
-      await ctx().addOperationalTicket({
-        id: createId("TKT"),
-        title: "Site Issue",
-        description: `Issue during ${pType}`,
-        projectId,
-        status: "open",
-        priority: "high",
-        assignedTo: "unassigned",
-        createdBy: "Engine",
-        createdAt: dateNow,
+    if (completed) {
+      await ctx().addVendorPayment({
+        id: createId("VP"),
+        vendorId: targetVendor.id,
+        billId: bill.id,
+        date: dateNow.split("T")[0],
+        amount: 59000,
+        paymentMode: "Bank Transfer",
+        reference: "REF-SHOWCASE",
+        status: "completed",
       });
-      store.incrementCounter("tickets");
-    }
-
-    const agent = pickAgent(ctx, flow.permutationIndex);
-    if (agent && pType === "SOLO_EPC") {
-      await ctx().addAgentCommissionAccrual({
-        id: createId("COMM"),
-        agentId: agent.id,
-        agentName: agent.name,
-        projectId,
-        clientName: customerName,
-        amount: 5000,
-        status: "pending",
-        date: dateNow,
-        notes: "Auto Commission",
-        history: [],
-      });
-    }
-
-    const showsClientInvoices = !["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(pType);
-    if (showsClientInvoices) {
-      const invoice: Invoice = {
-        id: createId("INV"),
-        invoiceNumber: `INV-${flow.permutationIndex}`,
-        type: "invoice",
-        documentTypeSource: "user",
-        customerId,
-        customerName,
-        projectId,
-        projectName: `${customerName} - ${pType}`,
-        items: [],
-        services: [{ description: "Milestone 1", sac: "9983", rate: 10000, gstRate: 18 }],
-        subtotal: 10000,
-        cgst: 900,
-        sgst: 900,
-        igst: 0,
-        total: 11800,
-        status: stageIndex >= 2 ? "paid" : "draft",
-        invoiceDate: dateNow.split("T")[0],
-        dueDate: dateNow.split("T")[0],
-        createdAt: dateNow,
-      };
-      try {
-        await ctx().addInvoice(invoice);
-        store.incrementCounter("invoices");
-      } catch (e: unknown) {
-        console.warn("Ignoring invoice error:", e instanceof Error ? e.message : e);
-      }
-
-      if (stageIndex >= 2) {
-        try {
-          await ctx().addPayment({
-            id: createId("PAY"),
-            date: dateNow.split("T")[0],
-            amount: 11800,
-            paymentMode: "Bank",
-            direction: "in",
-            counterpartyType: "customer",
-            counterpartyId: customerId,
-            counterpartyName: customerName,
-            projectId,
-            invoiceId: invoice.id,
-            createdAt: dateNow,
-          });
-          store.incrementCounter("payments");
-        } catch (e: unknown) {
-          console.warn("Ignoring payment error:", e instanceof Error ? e.message : e);
-        }
-      }
+      store.incrementCounter("vendorPayments");
     }
   }
+
+  try {
+    await ctx().addExpense({
+      id: createId("EXP"),
+      date: dateNow.split("T")[0],
+      category: pType === "OUTSOURCED_INC" ? "Labour" : "Transport",
+      amount: 2500,
+      projectId,
+      paymentMethod: "Bank",
+      status: "paid",
+      createdAt: dateNow,
+      reimbursementRequested: false,
+      paidBy: { type: "company" },
+    });
+    store.incrementCounter("expenses");
+  } catch (e: unknown) {
+    console.warn("Ignoring expense error:", e instanceof Error ? e.message : e);
+  }
+
+  await ctx().addBlockage({
+    projectId,
+    severity: "medium",
+    category: "client",
+    description: completed ? "Resolved client delay" : "Pending client clearance",
+    status: completed ? "resolved" : "open",
+    reportedAt: dateNow,
+    reportedBy: "SYSTEM",
+    reportedByName: "Data Engine",
+    impactDays: completed ? 0 : 2,
+    history: [],
+  });
+  store.incrementCounter("blockages");
+
+  if (pType !== "VENDORSHIP_ONLY") {
+    await ctx().addOperationalTicket({
+      id: createId("TKT"),
+      title: completed ? "Closed site punch item" : "Open site issue",
+      description: `Field ticket — ${scenario.label}`,
+      projectId,
+      status: completed ? "closed" : "open",
+      priority: "medium",
+      assignedTo: "unassigned",
+      createdBy: "Engine",
+      createdAt: dateNow,
+    });
+    store.incrementCounter("tickets");
+  }
+
+  const agent = pickAgent(ctx, flow.scenarioIndex);
+  if (agent && pType === "SOLO_EPC") {
+    await ctx().addAgentCommissionAccrual({
+      id: createId("COMM"),
+      agentId: agent.id,
+      agentName: agent.name,
+      projectId,
+      clientName: customerName,
+      amount: 8000,
+      status: completed ? "paid" : "pending",
+      date: dateNow,
+      notes: "Showcase commission",
+      history: [],
+    });
+  }
+
+  const partner = pickPartner(ctx, pType, flow.scenarioIndex);
+  if (partner && ["PARTNER_EPC", "FIXED_EPC", "VENDOR_NETWORK"].includes(pType) && completed) {
+    ctx().addPartnerTransaction({
+      id: createId("PTRTX"),
+      partnerId: partner.id,
+      projectId,
+      projectName: project?.name,
+      date: dateNow.split("T")[0],
+      amount: pType === "VENDOR_NETWORK" ? 4500 : 12000,
+      type: "payment",
+      notes: `Partner settlement — ${scenario.label}`,
+    });
+  }
+
+  const vendorshipCo = pickVendorshipCompany(ctx, flow.scenarioIndex);
+  if (vendorshipCo && (pType === "VENDORSHIP_ONLY" || pType === "VENDOR_NETWORK") && completed) {
+    ctx().addVendorshipCompanyTransaction({
+      id: createId("VSTX"),
+      vendorshipCompanyId: vendorshipCo.id,
+      projectId,
+      projectName: project?.name,
+      date: dateNow.split("T")[0],
+      amount: 3500,
+      type: "collection",
+      notes: `Vendorship fee — ${scenario.label}`,
+    });
+  }
+
+  const subcontractor = pickSubcontractor(ctx, flow.scenarioIndex);
+  if (subcontractor && pType === "OUTSOURCED_INC" && completed) {
+    ctx().addSubcontractorTransaction({
+      id: createId("SUBTX"),
+      subcontractorId: subcontractor.id,
+      projectId,
+      projectName: project?.name,
+      date: dateNow.split("T")[0],
+      amount: 45000,
+      type: "payment",
+      notes: `Subcontractor payment — ${scenario.label}`,
+    });
+  }
+
+  const showsClientInvoices = !["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(pType);
+  if (showsClientInvoices) {
+    const invoice: Invoice = {
+      id: createId("INV"),
+      invoiceNumber: `INV-${flow.scenarioIndex}`,
+      type: "invoice",
+      documentTypeSource: "user",
+      customerId,
+      customerName,
+      projectId,
+      projectName: project?.name ?? scenario.label,
+      items: [],
+      services: [{ description: "Solar EPC Milestone", sac: "9983", rate: contractAmount * 0.85, gstRate: 18 }],
+      subtotal: Math.round(contractAmount * 0.85),
+      cgst: Math.round(contractAmount * 0.085),
+      sgst: Math.round(contractAmount * 0.085),
+      igst: 0,
+      total: contractAmount,
+      status: completed ? "paid" : "sent",
+      invoiceDate: dateNow.split("T")[0],
+      dueDate: addDays(new Date(), completed ? 0 : 30).toISOString().split("T")[0],
+      createdAt: dateNow,
+    };
+    try {
+      await ctx().addInvoice(invoice);
+      store.incrementCounter("invoices");
+      if (completed || stageIndex >= 1) {
+        await ctx().addPayment({
+          id: createId("PAY"),
+          date: dateNow.split("T")[0],
+          amount: completed ? contractAmount : Math.floor(contractAmount * 0.2),
+          paymentMode: "Bank",
+          direction: "in",
+          counterpartyType: "customer",
+          counterpartyId: customerId,
+          counterpartyName: customerName,
+          projectId,
+          invoiceId: invoice.id,
+          createdAt: dateNow,
+        });
+        store.incrementCounter("payments");
+      }
+    } catch (e: unknown) {
+      console.warn("Ignoring invoice error:", e instanceof Error ? e.message : e);
+    }
+  }
+}
+
+async function runPipelineExtra(
+  ctx: () => Record<string, unknown>,
+  store: ReturnType<typeof useDataEngineStore.getState>,
+  extraIndex: number,
+  dateNow: string,
+) {
+  const extra = PIPELINE_EXTRA_STEPS[extraIndex];
+  if (!extra) return;
+
+  const customerId = createId("CUST");
+  ctx().addCustomer({
+    id: customerId,
+    name: extra.customerName,
+    phone: "9888877776",
+    email: "pipeline@example.com",
+    address: "Pipeline Street",
+    type: "individual",
+    itemsBought: [],
+    totalPurchases: 0,
+    createdAt: dateNow,
+  });
+
+  if (extra.type === "enquiry") {
+    const enquiry: Enquiry = {
+      id: createId("ENQ"),
+      date: dateNow,
+      customerName: extra.customerName,
+      customerPhone: "9888877776",
+      customerEmail: "pipeline@example.com",
+      customerAddress: "Pipeline Street",
+      customerType: "individual",
+      systemCapacity: "3kW",
+      estimatedBudget: 180000,
+      requirements: "Pipeline-only enquiry",
+      priority: "medium",
+      assignedTo: "Sales",
+      status: "new",
+      source: "walk-in",
+      followUpDate: addDays(new Date(), 7).toISOString(),
+      customerId,
+    };
+    const res = await ctx().addEnquiry(enquiry);
+    if (res && !res.ok) throw new Error(`Pipeline enquiry failed: ${res.error}`);
+    store.incrementCounter("enquiries");
+    return;
+  }
+
+  const enquiryId = createId("ENQ");
+  const enquiry: Enquiry = {
+    id: enquiryId,
+    date: dateNow,
+    customerName: extra.customerName,
+    customerPhone: "9888877776",
+    customerEmail: "pipeline@example.com",
+    customerAddress: "Pipeline Street",
+    customerType: "individual",
+    systemCapacity: "8kW",
+    estimatedBudget: 420000,
+    requirements: "Draft quotation pipeline",
+    priority: "high",
+    assignedTo: "Sales",
+    status: "new",
+    source: "referral",
+    followUpDate: addDays(new Date(), 5).toISOString(),
+    customerId,
+  };
+  const resEnq = await ctx().addEnquiry(enquiry);
+  if (resEnq && !resEnq.ok) throw new Error(`Pipeline enquiry failed: ${resEnq.error}`);
+  store.incrementCounter("enquiries");
+
+  const quotation: Quotation = {
+    id: createId("QTN"),
+    enquiryId,
+    quotationNumber: `QTN-DRAFT-${extraIndex}`,
+    quotationType: "solar",
+    customerId,
+    clientName: extra.customerName,
+    clientPhone: "9888877776",
+    clientEmail: "pipeline@example.com",
+    clientCity: "Pune",
+    clientState: "Maharashtra",
+    totalAmount: 420000,
+    createdAt: dateNow,
+    date: dateNow,
+    validUntil: addDays(new Date(), 20).toISOString(),
+    status: "draft",
+    customItems: [],
+    sections: [],
+    paymentTerms: "50% advance",
+    notes: "Pipeline draft quotation",
+    history: [],
+    version: 1,
+    shareHistory: [],
+    commercialAmount: 420000,
+    amount: 420000,
+    paymentType: "cash",
+  };
+  const resQtn = await ctx().addQuotation(quotation);
+  if (resQtn && !resQtn.ok) throw new Error(`Pipeline quotation failed: ${resQtn.error}`);
+  store.incrementCounter("quotations");
 }
 
 export async function runExhaustiveIteration(
@@ -580,12 +884,7 @@ export async function runExhaustiveIteration(
   const dateNow = new Date().toISOString();
   const ctx = () => getContext();
 
-  if (generatorStateIndex >= PROJECT_TYPES.length * LIFECYCLE_STAGES.length && store.progress === 0) {
-    generatorStateIndex = 0;
-  }
-
   try {
-    // Phase 1 — master data (one entity per tick, small counts)
     if (bootstrapEmployeesCreated < GENERATOR_ENTITY_LIMITS.employees) {
       store.setActiveFlow("Initializing Employees");
       const idx = bootstrapEmployeesCreated;
@@ -623,7 +922,7 @@ export async function runExhaustiveIteration(
         ratePerKw: 500 + idx * 50,
         rateType: "per-kw",
         status: "active",
-        totalReferrals: 0,
+        totalReferrals: idx,
         createdAt: dateNow,
       } as Agent);
       bootstrapAgentsCreated++;
@@ -676,10 +975,10 @@ export async function runExhaustiveIteration(
       ctx().addTeam({
         id: createId("TEAM"),
         name: `Field Squad ${idx + 1}`,
-        memberIds: [employees[idx % employees.length]?.id].filter(Boolean),
+        memberIds: employees.slice(idx, idx + 2).map((e) => e.id).filter(Boolean),
         status: "Active",
         createdAt: dateNow,
-        description: "Auto-generated team",
+        description: "Showcase field team",
       });
       bootstrapTeamsCreated++;
       store.incrementCounter("teams");
@@ -689,12 +988,12 @@ export async function runExhaustiveIteration(
     if (bootstrapInventoryCreated < GENERATOR_ENTITY_LIMITS.inventoryItems) {
       store.setActiveFlow("Initializing Materials");
       const idx = bootstrapInventoryCreated;
-      const categories = ["Module", "Inverter", "Structure", "Cable", "Connector", "Service"];
+      const category = MATERIAL_CATEGORY_OPTIONS[idx % MATERIAL_CATEGORY_OPTIONS.length];
       ctx().addInventoryItem({
         id: createId("INVITEM"),
-        name: `Solar ${categories[idx % categories.length]} ${idx + 1}`,
-        category: categories[idx % categories.length],
-        stock: 50 + idx * 10,
+        name: `${category} SKU ${idx + 1}`,
+        category,
+        stock: idx < 4 ? 3 : 40 + idx,
         unit: "pcs",
         value: 50000,
         buyPrice: 4000 + idx * 100,
@@ -763,7 +1062,6 @@ export async function runExhaustiveIteration(
         createdAt: dateNow,
       } as VendorshipCompany);
       bootstrapVendorshipCosCreated++;
-      store.incrementCounter("vendors");
       return;
     }
 
@@ -781,41 +1079,155 @@ export async function runExhaustiveIteration(
       return;
     }
 
+    if (bootstrapSubcontractorsCreated < GENERATOR_ENTITY_LIMITS.subcontractors) {
+      store.setActiveFlow("Initializing Subcontractors");
+      const idx = bootstrapSubcontractorsCreated;
+      ctx().addSubcontractor({
+        id: createId("SUB"),
+        name: `${getRandomName(idx + 5)} Installations`,
+        phone: "9345678901",
+        email: `sub${idx}@example.com`,
+        defaultRatePerKw: 600 + idx * 50,
+        createdAt: dateNow,
+      });
+      bootstrapSubcontractorsCreated++;
+      store.incrementCounter("subcontractors");
+      return;
+    }
+
+    if (bootstrapTemplatesCreated < GENERATOR_ENTITY_LIMITS.siteChecklistTemplates) {
+      store.setActiveFlow("Initializing Site Templates");
+      const idx = bootstrapTemplatesCreated;
+      const inventory = ctx().inventoryItems as InventoryItem[];
+      const template: SiteChecklistTemplate = {
+        id: createId("TMPL"),
+        name: idx === 0 ? "5kW Residential Package" : "10kW Commercial Package",
+        segment: idx === 0 ? "residential" : "commercial",
+        items: inventory.slice(0, 4).map((item) => ({
+          inventoryItemId: item.id,
+          name: item.name,
+          quantity: 10,
+          unit: item.unit || "pcs",
+        })),
+        createdAt: dateNow,
+        subtype: "solar_package",
+        capacityKW: idx === 0 ? 5 : 10,
+      };
+      ctx().addSiteChecklistTemplate(template);
+      bootstrapTemplatesCreated++;
+      store.incrementCounter("siteChecklistTemplates");
+      return;
+    }
+
+    if (bootstrapAttendanceCreated < GENERATOR_ENTITY_LIMITS.attendanceRecords) {
+      store.setActiveFlow("Initializing Attendance");
+      const idx = bootstrapAttendanceCreated;
+      const employees = ctx().employees as { id: string }[];
+      const emp = employees[idx % Math.max(1, employees.length)];
+      if (emp) {
+        ctx().addAttendanceRecord({
+          id: createId("ATT"),
+          employeeId: emp.id,
+          date: subDays(new Date(), idx % 7).toISOString().split("T")[0],
+          status: idx % 5 === 0 ? "paid_leave" : "present",
+          sites: [],
+          notes: "Office / warehouse",
+        });
+        store.incrementCounter("attendanceLogs");
+      }
+      bootstrapAttendanceCreated++;
+      return;
+    }
+
+    if (bootstrapLoanRepaymentsCreated < GENERATOR_ENTITY_LIMITS.loanRepayments) {
+      store.setActiveFlow("Initializing Loan Repayments");
+      const idx = bootstrapLoanRepaymentsCreated;
+      const loans = ctx().loans as Loan[];
+      const loan = loans[idx];
+      if (loan) {
+        ctx().addLoanRepayment({
+          id: createId("LRP"),
+          loanId: loan.id,
+          date: subDays(new Date(), 30 - idx * 10).toISOString().split("T")[0],
+          amount: loan.emiAmount ?? 15000,
+          type: "emi",
+          notes: "Showcase EMI payment",
+        });
+      }
+      bootstrapLoanRepaymentsCreated++;
+      return;
+    }
+
+    if (bootstrapToolMovementsCreated < GENERATOR_ENTITY_LIMITS.toolMovements) {
+      store.setActiveFlow("Initializing Tool Movements");
+      const idx = bootstrapToolMovementsCreated;
+      const tools = ctx().tools as { id: string; assignedToEmployeeId?: string; assignedTo?: string }[];
+      const employees = ctx().employees as { id: string; name: string }[];
+      const emp = employees[idx % Math.max(1, employees.length)];
+      const tool = tools[idx];
+      const dateStr = dateNow.split("T")[0];
+      if (tool && idx === 0) {
+        (ctx().issueTool as (
+          toolId: string,
+          siteId: string,
+          siteName: string,
+          date: string,
+          employeeId?: string,
+          employeeName?: string,
+        ) => void)(tool.id, "SITE-MAIN", "Main Office", dateStr, emp?.id, emp?.name);
+      } else if (tool && idx === 1) {
+        (ctx().returnTool as (toolId: string, condition: string, date: string) => void)(
+          tool.id,
+          "Good",
+          dateStr,
+        );
+      }
+      bootstrapToolMovementsCreated++;
+      return;
+    }
+
     if (!bootstrapComplete()) {
       store.setActiveFlow("Finishing bootstrap");
       return;
     }
 
-    // Phase 2 — project permutations (one pipeline step per tick)
-    const totalPermutations = PROJECT_TYPES.length * LIFECYCLE_STAGES.length;
-    if (generatorStateIndex >= totalPermutations && !pendingPermutation) {
-      store.setActiveFlow("Exhaustive Generation Complete!");
-      store.addLog("info", `Generated ${totalPermutations} combinations (${PROJECT_TYPES.length} kinds × ${LIFECYCLE_STAGES.length} stages).`);
+    const scenarioTotal = getShowcaseScenarioCount();
+
+    if (generatorStateIndex >= scenarioTotal && pipelineExtraIndex >= getPipelineExtraCount() && !pendingScenario) {
+      store.setActiveFlow("Smart generation complete");
+      store.addLog(
+        "info",
+        `Generated ${scenarioTotal} showcase projects (${SHOWCASE_PROJECT_KINDS.length} kinds × open + completed) plus pipeline extras.`,
+      );
       store.setStatus("idle");
       return;
     }
 
-    if (!pendingPermutation) {
-      const pType = PROJECT_TYPES[generatorStateIndex % PROJECT_TYPES.length];
-      const stage = LIFECYCLE_STAGES[Math.floor(generatorStateIndex / PROJECT_TYPES.length)];
-      pendingPermutation = {
-        permutationIndex: generatorStateIndex,
+    if (generatorStateIndex >= scenarioTotal) {
+      store.setActiveFlow(`Pipeline extra ${pipelineExtraIndex + 1}/${getPipelineExtraCount()}`);
+      await runPipelineExtra(ctx, store, pipelineExtraIndex, dateNow);
+      pipelineExtraIndex++;
+      return;
+    }
+
+    if (!pendingScenario) {
+      const scenario = SHOWCASE_SCENARIOS[generatorStateIndex];
+      pendingScenario = {
+        scenarioIndex: generatorStateIndex,
+        scenario,
         step: "customer",
-        pType,
-        stage,
-        stageIndex: LIFECYCLE_STAGES.indexOf(stage),
+        stageIndex: lifecycleStageIndex(scenario.lifecycle),
         customerId: createId("CUST"),
-        customerName: REALISTIC_CUSTOMER_NAMES[generatorStateIndex % REALISTIC_CUSTOMER_NAMES.length],
       };
     }
 
-    const flow = pendingPermutation;
-    store.setActiveFlow(`Generating: ${flow.pType} [${flow.stage}] — ${flow.step}`);
+    const flow = pendingScenario;
+    store.setActiveFlow(`${flow.scenario.label} — ${flow.step}`);
 
     if (flow.step === "customer") {
       ctx().addCustomer({
         id: flow.customerId,
-        name: flow.customerName,
+        name: flow.scenario.customerName,
         phone: "9999999999",
         email: "contact@example.com",
         address: "123 Main Street",
@@ -829,23 +1241,23 @@ export async function runExhaustiveIteration(
     }
 
     if (flow.step === "enquiry") {
-      const agent = pickAgent(ctx, flow.permutationIndex);
+      const agent = pickAgent(ctx, flow.scenarioIndex);
       flow.enquiryId = createId("ENQ");
       const enquiry: Enquiry = {
         id: flow.enquiryId,
         date: dateNow,
-        customerName: flow.customerName,
+        customerName: flow.scenario.customerName,
         customerPhone: "9999999999",
         customerEmail: "contact@example.com",
         customerAddress: "123 Main Street",
         customerType: "individual",
         systemCapacity: "5kW",
         estimatedBudget: 500000,
-        requirements: `Auto-generated for ${flow.pType} / ${flow.stage}`,
+        requirements: `Showcase — ${flow.scenario.label}`,
         priority: "high",
         assignedTo: "System",
         status: "new",
-        source: "referral",
+        source: flow.scenario.projectKind === "SOLO_EPC" ? "referral" : "walk-in",
         agentId: agent?.id,
         followUpDate: dateNow,
         customerId: flow.customerId,
@@ -862,28 +1274,28 @@ export async function runExhaustiveIteration(
       const quotation: Quotation = {
         id: flow.quotationId,
         enquiryId: flow.enquiryId,
-        quotationNumber: `QTN-${flow.permutationIndex}`,
+        quotationNumber: `QTN-${flow.scenario.id}`,
         quotationType: "solar",
         customerId: flow.customerId,
-        clientName: flow.customerName,
+        clientName: flow.scenario.customerName,
         clientPhone: "9999999999",
-        clientEmail: "exhaust@example.com",
+        clientEmail: "showcase@example.com",
         clientCity: "Mumbai",
         clientState: "Maharashtra",
-        totalAmount: 15000,
+        totalAmount: 250000,
         createdAt: dateNow,
         date: dateNow,
         validUntil: addDays(new Date(), 15).toISOString(),
         status: "approved",
-        customItems: [] as Quotation["customItems"],
-        sections: [] as Quotation["sections"],
-        paymentTerms: "100% advance",
-        notes: `Quotation for ${flow.pType}`,
+        customItems: [],
+        sections: [],
+        paymentTerms: "Milestone based",
+        notes: `Quotation for ${flow.scenario.label}`,
         history: [],
         version: 1,
         shareHistory: [],
-        commercialAmount: 15000,
-        amount: 15000,
+        commercialAmount: 250000,
+        amount: 250000,
         paymentType: "cash",
       };
       const resQtn = await ctx().addQuotation(quotation);
@@ -900,11 +1312,9 @@ export async function runExhaustiveIteration(
       }
       const projectDraft = buildProjectDraft(
         ctx,
-        flow.pType,
-        flow.stage,
-        flow.permutationIndex,
+        flow.scenario,
+        flow.scenarioIndex,
         flow.customerId,
-        flow.customerName,
         flow.enquiryId!,
         flow.quotationId!,
         dateNow,
@@ -919,21 +1329,21 @@ export async function runExhaustiveIteration(
 
     if (flow.step === "artifacts") {
       try {
-        await runPermutationArtifacts(ctx, store, flow, dateNow);
+        await runScenarioArtifacts(ctx, store, flow, dateNow);
       } catch (artifactErr: unknown) {
         console.warn(
-          "Permutation artifact step warning:",
+          "Scenario artifact warning:",
           artifactErr instanceof Error ? artifactErr.message : artifactErr,
         );
       }
       generatorStateIndex++;
-      pendingPermutation = null;
+      pendingScenario = null;
       return;
     }
 
     throw new Error(`Unknown pipeline step: ${flow.step}`);
   } catch (err: unknown) {
-    console.error("Exhaustive engine error:", err);
+    console.error("Smart generator error:", err);
     throw err;
   }
 }

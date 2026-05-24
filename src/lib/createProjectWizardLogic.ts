@@ -550,8 +550,6 @@ export function isVendorshipStepApplicable(state: CreateProjectWizardState): boo
 
 export function isStepVisible(step: WizardStep, state: CreateProjectWizardState): boolean {
   const flow = getWizardFlow(state);
-  const manifest = WIZARD_FLOW_STEPS[flow];
-  if (!manifest.includes(step)) return false;
 
   if (flow === "quotation") {
     if (step === "QUOTATION" || step === "REVIEW") return true;
@@ -559,13 +557,26 @@ export function isStepVisible(step: WizardStep, state: CreateProjectWizardState)
     return false;
   }
 
+  const manifest = WIZARD_FLOW_STEPS[flow];
+  if (!manifest.includes(step)) return false;
+
   if (flow === "attach") {
     if (step === "ATTACH_PARTIES") return true;
     if (step === "OUTSOURCE_TERMS") return isDealKindResolved(state);
     return false;
   }
 
-  if (step === "EXCEPTION" || step === "DEAL_TYPE" || step === "QUOTATION") return true;
+  if (step === "EXCEPTION") {
+    return flow === "direct_exception";
+  }
+
+  if (step === "DEAL_TYPE") {
+    return flow === "intake";
+  }
+
+  if (step === "QUOTATION") {
+    return false;
+  }
 
   if (step === "PARTIES" || step === "COMMERCIAL" || step === "REVIEW") {
     return isDealKindResolved(state);
@@ -576,7 +587,18 @@ export function isStepVisible(step: WizardStep, state: CreateProjectWizardState)
 
 /** Ordered list of steps visible for the current wizard state. */
 export function getVisibleWizardSteps(state: CreateProjectWizardState): WizardStep[] {
-  return WIZARD_FLOW_STEPS[getWizardFlow(state)].filter((step) => isStepVisible(step, state));
+  const flow = getWizardFlow(state);
+  const base = [...WIZARD_FLOW_STEPS[flow]];
+  if (flow === "quotation" && state.quotationEditDetails) {
+    for (const step of ["PARTIES", "COMMERCIAL"] as WizardStep[]) {
+      if (!base.includes(step)) {
+        const reviewIndex = base.indexOf("REVIEW");
+        if (reviewIndex >= 0) base.splice(reviewIndex, 0, step);
+        else base.push(step);
+      }
+    }
+  }
+  return base.filter((step) => isStepVisible(step, state));
 }
 
 /** Convenience helper for tests and review panel — merges partial state onto defaults. */

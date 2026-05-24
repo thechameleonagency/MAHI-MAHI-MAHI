@@ -93,6 +93,9 @@ export function getWizardStepLabel(step: WizardStep, state: CreateProjectWizardS
   if (step === "PARTIES" && flow === "attach") {
     return "Subcontractor";
   }
+  if (step === "PARTIES" && flow !== "attach") {
+    return "Parties & site";
+  }
   return WIZARD_STEP_LABELS[step];
 }
 

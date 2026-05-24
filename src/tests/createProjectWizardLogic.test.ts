@@ -12,11 +12,12 @@ import {
   validateWizardStep,
 } from "@/lib/createProjectWizardLogic";
 import {
-  WIZARD_STEPS,
+  WIZARD_FLOW_STEPS,
   createInitialCreateProjectWizardState,
   type CreateProjectWizardState,
   type WizardStep,
 } from "@/types/createProjectWizard";
+import { getWizardFlow } from "@/lib/wizardFlow";
 
 describe("deriveProjectKind", () => {
   it("maps lead path + partner sub-type to internal kinds", () => {
@@ -210,8 +211,19 @@ describe("wizard flows — isStepVisible", () => {
 
     for (const partial of scenarios) {
       const state = createInitialCreateProjectWizardState(partial);
+      const flow = getWizardFlow(state);
+      const ordered = [...WIZARD_FLOW_STEPS[flow]];
+      if (flow === "quotation" && state.quotationEditDetails) {
+        for (const step of ["PARTIES", "COMMERCIAL"] as WizardStep[]) {
+          if (!ordered.includes(step)) {
+            const reviewIndex = ordered.indexOf("REVIEW");
+            if (reviewIndex >= 0) ordered.splice(reviewIndex, 0, step);
+            else ordered.push(step);
+          }
+        }
+      }
       expect(getVisibleWizardSteps(state)).toEqual(
-        WIZARD_STEPS.filter((s) => isStepVisible(s, state)),
+        ordered.filter((s) => isStepVisible(s, state)),
       );
     }
   });

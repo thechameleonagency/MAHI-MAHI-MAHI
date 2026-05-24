@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyInvoiceReceiptDeltaToDocument,
+  applyInvoiceReceiptToDocument,
   buildInvoiceSubmitPreview,
   deriveInvoicePaymentOutcome,
   deriveInvoiceStatusAfterReceipt,
   formatInvoiceBalanceLabel,
   invoiceExcessReceived,
 } from "@/lib/invoicePaymentStatus";
+import type { Invoice } from "@/types/finance";
 
 describe("deriveInvoicePaymentOutcome", () => {
   it("marks fully paid when Already Paid is checked", () => {
@@ -120,5 +123,38 @@ describe("formatInvoiceBalanceLabel", () => {
   it("shows excess label for overpaid documents", () => {
     expect(formatInvoiceBalanceLabel(50_000, 60_000, "overpaid")).toMatch(/excess/i);
     expect(invoiceExcessReceived(50_000, 60_000)).toBe(10_000);
+  });
+});
+
+describe("applyInvoiceReceiptToDocument", () => {
+  const base = {
+    id: "INV-1",
+    total: 100_000,
+    amountReceived: 0,
+    status: "pending",
+  } as Invoice;
+
+  it("increments amountReceived once per payment (no double-count path)", () => {
+    const afterFirst = applyInvoiceReceiptToDocument(base, 40_000, "cash");
+    expect(afterFirst.amountReceived).toBe(40_000);
+    expect(afterFirst.status).toBe("partial");
+    expect(afterFirst.receivedIn).toBe("cash");
+
+    const afterSecond = applyInvoiceReceiptToDocument(afterFirst, 60_000, "bank_transfer");
+    expect(afterSecond.amountReceived).toBe(100_000);
+    expect(afterSecond.status).toBe("paid");
+  });
+
+  it("allows overpaid status when receipt exceeds total", () => {
+    const over = applyInvoiceReceiptToDocument(base, 110_000, "cash");
+    expect(over.amountReceived).toBe(110_000);
+    expect(over.status).toBe("overpaid");
+  });
+
+  it("applyInvoiceReceiptDeltaToDocument adjusts status on payment edit", () => {
+    const partial = applyInvoiceReceiptToDocument(base, 50_000);
+    const reduced = applyInvoiceReceiptDeltaToDocument(partial, -10_000);
+    expect(reduced.amountReceived).toBe(40_000);
+    expect(reduced.status).toBe("partial");
   });
 });

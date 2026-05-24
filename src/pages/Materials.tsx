@@ -42,6 +42,10 @@ import { formatINR } from "@/lib/formatCurrency";
 import { stripQuickCreateParam } from "@/lib/createFromContext";
 import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { isProcurementHandoffOnly } from "@/lib/procurementHandoff";
+import {
+  getReturnableMaterialsForProject,
+  validateReturnQuantityInput,
+} from "@/lib/siteMaterialReturn";
 
 function escapeHtmlMat(s: string) {
   return s
@@ -76,7 +80,7 @@ const Materials = () => {
     updateInventoryItem,
     deleteInventoryItem,
     reverseInventoryMovement,
-    returnItemFromSite,
+    recordProjectMaterialMovement,
     getProjectQuotation,
     getSiteChecklistTemplateById,
     vendors,
@@ -178,9 +182,10 @@ const Materials = () => {
   
   // Return from site state
   const [selectedSiteForReturn, setSelectedSiteForReturn] = useState("");
+  const [selectedTransferTargetSite, setSelectedTransferTargetSite] = useState("");
   const [returnAction, setReturnAction] = useState<"return" | "transfer">("return");
   const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({});
-  const [returnErrors, _setReturnErrors] = useState<Record<string, string>>({});
+  const [returnSearchQuery, setReturnSearchQuery] = useState("");
   
   // Add item form state
   const [newItemName, setNewItemName] = useState("");
@@ -237,9 +242,9 @@ const Materials = () => {
 
   const tableSortedItems = useMemo(() => {
     return [...filteredItems].sort((a, b) => {
-      const cat = materialCategorySortKey(a.category) - materialCategorySortKey(b.category);
+      const cat = materialCategorySortKey(a.category ?? "", b.category ?? "");
       if (cat !== 0) return cat;
-      return a.name.localeCompare(b.name);
+      return (a.name ?? "").localeCompare(b.name ?? "");
     });
   }, [filteredItems]);
 
@@ -383,8 +388,49 @@ const Materials = () => {
   };
 
   const _handleReturnQuantityChange = (itemId: string, value: string) => {
-    setReturnQuantities(prev => ({ ...prev, [itemId]: value }));
+    setReturnQuantities((prev) => ({ ...prev, [itemId]: value }));
   };
+
+  const selectedReturnSite = useMemo(
+    () => sites.find((s) => String(s.id) === selectedSiteForReturn),
+    [sites, selectedSiteForReturn],
+  );
+
+  const returnableItems = useMemo(() => {
+    const project = selectedReturnSite?.projectId
+      ? projects.find((p) => p.id === selectedReturnSite.projectId)
+      : undefined;
+    return getReturnableMaterialsForProject(project, inventoryItems);
+  }, [selectedReturnSite, projects, inventoryItems]);
+
+  const filteredReturnableItems = useMemo(() => {
+    const q = returnSearchQuery.trim().toLowerCase();
+    if (!q) return returnableItems;
+    return returnableItems.filter((row) => row.itemName.toLowerCase().includes(q));
+  }, [returnableItems, returnSearchQuery]);
+
+  const returnErrors = useMemo(() => {
+    const errors: Record<string, string> = {};
+    for (const row of returnableItems) {
+      const raw = returnQuantities[row.itemId];
+      if (!raw?.trim()) continue;
+      const err = validateReturnQuantityInput(raw, row.balance, row.allowDecimalReturn);
+      if (err) errors[row.itemId] = err;
+    }
+    return errors;
+  }, [returnQuantities, returnableItems]);
+
+  const returnLinesToProcess = useMemo(
+    () =>
+      Object.entries(returnQuantities).filter(([, qtyStr]) => (Number.parseFloat(qtyStr) || 0) > 0),
+    [returnQuantities],
+  );
+
+  useEffect(() => {
+    setReturnQuantities({});
+    setReturnSearchQuery("");
+    setSelectedTransferTargetSite("");
+  }, [selectedSiteForReturn, returnAction]);
 
   const resetAddItemForm = () => {
     setNewItemName(""); setNewItemCategory(""); setNewItemStock("");
@@ -539,18 +585,108 @@ const Materials = () => {
     setIssueTaskNotes("");
   };
 
-  const handleReturnSave = () => {
-    if (Object.keys(returnErrors).length > 0) return;
-    const siteRecord = sites.find(s => String(s.id) === selectedSiteForReturn);
-    const dateStr = format(new Date(), "yyyy-MM-dd");
-    Object.entries(returnQuantities).forEach(([itemIdStr, qtyStr]) => {
-      const qty = parseFloat(qtyStr) || 0;
-      if (qty > 0) {
-        returnItemFromSite(itemIdStr, selectedSiteForReturn, siteRecord?.name ?? selectedSiteForReturn, qty, dateStr);
+  const handleReturnSave = async () => {
+    if (Object.keys(returnErrors).length > 0) {
+      toast({ title: "Fix quantities", description: "Correct return amounts before confirming.", variant: "destructive" });
+      return;
+    }
+    if (!selectedReturnSite?.projectId) {
+      toast({ title: "Select a site", description: "Choose a site linked to a project.", variant: "destructive" });
+      return;
+    }
+    if (returnLinesToProcess.length === 0) {
+      toast({ title: "No items selected", description: "Enter return quantity for at least one material.", variant: "destructive" });
+      return;
+    }
+
+    const sourceSiteId = String(selectedReturnSite.id);
+    const sourceSiteName = selectedReturnSite.name;
+    const sourceProjectId = selectedReturnSite.projectId;
+
+    let targetSite: (typeof sites)[number] | undefined;
+    if (returnAction === "transfer") {
+      targetSite = sites.find((s) => String(s.id) === selectedTransferTargetSite);
+      if (!targetSite?.projectId) {
+        toast({ title: "Select destination site", description: "Choose the site to transfer materials to.", variant: "destructive" });
+        return;
       }
-    });
+      if (String(targetSite.id) === sourceSiteId) {
+        toast({ title: "Invalid transfer", description: "Source and destination site must differ.", variant: "destructive" });
+        return;
+      }
+    }
+
+    let processed = 0;
+    for (const [itemId, qtyStr] of returnLinesToProcess) {
+      const qty = Number.parseFloat(qtyStr) || 0;
+      if (returnAction === "return") {
+        const res = await recordProjectMaterialMovement({
+          projectId: sourceProjectId,
+          itemId,
+          movementType: "ReturnToWarehouse",
+          quantity: qty,
+          siteId: sourceSiteId,
+          siteName: sourceSiteName,
+        });
+        if (!res.ok) {
+          toast({
+            title: "Return failed",
+            description: friendlyCommandErrorMessage(res.error, "Could not return material to warehouse."),
+            variant: "destructive",
+          });
+          break;
+        }
+        processed += 1;
+      } else {
+        const ret = await recordProjectMaterialMovement({
+          projectId: sourceProjectId,
+          itemId,
+          movementType: "ReturnToWarehouse",
+          quantity: qty,
+          siteId: sourceSiteId,
+          siteName: sourceSiteName,
+          clientRequestId: `xfer-ret-${sourceSiteId}-${itemId}-${qty}`,
+        });
+        if (!ret.ok) {
+          toast({
+            title: "Transfer failed",
+            description: friendlyCommandErrorMessage(ret.error, "Could not release material from source project."),
+            variant: "destructive",
+          });
+          break;
+        }
+        const issue = await recordProjectMaterialMovement({
+          projectId: targetSite!.projectId,
+          itemId,
+          movementType: "IssueToSite",
+          quantity: qty,
+          siteId: String(targetSite!.id),
+          siteName: targetSite!.name,
+          clientRequestId: `xfer-issue-${targetSite!.id}-${itemId}-${qty}`,
+        });
+        if (!issue.ok) {
+          toast({
+            title: "Transfer incomplete",
+            description: friendlyCommandErrorMessage(
+              issue.error,
+              "Material returned to warehouse but could not issue to destination site.",
+            ),
+            variant: "destructive",
+          });
+          break;
+        }
+        processed += 1;
+      }
+    }
+
+    if (processed === 0) return;
+
     setIsReturnFromSiteOpen(false);
     setIsReturnConfirmOpen(true);
+    toast({
+      title: returnAction === "transfer" ? "Transfer recorded" : "Return recorded",
+      description: `${processed} material line(s) updated.`,
+    });
   };
 
   const handleDeleteItem = () => {
@@ -1908,24 +2044,38 @@ const Materials = () => {
       </Sheet>
 
       {/* Return from Site Modal */}
-      <Sheet open={isReturnFromSiteOpen} onOpenChange={setIsReturnFromSiteOpen}>
+      <Sheet
+        open={isReturnFromSiteOpen}
+        onOpenChange={(open) => {
+          setIsReturnFromSiteOpen(open);
+          if (!open) {
+            setSelectedSiteForReturn("");
+            setSelectedTransferTargetSite("");
+            setReturnQuantities({});
+            setReturnSearchQuery("");
+            setReturnAction("return");
+          }
+        }}
+      >
         <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
-            <SheetTitle>Return Items from Site</SheetTitle>
+            <SheetTitle className="flex items-center gap-2">
+              <RotateCcw className="w-5 h-5 text-primary" /> Return Items from Site
+            </SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Select Site</Label>
+              <Label>Select Site *</Label>
               <Select value={selectedSiteForReturn} onValueChange={setSelectedSiteForReturn}>
                 <SelectTrigger><SelectValue placeholder="Choose site" /></SelectTrigger>
                 <SelectContent>
                   {sites.map((site) => (
-                    <SelectItem key={site.id} value={site.name}>{site.name}</SelectItem>
+                    <SelectItem key={site.id} value={site.id.toString()}>{site.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            
+
             {selectedSiteForReturn && (
               <>
                 <div className="space-y-2">
@@ -1938,19 +2088,93 @@ const Materials = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <ListEmptyState
-                  density="compact"
-                  icon={Package}
-                  title="Select site items to return"
-                  description="Choose a site above, then pick materials to send back to stock."
-                />
+
+                {returnAction === "transfer" && (
+                  <div className="space-y-2">
+                    <Label>Destination Site *</Label>
+                    <Select value={selectedTransferTargetSite} onValueChange={setSelectedTransferTargetSite}>
+                      <SelectTrigger><SelectValue placeholder="Choose destination site" /></SelectTrigger>
+                      <SelectContent>
+                        {sites
+                          .filter((site) => String(site.id) !== selectedSiteForReturn)
+                          .map((site) => (
+                            <SelectItem key={site.id} value={site.id.toString()}>{site.name}</SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {returnableItems.length === 0 ? (
+                  <ListEmptyState
+                    density="compact"
+                    icon={Package}
+                    title="No returnable materials"
+                    description="This project's site ledger has no issued balance to return. Issue materials to the project first."
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Materials on site</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search materials..."
+                        className="pl-9"
+                        value={returnSearchQuery}
+                        onChange={(e) => setReturnSearchQuery(e.target.value)}
+                      />
+                    </div>
+                    <div className="border rounded-lg max-h-[280px] overflow-y-auto">
+                      {filteredReturnableItems.map((row) => (
+                        <div key={row.itemId} className="flex flex-col gap-1 p-3 border-b last:border-0 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="font-medium text-sm">{row.itemName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              On site: {row.balance} {row.unit}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs whitespace-nowrap">Return qty:</Label>
+                            <Input
+                              type="number"
+                              className="w-24 h-8"
+                              min={0}
+                              max={row.balance}
+                              step={row.allowDecimalReturn ? 0.01 : 1}
+                              value={returnQuantities[row.itemId] ?? ""}
+                              onChange={(e) => _handleReturnQuantityChange(row.itemId, e.target.value)}
+                              placeholder="0"
+                            />
+                            <span className="text-xs text-muted-foreground">{row.unit}</span>
+                          </div>
+                          {returnErrors[row.itemId] && (
+                            <p className="text-xs text-destructive">{returnErrors[row.itemId]}</p>
+                          )}
+                        </div>
+                      ))}
+                      {filteredReturnableItems.length === 0 && (
+                        <p className="p-4 text-sm text-muted-foreground text-center">No materials match your search.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsReturnFromSiteOpen(false)}>Cancel</Button>
-            <Button onClick={handleReturnSave} disabled={!selectedSiteForReturn || Object.keys(returnErrors).length > 0}>
-              Confirm Return
+            <Button
+              onClick={handleReturnSave}
+              disabled={
+                !selectedSiteForReturn ||
+                returnableItems.length === 0 ||
+                returnLinesToProcess.length === 0 ||
+                Object.keys(returnErrors).length > 0 ||
+                (returnAction === "transfer" && !selectedTransferTargetSite)
+              }
+            >
+              <CheckCircle2 className="w-4 h-4 mr-2" />
+              {returnAction === "transfer" ? "Transfer Items" : "Confirm Return"}
             </Button>
           </SheetFooter>
         </AppSheetContent>

@@ -161,6 +161,10 @@ import {
   stripVolatileDocumentTypeFields,
 } from "@/lib/invoiceDocumentType";
 import {
+  applyInvoiceReceiptDeltaToDocument,
+  applyInvoiceReceiptToDocument,
+} from "@/lib/invoicePaymentStatus";
+import {
   applyIncomeUpdateToProjects,
   applyProjectReceivedFromIncomeDelta,
   incomeCountsTowardProjectReceived,
@@ -363,6 +367,8 @@ interface AppDataContextType extends AppState {
     baselineLineId?: string;
     /** Idempotency / dedupe key for materials issued/returned/scrapped in batched flows. */
     clientRequestId?: string;
+    siteId?: string;
+    siteName?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   recordWarehouseInventoryMovement: (input: {
     itemId: string;
@@ -1379,7 +1385,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             id,
             before.name,
             "siteChecklist",
-            String(beforeProject.siteChecklist?.length ?? 0),
+            String(before.siteChecklist?.length ?? 0),
             String(updatedProject.siteChecklist?.length ?? 0),
           ),
         );
@@ -1406,6 +1412,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       allowNegativeSiteBalanceOverride?: boolean;
       baselineLineId?: string;
       clientRequestId?: string;
+      siteId?: string;
+      siteName?: string;
     }): Promise<{ ok: boolean; error?: string }> => {
       if (!permissionService.canPerformAction(actorRole, "inventory:material_movement")) {
         return { ok: false, error: "Permission denied for inventory movement" };
@@ -1424,6 +1432,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             allowNegativeSiteBalanceOverride: input.allowNegativeSiteBalanceOverride,
             baselineLineId: input.baselineLineId,
             clientRequestId: input.clientRequestId,
+            siteId: input.siteId,
+            siteName: input.siteName,
           },
         });
         if (!result.ok) {
@@ -1895,11 +1905,18 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           customer.id,
           prev.customers.map((c) => c.id),
         );
-        return { ...prev, customers: [{ ...customer, id }, ...prev.customers] };
+        const record = { ...customer, id };
+        if (!repositories.customerRepository.getById(id)) {
+          repositories.customerRepository.add(record);
+        } else {
+          repositories.customerRepository.update(id, record);
+        }
+        const withoutDup = prev.customers.filter((c) => c.id !== id);
+        return { ...prev, customers: [record, ...withoutDup] };
       });
       return true;
     },
-    [canPerformActionOrWarn],
+    [canPerformActionOrWarn, repositories],
   );
   
   const updateCustomer = useCallback((id: string, updates: Partial<Customer>) => {
@@ -2695,7 +2712,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
       const reviewQueueItem = postingResult ? createReviewQueueItem(postingResult, reviewProjectId) : null;
       const applyReceived = (doc: Invoice) =>
         doc.id === payment.invoiceId
-          ? { ...doc, amountReceived: Math.min(doc.total ?? Infinity, (doc.amountReceived ?? 0) + payment.amount) }
+          ? applyInvoiceReceiptToDocument(doc, payment.amount, payment.paymentMode)
           : doc;
       const inInvoice = payment.invoiceId ? prev.invoices.some((i) => i.id === payment.invoiceId) : false;
       const updatedInvoices = payment.invoiceId && inInvoice ? prev.invoices.map(applyReceived) : prev.invoices;
@@ -2745,19 +2762,17 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           const invoiceMatchesUpdated = invoice.id === updatedPayment!.invoiceId;
           if (invoiceMatchesOriginal && invoiceMatchesUpdated && updatedPayment!.direction === "in") {
             const amountDelta = (updatedPayment!.amount ?? oldPayment.amount) - oldPayment.amount;
-            return { ...invoice, amountReceived: Math.min(invoice.total ?? Infinity, Math.max(0, (invoice.amountReceived ?? 0) + amountDelta)) };
+            return applyInvoiceReceiptDeltaToDocument(invoice, amountDelta);
           }
           if (invoiceMatchesOriginal && !invoiceMatchesUpdated && oldPayment.direction === "in") {
-            return { ...invoice, amountReceived: Math.max(0, (invoice.amountReceived ?? 0) - oldPayment.amount) };
+            return applyInvoiceReceiptDeltaToDocument(invoice, -oldPayment.amount);
           }
           if (!invoiceMatchesOriginal && invoiceMatchesUpdated && updatedPayment!.direction === "in") {
-            return {
-              ...invoice,
-              amountReceived: Math.min(
-                invoice.total ?? Infinity,
-                (invoice.amountReceived ?? 0) + (updatedPayment!.amount ?? 0),
-              ),
-            };
+            return applyInvoiceReceiptToDocument(
+              invoice,
+              updatedPayment!.amount ?? 0,
+              updatedPayment!.paymentMode,
+            );
           }
           return invoice;
         });
@@ -2962,7 +2977,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   
   // ============ ATTENDANCE CRUD ============
   const addAttendanceRecord = useCallback((record: AttendanceRecord) => {
-    setState(prev => ({ ...prev, attendanceRecords: [record, ...prev.attendanceRecords] }));
+    setState((prev) => ({
+      ...prev,
+      attendanceRecords: [record, ...(prev.attendanceRecords ?? [])],
+    }));
   }, []);
   
   const updateAttendanceRecord = useCallback((id: string, updates: Partial<AttendanceRecord>) => {

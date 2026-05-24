@@ -69,6 +69,41 @@ export function deriveInvoiceStatusAfterReceipt(input: {
   return "pending";
 }
 
+/**
+ * Apply an inbound receipt to an invoice/sale-bill document.
+ * Single source of truth for `addPayment` and payment-amend flows.
+ */
+export function applyInvoiceReceiptToDocument(
+  doc: Invoice,
+  paymentAmount: number,
+  paymentMode?: string,
+): Invoice {
+  const newReceived = (doc.amountReceived ?? 0) + paymentAmount;
+  const status = deriveInvoiceStatusAfterReceipt({
+    total: doc.total ?? 0,
+    amountReceived: newReceived,
+  });
+  return {
+    ...doc,
+    amountReceived: newReceived,
+    status,
+    receivedIn: paymentMode ?? doc.receivedIn,
+  };
+}
+
+/** Recompute invoice status after adjusting stored amountReceived by a delta (payment edit/delete). */
+export function applyInvoiceReceiptDeltaToDocument(doc: Invoice, amountDelta: number): Invoice {
+  const newReceived = Math.max(0, (doc.amountReceived ?? 0) + amountDelta);
+  return {
+    ...doc,
+    amountReceived: newReceived,
+    status: deriveInvoiceStatusAfterReceipt({
+      total: doc.total ?? 0,
+      amountReceived: newReceived,
+    }),
+  };
+}
+
 export function formatInvoiceStatusLabel(status: Invoice["status"]): string {
   const labels: Record<Invoice["status"], string> = {
     draft: "Draft",

@@ -6,6 +6,7 @@ import {
   runExhaustiveIteration,
 } from "@/lib/data-engine/exhaustiveGenerator";
 import type { useDataEngineStore } from "@/lib/data-engine/useDataEngineStore";
+import { act } from "@testing-library/react";
 
 export type RunExhaustiveToCompletionOptions = {
   maxIterations?: number;
@@ -18,26 +19,28 @@ export type RunExhaustiveToCompletionResult = {
 };
 
 /**
- * Runs exhaustive generator ticks until all permutations complete or maxIterations reached.
- * Used by tests and synchronous batch runs.
+ * Runs generator ticks until showcase scenarios complete or maxIterations reached.
+ * Each tick is wrapped in `act()` so hook-based tests see fresh AppData state.
  */
 export async function runExhaustiveToCompletion(
   getContext: () => Record<string, unknown>,
   store: ReturnType<typeof useDataEngineStore.getState>,
   options?: RunExhaustiveToCompletionOptions,
 ): Promise<RunExhaustiveToCompletionResult> {
-  const maxIterations = options?.maxIterations ?? 250;
+  const maxIterations = options?.maxIterations ?? 300;
 
   if (options?.resetBeforeRun !== false) {
     resetExhaustiveGeneratorState();
   }
 
   store.setStatus("running");
-  store.addLog("info", "Data Engine Started (Exhaustive Mode)");
+  store.addLog("info", "Data Engine Started (Smart Showcase Mode)");
 
   let iterations = 0;
   while (iterations < maxIterations) {
-    await runExhaustiveIteration(getContext, store);
+    await act(async () => {
+      await runExhaustiveIteration(getContext, store);
+    });
     iterations++;
 
     if (isExhaustiveGenerationComplete()) {
@@ -47,11 +50,11 @@ export async function runExhaustiveToCompletion(
 
   const total = getExhaustiveTotalPermutations();
   const index = getExhaustiveGeneratorIndex();
-  if (index >= total) {
+  if (index >= total && isExhaustiveGenerationComplete()) {
     return { completed: true, iterations };
   }
 
   store.setStatus("error");
-  store.addLog("error", `Generation stopped after ${iterations} iterations (${index}/${total} permutations).`);
+  store.addLog("error", `Generation stopped after ${iterations} iterations (${index}/${total} scenarios).`);
   return { completed: false, iterations };
 }

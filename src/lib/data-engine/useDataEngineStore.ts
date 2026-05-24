@@ -35,6 +35,8 @@ export interface EngineCounters {
   ownerInvestments: number;
   materialDamage: number;
   siteVisits: number;
+  subcontractors: number;
+  siteChecklistTemplates: number;
 }
 
 interface DataEngineState {
@@ -80,6 +82,8 @@ const initialCounters: EngineCounters = {
   ownerInvestments: 0,
   materialDamage: 0,
   siteVisits: 0,
+  subcontractors: 0,
+  siteChecklistTemplates: 0,
 };
 
 export const useDataEngineStore = create<DataEngineState>((set) => ({

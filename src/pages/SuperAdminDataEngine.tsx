@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Play, Pause, Square, Trash2, Activity, AlertCircle, FileText, Briefcase, IndianRupee, ScrollText, RefreshCw } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { persistRegenerateBusinessBoot } from "@/lib/defaultAppBoot";
-import { isExhaustiveGenerationComplete, getExhaustiveTotalPermutations, getExhaustiveGeneratorIndex } from "@/lib/data-engine/exhaustiveGenerator";
+import { isExhaustiveGenerationComplete, getExhaustiveTotalPermutations, getExhaustiveGeneratorIndex, getShowcaseScenarioCount, getPipelineExtraCount } from "@/lib/data-engine/exhaustiveGenerator";
 import { isAutoSeedDone } from "@/lib/data-engine/autoSeedStorage";
 import {
   Table,
@@ -46,8 +46,10 @@ export default function SuperAdminDataEngine() {
 
   const generationComplete =
     isAutoSeedDone() && isExhaustiveGenerationComplete() && store.status === "idle";
-  const totalPermutations = getExhaustiveTotalPermutations();
-  const completedPermutations = Math.min(getExhaustiveGeneratorIndex(), totalPermutations);
+  const totalSteps = getExhaustiveTotalPermutations();
+  const completedSteps = Math.min(getExhaustiveGeneratorIndex() + (isExhaustiveGenerationComplete() ? getPipelineExtraCount() : 0), totalSteps);
+  const showcaseCount = getShowcaseScenarioCount();
+  const pipelineCount = getPipelineExtraCount();
 
   return (
     <PageShell className="space-y-6">
@@ -129,7 +131,12 @@ export default function SuperAdminDataEngine() {
                 <Progress value={store.progress} className="h-2" />
                 {generationComplete && (
                   <p className="text-sm text-success font-medium">
-                    100% complete — {completedPermutations}/{totalPermutations} project permutations generated.
+                    100% complete — {showcaseCount} showcase scenarios + {pipelineCount} pipeline extras seeded.
+                  </p>
+                )}
+                {!generationComplete && store.status === "running" && (
+                  <p className="text-xs text-muted-foreground">
+                    Master data bootstrap, then {showcaseCount} curated scenarios ({completedSteps}/{totalSteps} steps).
                   </p>
                 )}
               </div>
@@ -224,6 +231,10 @@ export default function SuperAdminDataEngine() {
               <CounterRow icon={<Briefcase />} label="Change Requests" value={store.counters.changeRequests} />
               <CounterRow icon={<Briefcase />} label="Vendors" value={store.counters.vendors} />
               <CounterRow icon={<Briefcase />} label="Employees" value={store.counters.employees} />
+              <CounterRow icon={<Briefcase />} label="Subcontractors" value={store.counters.subcontractors} />
+              <CounterRow icon={<FileText />} label="Site Templates" value={store.counters.siteChecklistTemplates} />
+              <CounterRow icon={<Activity />} label="Attendance" value={store.counters.attendanceLogs} />
+              <CounterRow icon={<Activity />} label="Site Visits" value={store.counters.siteVisits} />
             </CardContent>
           </Card>
 

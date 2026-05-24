@@ -5,7 +5,7 @@ import type { PermissionService } from "@/application/services/PermissionService
 import { assertCommandPermission } from "@/application/commands/commandPermission";
 import type { AuditService } from "@/application/services/AuditService";
 import { InventoryMovementService, type MovementType } from "@/application/services/InventoryMovementService";
-import type { Project } from "@/types/project";
+import type { Project, InventoryMovementRecord } from "@/types/project";
 
 export type WarehouseOnlyMovementType = "PurchaseIn" | "ScrapWarehouse";
 
@@ -27,6 +27,9 @@ export type MaterialMovementAtProjectPayload = {
   baselineLineId?: string;
   /** Idempotency: duplicate key within project is ignored (no-op success). */
   clientRequestId?: string;
+  /** Optional site context for movement history / audit display. */
+  siteId?: string;
+  siteName?: string;
 };
 
 export const MATERIAL_MOVEMENT_AT_PROJECT_COMMAND = "inventory.material_movement_at_project";
@@ -93,7 +96,7 @@ export const registerInventoryCommands = (
     MATERIAL_MOVEMENT_AT_PROJECT_COMMAND,
     (command) => {
       assertCommandPermission(permissionService, command, "inventory:material_movement");
-      const { projectId, itemId, movementType, quantity, allowNegativeSiteBalanceOverride, baselineLineId } =
+      const { projectId, itemId, movementType, quantity, allowNegativeSiteBalanceOverride, baselineLineId, siteId, siteName } =
         command.payload;
 
       const project = repositories.projectRepository.getById(projectId) as Project | undefined;
@@ -235,7 +238,37 @@ export const registerInventoryCommands = (
       };
 
       repositories.projectRepository.update(projectId, updatedProject);
-      repositories.inventoryItemRepository.update(itemId, { ...inventoryItem, stock: nextItemStock });
+
+      const movementHistoryType: InventoryMovementRecord["type"] | null =
+        movementType === "ReturnToWarehouse"
+          ? "return"
+          : movementType === "IssueToSite" || movementType === "IssueToProject"
+            ? "issue"
+            : movementType === "TransferSiteToSite"
+              ? "return"
+              : null;
+
+      const movementHistory: InventoryMovementRecord[] | undefined =
+        movementHistoryType != null
+          ? [
+              {
+                id: `MV${Date.now()}${Math.random().toString(36).slice(2, 14)}`.toUpperCase(),
+                type: movementHistoryType,
+                siteId,
+                siteName,
+                qty: quantity,
+                date: new Date().toISOString().split("T")[0],
+                createdAt: new Date().toISOString(),
+              },
+              ...(inventoryItem.movementHistory ?? []),
+            ]
+          : inventoryItem.movementHistory;
+
+      repositories.inventoryItemRepository.update(itemId, {
+        ...inventoryItem,
+        stock: nextItemStock,
+        ...(movementHistory ? { movementHistory } : {}),
+      });
 
       auditService.write(command, {
         action: "update",

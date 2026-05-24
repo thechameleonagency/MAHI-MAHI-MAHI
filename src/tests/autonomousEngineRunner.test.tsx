@@ -53,17 +53,25 @@ describe("Autonomous Engine Runner", () => {
 
     const store = useDataEngineStore.getState();
 
-    const { completed, iterations } = await act(async () =>
-      runExhaustiveToCompletion(() => result.current, store, { resetBeforeRun: true }),
+    const { completed, iterations } = await runExhaustiveToCompletion(
+      () => result.current,
+      store,
+      { resetBeforeRun: true },
     );
 
     expect(completed).toBe(true);
     expect(iterations).toBeGreaterThan(0);
 
-    expect(result.current.employees.length).toBe(GENERATOR_ENTITY_LIMITS.employees);
+    await waitFor(
+      () => {
+        expect(result.current.employees.length).toBe(GENERATOR_ENTITY_LIMITS.employees);
+        expect(result.current.projects.length).toBeGreaterThanOrEqual(14);
+      },
+      { timeout: 5000 },
+    );
     expect(result.current.agents.length).toBe(GENERATOR_ENTITY_LIMITS.agents);
     expect(result.current.partners.length).toBe(
-      GENERATOR_ENTITY_LIMITS.partnersPerType * 4,
+      GENERATOR_ENTITY_LIMITS.partnersPerType * 3,
     );
     expect(result.current.vendors.length).toBe(GENERATOR_ENTITY_LIMITS.vendors);
     expect(result.current.teams.length).toBe(GENERATOR_ENTITY_LIMITS.teams);
@@ -77,9 +85,13 @@ describe("Autonomous Engine Runner", () => {
       GENERATOR_ENTITY_LIMITS.incGiverCompanies,
     );
 
-    expect(result.current.projects.length).toBeGreaterThanOrEqual(8);
+    expect(result.current.projects.length).toBeGreaterThanOrEqual(14);
 
     const kindsSeen = new Set(result.current.projects.map((p) => p.projectKind));
-    expect(kindsSeen.size).toBeGreaterThanOrEqual(4);
+    expect(kindsSeen.size).toBeGreaterThanOrEqual(7);
+
+    expect((result.current.subcontractors ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((result.current.siteChecklistTemplates ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((result.current.attendanceRecords ?? []).length).toBeGreaterThanOrEqual(10);
   }, 120_000);
 });
