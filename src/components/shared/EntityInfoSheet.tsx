@@ -25,7 +25,8 @@ type EntityType =
   | "invoice"
   | "agent"
   | "vendorshipCompany"
-  | "incGiverCompany";
+  | "incGiverCompany"
+  | "subcontractor";
 
 interface EntityInfoSheetProps {
   open: boolean;
@@ -48,6 +49,8 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
     getINCGiverCompanyById,
     incGiverCompanies,
     incGiverTransactions,
+    getSubcontractorById,
+    subcontractors,
     vendors,
     getProjectInvoices,
     getCustomerInvoices,
@@ -714,6 +717,66 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
     );
   };
 
+  const renderSubcontractorInfo = () => {
+    const sub = getSubcontractorById(String(entityId));
+    if (!sub) return <p className="text-muted-foreground">Subcontractor not found</p>;
+
+    const linkedProjects = projects.filter((p) => p.outsource?.partyId === sub.id);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <HardHat className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">{sub.name}</h3>
+            {sub.defaultRatePerKw != null && (
+              <p className="text-sm text-muted-foreground">Default ₹{sub.defaultRatePerKw}/kW</p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span>{sub.phone}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+            <span>{linkedProjects.length} linked project{linkedProjects.length === 1 ? "" : "s"}</span>
+          </div>
+          {sub.email && (
+            <div className="flex items-center gap-2 col-span-2">
+              <Mail className="h-4 w-4 text-muted-foreground" />
+              <span>{sub.email}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="pt-3 border-t space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase">Quick Links</p>
+          <div className="flex flex-wrap gap-2">
+            <Link to={`/subcontractor/${sub.id}`} onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" className="gap-1">
+                <ExternalLink className="h-3 w-3" />
+                View subcontractor
+              </Button>
+            </Link>
+            {linkedProjects.length > 0 && (
+              <Link to="/projects" onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Briefcase className="h-3 w-3" />
+                  Projects ({linkedProjects.length})
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderIncGiverCompanyInfo = () => {
     const company = getINCGiverCompanyById(String(entityId));
     if (!company) return <p className="text-muted-foreground">INC work source not found</p>;
@@ -811,6 +874,8 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
         return renderVendorshipCompanyInfo();
       case "incGiverCompany":
         return renderIncGiverCompanyInfo();
+      case "subcontractor":
+        return renderSubcontractorInfo();
       default:
         return <p className="text-muted-foreground">Entity not found</p>;
     }
@@ -828,6 +893,7 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
       case "agent": return "Agent Info";
       case "vendorshipCompany": return "Vendorship Company";
       case "incGiverCompany": return "INC Work Source";
+      case "subcontractor": return "Subcontractor";
       default: return "Info";
     }
   };
@@ -838,9 +904,7 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
         <SheetHeader>
           <SheetTitle>{getTitle()}</SheetTitle>
         </SheetHeader>
-        <div className="py-2">
-          {renderContent()}
-        </div>
+        <div className="py-2">{open ? renderContent() : null}</div>
       </AppSheetContent>
     </Sheet>
   );

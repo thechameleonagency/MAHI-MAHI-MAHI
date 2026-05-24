@@ -45,6 +45,7 @@ export interface EngineCounters {
   siteVisits: number;
   subcontractors: number;
   siteChecklistTemplates: number;
+  quotationTemplates: number;
 }
 
 interface DataEngineState {
@@ -98,6 +99,7 @@ const initialCounters: EngineCounters = {
   siteVisits: 0,
   subcontractors: 0,
   siteChecklistTemplates: 0,
+  quotationTemplates: 0,
 };
 
 function loadPersistedLogs(): LogEntry[] {

@@ -181,7 +181,7 @@ export function deriveBusinessAlertDescriptors(input: BusinessAlertsInput): Busi
     const balance = bill.total - (bill.amountPaid ?? 0);
     if (balance <= 0.01) continue;
     const dueRaw = bill.dueDate;
-    if (!dueRaw?.trim()) continue;
+    if (!dueRaw || typeof dueRaw !== "string" || !dueRaw.trim()) continue;
     const due = parseISO(dueRaw.includes("T") ? dueRaw : `${dueRaw.slice(0, 10)}T12:00:00`);
     if (!isValid(due)) continue;
     const days = differenceInCalendarDays(due, today);

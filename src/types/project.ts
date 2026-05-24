@@ -425,6 +425,17 @@ export interface Employee {
   terminationReason?: string;
 }
 
+/** Company-wide non-working day (Attendance → Holiday). */
+export interface CompanyHoliday {
+  id: string;
+  /** ISO calendar date YYYY-MM-DD */
+  date: string;
+  /** Display name — individual day label or shared group label (e.g. Diwali Holidays). */
+  name: string;
+  /** When set, links multi-day batches created together. */
+  groupId?: string;
+}
+
 export interface AttendanceRecord {
   id: string;
   employeeId: string;

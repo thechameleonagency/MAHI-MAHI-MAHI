@@ -1,6 +1,7 @@
 import type { UserRole } from "@/domain/entities/identity";
 import { canFeature, type Crud, type Feature, type FeaturePermissionMatrix } from "@/domain/policies/featurePermissions";
 import { featureForPath } from "@/lib/routeFeatureMap";
+import { isRegisteredAppRoute } from "@/lib/appRouteRegistry";
 
 export type AppAction =
   | "enquiry:create"
@@ -152,6 +153,8 @@ const routePermissions: RoutePermissionConfig[] = [
   { exact: "/vendorship-companies", roles: ["super_admin", "admin", "ceo", "management"] },
   // Detail route uses different prefix `/vendorship/:id` — needs its own pattern entry.
   { pattern: /^\/vendorship\/[^/]+$/, roles: ["super_admin", "admin", "ceo", "management"] },
+  { exact: "/subcontractors", roles: ["super_admin", "admin", "ceo", "management"] },
+  { pattern: /^\/subcontractor\/[^/]+$/, roles: ["super_admin", "admin", "ceo", "management"] },
   { exact: "/inc-work-sources", roles: ["super_admin", "admin", "ceo", "management"] },
   // Detail route uses different prefix `/inc-sources/:id` — needs its own pattern entry.
   { pattern: /^\/inc-sources\/[^/]+$/, roles: ["super_admin", "admin", "ceo", "management"] },
@@ -227,12 +230,14 @@ export const canAccessPath = (
   override?: Partial<FeaturePermissionMatrix>,
 ): boolean => {
   const pathname = path.split("?")[0].split("#")[0];
+  if (role === "super_admin") {
+    return isRegisteredAppRoute(pathname) || featureForPath(pathname) !== undefined || matchRoutePermission(pathname) !== undefined;
+  }
   const feature = featureForPath(pathname);
   const matched = matchRoutePermission(pathname);
   if (!feature && !matched) {
     return false;
   }
-  if (role === "super_admin") return true;
   if (feature) {
     return canFeature(role, feature, "view", override);
   }

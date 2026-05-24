@@ -95,7 +95,7 @@ export function buildCalendarEvents(input: CalendarDataInput): CalendarEvent[] {
       subtitle: t.workType,
       href: "/timeline",
       projectId: t.siteId,
-      titleLink: t.siteId ? { entityType: "project", entityId: t.siteId } : undefined,
+      titleLink: t.siteId ? { entityType: "project", entityId: String(t.siteId) } : undefined,
     });
   }
 

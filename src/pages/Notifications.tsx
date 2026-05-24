@@ -78,7 +78,7 @@ const Notifications = () => {
     setPage(1);
   }, [visible.length]);
 
-  const { pagedItems: pagedAlerts, safePage } = usePagedSlice(visible, page, pageSize);
+  const { pagedItems: pagedAlerts, safePage } = usePagedSlice(alerts, page, pageSize);
 
   const handleDismissAll = () => dismissAll(descriptors.map((d) => d.id));
 

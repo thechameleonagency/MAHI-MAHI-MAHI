@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { getPriorityColor } from "@/lib/statusColors";
-import { formatEnquiryStatusLabel } from "@/lib/enquiryStatusUi";
+import { formatEnquiryDisplayDate, formatEnquiryStatusLabel } from "@/lib/enquiryStatusUi";
 import { formatINR } from "@/lib/formatCurrency";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -382,6 +382,13 @@ const Enquiries = () => {
     );
   }, [enquiries, searchParams, setSearchParams]);
 
+  // Keep detail sheet in sync after schedule meeting / notes / status updates.
+  useEffect(() => {
+    if (!selectedEnquiry) return;
+    const fresh = enquiries.find((e) => e.id === selectedEnquiry.id);
+    if (fresh) setSelectedEnquiry(fresh);
+  }, [enquiries, selectedEnquiry?.id]);
+
   // Stats
   const stats = {
     total: enquiries.length,
@@ -568,7 +575,7 @@ const formatCapacityInput = (capacity: string) => {
     };
     
     const result = await updateEnquiry(selectedEnquiry.id, { 
-      notes: [newNote, ...selectedEnquiry.notes], 
+      notes: [newNote, ...(selectedEnquiry.notes ?? [])], 
       updatedAt: new Date().toISOString().split('T')[0] 
     });
     if (!result.ok) {
@@ -667,6 +674,14 @@ const formatCapacityInput = (capacity: string) => {
         variant: "destructive",
       });
     }
+  };
+
+  const openScheduleMeetingSheet = () => {
+    if (!selectedEnquiry) return;
+    const existingDate = selectedEnquiry.meetingDate?.trim();
+    setMeetingDate(existingDate ? existingDate.slice(0, 10) : "");
+    setMeetingNotes(selectedEnquiry.meetingNotes ?? "");
+    setIsScheduleMeetingOpen(true);
   };
 
   const handleScheduleMeeting = async () => {
@@ -995,6 +1010,7 @@ const formatCapacityInput = (capacity: string) => {
                 <TableHead>System (kW)</TableHead>
                 <TableHead>Budget</TableHead>
                 <TableHead>Assigned</TableHead>
+                <TableHead>Meeting</TableHead>
                 <TableHead>Follow-up</TableHead>
                 <TableHead className="text-right w-[50px]"></TableHead>
               </TableRow>
@@ -1077,8 +1093,18 @@ const formatCapacityInput = (capacity: string) => {
                     )}
                   </TableCell>
                   <TableCell className="text-muted-foreground whitespace-nowrap">
+                    {enquiry.meetingDate ? (
+                      <span className="inline-flex items-center gap-1" title={enquiry.meetingNotes || undefined}>
+                        <Calendar className="h-3.5 w-3.5 shrink-0 text-purple-600" aria-hidden />
+                        {formatEnquiryDisplayDate(enquiry.meetingDate)}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground whitespace-nowrap">
                     {enquiry.followUpDate
-                      ? new Date(enquiry.followUpDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
+                      ? formatEnquiryDisplayDate(enquiry.followUpDate)
                       : "—"}
                   </TableCell>
                   <TableCell className="text-right">
@@ -1432,13 +1458,15 @@ const formatCapacityInput = (capacity: string) => {
                       </Avatar>
                       <div>
                         <h3 className="text-lg font-semibold leading-tight">{selectedEnquiry.customerName}</h3>
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <Badge variant="outline" className="text-2xs uppercase tracking-wider h-5">
                             {selectedEnquiry.customerType}
                           </Badge>
+                          {getStatusBadge(selectedEnquiry.status)}
+                          {getPriorityBadge(selectedEnquiry.priority)}
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
                             <Clock className="h-3 w-3" />
-                            Created {new Date(selectedEnquiry.createdAt).toLocaleDateString()}
+                            Created {formatEnquiryDisplayDate(selectedEnquiry.createdAt)}
                           </span>
                         </div>
                       </div>
@@ -1525,6 +1553,38 @@ const formatCapacityInput = (capacity: string) => {
                   </div>
                 </div>
 
+                {(selectedEnquiry.meetingDate || selectedEnquiry.followUpDate) && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {selectedEnquiry.meetingDate ? (
+                      <div className="p-4 bg-purple-50/80 dark:bg-purple-950/20 rounded-xl border border-purple-200/60 dark:border-purple-800/40 space-y-2">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-purple-900 dark:text-purple-200 flex items-center gap-2">
+                          <Calendar className="h-3.5 w-3.5" />
+                          Scheduled meeting
+                        </h4>
+                        <p className="text-sm font-semibold text-purple-950 dark:text-purple-100">
+                          {formatEnquiryDisplayDate(selectedEnquiry.meetingDate)}
+                        </p>
+                        {selectedEnquiry.meetingNotes?.trim() ? (
+                          <p className="text-sm text-purple-900/80 dark:text-purple-200/80 leading-relaxed">
+                            {selectedEnquiry.meetingNotes}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-purple-800/70 dark:text-purple-300/70 italic">No meeting notes</p>
+                        )}
+                      </div>
+                    ) : null}
+                    {selectedEnquiry.followUpDate ? (
+                      <div className="p-4 bg-muted/30 rounded-xl border border-border/50 space-y-2">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                          <Clock className="h-3.5 w-3.5" />
+                          Follow-up due
+                        </h4>
+                        <p className="text-sm font-semibold">{formatEnquiryDisplayDate(selectedEnquiry.followUpDate)}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
                 {/* Requirements */}
                 <div className="p-4 bg-muted/30 rounded-xl border border-border/50">
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
@@ -1581,12 +1641,12 @@ const formatCapacityInput = (capacity: string) => {
                   </div>
                   
                   <div className="space-y-3 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-border/60">
-                    {selectedEnquiry.notes.length === 0 ? (
+                    {(selectedEnquiry.notes ?? []).length === 0 ? (
                       <div className="pl-8 py-4">
                         <p className="text-xs text-muted-foreground italic">No follow-up notes recorded yet.</p>
                       </div>
                     ) : (
-                      selectedEnquiry.notes.map((note, idx) => (
+                      (selectedEnquiry.notes ?? []).map((note, idx) => (
                         <div key={idx} className="relative pl-8 group">
                           <div className="absolute left-0 top-[6px] h-3 w-3 rounded-full border-2 border-primary/20 bg-background z-10 group-hover:border-primary/50 transition-colors" />
                           <div className="p-3 bg-muted/20 rounded-lg border border-border/40 group-hover:border-border/80 transition-all">
@@ -1702,7 +1762,7 @@ const formatCapacityInput = (capacity: string) => {
                         variant="outline"
                         size="sm"
                         hideWhenDenied
-                        onClick={() => setIsScheduleMeetingOpen(true)}
+                        onClick={openScheduleMeetingSheet}
                       >
                         <Calendar className="h-4 w-4 mr-2" />
                         Schedule Meeting
@@ -1981,7 +2041,16 @@ const formatCapacityInput = (capacity: string) => {
       </Sheet>
 
       {/* Schedule Meeting Modal */}
-      <Sheet open={isScheduleMeetingOpen} onOpenChange={setIsScheduleMeetingOpen}>
+      <Sheet
+        open={isScheduleMeetingOpen}
+        onOpenChange={(open) => {
+          setIsScheduleMeetingOpen(open);
+          if (!open) {
+            setMeetingDate("");
+            setMeetingNotes("");
+          }
+        }}
+      >
         <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle>Schedule Meeting</SheetTitle>

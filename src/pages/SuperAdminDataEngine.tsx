@@ -252,6 +252,8 @@ export default function SuperAdminDataEngine() {
               <CounterRow icon={<Briefcase />} label="Projects" value={liveCounts.projects} />
               <CounterRow icon={<FileText />} label="Invoices" value={liveCounts.invoices} />
               <CounterRow icon={<Briefcase />} label="Employees" value={liveCounts.employees} />
+              <CounterRow icon={<FileText />} label="Site Templates" value={appData.siteChecklistTemplates?.length ?? 0} />
+              <CounterRow icon={<FileText />} label="Quotation Templates" value={appData.quotationTemplates?.length ?? 0} />
             </CardContent>
           </Card>
 
@@ -264,6 +266,8 @@ export default function SuperAdminDataEngine() {
               <CounterRow icon={<ScrollText />} label="Enquiries" value={store.counters.enquiries} />
               <CounterRow icon={<FileText />} label="Quotations" value={store.counters.quotations} />
               <CounterRow icon={<Briefcase />} label="Projects" value={store.counters.projects} />
+              <CounterRow icon={<FileText />} label="Site Templates" value={store.counters.siteChecklistTemplates} />
+              <CounterRow icon={<FileText />} label="Quotation Templates" value={store.counters.quotationTemplates} />
             </CardContent>
           </Card>
 
@@ -289,7 +293,6 @@ export default function SuperAdminDataEngine() {
               <CounterRow icon={<Briefcase />} label="Vendors" value={store.counters.vendors} />
               <CounterRow icon={<Briefcase />} label="Employees" value={store.counters.employees} />
               <CounterRow icon={<Briefcase />} label="Subcontractors" value={store.counters.subcontractors} />
-              <CounterRow icon={<FileText />} label="Site Templates" value={store.counters.siteChecklistTemplates} />
               <CounterRow icon={<Activity />} label="Attendance" value={store.counters.attendanceLogs} />
               <CounterRow icon={<Activity />} label="Site Visits" value={store.counters.siteVisits} />
             </CardContent>

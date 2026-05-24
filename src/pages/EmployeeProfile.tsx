@@ -20,6 +20,11 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { format, getDaysInMonth } from "date-fns";
+import {
+  companyHolidaysInMonth,
+  findCompanyHolidayByDate,
+  companyHolidayToDate,
+} from "@/lib/companyHolidays";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { toast } from "@/hooks/use-toast";
 import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
@@ -252,11 +257,8 @@ const EmployeeProfile = () => {
       // Get paid holidays for this month
       const paidLeaves = getEmployeePaidHolidaysByMonth(employeeId, monthStr);
       
-      // Count company holidays in this month
-      const holidayCount = holidays.filter(h => {
-        const hDate = h instanceof Date ? h : new Date(h);
-        return hDate.getFullYear() === currentYear && hDate.getMonth() === monthIndex;
-      }).length;
+      const monthCompanyHolidays = companyHolidaysInMonth(holidays, currentYear, monthIndex);
+      const holidayCount = monthCompanyHolidays.length;
       
       // Count present and absent days
       const presentDays = monthRecords.filter(r => r.status === "present").length + paidLeaves.length;
@@ -296,10 +298,8 @@ const EmployeeProfile = () => {
       const details = Array.from({ length: daysInMonth }, (_, i) => {
         const dayDate = format(new Date(currentYear, monthIndex, i + 1), "yyyy-MM-dd");
         const record = monthRecords.find(r => r.date === dayDate);
-        const isHoliday = holidays.some(h => {
-          const hDate = h instanceof Date ? h : new Date(h);
-          return format(hDate, "yyyy-MM-dd") === dayDate;
-        });
+        const companyHoliday = findCompanyHolidayByDate(holidays, dayDate);
+        const isHoliday = Boolean(companyHoliday);
         const isPaidLeave = paidLeaves.some(pl => pl.date === dayDate);
         
         let status = "";
@@ -308,7 +308,7 @@ const EmployeeProfile = () => {
         else if (record?.status === "present") status = "P";
         else if (record?.status === "absent") status = "A";
         
-        return { date: i + 1, status };
+        return { date: i + 1, status, holidayName: companyHoliday?.name };
       });
       
       return {
@@ -321,6 +321,7 @@ const EmployeeProfile = () => {
         advances,
         netPending,
         details,
+        companyHolidays: monthCompanyHolidays,
       };
     });
   }, [attendanceRecords, employeeId, holidays, expenses, contextEmployee, getEmployeePaidHolidaysByMonth]);
@@ -813,17 +814,45 @@ const EmployeeProfile = () => {
                         <div className="font-medium text-muted-foreground">Sat</div>
                         <div className="font-medium text-muted-foreground">Sun</div>
                       </div>
+                      {row.companyHolidays.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-2">Company holidays:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {row.companyHolidays.map((h) => (
+                              <Badge key={h.id} variant="outline" className="text-xs">
+                                {h.name} — {format(companyHolidayToDate(h), "dd MMM")}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-7 gap-2">
                         {Array.from({ length: row.total }, (_, i) => {
                           const detail = row.details.find(d => d.date === i + 1);
                           const status = detail?.status || (i < row.present ? "P" : i < row.present + row.absent ? "A" : "H");
+                          const title =
+                            detail?.holidayName
+                              ? `${detail.holidayName} (holiday)`
+                              : status === "P"
+                                ? "Present"
+                                : status === "A"
+                                  ? "Absent"
+                                  : status === "PL"
+                                    ? "Paid leave"
+                                    : undefined;
                           return (
-                            <div 
-                              key={i} 
+                            <div
+                              key={i}
+                              title={title}
                               className={`h-8 rounded flex items-center justify-center text-xs font-medium ${
-                                status === "P" ? "bg-primary/10 text-primary" :
-                                status === "A" ? "bg-destructive/10 text-destructive" :
-                                "bg-muted text-muted-foreground"
+                                status === "P"
+                                  ? "bg-primary/10 text-primary"
+                                  : status === "A"
+                                    ? "bg-destructive/10 text-destructive"
+                                    : status === "H"
+                                      ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                                      : "bg-muted text-muted-foreground"
                               }`}
                             >
                               {i + 1}
@@ -901,6 +930,31 @@ const EmployeeProfile = () => {
                   <p className="text-sm text-muted-foreground">No paid leaves taken this year</p>
                 )}
               </div>
+
+              {holidays.length > 0 && (
+                <div className="mt-4 p-4 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg border border-amber-200/60 dark:border-amber-800/40">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Calendar className="w-4 h-4 text-amber-700 dark:text-amber-300" />
+                    <h4 className="font-medium text-sm">Company Holidays {new Date().getFullYear()}</h4>
+                    <Badge variant="outline" className="text-xs">
+                      {holidays.length}
+                    </Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {[...holidays]
+                      .sort((a, b) => a.date.localeCompare(b.date))
+                      .map((h) => (
+                        <div
+                          key={h.id}
+                          className="flex items-center justify-between p-2 bg-background/50 rounded text-sm"
+                        >
+                          <span className="font-medium">{h.name}</span>
+                          <span className="text-muted-foreground">{formatUiDate(h.date)}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
               </>
               )}
 

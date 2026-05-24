@@ -91,9 +91,16 @@ export function deserializeAppState(json: string): AppState | null {
   }
 }
 
+/** Coerce legacy numeric site ids (generator v1) to strings for task linkage + list pages. */
+function normalizeSiteAndTaskIds(state: AppState): AppState {
+  const sites = state.sites.map((s) => ({ ...s, id: String(s.id) }));
+  const tasks = state.tasks.map((t) => ({ ...t, siteId: String(t.siteId ?? "") }));
+  return { ...state, sites, tasks };
+}
+
 /** Hydrate FK links and billing metrics on a full state snapshot (no seed merge). */
 export function applyAppStateHydrationPipeline(state: AppState): AppState {
-  const migrated = migrateOpaqueCustomerIds(state);
+  const migrated = migrateOpaqueCustomerIds(normalizeSiteAndTaskIds(state));
   const customers = migrated.customers;
   const projects = hydrateProjectLinkage(migrated.projects, customers);
   const quotations = hydrateQuotationLinkage(migrated.quotations, customers);

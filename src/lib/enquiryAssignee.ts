@@ -182,11 +182,35 @@ export function findStaleEnquiryAssigneeState(
   return stale;
 }
 
+/** Ensure generator / legacy rows have arrays and timestamps the Enquiries UI expects. */
+export function normalizeEnquiryShape(
+  enquiry: Enquiry & { date?: string },
+): Enquiry {
+  const legacyDate = enquiry.date;
+  const createdAt =
+    enquiry.createdAt ??
+    (legacyDate
+      ? legacyDate.includes("T")
+        ? legacyDate.slice(0, 10)
+        : legacyDate.slice(0, 10)
+      : new Date().toISOString().slice(0, 10));
+  const updatedAt = enquiry.updatedAt ?? createdAt;
+  const { date: _legacyDate, ...rest } = enquiry;
+  return {
+    ...rest,
+    notes: enquiry.notes ?? [],
+    shareHistory: enquiry.shareHistory ?? [],
+    createdAt,
+    updatedAt,
+  };
+}
+
 /** Normalize assignment fields on a full enquiry row before persistence. */
 export function normalizeEnquiryRecord(
   enquiry: Enquiry,
   members: SettingsTeamMember[],
 ): Enquiry {
-  const patch = normalizeEnquiryAssignmentPatch(enquiry, members);
-  return { ...enquiry, ...patch };
+  const shaped = normalizeEnquiryShape(enquiry);
+  const patch = normalizeEnquiryAssignmentPatch(shaped, members);
+  return { ...shaped, ...patch };
 }

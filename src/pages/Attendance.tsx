@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Input } from "@/components/ui/input";
 import { Plus, Calendar as CalendarIcon, Check, Pencil, Trash2, Gift, AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,6 +33,12 @@ import { formatINR } from "@/lib/formatCurrency";
 import { formatUiDate } from "@/lib/formatUiDate";
 import { useCan } from "@/hooks/useCan";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
+import {
+  companyHolidayToDate,
+  createCompanyHolidayId,
+  isSameCompanyHolidayDay,
+  findCompanyHolidayByDate,
+} from "@/lib/companyHolidays";
 
 const Attendance = () => {
   const payrollPolicyService = new PayrollPolicyService();
@@ -100,7 +107,9 @@ const Attendance = () => {
   const [selectedHolidayDates, setSelectedHolidayDates] = useState<Date[]>([]);
   const [isMultipleDayMode, setIsMultipleDayMode] = useState(false);
   const [holidayModalTab, setHolidayModalTab] = useState("mark");
-  // Use context holidays directly - no local state copy
+  const [todayHolidayName, setTodayHolidayName] = useState("");
+  const [holidayNameInput, setHolidayNameInput] = useState("");
+  const [holidayGroupNameInput, setHolidayGroupNameInput] = useState("");
   const markedHolidays = holidays || [];
   
   // Fix: Sync attendance state when date changes - load from records
@@ -155,7 +164,7 @@ const Attendance = () => {
   const [holidayListPage, setHolidayListPage] = useState(1);
   const [holidayListPageSize, setHolidayListPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const sortedMarkedHolidays = useMemo(
-    () => [...markedHolidays].sort((a, b) => a.getTime() - b.getTime()),
+    () => [...markedHolidays].sort((a, b) => a.date.localeCompare(b.date)),
     [markedHolidays],
   );
   const { pagedItems: pagedHolidayRows, safePage: safeHolidayListPage } = usePagedSlice(
@@ -216,7 +225,7 @@ const Attendance = () => {
       const recordedAttendance = attendanceRecords.find(a => a.employeeId === emp.id && a.date === dayStr);
       
       // Check if it's a company holiday
-      const isHoliday = markedHolidays.some(h => isSameDay(h, day));
+      const isHoliday = markedHolidays.some((h) => isSameCompanyHolidayDay(h, day));
       if (isHoliday) {
         holidayDays++;
         return;
@@ -549,21 +558,78 @@ const Attendance = () => {
     return attendanceState[emp.id]?.sites ?? emp.workedSites;
   };
 
-  const handleMarkTodayAsHoliday = () => {
-    const today = new Date();
-    addHoliday(today);
-    setIsMarkHolidayOpen(false);
+  const resetHolidayForm = () => {
     setSelectedHolidayDates([]);
-    toast({ title: "Holiday Marked", description: `${format(today, 'dd MMM yyyy')} marked as company holiday` });
+    setTodayHolidayName("");
+    setHolidayNameInput("");
+    setHolidayGroupNameInput("");
+  };
+
+  const handleMarkTodayAsHoliday = () => {
+    const name = todayHolidayName.trim();
+    if (!name) {
+      toast({ title: "Name required", description: "Enter a name for this holiday.", variant: "destructive" });
+      return;
+    }
+    const today = new Date();
+    const result = addHoliday({ date: today, name });
+    if (!result.ok) {
+      toast({
+        title: "Could not mark holiday",
+        description: result.error ?? "Update failed",
+        variant: "destructive",
+      });
+      return;
+    }
+    setIsMarkHolidayOpen(false);
+    resetHolidayForm();
+    toast({ title: "Holiday Marked", description: `${name} — ${format(today, "dd MMM yyyy")}` });
   };
 
   const handleMarkSelectedDatesAsHoliday = () => {
-    if (selectedHolidayDates.length > 0) {
-      selectedHolidayDates.forEach(date => addHoliday(date));
-      setIsMarkHolidayOpen(false);
-      setSelectedHolidayDates([]);
-      toast({ title: "Holidays Marked", description: `${selectedHolidayDates.length} date(s) marked as company holidays` });
+    if (selectedHolidayDates.length === 0) return;
+
+    const name = (isMultipleDayMode ? holidayGroupNameInput : holidayNameInput).trim();
+    if (!name) {
+      toast({
+        title: "Name required",
+        description: isMultipleDayMode
+          ? "Enter a group name (e.g. Diwali Holidays)."
+          : "Enter a name for this holiday.",
+        variant: "destructive",
+      });
+      return;
     }
+
+    const groupId =
+      isMultipleDayMode && selectedHolidayDates.length > 1 ? createCompanyHolidayId() : undefined;
+    let added = 0;
+    let skipped = 0;
+
+    selectedHolidayDates.forEach((date) => {
+      const result = addHoliday({ date, name, groupId });
+      if (result.ok) added += 1;
+      else skipped += 1;
+    });
+
+    if (added === 0) {
+      toast({
+        title: "No holidays added",
+        description: skipped > 0 ? "Selected date(s) may already be marked." : "Nothing to add",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsMarkHolidayOpen(false);
+    resetHolidayForm();
+    toast({
+      title: "Holidays Marked",
+      description:
+        skipped > 0
+          ? `${name}: ${added} date(s) added, ${skipped} skipped (already marked).`
+          : `${name}: ${added} date(s) marked as company holidays.`,
+    });
   };
 
   const _handleMultipleDateSelect = (date: Date | undefined) => {
@@ -578,14 +644,16 @@ const Attendance = () => {
     });
   };
 
-  const handleDeleteHoliday = (dateToDelete: Date) => {
-    removeHoliday(dateToDelete);
-    toast({ title: "Holiday Removed", description: `${format(dateToDelete, 'dd MMM yyyy')} removed from holidays` });
+  const handleDeleteHoliday = (holidayId: string, label: string) => {
+    removeHoliday(holidayId);
+    toast({ title: "Holiday Removed", description: `${label} removed from holidays` });
   };
 
-  const getDayName = (date: Date) => {
-    return format(date, "EEEE");
+  const getDayName = (dateYmd: string) => {
+    return format(companyHolidayToDate({ id: "", date: dateYmd, name: "" }), "EEEE");
   };
+
+  const selectedDateHoliday = findCompanyHolidayByDate(markedHolidays, selectedDateStr);
 
   let presentDay = 0;
   let absentDay = 0;
@@ -634,6 +702,11 @@ const Attendance = () => {
               className="h-8 w-auto max-w-[11rem] bg-background text-sm font-medium"
             />
             <span className="hidden text-xs text-muted-foreground sm:inline">Past dates editable</span>
+            {selectedDateHoliday ? (
+              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                Holiday: {selectedDateHoliday.name}
+              </Badge>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -1139,7 +1212,13 @@ const Attendance = () => {
       </Sheet>
 
       {/* Mark Holiday Sheet - With Tabs */}
-      <Sheet open={isMarkHolidayOpen} onOpenChange={setIsMarkHolidayOpen}>
+      <Sheet
+        open={isMarkHolidayOpen}
+        onOpenChange={(open) => {
+          setIsMarkHolidayOpen(open);
+          if (!open) resetHolidayForm();
+        }}
+      >
         <AppSheetContent preset="wideForm">
           <SheetHeader>
             <SheetTitle className="text-xl font-semibold">Company Holidays</SheetTitle>
@@ -1154,20 +1233,29 @@ const Attendance = () => {
             {/* Mark Holiday Tab */}
             <TabsContent value="mark" className="space-y-6 pt-4">
               {/* Today's Date Quick Action */}
-              <div className="p-4 border rounded-lg bg-muted/30">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Today's Date</p>
-                    <p className="text-lg font-semibold text-primary">{formatUiDate(new Date(), "dd MMM, yyyy")}</p>
-                  </div>
-                  <Button 
-                    className="bg-primary text-primary-foreground w-full sm:w-auto"
-                    onClick={handleMarkTodayAsHoliday}
-                  >
-                    <CalendarIcon className="w-4 h-4 mr-2" />
-                    Mark Today
-                  </Button>
+              <div className="p-4 border rounded-lg bg-muted/30 space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Today's Date</p>
+                  <p className="text-lg font-semibold text-primary">{formatUiDate(new Date(), "dd MMM, yyyy")}</p>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="today-holiday-name">Holiday name *</Label>
+                  <Input
+                    id="today-holiday-name"
+                    value={todayHolidayName}
+                    onChange={(e) => setTodayHolidayName(e.target.value)}
+                    placeholder="e.g. Republic Day"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  className="bg-primary text-primary-foreground w-full sm:w-auto"
+                  onClick={handleMarkTodayAsHoliday}
+                  disabled={!todayHolidayName.trim()}
+                >
+                  <CalendarIcon className="w-4 h-4 mr-2" />
+                  Mark Today
+                </Button>
               </div>
 
               {/* Or Separator */}
@@ -1183,9 +1271,13 @@ const Attendance = () => {
                   <p className="text-sm font-medium">Mark Multiple Days</p>
                   <p className="text-xs text-muted-foreground">Select multiple dates from calendar</p>
                 </div>
-                <Switch 
-                  checked={isMultipleDayMode} 
-                  onCheckedChange={setIsMultipleDayMode}
+                <Switch
+                  checked={isMultipleDayMode}
+                  onCheckedChange={(checked) => {
+                    setIsMultipleDayMode(checked);
+                    setHolidayNameInput("");
+                    setHolidayGroupNameInput("");
+                  }}
                 />
               </div>
 
@@ -1208,6 +1300,37 @@ const Attendance = () => {
                 )}
               </div>
 
+              {/* Holiday name — required before marking selected dates */}
+              <div className="space-y-2 p-4 border rounded-lg bg-muted/20">
+                {isMultipleDayMode ? (
+                  <>
+                    <Label htmlFor="holiday-group-name">Group name *</Label>
+                    <Input
+                      id="holiday-group-name"
+                      value={holidayGroupNameInput}
+                      onChange={(e) => setHolidayGroupNameInput(e.target.value)}
+                      placeholder="e.g. Diwali Holidays"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This name applies to all selected dates in the group.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Label htmlFor="holiday-day-name">Holiday name *</Label>
+                    <Input
+                      id="holiday-day-name"
+                      value={holidayNameInput}
+                      onChange={(e) => setHolidayNameInput(e.target.value)}
+                      placeholder="e.g. Independence Day"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Name for the single day you selected on the calendar.
+                    </p>
+                  </>
+                )}
+              </div>
+
               {/* Selected Dates Display */}
               {selectedHolidayDates.length > 0 && (
                 <div className="p-3 bg-primary/10 rounded-lg">
@@ -1216,9 +1339,10 @@ const Attendance = () => {
                     {selectedHolidayDates.map((date, idx) => (
                       <Badge key={idx} variant="outline" className="bg-background">
                         {format(date, "dd MMM yyyy")}
-                        <button 
+                        <button
+                          type="button"
                           className="ml-1 hover:text-destructive"
-                          onClick={() => setSelectedHolidayDates(prev => prev.filter((_, i) => i !== idx))}
+                          onClick={() => setSelectedHolidayDates((prev) => prev.filter((_, i) => i !== idx))}
                         >
                           ×
                         </button>
@@ -1230,16 +1354,24 @@ const Attendance = () => {
 
               {/* Action Buttons */}
               <div className="flex justify-end gap-3 pt-4 border-t">
-                <Button variant="outline" onClick={() => {
-                  setIsMarkHolidayOpen(false);
-                  setSelectedHolidayDates([]);
-                }}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsMarkHolidayOpen(false);
+                    resetHolidayForm();
+                  }}
+                >
                   Cancel
                 </Button>
-                <Button 
+                <Button
+                  type="button"
                   className="bg-primary text-primary-foreground"
                   onClick={handleMarkSelectedDatesAsHoliday}
-                  disabled={selectedHolidayDates.length === 0}
+                  disabled={
+                    selectedHolidayDates.length === 0 ||
+                    !(isMultipleDayMode ? holidayGroupNameInput.trim() : holidayNameInput.trim())
+                  }
                 >
                   Mark as Holiday ({selectedHolidayDates.length})
                 </Button>
@@ -1267,22 +1399,25 @@ const Attendance = () => {
                 >
                   <TableHeader>
                     <TableRow className={dataTableClasses.headRow}>
+                      <TableHead>Name</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Day</TableHead>
                       <TableHead className="text-center">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pagedHolidayRows.map((date, idx) => (
-                      <TableRow key={`${date.getTime()}-${idx}`}>
-                        <TableCell className="font-medium">{format(date, "dd MMM yyyy")}</TableCell>
-                        <TableCell className="text-muted-foreground">{getDayName(date)}</TableCell>
+                    {pagedHolidayRows.map((holiday) => (
+                      <TableRow key={holiday.id}>
+                        <TableCell className="font-medium">{holiday.name}</TableCell>
+                        <TableCell>{format(companyHolidayToDate(holiday), "dd MMM yyyy")}</TableCell>
+                        <TableCell className="text-muted-foreground">{getDayName(holiday.date)}</TableCell>
                         <TableCell className="text-center">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
                             className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => handleDeleteHoliday(date)}
+                            onClick={() => handleDeleteHoliday(holiday.id, holiday.name)}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>

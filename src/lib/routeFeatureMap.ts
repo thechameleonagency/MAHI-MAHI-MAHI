@@ -39,6 +39,16 @@ export const ROUTE_VIEW_FEATURE: { prefix: string; feature: Feature }[] = [
   { prefix: "/settings", feature: "settingsProfile" },
 ];
 
+import { isRegisteredAppRoute } from "@/lib/appRouteRegistry";
+
+function pathMatchesRoutePrefix(path: string, prefix: string): boolean {
+  if (path === prefix) return true;
+  if (prefix.endsWith("/")) {
+    return path.startsWith(prefix);
+  }
+  return path.startsWith(`${prefix}/`);
+}
+
 export function featureForPath(pathname: string): Feature | undefined {
   const path = normalizePathname(pathname.split("?")[0].split("#")[0]);
   if ((LEGACY_APP_REDIRECT_PATHS as readonly string[]).includes(path)) {
@@ -47,7 +57,7 @@ export function featureForPath(pathname: string): Feature | undefined {
   if (path === "/") return "dashboard";
   let best: { prefix: string; feature: Feature } | undefined;
   for (const entry of ROUTE_VIEW_FEATURE) {
-    if (path === entry.prefix || path.startsWith(`${entry.prefix}/`)) {
+    if (pathMatchesRoutePrefix(path, entry.prefix)) {
       if (!best || entry.prefix.length > best.prefix.length) {
         best = entry;
       }

@@ -14,7 +14,7 @@ import type {
   INCGiverCompany,
 } from "@/types/finance";
 import type { VendorBill, InventoryItem } from "@/types/inventory";
-import type { SiteChecklistTemplate } from "@/types/templates";
+import type { SiteChecklistTemplate, QuotationTemplate } from "@/types/templates";
 import type { useDataEngineStore } from "./useDataEngineStore";
 import {
   SHOWCASE_SCENARIOS,
@@ -52,6 +52,7 @@ export const GENERATOR_ENTITY_LIMITS = {
   incGiverCompanies: 2,
   subcontractors: 2,
   siteChecklistTemplates: 2,
+  quotationTemplates: 2,
   attendanceRecords: 10,
   loanRepayments: 2,
   toolMovements: 2,
@@ -331,7 +332,8 @@ let bootstrapLoansCreated = 0;
 let bootstrapVendorshipCosCreated = 0;
 let bootstrapIncGiversCreated = 0;
 let bootstrapSubcontractorsCreated = 0;
-let bootstrapTemplatesCreated = 0;
+let bootstrapSiteTemplatesCreated = 0;
+let bootstrapQuotationTemplatesCreated = 0;
 let bootstrapAttendanceCreated = 0;
 let bootstrapLoanRepaymentsCreated = 0;
 let bootstrapToolMovementsCreated = 0;
@@ -363,6 +365,7 @@ function bootstrapStepCount(): number {
     GENERATOR_ENTITY_LIMITS.incGiverCompanies +
     GENERATOR_ENTITY_LIMITS.subcontractors +
     GENERATOR_ENTITY_LIMITS.siteChecklistTemplates +
+    GENERATOR_ENTITY_LIMITS.quotationTemplates +
     GENERATOR_ENTITY_LIMITS.attendanceRecords +
     GENERATOR_ENTITY_LIMITS.loanRepayments +
     GENERATOR_ENTITY_LIMITS.toolMovements
@@ -382,7 +385,8 @@ function bootstrapDoneCount(): number {
     bootstrapVendorshipCosCreated +
     bootstrapIncGiversCreated +
     bootstrapSubcontractorsCreated +
-    bootstrapTemplatesCreated +
+    bootstrapSiteTemplatesCreated +
+    bootstrapQuotationTemplatesCreated +
     bootstrapAttendanceCreated +
     bootstrapLoanRepaymentsCreated +
     bootstrapToolMovementsCreated
@@ -404,7 +408,8 @@ export function resetExhaustiveGeneratorState() {
   bootstrapVendorshipCosCreated = 0;
   bootstrapIncGiversCreated = 0;
   bootstrapSubcontractorsCreated = 0;
-  bootstrapTemplatesCreated = 0;
+  bootstrapSiteTemplatesCreated = 0;
+  bootstrapQuotationTemplatesCreated = 0;
   bootstrapAttendanceCreated = 0;
   bootstrapLoanRepaymentsCreated = 0;
   bootstrapToolMovementsCreated = 0;
@@ -457,7 +462,8 @@ function bootstrapComplete(): boolean {
     bootstrapVendorshipCosCreated >= GENERATOR_ENTITY_LIMITS.vendorshipCompanies &&
     bootstrapIncGiversCreated >= GENERATOR_ENTITY_LIMITS.incGiverCompanies &&
     bootstrapSubcontractorsCreated >= GENERATOR_ENTITY_LIMITS.subcontractors &&
-    bootstrapTemplatesCreated >= GENERATOR_ENTITY_LIMITS.siteChecklistTemplates &&
+    bootstrapSiteTemplatesCreated >= GENERATOR_ENTITY_LIMITS.siteChecklistTemplates &&
+    bootstrapQuotationTemplatesCreated >= GENERATOR_ENTITY_LIMITS.quotationTemplates &&
     bootstrapAttendanceCreated >= GENERATOR_ENTITY_LIMITS.attendanceRecords &&
     bootstrapLoanRepaymentsCreated >= GENERATOR_ENTITY_LIMITS.loanRepayments &&
     bootstrapToolMovementsCreated >= GENERATOR_ENTITY_LIMITS.toolMovements
@@ -483,6 +489,7 @@ async function runScenarioArtifacts(
 
   if (pType !== "VENDORSHIP_ONLY") {
     const siteNumericId = 1000 + flow.scenarioIndex;
+    const siteId = String(siteNumericId);
     const siteChecklist = buildSiteChecklist(inventory, completed);
     ctx().updateProject(projectId, {
       siteChecklist,
@@ -493,10 +500,10 @@ async function runScenarioArtifacts(
       amountInvoiced: completed ? contractAmount : Math.floor(contractAmount * 0.4),
     });
 
-    const existingSites = (ctx().sites as { id: number; projectId: string }[]) ?? [];
+    const existingSites = (ctx().sites as { id: string; projectId: string }[]) ?? [];
     if (!existingSites.some((s) => s.projectId === projectId)) {
       ctx().addSite({
-        id: siteNumericId,
+        id: siteId,
         name: "Main Site",
         projectId,
         projectName: project?.name ?? scenario.label,
@@ -507,18 +514,28 @@ async function runScenarioArtifacts(
     }
 
     const teams = ctx().teams as { id: string }[];
-    ctx().addScheduledInstallation({
+    const scheduledDate = completed
+      ? subDays(new Date(), 5).toISOString().split("T")[0]
+      : addDays(new Date(), 3).toISOString().split("T")[0];
+    const today = dateNow.split("T")[0];
+    const installId = ctx().addScheduledInstallation({
       id: createId("INST"),
       projectId,
-      scheduledDate: completed
-        ? subDays(new Date(), 5).toISOString().split("T")[0]
-        : addDays(new Date(), 3).toISOString().split("T")[0],
+      scheduledDate,
       teamId: teams[flow.scenarioIndex % Math.max(1, teams.length)]?.id,
       status: completed ? "completed" : "scheduled",
       notes: `Showcase install — ${scenario.label}`,
       createdAt: dateNow,
+      ...(scheduledDate < today
+        ? { pastDateOverrideReason: "Showcase completed install backdated for autonomous demo data" }
+        : {}),
     });
-    store.incrementCounter("schedules");
+    if (installId) {
+      store.incrementCounter("schedules");
+      store.addLog("success", `Scheduled installation: ${installId} on ${scheduledDate}`, "entity");
+    } else {
+      store.addLog("warn", `Skipped installation schedule for ${projectId} (validation)`, "entity");
+    }
 
     if (completed) {
       ctx().addSiteVisit({
@@ -568,7 +585,7 @@ async function runScenarioArtifacts(
       await ctx().addTask({
         id: createId("TSK"),
         projectId,
-        siteId: String(siteNumericId),
+        siteId,
         siteName: "Main Site",
         workType: completed ? "Commissioning" : "Installation",
         notes: `Showcase task — ${scenario.label}`,
@@ -798,6 +815,8 @@ async function runPipelineExtra(
   });
 
   if (extra.type === "enquiry") {
+    const isMeetingDemo = extra.id === "enquiry_open_1";
+    const demoMeetingDate = addDays(new Date(), 3).toISOString().slice(0, 10);
     const enquiry: Enquiry = {
       id: createId("ENQ"),
       date: dateNow,
@@ -811,9 +830,11 @@ async function runPipelineExtra(
       requirements: "Pipeline-only enquiry",
       priority: "medium",
       assignedTo: "Sales",
-      status: "new",
+      status: isMeetingDemo ? "meeting_scheduled" : "new",
       source: "walk-in",
       followUpDate: addDays(new Date(), 7).toISOString(),
+      meetingDate: isMeetingDemo ? demoMeetingDate : undefined,
+      meetingNotes: isMeetingDemo ? "Site visit — roof assessment and consumption review." : undefined,
       customerId,
     };
     const res = await ctx().addEnquiry(enquiry);
@@ -1095,9 +1116,9 @@ export async function runExhaustiveIteration(
       return;
     }
 
-    if (bootstrapTemplatesCreated < GENERATOR_ENTITY_LIMITS.siteChecklistTemplates) {
-      store.setActiveFlow("Initializing Site Templates");
-      const idx = bootstrapTemplatesCreated;
+    if (bootstrapSiteTemplatesCreated < GENERATOR_ENTITY_LIMITS.siteChecklistTemplates) {
+      store.setActiveFlow("Initializing Site Checklist Templates");
+      const idx = bootstrapSiteTemplatesCreated;
       const inventory = ctx().inventoryItems as InventoryItem[];
       const template: SiteChecklistTemplate = {
         id: createId("TMPL"),
@@ -1114,8 +1135,44 @@ export async function runExhaustiveIteration(
         capacityKW: idx === 0 ? 5 : 10,
       };
       ctx().addSiteChecklistTemplate(template);
-      bootstrapTemplatesCreated++;
+      bootstrapSiteTemplatesCreated++;
       store.incrementCounter("siteChecklistTemplates");
+      store.addLog("success", `Site checklist template created: ${template.name}`, "bootstrap");
+      return;
+    }
+
+    if (bootstrapQuotationTemplatesCreated < GENERATOR_ENTITY_LIMITS.quotationTemplates) {
+      store.setActiveFlow("Initializing Quotation Templates");
+      const idx = bootstrapQuotationTemplatesCreated;
+      const inventory = ctx().inventoryItems as InventoryItem[];
+      const template: QuotationTemplate = {
+        id: createId("QTPL"),
+        name: idx === 0 ? "5kW Residential Quotation Package" : "10kW Commercial Quotation Package",
+        segment: idx === 0 ? "residential" : "commercial",
+        panelBrand: "Waaree",
+        panelWattage: idx === 0 ? 540 : 550,
+        inverterCapacity: idx === 0 ? "5 kW" : "10 kW",
+        structureType: idx === 0 ? "RCC" : "MS",
+        materialItems: inventory.slice(0, 3).map((item) => ({
+          inventoryItemId: item.id,
+          name: item.name,
+          quantity: 10,
+          unit: item.unit || "pcs",
+        })),
+        services: [
+          {
+            description: "Solar EPC installation",
+            sac: "9954",
+            rate: idx === 0 ? 45000 : 42000,
+            gstRate: 13.8,
+          },
+        ],
+        createdAt: dateNow,
+      };
+      ctx().addQuotationTemplate(template);
+      bootstrapQuotationTemplatesCreated++;
+      store.incrementCounter("quotationTemplates");
+      store.addLog("success", `Quotation template created: ${template.name}`, "bootstrap");
       return;
     }
 

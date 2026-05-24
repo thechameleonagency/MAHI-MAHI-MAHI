@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { format, parseISO } from "date-fns";
+import { format, isValid, parseISO } from "date-fns";
 import { Calendar as CalendarIcon, ExternalLink } from "lucide-react";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { Link } from "react-router-dom";
@@ -30,6 +30,16 @@ import type { DateRange } from "react-day-picker";
 const ALL_SOURCES: CalendarEventSource[] = [
   "task", "installation", "enquiry", "invoice", "vendor-bill", "loan-emi", "site-visit", "milestone",
 ];
+
+function formatCalendarLabel(
+  value: string | Date | undefined,
+  pattern: string,
+  fallback = "—",
+): string {
+  if (!value) return fallback;
+  const date = value instanceof Date ? value : parseISO(value.length === 10 ? `${value}T12:00:00` : value);
+  return isValid(date) ? format(date, pattern) : fallback;
+}
 
 function CalendarEventLine({
   text,
@@ -254,10 +264,10 @@ const CalendarPage = () => {
                   {pickMode === "range"
                     ? (rangeFrom
                         ? rangeTo && rangeTo !== rangeFrom
-                          ? `${format(new Date(rangeFrom), "d MMM")} → ${format(new Date(rangeTo), "d MMM yyyy")}`
-                          : format(new Date(rangeFrom), "EEEE, d MMMM yyyy")
+                          ? `${formatCalendarLabel(rangeFrom, "d MMM")} → ${formatCalendarLabel(rangeTo, "d MMM yyyy")}`
+                          : formatCalendarLabel(rangeFrom, "EEEE, d MMMM yyyy")
                         : "Pick a range")
-                    : (selected ? format(selected, "EEEE, d MMMM yyyy") : "Select a date")}
+                    : (selected ? formatCalendarLabel(selected, "EEEE, d MMMM yyyy") : "Select a date")}
                 </CardTitle>
                 <p className="text-sm text-muted-foreground">
                   {dayEvents.length} event{dayEvents.length === 1 ? "" : "s"} {pickMode === "range" ? "in range" : "on this day"}
@@ -305,7 +315,7 @@ const CalendarPage = () => {
                   .map(([date, items]) => (
                     <section key={date} className="space-y-2">
                       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        {format(parseISO(`${date}T12:00:00`), "EEEE, d MMM yyyy")}
+                        {formatCalendarLabel(`${date}T12:00:00`, "EEEE, d MMM yyyy")}
                       </h3>
                       <ul className="space-y-2">
                         {items.map((ev) => (
@@ -376,7 +386,7 @@ const CalendarPage = () => {
                                   />
                                   {pickMode === "range" && (
                                     <Badge variant="outline" className="text-2xs shrink-0">
-                                      {format(parseISO(`${ev.date}T12:00:00`), "d MMM")}
+                                      {formatCalendarLabel(`${ev.date}T12:00:00`, "d MMM")}
                                     </Badge>
                                   )}
                                 </div>

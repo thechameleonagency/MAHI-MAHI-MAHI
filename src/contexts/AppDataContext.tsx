@@ -14,13 +14,15 @@ import type {
   QuotationVisibilityPreset,
   Enquiry,
   SiteRecord,
+  CompanyHoliday,
   Team,
   ProjectTeamAssignment,
   SolarPackagePreset,
   SettingsTeamMember,
 } from "@/types/project";
 import { DEFAULT_SETTINGS_TEAM_MEMBERS } from "@/types/project";
-import { buildEmptyAppState } from "@/data/appSeedBuilder";
+import { normalizeCompanyHolidays, createCompanyHolidayId } from "@/lib/companyHolidays";
+import { format } from "date-fns";
 import { persistMastersData } from "@/data/mastersSync";
 import { bootstrapSessionAfterReset, bootstrapSessionAfterSeed } from "@/lib/seedSessionBootstrap";
 import { persistEmptyWorkspaceBoot, setWorkspaceMode } from "@/lib/defaultAppBoot";
@@ -284,7 +286,7 @@ export interface AppState {
   
   // Sites and holidays
   sites: SiteRecord[];
-  holidays: Date[];
+  holidays: CompanyHoliday[];
 
   /** Operations: blockages / tickets / per-project timelines (same source as Active Sites + Progress Report). */
   blockages: Blockage[];
@@ -596,8 +598,8 @@ interface AppDataContextType extends AppState {
   ) => Promise<{ ok: boolean; error?: string }>;
   
   // Holidays CRUD
-  addHoliday: (date: Date) => void;
-  removeHoliday: (date: Date) => void;
+  addHoliday: (input: { date: Date; name: string; groupId?: string }) => { ok: boolean; error?: string };
+  removeHoliday: (id: string) => void;
   
   // Owner Investments CRUD
   addOwnerInvestment: (investment: OwnerInvestment) => void;
@@ -1571,8 +1573,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   }, [createAuditEntry]);
   
-  const getProjectById = useCallback((id: string) => {
-    const t = id.trim();
+  const getProjectById = useCallback((id: string | number | null | undefined) => {
+    const t = String(id ?? "").trim();
+    if (!t) return undefined;
     const raw = state.projects.find((p) => p.id === t || p.id.toLowerCase() === t.toLowerCase());
     return raw ? normalizeProject(raw) : undefined;
   }, [state.projects]);
@@ -3899,7 +3902,10 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const getTasksByProjectId = useCallback(
     (projectId: string) =>
-      state.tasks.filter((t) => t.siteId === projectId || t.siteId.startsWith(`${projectId}-`)),
+      state.tasks.filter((t) => {
+        const siteId = String(t.siteId ?? "");
+        return siteId === projectId || siteId.startsWith(`${projectId}-`);
+      }),
     [state.tasks],
   );
 
@@ -4273,14 +4279,38 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
   
   // ============ HOLIDAYS CRUD ============
-  const addHoliday = useCallback((date: Date) => {
-    setState(prev => ({ ...prev, holidays: [...prev.holidays, date] }));
+  const addHoliday = useCallback((input: { date: Date; name: string; groupId?: string }) => {
+    const dateStr = format(input.date, "yyyy-MM-dd");
+    const name = input.name.trim();
+    if (!name) {
+      return { ok: false, error: "Holiday name is required" };
+    }
+
+    let duplicate = false;
+    setState((prev) => {
+      if (prev.holidays.some((h) => h.date === dateStr)) {
+        duplicate = true;
+        return prev;
+      }
+      const entry: CompanyHoliday = {
+        id: createCompanyHolidayId(),
+        date: dateStr,
+        name,
+        groupId: input.groupId?.trim() || undefined,
+      };
+      return { ...prev, holidays: [...prev.holidays, entry] };
+    });
+
+    if (duplicate) {
+      return { ok: false, error: "A holiday is already marked for this date" };
+    }
+    return { ok: true };
   }, []);
-  
-  const removeHoliday = useCallback((date: Date) => {
-    setState(prev => ({
+
+  const removeHoliday = useCallback((id: string) => {
+    setState((prev) => ({
       ...prev,
-      holidays: prev.holidays.filter(h => h.toDateString() !== date.toDateString()),
+      holidays: prev.holidays.filter((h) => h.id !== id),
     }));
   }, []);
   

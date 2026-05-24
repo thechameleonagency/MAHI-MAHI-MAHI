@@ -2,8 +2,10 @@
  * App state baseline and hydration normalization.
  * Business seed data is built separately — see `SEEDING DATA.md`.
  */
+import { normalizeCompanyHolidays } from "@/lib/companyHolidays";
 import { normalizeTools } from "@/lib/normalizeTools";
 import { reconcileAllEnquiryQuotationHistories } from "@/lib/enquiryQuotationHistory";
+import { normalizeEnquiryShape } from "@/lib/enquiryAssignee";
 import { migrateQuotationProjectLink } from "@/lib/quotationProjectLink";
 import { normalizeBankReconciliationStatements } from "@/lib/bankReconciliationStatement";
 import type { AppState } from "@/contexts/AppDataContext";
@@ -125,7 +127,7 @@ export function normalizeAppState(parsed: Partial<AppState> | null | undefined):
     incomes: ensureArray(parsed.incomes),
     payments: ensureArray(parsed.payments),
     enquiries: reconcileAllEnquiryQuotationHistories(
-      ensureArray(parsed.enquiries),
+      ensureArray(parsed.enquiries).map((e) => normalizeEnquiryShape(e)),
       normalizeQuotations(ensureArray(parsed.quotations)),
     ),
     agents: ensureArray(parsed.agents),
@@ -147,7 +149,7 @@ export function normalizeAppState(parsed: Partial<AppState> | null | undefined):
     servicePresets: ensureArray(parsed.servicePresets),
     quotationVisibilityPresets: ensureArray(parsed.quotationVisibilityPresets),
     sites,
-    holidays: ensureArray(parsed.holidays),
+    holidays: normalizeCompanyHolidays(parsed.holidays),
     blockages: ensureArray(parsed.blockages),
     operationalTickets: ensureArray(parsed.operationalTickets),
     projectTimelineByProjectId: ensureRecord(parsed.projectTimelineByProjectId),

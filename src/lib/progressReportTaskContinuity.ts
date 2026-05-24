@@ -149,7 +149,7 @@ function backfillLinkedTaskId(
  */
 export function reconcileProgressReportTaskLinkage(state: AppState): AppState {
   const projectIds = new Set(state.projects.map((p) => p.id));
-  const siteIds = new Set(state.sites.map((s) => s.id));
+  const siteIds = new Set(state.sites.map((s) => String(s.id)));
   const nextTimeline: Record<string, ProjectTimelineStatus> = { ...state.projectTimelineByProjectId };
 
   for (const [projectId, timeline] of Object.entries(nextTimeline)) {
@@ -172,7 +172,7 @@ export function reconcileProgressReportTaskLinkage(state: AppState): AppState {
     if (!projectIds.has(task.projectId)) return task;
     if (task.siteId && !siteIds.has(task.siteId)) {
       const site = state.sites.find((s) => s.projectId === task.projectId);
-      if (site) return { ...task, siteId: site.id, siteName: site.name };
+      if (site) return { ...task, siteId: String(site.id), siteName: site.name };
     }
     return task;
   });
