@@ -1,5 +1,8 @@
 import type { AppState } from "@/contexts/AppDataContext";
-import { canConvertEnquiryOnPipelineWin } from "@/lib/enquiryConversionAtProjectWin";
+import {
+  isOpenEnquiryAwaitingPipelineWinClosure,
+  quotationReadyForEnquiryPipelineWin,
+} from "@/lib/enquiryConversionAtProjectWin";
 import { quotationTriggersEnquiryConverted } from "@/lib/enquiryPipelineContinuity";
 import { enrichCustomerFromEnquiry, resolveCustomerForEnquiryConversion } from "@/lib/convertEnquiryCustomer";
 import { syncEnquiryCustomerIdAfterQuotationApprove } from "@/lib/customerPipelineIdentity";
@@ -41,7 +44,14 @@ export function reconcileEnquiriesConvertedOnProjectLink(state: AppState): AppSt
       continue;
     }
 
-    if (!canConvertEnquiryOnPipelineWin(enquiry.status)) {
+    if (!isOpenEnquiryAwaitingPipelineWinClosure(enquiry.status)) {
+      continue;
+    }
+
+    if (
+      (enquiry.status === "new" || enquiry.status === "meeting_scheduled") &&
+      !quotationReadyForEnquiryPipelineWin(quotation.status)
+    ) {
       continue;
     }
 

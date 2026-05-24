@@ -1,5 +1,5 @@
 import type { AppState } from "@/contexts/AppDataContext";
-import { canConvertEnquiryOnPipelineWin } from "@/lib/enquiryConversionAtProjectWin";
+import { isOpenEnquiryAwaitingPipelineWinClosure } from "@/lib/enquiryConversionAtProjectWin";
 import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
 import type { Enquiry, Quotation } from "@/types/project";
 
@@ -26,7 +26,7 @@ function isStaleOpenEnquiry(enquiry: Enquiry): boolean {
   if (enquiry.status === "converted" || enquiry.status === "lost" || enquiry.status === "quotation_rejected") {
     return false;
   }
-  return canConvertEnquiryOnPipelineWin(enquiry.status);
+  return isOpenEnquiryAwaitingPipelineWinClosure(enquiry.status);
 }
 
 /**
