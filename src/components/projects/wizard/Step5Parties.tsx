@@ -7,7 +7,7 @@ import { Building } from "lucide-react";
 
 export function Step5Parties() {
   const { dealOrigin, counterpartyId, setField } = useWizardStore();
-  const { partners, incGiverCompanies } = useAppData();
+  const { partners, incGiverCompanies, subcontractors } = useAppData();
 
   let counterpartyLabel = "";
   let counterpartyOptions: { id: string; name: string }[] = [];
@@ -20,6 +20,11 @@ export function Step5Parties() {
   } else if (dealOrigin === "INC_TAKEN") {
     counterpartyLabel = "INC giver company";
     counterpartyOptions = incGiverCompanies.map((c) => ({ id: c.id, name: c.name }));
+  } else if (dealOrigin === "OUTSOURCED_INC") {
+    counterpartyLabel = "Installation subcontractor";
+    counterpartyOptions = (subcontractors ?? []).map((s) => ({ id: s.id, name: s.name }));
+  } else {
+    return null;
   }
 
   return (
@@ -37,24 +42,27 @@ export function Step5Parties() {
             <Building className="h-4 w-4" />
             {counterpartyLabel}
           </CardTitle>
-          <CardDescription>Required for {dealOrigin.replace("_", " ")} deals.</CardDescription>
+          <CardDescription>Required for {dealOrigin.replace(/_/g, " ")} deals.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Label>{counterpartyLabel}</Label>
-            <Select value={counterpartyId} onValueChange={(val) => setField("counterpartyId", val)}>
-              <SelectTrigger className="w-full md:w-[400px]">
-                <SelectValue placeholder={`Select ${counterpartyLabel.toLowerCase()}…`} />
-              </SelectTrigger>
-              <SelectContent>
-                {counterpartyOptions.map((opt) => (
-                  <SelectItem key={opt.id} value={opt.id}>
-                    {opt.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <CardContent className="space-y-2">
+          <Label htmlFor="wizard-unified-subcontractor-select">{counterpartyLabel}</Label>
+          <Select value={counterpartyId} onValueChange={(val) => setField("counterpartyId", val)}>
+            <SelectTrigger id="wizard-unified-subcontractor-select" className="w-full md:w-[400px]">
+              <SelectValue placeholder={`Select ${counterpartyLabel.toLowerCase()}…`} />
+            </SelectTrigger>
+            <SelectContent>
+              {counterpartyOptions.map((opt) => (
+                <SelectItem key={opt.id} value={opt.id}>
+                  {opt.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {dealOrigin === "OUTSOURCED_INC" && counterpartyOptions.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No subcontractors configured yet. Add one under Subcontractors before creating this project.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

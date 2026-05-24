@@ -15,7 +15,7 @@ export function Step3Parties() {
     setField 
   } = useWizardStore();
   
-  const { partners, incGiverCompanies, vendorshipCompanies } = useAppData();
+  const { partners, incGiverCompanies, subcontractors } = useAppData();
 
   const handleCustomerChange = (field: keyof typeof endCustomer, value: string) => {
     setField("endCustomer", { ...endCustomer, [field]: value });
@@ -33,10 +33,8 @@ export function Step3Parties() {
     counterpartyLabel = "Select INC Giver";
     counterpartyOptions = incGiverCompanies.map(c => ({ id: c.id, name: c.name }));
   } else if (dealOrigin === "OUTSOURCED_INC") {
-    // In a real app this might be a separate Subcontractor table, but vendorshipCompanies or partners might be used in prototype.
-    // For prototype, we use vendorshipCompanies as subcontractors.
     counterpartyLabel = "Select Subcontractor";
-    counterpartyOptions = vendorshipCompanies.map(c => ({ id: c.id, name: c.name }));
+    counterpartyOptions = (subcontractors ?? []).map((s) => ({ id: s.id, name: s.name }));
   }
 
   return (

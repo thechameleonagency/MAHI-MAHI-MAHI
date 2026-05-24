@@ -7,7 +7,8 @@ import {
   effectivePartnerType,
 } from "@/lib/createProjectWizardLogic";
 import { projectKindConfigSnapshot } from "@/lib/projectNormalize";
-import type { Agent, Customer, INCGiverCompany, Partner, VendorshipCompany } from "@/types/finance";
+import type { Agent, Customer, INCGiverCompany, Partner, Subcontractor, VendorshipCompany } from "@/types/finance";
+import { resolveSubcontractor } from "@/lib/resolveSubcontractor";
 import type { Project, ProjectScopeConfig, Quotation } from "@/types/project";
 import { normalizeWizardState } from "@/lib/normalizeWizardState";
 import type { CreateProjectWizardState } from "@/types/createProjectWizard";
@@ -16,6 +17,7 @@ export interface BuildProjectFromWizardContext {
   generateId: (prefix: string) => string;
   customers: Customer[];
   partners: Partner[];
+  subcontractors: Subcontractor[];
   incGiverCompanies: INCGiverCompany[];
   vendorshipCompanies: VendorshipCompany[];
   agents: Agent[];
@@ -105,7 +107,7 @@ function buildScopeConfig(
       : undefined;
   const subcontractor =
     lead === "OUTSOURCED_INC" && state.selectedSubcontractorId
-      ? ctx.partners.find((p) => p.id === state.selectedSubcontractorId)
+      ? resolveSubcontractor(state.selectedSubcontractorId, ctx)
       : undefined;
 
   if (lead === "OUTSOURCED_INC") {
@@ -194,7 +196,7 @@ function buildIntakePayload(
     ? ctx.partners.find((p) => p.id === state.selectedPartnerId)
     : undefined;
   const subcontractor = state.selectedSubcontractorId
-    ? ctx.partners.find((p) => p.id === state.selectedSubcontractorId)
+    ? resolveSubcontractor(state.selectedSubcontractorId, ctx)
     : undefined;
   const incGiver = state.incGiverCompanyId
     ? ctx.incGiverCompanies.find((c) => c.id === state.incGiverCompanyId)
@@ -281,7 +283,7 @@ export function buildProjectFromWizardState(
     : undefined;
   const subcontractor =
     lead === "OUTSOURCED_INC" && state.selectedSubcontractorId
-      ? ctx.partners.find((p) => p.id === state.selectedSubcontractorId)
+      ? resolveSubcontractor(state.selectedSubcontractorId, ctx)
       : undefined;
 
   const derivedOutsource: Project["outsource"] =

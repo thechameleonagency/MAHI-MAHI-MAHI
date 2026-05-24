@@ -17,7 +17,7 @@ MSS is a **broad, functional prototype** with a real command-bus pipeline (Enqui
 
 **Strongest areas:** Permission matrix + route gating, quotation approval validation, audit/finance aggregates, smart generator nav coverage, tabbed Project Detail by project kind, Need-to-Get derivation from live site checklists.
 
-**Weakest areas:** Materials return flow (dead UI), invoice payment double-write, enquiry/quotation status continuity, project BOQ vs site checklist sync after dispatch, OUTSOURCED_INC wizard missing subcontractor link, legacy `CreateProjectWizard` broken import.
+**Weakest areas:** Materials return flow (dead UI), invoice payment double-write, enquiry/quotation status continuity, project BOQ vs site checklist sync after dispatch, legacy `CreateProjectWizard` broken import.
 
 ---
 
@@ -122,9 +122,10 @@ MSS is a **broad, functional prototype** with a real command-bus pipeline (Enqui
 | Field | Detail |
 |-------|--------|
 | **Module** | Unified project wizard (`src/lib/unifiedProjectWizardFlow.ts`, `src/lib/buildProjectFromUnifiedWizardState.ts`) |
+| **Status** | **FIXED** (2026-05-24) |
 | **Why it's a problem** | `parties` step only for `PARTNER` and `INC_TAKEN` — not `OUTSOURCED_INC`. `buildProjectFromUnifiedWizardState` hardcodes `outsource: null` (~196). Legacy `Step3Parties.tsx` maps vendorship companies as subcontractors (wrong entity). Subcontractors collection exists (`/subcontractors`) but wizard ignores it. |
 | **Impact** | OUTSOURCED_INC journey incomplete at creation; user must manually attach subcontractor on Project Detail outsource tab. Demo generator seeds subcontractors but wizard path doesn't connect. |
-| **Fix** | Add parties step for `OUTSOURCED_INC` selecting from `subcontractors`; set `project.outsource` + `subcontractorPayoutRate` on create. Remove vendorship-as-subcontractor hack in legacy wizard. |
+| **Fix applied** | Added `OUTSOURCED_INC` deal origin with `parties` step selecting from `subcontractors` collection; `subcontractorPayoutRate` on commercials step; unified builder sets `project.outsource` (per-kW rate × capacity) and intake `parties.subcontractor`. Shared `resolveSubcontractor` helper for legacy wizard, attach-outsource flow, `Step3Parties`, `CustomerStep`, and `AttachPartiesStep` (removed vendorship-as-subcontractor hack). Tests added for unified + legacy builders. |
 
 ### 11. Project create does not seed first site — checklist sync delayed
 
@@ -238,8 +239,9 @@ MSS is a **broad, functional prototype** with a real command-bus pipeline (Enqui
 ### 25. Legacy wizard `Step3Parties` uses vendorship companies as subcontractors
 
 | **Module** | `src/components/projects/wizard/Step3Parties.tsx` ~35–39  
+| **Status** | **FIXED** (2026-05-24 — resolved with issue #10)  
 | **Impact** | Wrong entity link if legacy wizard revived; confuses vendorship vs subcontractor modules.  
-| **Fix** | Point to `subcontractors` collection or remove legacy step.
+| **Fix applied** | Step and legacy customer/attach steps now resolve from `subcontractors` collection via `resolveSubcontractor`. |
 
 ### 26. `deleteEnquiry` unguarded and unused
 

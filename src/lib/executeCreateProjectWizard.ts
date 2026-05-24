@@ -5,7 +5,8 @@ import { normalizeWizardState } from "@/lib/normalizeWizardState";
 import { computeIncGivenTotal, effectiveLeadPath } from "@/lib/createProjectWizardLogic";
 import { applyTeamAssignmentToProject } from "@/lib/projectTeamAssignment";
 import { ensureProjectPartnerEconomics } from "@/lib/projectPartnerEconomics";
-import type { Agent, Customer, Expense, INCGiverCompany, Partner, VendorshipCompany } from "@/types/finance";
+import type { Agent, Customer, Expense, INCGiverCompany, Partner, Subcontractor, VendorshipCompany } from "@/types/finance";
+import { resolveSubcontractor } from "@/lib/resolveSubcontractor";
 import type { Project, Quotation } from "@/types/project";
 import type { CreateProjectWizardState } from "@/types/createProjectWizard";
 
@@ -17,6 +18,7 @@ export interface ExecuteCreateProjectWizardDeps {
   state: CreateProjectWizardState;
   customers: Customer[];
   partners: Partner[];
+  subcontractors: Subcontractor[];
   incGiverCompanies: INCGiverCompany[];
   vendorshipCompanies: VendorshipCompany[];
   agents: Agent[];
@@ -94,9 +96,7 @@ function buildDirectExceptionIntake(
       break;
     }
     case "OUTSOURCED_INC": {
-      const sub = deps.partners.find(
-        (p) => p.id === state.selectedSubcontractorId && p.type === "Subcontractor",
-      );
+      const sub = resolveSubcontractor(state.selectedSubcontractorId, deps);
       if (sub) parties.subcontractor = sub.name;
       break;
     }
@@ -306,7 +306,7 @@ export async function executeCreateProjectWizard(
     if (!trim(state.selectedSubcontractorId)) {
       return { ok: false, error: "Select the installation subcontractor." };
     }
-    const sub = deps.partners.find((p) => p.id === state.selectedSubcontractorId);
+    const sub = resolveSubcontractor(state.selectedSubcontractorId, deps);
     const basis = state.outsourceRateBasis ?? "fixed";
     const rate = parsePositive(state.outsourceRateValue);
     if (rate <= 0) {
@@ -409,6 +409,7 @@ export async function executeCreateProjectWizard(
       generateId: deps.generateId,
       customers: deps.customers,
       partners: deps.partners,
+      subcontractors: deps.subcontractors ?? [],
       incGiverCompanies: deps.incGiverCompanies,
       vendorshipCompanies: deps.vendorshipCompanies,
       agents: deps.agents,

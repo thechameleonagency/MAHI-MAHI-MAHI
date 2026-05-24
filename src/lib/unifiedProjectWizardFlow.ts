@@ -30,7 +30,9 @@ export function getVisibleUnifiedWizardSteps(state: UnifiedProjectWizardState): 
   if (!skipVendorshipStep(state)) steps.push("vendorship");
   if (state.dealOrigin === "DIRECT") steps.push("source");
   steps.push("details");
-  if (state.dealOrigin === "PARTNER" || state.dealOrigin === "INC_TAKEN") steps.push("parties");
+  if (state.dealOrigin === "PARTNER" || state.dealOrigin === "INC_TAKEN" || state.dealOrigin === "OUTSOURCED_INC") {
+    steps.push("parties");
+  }
   steps.push("commercials", "review");
   return steps;
 }

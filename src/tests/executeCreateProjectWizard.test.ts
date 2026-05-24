@@ -50,6 +50,7 @@ describe("executeCreateProjectWizard attach_outsourced", () => {
       state,
       customers: [],
       partners: [subcontractor],
+      subcontractors: [],
       incGiverCompanies: [],
       vendorshipCompanies: [],
       agents: [],

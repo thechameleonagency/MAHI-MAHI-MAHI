@@ -8,7 +8,7 @@ export type { CreateProjectWizardState } from "./createProjectWizardLegacy";
 
 // ─── Unified 7-step create project sheet ─────────────────────────────────────
 
-export type DealOrigin = "DIRECT" | "PARTNER" | "INC_TAKEN" | "VENDORSHIP_ONLY";
+export type DealOrigin = "DIRECT" | "PARTNER" | "INC_TAKEN" | "OUTSOURCED_INC" | "VENDORSHIP_ONLY";
 export type PartnerModifier = "PROFIT_SHARE" | "FIXED_RATE";
 /** MSS owns the DISCOM code, a registered code-giver company supplies it, or partner uses their own. */
 export type UnifiedVendorshipOwner = "MSS" | "CODE_GIVER" | "PARTNER_OWNED";
@@ -54,6 +54,8 @@ export interface UnifiedProjectWizardState {
   };
 
   counterpartyId?: string;
+  /** Subcontractor payout rate (₹/kW) for OUTSOURCED_INC deals. */
+  subcontractorPayoutRate?: number;
 
   capacityKw: number;
   projectType: "Residential" | "Commercial" | "Industrial";
@@ -68,7 +70,7 @@ export interface UnifiedProjectWizardState {
   projectName?: string;
 }
 
-const dealOriginEnum = z.enum(["DIRECT", "PARTNER", "INC_TAKEN", "VENDORSHIP_ONLY"]);
+const dealOriginEnum = z.enum(["DIRECT", "PARTNER", "INC_TAKEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"]);
 
 export const Step1Schema = z.object({
   dealOrigin: dealOriginEnum,
@@ -270,11 +272,14 @@ export const Step5Schema = z
     counterpartyId: z.string().optional(),
   })
   .superRefine((data, ctx) => {
-    if (["PARTNER", "INC_TAKEN"].includes(data.dealOrigin) && !data.counterpartyId?.trim()) {
+    if (["PARTNER", "INC_TAKEN", "OUTSOURCED_INC"].includes(data.dealOrigin) && !data.counterpartyId?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["counterpartyId"],
-        message: "Counterparty selection is required.",
+        message:
+          data.dealOrigin === "OUTSOURCED_INC"
+            ? "Select the installation subcontractor."
+            : "Counterparty selection is required.",
       });
     }
   });
@@ -293,6 +298,7 @@ export const Step6Schema = z
     incRateBasis: z.enum(["PER_KW", "PER_SQFT", "FIXED"]).optional(),
     incRateValue: z.number().optional(),
     partnerProvidesGst: z.boolean().optional(),
+    subcontractorPayoutRate: z.number().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.dealOrigin === "VENDORSHIP_ONLY" && !data.paymentType) {
@@ -338,6 +344,15 @@ export const Step6Schema = z
           code: z.ZodIssueCode.custom,
           path: ["incRateValue"],
           message: "Rate value is required.",
+        });
+      }
+    }
+    if (data.dealOrigin === "OUTSOURCED_INC") {
+      if (data.subcontractorPayoutRate === undefined || data.subcontractorPayoutRate <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["subcontractorPayoutRate"],
+          message: "Enter subcontractor payout rate (₹/kW).",
         });
       }
     }

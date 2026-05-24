@@ -36,6 +36,7 @@ export function CreateProjectWizardContainer({
     partners,
     incGiverCompanies,
     vendorshipCompanies,
+    subcontractors,
     enquiries,
     quotations,
     createProjectFromConfirmedQuotation,
@@ -72,6 +73,7 @@ export function CreateProjectWizardContainer({
         const ctx = {
           generateId,
           partners,
+          subcontractors: subcontractors ?? [],
           incGiverCompanies,
           vendorshipCompanies,
           enquiries,
@@ -95,7 +97,7 @@ export function CreateProjectWizardContainer({
 
         const projectId = result.projectId ?? projectDraft.id;
 
-        if (state.vendorshipOwner === "MSS") {
+        if (state.vendorshipOwner === "MSS" && state.dealOrigin !== "OUTSOURCED_INC") {
           const clientInvoice: Invoice = {
             id: generateId("INV"),
             invoiceNumber: `DRAFT-${projectId}-C`,
@@ -148,6 +150,7 @@ export function CreateProjectWizardContainer({
       addInvoice,
       generateId,
       partners,
+      subcontractors,
       incGiverCompanies,
       vendorshipCompanies,
       enquiries,

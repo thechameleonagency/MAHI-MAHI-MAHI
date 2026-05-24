@@ -12,13 +12,16 @@ import { requiresVendorshipFeeInput } from "@/lib/unifiedProjectWizardFlow";
 
 export function Step7Review() {
   const state = useWizardStore();
-  const { partners, incGiverCompanies, vendorshipCompanies } = useAppData();
+  const { partners, incGiverCompanies, vendorshipCompanies, subcontractors } = useAppData();
 
   let counterpartyName = "—";
   if (state.dealOrigin === "PARTNER") {
     counterpartyName = partners.find((p) => p.id === state.counterpartyId)?.name ?? "Partner";
   } else if (state.dealOrigin === "INC_TAKEN") {
     counterpartyName = incGiverCompanies.find((c) => c.id === state.counterpartyId)?.name ?? "INC giver";
+  } else if (state.dealOrigin === "OUTSOURCED_INC") {
+    counterpartyName =
+      (subcontractors ?? []).find((s) => s.id === state.counterpartyId)?.name ?? "Subcontractor";
   }
 
   const codeGiverName =
@@ -79,7 +82,19 @@ export function Step7Review() {
           <CardContent className="text-sm space-y-1">
             <p>{state.capacityKw} kW · {state.projectType}</p>
             <p className="font-semibold text-primary">₹ {state.grossContractValue.toLocaleString()}</p>
-            {counterpartyName !== "—" && <p>Counterparty: {counterpartyName}</p>}
+            {counterpartyName !== "—" && (
+              <p>
+                {state.dealOrigin === "OUTSOURCED_INC" ? "Subcontractor" : "Counterparty"}: {counterpartyName}
+              </p>
+            )}
+            {state.dealOrigin === "OUTSOURCED_INC" && state.subcontractorPayoutRate != null && state.subcontractorPayoutRate > 0 && (
+              <p>
+                Subcontractor payout: ₹ {state.subcontractorPayoutRate.toLocaleString()}/kW
+                {state.capacityKw > 0 && (
+                  <> · est. ₹ {Math.round(state.subcontractorPayoutRate * state.capacityKw).toLocaleString()}</>
+                )}
+              </p>
+            )}
             {state.vendorshipOwner && <p>Vendorship: {vendorshipOwnerLabel(state.vendorshipOwner)}</p>}
           </CardContent>
         </Card>

@@ -32,6 +32,19 @@ describe("unified project wizard flow", () => {
     expect(getVisibleUnifiedWizardSteps(state)).not.toContain("vendorship");
     expect(getVisibleUnifiedWizardSteps(state)).toEqual(["deal", "details", "commercials", "review"]);
   });
+
+  it("includes parties step for OUTSOURCED_INC deals", () => {
+    const state = createInitialUnifiedWizardState({
+      dealOrigin: "OUTSOURCED_INC",
+      vendorshipOwner: "MSS",
+      paymentType: "cash",
+    });
+
+    const steps = getVisibleUnifiedWizardSteps(state);
+    expect(steps).toContain("parties");
+    expect(steps).toContain("vendorship");
+    expect(steps.indexOf("parties")).toBeGreaterThan(steps.indexOf("details"));
+  });
 });
 
 describe("project detail tab visibility by kind", () => {

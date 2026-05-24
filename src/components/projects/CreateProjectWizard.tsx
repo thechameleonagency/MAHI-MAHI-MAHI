@@ -24,7 +24,7 @@ import {
   type CreateProjectWizardState,
   type WizardStep,
 } from "@/types/createProjectWizard";
-import type { Agent, Customer, INCGiverCompany, Loan, Partner, VendorshipCompany } from "@/types/finance";
+import type { Agent, Customer, INCGiverCompany, Loan, Partner, Subcontractor, VendorshipCompany } from "@/types/finance";
 import type { Employee, Project, Quotation } from "@/types/project";
 
 export interface CreateProjectWizardCatalog {
@@ -33,6 +33,7 @@ export interface CreateProjectWizardCatalog {
   quotations?: Quotation[];
   projects?: Project[];
   partners?: Partner[];
+  subcontractors?: Subcontractor[];
   loans?: Loan[];
   vendorshipCompanies?: VendorshipCompany[];
   agents?: Agent[];
@@ -313,6 +314,7 @@ export function CreateProjectWizard({
         projects: catalog?.projects,
         customers: catalog?.customers as Customer[] | undefined,
         partners: catalog?.partners,
+        subcontractors: catalog?.subcontractors,
         incGiverCompanies: catalog?.incGiverCompanies,
         loans: catalog?.loans,
         vendorshipCompanies: catalog?.vendorshipCompanies,

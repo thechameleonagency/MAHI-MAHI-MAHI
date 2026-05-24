@@ -13,7 +13,8 @@ import {
 import { cn } from "@/lib/utils";
 import { effectiveLeadPath, isAttachOutsourcedSource, isLeadPathResolved } from "@/lib/createProjectWizardLogic";
 import { filterActiveCustomers } from "@/lib/customerListFilters";
-import type { Customer, INCGiverCompany, Partner } from "@/types/finance";
+import type { Customer, INCGiverCompany, Partner, Subcontractor } from "@/types/finance";
+import { listSubcontractorSelectOptions } from "@/lib/resolveSubcontractor";
 import type {
   CreateProjectWizardCustomerMode,
   CreateProjectWizardState,
@@ -22,6 +23,7 @@ import type {
 export interface CustomerStepCatalog {
   customers?: Customer[];
   partners?: Partner[];
+  subcontractors?: Subcontractor[];
   incGiverCompanies?: INCGiverCompany[];
 }
 
@@ -43,8 +45,11 @@ function buildSelectableCustomers(
   return active;
 }
 
-function filterSubcontractorPartners(partners: Partner[]): Partner[] {
-  return partners.filter((p) => p.type === "Subcontractor");
+function buildSubcontractorOptions(catalog?: CustomerStepCatalog) {
+  return listSubcontractorSelectOptions({
+    subcontractors: catalog?.subcontractors ?? [],
+    partners: catalog?.partners ?? [],
+  });
 }
 
 function CustomerModeToggle({
@@ -226,10 +231,7 @@ export function CustomerStep({ state, onChange, catalog }: CustomerStepProps) {
     );
   }, [selectableCustomers, customerSearch]);
 
-  const subcontractors = useMemo(
-    () => filterSubcontractorPartners(catalog?.partners ?? []),
-    [catalog?.partners],
-  );
+  const subcontractors = useMemo(() => buildSubcontractorOptions(catalog), [catalog]);
 
   if (isAttachOutsourcedSource(state)) {
     if (!isLeadPathResolved(state)) {
@@ -257,18 +259,18 @@ export function CustomerStep({ state, onChange, catalog }: CustomerStepProps) {
             onValueChange={(value) => onChange({ selectedSubcontractorId: value })}
           >
             <SelectTrigger id="wizard-attach-subcontractor-select" data-testid="wizard-subcontractor-select">
-              <SelectValue placeholder="Select subcontractor partner…" />
+              <SelectValue placeholder="Select subcontractor…" />
             </SelectTrigger>
             <SelectContent>
-              {subcontractors.map((partner) => (
-                <SelectItem key={partner.id} value={partner.id}>
-                  {partner.name}
+              {subcontractors.map((row) => (
+                <SelectItem key={row.id} value={row.id}>
+                  {row.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           {subcontractors.length === 0 && (
-            <p className="text-xs text-muted-foreground">No subcontractor partners are configured yet.</p>
+            <p className="text-xs text-muted-foreground">No subcontractors are configured yet.</p>
           )}
         </div>
       </div>
@@ -388,7 +390,7 @@ export function CustomerStep({ state, onChange, catalog }: CustomerStepProps) {
               onValueChange={(value) => onChange({ selectedSubcontractorId: value })}
             >
               <SelectTrigger id="wizard-subcontractor-select" data-testid="wizard-subcontractor-select">
-                <SelectValue placeholder="Select subcontractor partner…" />
+                <SelectValue placeholder="Select subcontractor…" />
               </SelectTrigger>
               <SelectContent>
                 {subcontractors.map((partner) => (
@@ -399,7 +401,7 @@ export function CustomerStep({ state, onChange, catalog }: CustomerStepProps) {
               </SelectContent>
             </Select>
             {subcontractors.length === 0 && (
-              <p className="text-xs text-muted-foreground">No subcontractor partners are configured yet.</p>
+              <p className="text-xs text-muted-foreground">No subcontractors are configured yet.</p>
             )}
           </div>
         </div>

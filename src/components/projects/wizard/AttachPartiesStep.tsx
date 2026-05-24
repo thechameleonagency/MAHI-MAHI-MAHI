@@ -10,13 +10,15 @@ import {
 import { formatINR } from "@/lib/formatCurrency";
 import { filterOpenWizardProjects } from "@/lib/createProjectWizardPrefill";
 import { SearchableEntityList } from "@/components/projects/wizard/SourceStep";
-import type { Partner } from "@/types/finance";
+import { listSubcontractorSelectOptions } from "@/lib/resolveSubcontractor";
+import type { Partner, Subcontractor } from "@/types/finance";
 import type { Project } from "@/types/project";
 import type { CreateProjectWizardState } from "@/types/createProjectWizard";
 
 export interface AttachPartiesStepCatalog {
   projects?: Project[];
   partners?: Partner[];
+  subcontractors?: Subcontractor[];
 }
 
 export interface AttachPartiesStepProps {
@@ -25,8 +27,11 @@ export interface AttachPartiesStepProps {
   catalog?: AttachPartiesStepCatalog;
 }
 
-function filterSubcontractorPartners(partners: Partner[]): Partner[] {
-  return partners.filter((p) => p.type === "Subcontractor");
+function buildSubcontractorOptions(catalog?: AttachPartiesStepCatalog) {
+  return listSubcontractorSelectOptions({
+    subcontractors: catalog?.subcontractors ?? [],
+    partners: catalog?.partners ?? [],
+  });
 }
 
 export function AttachPartiesStep({ state, onChange, catalog }: AttachPartiesStepProps) {
@@ -34,10 +39,7 @@ export function AttachPartiesStep({ state, onChange, catalog }: AttachPartiesSte
     () => filterOpenWizardProjects(catalog?.projects ?? []),
     [catalog?.projects],
   );
-  const subcontractors = useMemo(
-    () => filterSubcontractorPartners(catalog?.partners ?? []),
-    [catalog?.partners],
-  );
+  const subcontractors = useMemo(() => buildSubcontractorOptions(catalog), [catalog]);
   const attachTarget = openProjects.find((p) => p.id === state.attachToProjectId);
 
   return (
@@ -102,15 +104,15 @@ export function AttachPartiesStep({ state, onChange, catalog }: AttachPartiesSte
               <SelectValue placeholder="Select subcontractor partner…" />
             </SelectTrigger>
             <SelectContent>
-              {subcontractors.map((partner) => (
-                <SelectItem key={partner.id} value={partner.id}>
-                  {partner.name}
+              {subcontractors.map((row) => (
+                <SelectItem key={row.id} value={row.id}>
+                  {row.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           {subcontractors.length === 0 && (
-            <p className="text-xs text-muted-foreground">No subcontractor partners are configured yet.</p>
+            <p className="text-xs text-muted-foreground">No subcontractors are configured yet.</p>
           )}
         </div>
       </div>

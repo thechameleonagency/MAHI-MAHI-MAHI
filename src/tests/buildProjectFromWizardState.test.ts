@@ -9,6 +9,7 @@ const baseCtx = {
   generateId,
   customers: [] as Customer[],
   partners: [] as Partner[],
+  subcontractors: [],
   incGiverCompanies: [{ id: "INC-1", name: "Sunrise Developers", address: "" }],
   vendorshipCompanies: [{ id: "V-1", name: "Green Code Co", address: "" }],
   agents: [],
@@ -91,5 +92,45 @@ describe("buildProjectFromWizardState", () => {
     expect(result.project.projectKind).toBe("SOLO_EPC");
     expect(result.project.quotationId).toBe("Q-100");
     expect(result.quotationId).toBe("Q-100");
+  });
+
+  it("builds OUTSOURCED_INC with subcontractor from subcontractors collection", () => {
+    const state = createInitialCreateProjectWizardState({
+      source: "new",
+      leadPath: "OUTSOURCED_INC",
+      selectedSubcontractorId: "SUB-1",
+      projectName: "Outsource rooftop",
+      capacity: "6",
+      contractAmount: 180000,
+      paymentType: "cash",
+      internalCostEstimate: 120000,
+      kNumber: "K-456",
+    });
+
+    const result = buildProjectFromWizardState(state, {
+      ...baseCtx,
+      subcontractors: [
+        {
+          id: "SUB-1",
+          name: "Field Install Co",
+          phone: "9999999999",
+          defaultRatePerKw: 2500,
+          createdAt: "2026-01-01",
+        },
+      ],
+    });
+
+    expect(result.project.projectKind).toBe("OUTSOURCED_INC");
+    expect(result.project.outsource).toEqual(
+      expect.objectContaining({
+        partyId: "SUB-1",
+        partyName: "Field Install Co",
+        rateBasis: "fixed",
+        rateValue: 180000,
+        total: 180000,
+      }),
+    );
+    expect(result.project.scope?.installationBy).toBe("Subcontractor");
+    expect(result.intake.parties.subcontractor).toBe("Field Install Co");
   });
 });

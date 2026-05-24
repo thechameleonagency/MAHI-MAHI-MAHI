@@ -110,6 +110,7 @@ export function UnifiedProjectWizard({
     incRateBasis,
     incRateValue,
     partnerProvidesGst,
+    subcontractorPayoutRate,
     projectName,
   } = store;
 
@@ -136,6 +137,7 @@ export function UnifiedProjectWizard({
       incRateBasis,
       incRateValue,
       partnerProvidesGst,
+      subcontractorPayoutRate,
       projectName,
     }),
     [
@@ -160,6 +162,7 @@ export function UnifiedProjectWizard({
       incRateBasis,
       incRateValue,
       partnerProvidesGst,
+      subcontractorPayoutRate,
       projectName,
     ],
   );
