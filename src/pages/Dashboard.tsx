@@ -9,6 +9,7 @@ import {
   CreditCard,
   FileText,
   AlertCircle,
+  PauseCircle,
   Building2,
   ExternalLink,
   ClipboardList,
@@ -29,6 +30,7 @@ import { DashboardActiveSiteRow } from "@/components/dashboard/DashboardActiveSi
 import { DashboardLowStockRow } from "@/components/dashboard/DashboardLowStockRow";
 import { DashboardEmployeeCard } from "@/components/dashboard/DashboardEmployeeCard";
 import { DashboardBlockageRow } from "@/components/dashboard/DashboardBlockageRow";
+import { DashboardOpsBlockageRow } from "@/components/dashboard/DashboardOpsBlockageRow";
 import { Badge } from "@/components/ui/badge";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -242,6 +244,21 @@ const Dashboard = () => {
     [blockages],
   );
 
+  const projectsOnHoldList = useMemo(
+    () => scopedProjects.filter((p) => isProjectLifecycleOnHold(p)),
+    [scopedProjects],
+  );
+
+  const opsBlockageProjectCount = useMemo(
+    () => new Set(activeOpsBlockages.map((b) => b.projectId)).size,
+    [activeOpsBlockages],
+  );
+
+  const projectNameById = useMemo(
+    () => new Map(scopedProjects.map((p) => [p.id, p.name])),
+    [scopedProjects],
+  );
+
   const stats = useMemo(() => {
     const totalRevenue = getRevenueCash(payments);
     const cashSplit = partitionCashRevenueByBillKind(payments, invoices, saleBills);
@@ -264,7 +281,7 @@ const Dashboard = () => {
       (q) => q.status === "draft" || q.status === "sent",
     );
 
-    const activeBlockages = scopedProjects.filter((p) => isProjectLifecycleOnHold(p)).length;
+    const activeBlockages = projectsOnHoldList.length;
 
     const activeLoansList = loans.filter((l) => l.status === "Active");
     const upcomingEmiAmount = activeLoansList.reduce((sum, l) => sum + l.emiAmount, 0);
@@ -286,6 +303,7 @@ const Dashboard = () => {
     };
   }, [
     scopedProjects,
+    projectsOnHoldList,
     employees,
     invoices,
     saleBills,
@@ -528,8 +546,24 @@ const Dashboard = () => {
         stats.openOpsBlockagesCount > 0 ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground",
         "shadow-sm",
       ),
-      hint: `${stats.activeBlockages} projects on hold`,
+      hint:
+        stats.openOpsBlockagesCount > 0
+          ? `${opsBlockageProjectCount} project${opsBlockageProjectCount === 1 ? "" : "s"} affected`
+          : "Timeline clear",
       hintTone: stats.openOpsBlockagesCount > 0 ? "negative" : "positive",
+    },
+    {
+      id: "projectsOnHold",
+      metric: "projectsOnHold",
+      title: "Projects on hold",
+      value: String(stats.activeBlockages),
+      icon: PauseCircle,
+      iconClass: cn(
+        stats.activeBlockages > 0 ? "bg-warning text-white shadow-sm" : "bg-primary text-primary-foreground",
+        "shadow-sm",
+      ),
+      hint: "Managerial hold",
+      hintTone: stats.activeBlockages > 0 ? "negative" : "positive",
     },
   ];
 
@@ -723,7 +757,15 @@ const Dashboard = () => {
             ...card,
             details: activeOpsBlockages.slice(0, 3).map((b) => ({
               id: b.id,
-              text: `${b.title} · ${b.projectId}`,
+              text: `${b.title} · ${projectNameById.get(b.projectId) ?? b.projectId}`,
+            })),
+          };
+        case "projectsOnHold":
+          return {
+            ...card,
+            details: projectsOnHoldList.slice(0, 3).map((p) => ({
+              id: p.id,
+              text: `${p.name} · ${p.client}`,
             })),
           };
         default:
@@ -743,6 +785,8 @@ const Dashboard = () => {
     needToGetRows,
     lowStockItems,
     activeOpsBlockages,
+    projectsOnHoldList,
+    projectNameById,
     customers,
     loanRepayments,
     projects,
@@ -1675,40 +1719,70 @@ const Dashboard = () => {
         </AppSheetContent>
       </Sheet>
 
-      {/* On hold */}
+      {/* Ops blockages */}
       <Sheet open={activeModal === "blockages"} onOpenChange={() => setActiveModal(null)}>
         <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-destructive" aria-hidden />
-              Projects on hold
+              Ops blockages
             </SheetTitle>
           </SheetHeader>
-          {stats.openOpsBlockagesCount > 0 && (
-            <p className="text-sm text-muted-foreground">
-              Also <span className="font-medium text-foreground">{stats.openOpsBlockagesCount}</span> operational blockages on the
-              timeline — open Active sites to resolve.
-            </p>
-          )}
+          <p className="text-sm text-muted-foreground">
+            Active timeline blockages on ongoing projects. Resolve them from Active sites.
+          </p>
           <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
-            {scopedProjects
-              .filter((p) => p.status === "On Hold")
-              .slice(0, 12)
-              .map((project) => (
-                <DashboardBlockageRow key={project.id} project={project} />
-              ))}
-            {stats.activeBlockages === 0 && (
+            {activeOpsBlockages.slice(0, 12).map((blockage) => (
+              <DashboardOpsBlockageRow
+                key={blockage.id}
+                blockage={blockage}
+                projectName={projectNameById.get(blockage.projectId)}
+              />
+            ))}
+            {activeOpsBlockages.length === 0 && (
               <ListEmptyState
                 density="compact"
                 icon={AlertCircle}
-                title="Nothing on managerial hold"
-                description="Projects marked On Hold will appear here."
+                title="No active blockages"
+                description="Timeline blockages will appear here when logged on Active sites."
               />
             )}
           </div>
           <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("blockages")}>
             <ExternalLink className="mr-2 h-4 w-4" />
             {getDashboardKpiListLabel("blockages")}
+          </Button>
+        </AppSheetContent>
+      </Sheet>
+
+      {/* Projects on managerial hold */}
+      <Sheet open={activeModal === "projectsOnHold"} onOpenChange={() => setActiveModal(null)}>
+        <AppSheetContent layout="scroll" size="xl">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <PauseCircle className="h-5 w-5 text-warning" aria-hidden />
+              Projects on hold
+            </SheetTitle>
+          </SheetHeader>
+          <p className="text-sm text-muted-foreground">
+            Projects paused at the managerial lifecycle stage until released back to execution.
+          </p>
+          <div className="max-h-[400px] space-y-2 overflow-y-auto py-4">
+            {projectsOnHoldList.slice(0, 12).map((project) => (
+              <DashboardBlockageRow key={project.id} project={project} />
+            ))}
+            {projectsOnHoldList.length === 0 && (
+              <ListEmptyState
+                density="compact"
+                icon={PauseCircle}
+                title="Nothing on managerial hold"
+                description="Projects marked On Hold will appear here."
+              />
+            )}
+          </div>
+          <Button className="w-full rounded-lg" onClick={() => navigateToKpiList("projectsOnHold")}>
+            <ExternalLink className="mr-2 h-4 w-4" />
+            {getDashboardKpiListLabel("projectsOnHold")}
           </Button>
         </AppSheetContent>
       </Sheet>

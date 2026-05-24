@@ -8,6 +8,7 @@ export type DashboardMetricKey =
   | "overdueTasks"
   | "overdueFollowUps"
   | "openBlockages"
+  | "projectsOnHold"
   | "receivables"
   | "lowStockMaterials"
   | "procurementGaps"
@@ -30,6 +31,7 @@ export class RoleDashboardService {
       "activeSites",
       "overdueTasks",
       "openBlockages",
+      "projectsOnHold",
       "receivables",
       "lowStockMaterials",
       "procurementGaps",

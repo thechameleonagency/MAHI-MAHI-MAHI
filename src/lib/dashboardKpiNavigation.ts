@@ -14,6 +14,7 @@ export type DashboardKpiCardId =
   | "stock"
   | "emis"
   | "blockages"
+  | "projectsOnHold"
   | "revenue"
   | "employees";
 
@@ -28,7 +29,8 @@ const LIST_PATHS: Record<DashboardKpiCardId, string> = {
   needToGet: "/inventory/materials",
   stock: "/inventory/materials?stock=low",
   emis: "/loans?status=Active&emi=due7d",
-  blockages: "/projects?status=On%20Hold",
+  blockages: "/active-sites",
+  projectsOnHold: "/projects?status=On%20Hold",
   revenue: "/finance",
   employees: "/employees",
 };
@@ -63,6 +65,8 @@ export function getDashboardKpiListLabel(cardId: string): string {
     case "emis":
       return "EMIs due soon";
     case "blockages":
+      return "Active sites";
+    case "projectsOnHold":
       return "Projects on hold";
     case "revenue":
       return "Finance";
