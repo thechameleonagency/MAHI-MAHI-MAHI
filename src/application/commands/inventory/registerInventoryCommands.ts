@@ -5,6 +5,7 @@ import type { PermissionService } from "@/application/services/PermissionService
 import { assertCommandPermission } from "@/application/commands/commandPermission";
 import type { AuditService } from "@/application/services/AuditService";
 import { InventoryMovementService, type MovementType } from "@/application/services/InventoryMovementService";
+import { applyProjectSiteChecklistMaterialMovement } from "@/lib/siteChecklistNeedToGetSync";
 import type { Project, InventoryMovementRecord } from "@/types/project";
 
 export type WarehouseOnlyMovementType = "PurchaseIn" | "ScrapWarehouse";
@@ -232,6 +233,14 @@ export const registerInventoryCommands = (
         materialsSent: materialsSent.filter((entry) => entry.quantity > 0),
         siteMaterialLedger: nextLedgers,
         executionLineItems: execLines.length ? execLines : project.executionLineItems,
+        siteChecklist:
+          applyProjectSiteChecklistMaterialMovement(
+            project.siteChecklist,
+            inventoryItem,
+            movementType,
+            quantity,
+            baselineLineId,
+          ) ?? project.siteChecklist,
         materialMovementDedupeIds: dedupeKey
           ? [...(project.materialMovementDedupeIds ?? []), dedupeKey].slice(-200)
           : project.materialMovementDedupeIds,

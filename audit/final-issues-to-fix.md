@@ -112,9 +112,10 @@ MSS is a **broad, functional prototype** with a real command-bus pipeline (Enqui
 | Field | Detail |
 |-------|--------|
 | **Module** | Project Detail Materials tab vs Active Sites / Need-to-Get (`AppDataContext.dispatchSiteMaterial` ~4154+, `NeedToGetService`, `MaterialsSentTab`) |
+| **Status** | **FIXED** (2026-05-24) |
 | **Why it's a problem** | `dispatchSiteMaterial` updates `site.checklistItems` + readiness but **not** `project.siteChecklist[].qtySent`. Materials tab reads project BOQ; Need-to-Get reads site lines. `findStaleSiteChecklistNeedToGetDrift` exists but is **never called**. |
 | **Impact** | After dispatch, Materials tab, Need-to-Get, and site view show different quantities. Ops team loses single source of truth. |
-| **Fix** | On dispatch, sync qtySent on matching `project.siteChecklist` line; call drift detector on hydrate or show admin warning banner when drift detected. |
+| **Fix applied** | Material movements now bump `project.siteChecklist` qtySent/returned/consumed; dispatch passes `baselineLineId` and syncs sites from BOQ; hydrate runs `reconcileSiteChecklistNeedToGetState`; admin drift banner on Project Detail Materials tab. |
 
 ### 10. OUTSOURCED_INC project wizard never links subcontractor entity
 

@@ -44,7 +44,10 @@ import { reconcileProjectTimelineDiscomChecks } from "@/lib/progressReportDiscom
 import { reconcileDeletionRequests } from "@/lib/deletionRequestContinuity";
 import { reconcileQuotationShareDetails } from "@/lib/quotationShareContinuity";
 import { reconcileProjectsLifecycleVocabulary } from "@/lib/projectListFilters";
-import { syncSitesChecklistFromProjects } from "@/lib/siteChecklistNeedToGetSync";
+import {
+  reconcileSiteChecklistNeedToGetState,
+  syncSitesChecklistFromProjects,
+} from "@/lib/siteChecklistNeedToGetSync";
 import { sanitizeBillingDocuments } from "@/lib/sanitizeBillingDocuments";
 import type { AppState } from "@/contexts/AppDataContext";
 
@@ -143,19 +146,22 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
     loans: reconcileLoansOutstanding(withBilling.loans, withBilling.loanRepayments),
   };
 
-  const withSites = {
+  const withSites = reconcileSiteChecklistNeedToGetState(
+    withCost.projects,
+    withCost.sites,
+    withCost.inventoryItems,
+  );
+
+  const withSyncedSites = {
     ...withCost,
     customers: reconcileCustomersAutoArchive({
       customers: withCost.customers,
-      projects: withCost.projects,
+      projects: withSites.projects,
       quotations: withCost.quotations,
       enquiries: withCost.enquiries,
     }),
-    sites: syncSitesChecklistFromProjects(
-      withCost.projects,
-      withCost.sites,
-      withCost.inventoryItems,
-    ),
+    projects: withSites.projects,
+    sites: withSites.sites,
   };
 
   return reconcileProjectsLifecycleVocabulary(
@@ -171,7 +177,7 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
                       reconcileQuotationSalesOwnerState(
                         reconcileProjectActorScopeSeed(
                           reconcileVendorBillInventoryReceipt(
-                            reconcileVendorPaymentVouchers(reconcileVendorBillVouchers(withSites)),
+                            reconcileVendorPaymentVouchers(reconcileVendorBillVouchers(withSyncedSites)),
                           ),
                         ),
                       ),

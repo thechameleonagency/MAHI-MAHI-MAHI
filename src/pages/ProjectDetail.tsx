@@ -35,6 +35,8 @@ import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { DirectExceptionProjectBanner } from "@/components/projects/DirectExceptionProjectBanner";
+import { SiteChecklistDriftBanner } from "@/components/projects/SiteChecklistDriftBanner";
+import { findStaleSiteChecklistNeedToGetDrift } from "@/lib/siteChecklistNeedToGetSync";
 import { projectDirectExceptionReason } from "@/lib/projectDirectException";
 import {
   projectRequiresClientInvoiceForCompletion,
@@ -369,6 +371,12 @@ const ProjectDetail = () => {
   const clientPayments = id ? getClientPaymentRecordsByProject(id) : [];
   const projectFieldTasks = useMemo(() => (id ? getTasksByProjectId(id) : []), [getTasksByProjectId, id]);
   const projectSites = useMemo(() => (id ? getSitesByProjectId(id) : []), [id, getSitesByProjectId]);
+  const hasSiteChecklistDrift = useMemo(() => {
+    if (!project?.id || !canDo("project:update_commercial")) return false;
+    return findStaleSiteChecklistNeedToGetDrift(_projects, sites, globalInvItems).some(
+      (row) => row.projectId === project.id,
+    );
+  }, [_projects, canDo, globalInvItems, project?.id, sites]);
 
   // Categorize expenses
   const projExpenses = getExpensesByProject(project?.id ?? "");
@@ -1703,6 +1711,7 @@ const ProjectDetail = () => {
 
           {workTabs.some((t) => t.value === "materials-sent") && (
             <TabsContent value="materials-sent" className="mt-0 space-y-4">
+              {hasSiteChecklistDrift ? <SiteChecklistDriftBanner /> : null}
               {forbidMaterialDispatch ? (
             <Card><CardContent className="py-8 text-sm text-muted-foreground">Material dispatch is disabled for this project kind.</CardContent></Card>
           ) : (

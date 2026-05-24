@@ -78,7 +78,10 @@ import {
   canReverseToolMovement,
 } from "@/lib/inventoryMovementReversalPolicy";
 import { syncProjectsSiteReadinessFromChecklist } from "@/lib/siteReadinessFromChecklist";
-import { syncSitesChecklistFromProjects } from "@/lib/siteChecklistNeedToGetSync";
+import {
+  applyProjectSiteChecklistDispatch,
+  syncSitesChecklistFromProjects,
+} from "@/lib/siteChecklistNeedToGetSync";
 import {
   type LoanRepaymentCashLinkInput,
   resolveLoanRepaymentCashLink,
@@ -1469,10 +1472,24 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
                 : { ...r, qty: nextQty };
             });
           }
+          const projects = (repositories.projectRepository.getAll() as Project[]).map(normalizeProject);
+          const inventoryItems = repositories.inventoryItemRepository.getAll() as InventoryItem[];
+          const sites = syncSitesChecklistFromProjects(
+            projects,
+            prev.sites,
+            inventoryItems,
+            [input.projectId],
+          );
+          const projectsWithReadiness = syncProjectsSiteReadinessFromChecklist(
+            projects,
+            sites,
+            [input.projectId],
+          );
           return {
             ...prev,
-            projects: (repositories.projectRepository.getAll() as Project[]).map(normalizeProject),
-            inventoryItems: repositories.inventoryItemRepository.getAll() as InventoryItem[],
+            projects: projectsWithReadiness,
+            sites,
+            inventoryItems,
             auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
             materialReservations: nextReservations,
           };
@@ -4204,33 +4221,34 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             error: `Insufficient stock for ${invRow?.name ?? "item"}: only ${available} unit(s) available, ${qty} required.`,
           } as const;
         }
-        // Use the robust material movement command for deduction and audit
         const moveRes = await recordProjectMaterialMovement({
           projectId,
           itemId: invId,
           movementType: "IssueToSite",
           quantity: qty,
+          baselineLineId: checklistLineId,
         });
 
         if (!moveRes.ok) {
           return { ok: false, error: moveRes.error || "Failed to deduct inventory" } as const;
         }
+
+        return { ok: true } as const;
       }
 
-      // Update Site Checklist Status + E5: derive siteReadiness when all lines dispatched
       setState((prev) => {
-        const sites = prev.sites.map((s) => {
-          if (s.projectId === projectId && s.id === siteNumericId) {
-            return {
-              ...s,
-              checklistItems: s.checklistItems?.map((i) =>
-                i.id === checklistLineId ? { ...i, status: "dispatched" as const } : i,
-              ),
-            };
-          }
-          return s;
-        });
-        const projects = syncProjectsSiteReadinessFromChecklist(prev.projects, sites, [projectId]);
+        let projects = prev.projects.map((project) =>
+          project.id === projectId
+            ? applyProjectSiteChecklistDispatch(project, checklistLineId, qty)
+            : project,
+        );
+        const sites = syncSitesChecklistFromProjects(
+          projects,
+          prev.sites,
+          prev.inventoryItems,
+          [projectId],
+        );
+        projects = syncProjectsSiteReadinessFromChecklist(projects, sites, [projectId]);
         return { ...prev, sites, projects };
       });
 
