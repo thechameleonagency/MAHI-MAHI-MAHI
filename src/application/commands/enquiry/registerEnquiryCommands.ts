@@ -2,6 +2,12 @@ import type { CommandBus } from "@/application/commands/CommandBus";
 import type { AppRepositoryContext } from "@/infrastructure/repositories/contracts";
 import { canTransitionEnquiryStatus, type EnquiryStatus } from "@/domain/stateMachines/enquiryStateMachine";
 import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
+import {
+  ENQUIRY_SEND_QUOTATION_VALIDATION_MESSAGE,
+  hasEnquirySentQuotationPipeline,
+  pickQuotationToSendOnEnquiryMark,
+} from "@/lib/enquirySendQuotation";
+import { TRANSITION_QUOTATION_STATUS_COMMAND } from "@/application/commands/quotation/registerQuotationCommands";
 import type { PermissionService } from "@/application/services/PermissionService";
 import { assertCommandPermission } from "@/application/commands/commandPermission";
 import type { AuditService } from "@/application/services/AuditService";
@@ -128,7 +134,7 @@ export const registerEnquiryCommands = (
 
   commandBus.register<Command<UpdateEnquiryStatusPayload>, { enquiryId: string; nextStatus: EnquiryStatus }>(
     UPDATE_ENQUIRY_STATUS_COMMAND,
-    (command) => {
+    async (command) => {
       assertCommandPermission(permissionService, command, "enquiry:create");
 
       const enquiry = repositories.enquiryRepository.getById(command.payload.enquiryId);
@@ -148,15 +154,40 @@ export const registerEnquiryCommands = (
         };
       }
 
+      const allQuotations = repositories.quotationRepository.getAll();
+
       if (command.payload.nextStatus === "quotation_sent") {
         const hasLinked =
           getEnquiryQuotationIds(enquiry).some((id) => repositories.quotationRepository.getById(id)) ||
-          repositories.quotationRepository.getAll().some((q) => q.enquiryId === enquiry.id);
+          allQuotations.some((q) => q.enquiryId === enquiry.id);
         if (!hasLinked) {
           return {
             ok: false,
             errorCode: "ENQUIRY_MISSING_QUOTATION",
             message: "Create and link a quotation before marking enquiry as Quotation Sent",
+          };
+        }
+
+        const toSend = pickQuotationToSendOnEnquiryMark(enquiry, allQuotations);
+        if (toSend) {
+          const sendResult = await commandBus.execute({
+            type: TRANSITION_QUOTATION_STATUS_COMMAND,
+            actorUserId: command.actorUserId,
+            actorRole: command.actorRole,
+            payload: { quotationId: toSend.id, nextStatus: "sent" },
+          });
+          if (!sendResult.ok) {
+            return {
+              ok: false,
+              errorCode: sendResult.errorCode ?? "QUOTATION_SEND_FAILED",
+              message: sendResult.message ?? ENQUIRY_SEND_QUOTATION_VALIDATION_MESSAGE,
+            };
+          }
+        } else if (!hasEnquirySentQuotationPipeline(enquiry, allQuotations)) {
+          return {
+            ok: false,
+            errorCode: "QUOTATION_SEND_REQUIRED",
+            message: ENQUIRY_SEND_QUOTATION_VALIDATION_MESSAGE,
           };
         }
       }

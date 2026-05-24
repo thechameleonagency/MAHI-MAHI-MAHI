@@ -814,7 +814,7 @@ const Dashboard = () => {
       showCommandErrorToast("Could not update", result.error, "Could not update enquiry status.");
       return;
     }
-    toast({ title: "Marked quotation sent" });
+    toast({ title: "Quotation sent", description: "Enquiry and linked quotation are marked sent." });
   };
 
   const handleDashboardConvertEnquiry = async (enquiry: import("@/types/project").Enquiry) => {

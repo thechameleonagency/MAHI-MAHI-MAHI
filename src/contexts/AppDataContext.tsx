@@ -213,6 +213,11 @@ import {
 import { validateMaterialDamageForm } from "@/lib/materialDamageValidation";
 import { sanitizePhotoUrlList } from "@/lib/photoUrlLines";
 import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
+import {
+  ENQUIRY_SEND_QUOTATION_VALIDATION_MESSAGE,
+  hasEnquirySentQuotationPipeline,
+  pickQuotationToSendOnEnquiryMark,
+} from "@/lib/enquirySendQuotation";
 import { normalizeEnquiryAssignmentPatch, normalizeEnquiryRecord } from "@/lib/enquiryAssignee";
 import { setEnquiryCommandTeamMembers } from "@/lib/enquiryCommandTeamMembers";
 import {
@@ -3610,6 +3615,22 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
             error: "Create and link a quotation before marking enquiry as Quotation Sent",
           };
         }
+
+        const toSend = pickQuotationToSendOnEnquiryMark(enquiry, state.quotations);
+        if (toSend) {
+          const sendResult = await transitionQuotationStatus(toSend.id, "sent");
+          if (!sendResult.ok) {
+            return {
+              ok: false,
+              error: sendResult.error ?? ENQUIRY_SEND_QUOTATION_VALIDATION_MESSAGE,
+            };
+          }
+        } else if (!hasEnquirySentQuotationPipeline(enquiry, state.quotations)) {
+          return {
+            ok: false,
+            error: ENQUIRY_SEND_QUOTATION_VALIDATION_MESSAGE,
+          };
+        }
       }
 
       try {
@@ -3632,6 +3653,9 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         setState((prev) => ({
           ...prev,
           enquiries: prev.enquiries.map((e) => (e.id === id ? (updated as Enquiry) : e)),
+          ...(nextStatus === "quotation_sent"
+            ? { quotations: repositories.quotationRepository.getAll() as Quotation[] }
+            : {}),
           auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
         }));
 
@@ -3641,7 +3665,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         return { ok: false, error: message };
       }
     },
-    [actorRole, permissionService, repositories, roleMatrixOverride, runCommand, state.enquiries, state.quotations],
+    [actorRole, permissionService, repositories, roleMatrixOverride, runCommand, state.enquiries, state.quotations, transitionQuotationStatus],
   );
 
   const convertEnquiryToCustomer = useCallback(

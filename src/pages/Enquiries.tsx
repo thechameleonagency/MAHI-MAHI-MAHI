@@ -792,7 +792,10 @@ const formatCapacityInput = (capacity: string) => {
       });
       return;
     }
-    toast({ title: "Marked as Quotation Sent", description: "Mark the lead as Converted once the customer confirms." });
+    toast({
+      title: "Quotation sent",
+      description: "Enquiry and linked quotation are marked sent. Mark as Converted once the customer confirms.",
+    });
   };
 
   const handleConvertEnquiry = async (enquiry: Enquiry) => {
