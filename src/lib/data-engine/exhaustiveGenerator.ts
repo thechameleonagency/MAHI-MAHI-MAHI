@@ -16,6 +16,9 @@ import type {
 import type { VendorBill, InventoryItem } from "@/types/inventory";
 import type { SiteChecklistTemplate, QuotationTemplate } from "@/types/templates";
 import type { useDataEngineStore } from "./useDataEngineStore";
+import { NeedToGetService } from "@/application/services/NeedToGetService";
+import { projectSiteChecklistToSiteChecklistItems } from "@/lib/siteChecklistNeedToGetSync";
+import type { SiteRecord } from "@/types/project";
 import {
   SHOWCASE_SCENARIOS,
   PIPELINE_EXTRA_STEPS,
@@ -24,6 +27,7 @@ import {
   getShowcaseScenarioCount,
   getPipelineExtraCount,
   SHOWCASE_PROJECT_KINDS,
+  type ShowcaseLifecycle,
   type ShowcaseScenario,
 } from "./smartGeneratorScenarios";
 
@@ -129,10 +133,18 @@ function pickVendorshipCompany(ctx: () => Record<string, unknown>, idx: number):
   return rows[idx % Math.max(1, rows.length)];
 }
 
-function buildSiteChecklist(inventory: InventoryItem[], completed: boolean): ProjectSiteChecklistItem[] {
-  return inventory.slice(0, 4).map((item, i) => {
-    const planned = 10 + i * 2;
-    const sent = completed ? planned : Math.floor(planned / 3);
+/** Low-stock SKUs (bootstrap sets stock 2–4 on first items) — required qty exceeds stock for Need-to-Get. */
+const NEED_TO_GET_MATERIAL_COUNT = 6;
+
+function buildSiteChecklist(
+  inventory: InventoryItem[],
+  lifecycle: ShowcaseLifecycle,
+  scenarioIndex: number,
+): ProjectSiteChecklistItem[] {
+  const materials = inventory.slice(0, NEED_TO_GET_MATERIAL_COUNT);
+  return materials.map((item, i) => {
+    const planned = 18 + i * 4 + (scenarioIndex % 3) * 2;
+    const sent = lifecycle === "completed" ? planned : 0;
     return {
       id: createId("CL"),
       name: item.name,
@@ -141,7 +153,7 @@ function buildSiteChecklist(inventory: InventoryItem[], completed: boolean): Pro
       qtyPlanned: planned,
       qtySent: sent,
       qtyReturned: 0,
-      qtyConsumed: completed ? sent : 0,
+      qtyConsumed: lifecycle === "completed" ? sent : 0,
       unitPrice: item.buyPrice,
       source: "template" as const,
     };
@@ -167,8 +179,12 @@ function buildProjectDraft(
   const vendorshipCo = pickVendorshipCompany(ctx, idx);
   const contractAmount = 250000 + idx * 15000;
   const inventory = ctx().inventoryItems as InventoryItem[];
+  const isFresh = scenario.lifecycle === "fresh";
+  const isCompleted = scenario.lifecycle === "completed";
   const siteChecklist =
-    pType !== "VENDORSHIP_ONLY" ? buildSiteChecklist(inventory, scenario.lifecycle === "completed") : undefined;
+    pType !== "VENDORSHIP_ONLY" && !isFresh
+      ? buildSiteChecklist(inventory, scenario.lifecycle, idx)
+      : undefined;
 
   const scope: Project["scope"] =
     pType === "INC_GIVEN"
@@ -234,7 +250,7 @@ function buildProjectDraft(
             sharePercentage: pType === "PARTNER_EPC" ? 20 : undefined,
             fixedAmount: pType === "FIXED_EPC" ? 4000 : undefined,
             feeAmount: pType === "VENDOR_NETWORK" ? 2500 : undefined,
-            calculatedEarning: scenario.lifecycle === "completed" ? 5000 : 0,
+            calculatedEarning: isCompleted ? 5000 : 0,
             settlementDirection: "company_pays_partner" as const,
           },
         ]
@@ -264,7 +280,7 @@ function buildProjectDraft(
     quotationId,
     enquiryId,
     startDate: dateNow.split("T")[0],
-    endDate: scenario.lifecycle === "completed" ? dateNow.split("T")[0] : undefined,
+    endDate: isCompleted ? dateNow.split("T")[0] : undefined,
     status: stage,
     lifecycleStatus: stage,
     projectKind: pType,
@@ -287,8 +303,8 @@ function buildProjectDraft(
     capacity: "5 kW",
     location: "Mumbai",
     contractAmount,
-    amountInvoiced: scenario.lifecycle === "completed" ? contractAmount : Math.floor(contractAmount * 0.4),
-    amountReceived: scenario.lifecycle === "completed" ? contractAmount : Math.floor(contractAmount * 0.2),
+    amountInvoiced: isCompleted ? contractAmount : isFresh ? 0 : Math.floor(contractAmount * 0.4),
+    amountReceived: isCompleted ? contractAmount : isFresh ? 0 : Math.floor(contractAmount * 0.2),
     createdAt: dateNow,
     history: [],
     paymentType: "cash",
@@ -393,6 +409,55 @@ function bootstrapDoneCount(): number {
   );
 }
 
+/** After showcase run: guarantee dashboard Need-to-Get shortfalls (low-stock SKUs vs active site BOQ). */
+export function ensureProcurementShortfallShowcase(ctx: () => Record<string, unknown>): void {
+  const inventory = (ctx().inventoryItems as InventoryItem[]) ?? [];
+  const projects = (ctx().projects as Project[]) ?? [];
+  const sites = (ctx().sites as SiteRecord[]) ?? [];
+  const vendorBills = (ctx().vendorBills as VendorBill[]) ?? [];
+  const reservations =
+    (ctx().materialReservations as { itemId: string; qty: number; projectId?: string; releasedAt?: string }[]) ??
+    [];
+
+  const svc = new NeedToGetService();
+  const existing = svc.buildRows(
+    sites,
+    projects,
+    inventory,
+    vendorBills,
+    reservations,
+    (ctx().materialDamageRecords as never[]) ?? [],
+  );
+  if (existing.length > 0) return;
+
+  for (let idx = 0; idx < Math.min(NEED_TO_GET_MATERIAL_COUNT, inventory.length); idx++) {
+    const item = inventory[idx];
+    if ((item.stock ?? 0) > 0) {
+      ctx().updateInventoryItem(String(item.id), { stock: 0 });
+    }
+  }
+
+  const inProgress = projects.filter((p) => lifecycleToStage("active") === (p.lifecycleStatus ?? p.status));
+  for (const project of inProgress) {
+    if (!project.siteChecklist?.length) continue;
+    const siteExists = sites.some((s) => s.projectId === project.id);
+    if (siteExists) continue;
+    const siteChecklistItems = projectSiteChecklistToSiteChecklistItems(
+      project.siteChecklist,
+      inventory,
+    );
+    ctx().addSite({
+      id: String(2000 + sites.length),
+      name: "Main Site",
+      projectId: project.id,
+      projectName: project.name,
+      workStartDate: addDays(new Date(), 7).toISOString().split("T")[0],
+      status: "active",
+      checklistItems: siteChecklistItems,
+    });
+  }
+}
+
 export function resetExhaustiveGeneratorState() {
   generatorStateIndex = 0;
   pipelineExtraIndex = 0;
@@ -481,7 +546,13 @@ async function runScenarioArtifacts(
   const pType = scenario.projectKind;
   if (!projectId) return;
 
+  if (scenario.lifecycle === "fresh") {
+    store.addLog("info", `Skipped execution artifacts for fresh project ${projectId}`, "scenario");
+    return;
+  }
+
   const completed = scenario.lifecycle === "completed";
+  const active = scenario.lifecycle === "active";
   const inventory = ctx().inventoryItems as InventoryItem[];
   const projects = ctx().projects as Project[];
   const project = projects.find((p) => p.id === projectId);
@@ -490,15 +561,8 @@ async function runScenarioArtifacts(
   if (pType !== "VENDORSHIP_ONLY") {
     const siteNumericId = 1000 + flow.scenarioIndex;
     const siteId = String(siteNumericId);
-    const siteChecklist = buildSiteChecklist(inventory, completed);
-    ctx().updateProject(projectId, {
-      siteChecklist,
-      teamId: project?.teamId,
-      lifecycleStatus: lifecycleToStage(scenario.lifecycle),
-      status: lifecycleToStage(scenario.lifecycle),
-      amountReceived: completed ? contractAmount : Math.floor(contractAmount * 0.2),
-      amountInvoiced: completed ? contractAmount : Math.floor(contractAmount * 0.4),
-    });
+    const siteChecklist = buildSiteChecklist(inventory, scenario.lifecycle, flow.scenarioIndex);
+    const siteChecklistItems = projectSiteChecklistToSiteChecklistItems(siteChecklist, inventory);
 
     const existingSites = (ctx().sites as { id: string; projectId: string }[]) ?? [];
     if (!existingSites.some((s) => s.projectId === projectId)) {
@@ -509,9 +573,18 @@ async function runScenarioArtifacts(
         projectName: project?.name ?? scenario.label,
         workStartDate: subDays(new Date(), completed ? 30 : 7).toISOString().split("T")[0],
         status: completed ? "completed" : "active",
-        checklistItems: [],
+        checklistItems: siteChecklistItems,
       });
     }
+
+    ctx().updateProject(projectId, {
+      siteChecklist,
+      teamId: project?.teamId,
+      lifecycleStatus: lifecycleToStage(scenario.lifecycle),
+      status: lifecycleToStage(scenario.lifecycle),
+      amountReceived: completed ? contractAmount : active ? Math.floor(contractAmount * 0.2) : 0,
+      amountInvoiced: completed ? contractAmount : active ? Math.floor(contractAmount * 0.4) : 0,
+    });
 
     const teams = ctx().teams as { id: string }[];
     const scheduledDate = completed
@@ -554,21 +627,9 @@ async function runScenarioArtifacts(
       store.incrementCounter("siteVisits");
     }
 
-    if (!completed && inventory[0]) {
-      ctx().addMaterialReservation({
-        id: createId("RES"),
-        itemId: String(inventory[0].id),
-        qty: 8,
-        projectId,
-        reason: "Checklist shortfall hold",
-        createdAt: dateNow,
-        source: "auto-from-checklist",
-      });
-    }
-
     const employees = ctx().employees as { id: string }[];
     const emp = employees[flow.scenarioIndex % Math.max(1, employees.length)];
-    if (emp && !completed) {
+    if (emp && active) {
       ctx().addAttendanceRecord({
         id: createId("ATT"),
         employeeId: emp.id,
@@ -599,18 +660,24 @@ async function runScenarioArtifacts(
   }
 
   const targetVendor = (ctx().vendors as { id: string }[])[flow.scenarioIndex % GENERATOR_ENTITY_LIMITS.vendors];
-  if (targetVendor && !["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(pType)) {
+  const billStockItems = inventory.slice(NEED_TO_GET_MATERIAL_COUNT, NEED_TO_GET_MATERIAL_COUNT + 2);
+  if (
+    completed &&
+    targetVendor &&
+    billStockItems.length > 0 &&
+    !["INC_GIVEN", "OUTSOURCED_INC", "VENDORSHIP_ONLY"].includes(pType)
+  ) {
     const bill: VendorBill = {
       id: createId("VB"),
       vendorId: targetVendor.id,
       billNumber: `VB-${flow.scenarioIndex}`,
       billDate: dateNow.split("T")[0],
       dueDate: addDays(new Date(), 15).toISOString().split("T")[0],
-      status: completed ? "paid" : "draft",
+      status: "paid",
       subtotal: 50000,
       total: 59000,
-      amountPaid: completed ? 59000 : 0,
-      items: inventory.slice(0, 2).map((item) => ({
+      amountPaid: 59000,
+      items: billStockItems.map((item) => ({
         name: item.name,
         description: item.name,
         quantity: 5,
@@ -624,19 +691,17 @@ async function runScenarioArtifacts(
     await ctx().addVendorBill(bill);
     store.incrementCounter("vendorBills");
 
-    if (completed) {
-      await ctx().addVendorPayment({
-        id: createId("VP"),
-        vendorId: targetVendor.id,
-        billId: bill.id,
-        date: dateNow.split("T")[0],
-        amount: 59000,
-        paymentMode: "Bank Transfer",
-        reference: "REF-SHOWCASE",
-        status: "completed",
-      });
-      store.incrementCounter("vendorPayments");
-    }
+    await ctx().addVendorPayment({
+      id: createId("VP"),
+      vendorId: targetVendor.id,
+      billId: bill.id,
+      date: dateNow.split("T")[0],
+      amount: 59000,
+      paymentMode: "Bank Transfer",
+      reference: "REF-SHOWCASE",
+      status: "completed",
+    });
+    store.incrementCounter("vendorPayments");
   }
 
   try {
@@ -1014,7 +1079,7 @@ export async function runExhaustiveIteration(
         id: createId("INVITEM"),
         name: `${category} SKU ${idx + 1}`,
         category,
-        stock: idx < 4 ? 3 : 40 + idx,
+        stock: idx < NEED_TO_GET_MATERIAL_COUNT ? 0 : 40 + idx,
         unit: "pcs",
         value: 50000,
         buyPrice: 4000 + idx * 100,
@@ -1251,10 +1316,11 @@ export async function runExhaustiveIteration(
     const scenarioTotal = getShowcaseScenarioCount();
 
     if (generatorStateIndex >= scenarioTotal && pipelineExtraIndex >= getPipelineExtraCount() && !pendingScenario) {
+      ensureProcurementShortfallShowcase(ctx);
       store.setActiveFlow("Smart generation complete");
       store.addLog(
         "info",
-        `Generated ${scenarioTotal} showcase projects (${SHOWCASE_PROJECT_KINDS.length} kinds × open + completed) plus pipeline extras.`,
+        `Generated ${scenarioTotal} showcase projects (${SHOWCASE_PROJECT_KINDS.length} kinds × fresh + active + completed) plus pipeline extras.`,
       );
       store.setStatus("idle");
       return;

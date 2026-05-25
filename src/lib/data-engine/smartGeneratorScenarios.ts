@@ -1,7 +1,13 @@
 import type { ProjectKind } from "@/domain/projectTypes/types";
+import type { ProjectLifecycleStatus } from "@/domain/stateMachines/projectStateMachine";
 
-/** Lifecycle bucket for showcase projects — one open + one completed per main kind. */
-export type ShowcaseLifecycle = "open" | "completed";
+/**
+ * Showcase lifecycle buckets per project kind:
+ * - fresh: newly created — no sites, visits, or installs
+ * - active: in progress with execution checklist (drives Need-to-Get when stock is low)
+ * - completed: closed showcase with history
+ */
+export type ShowcaseLifecycle = "fresh" | "active" | "completed";
 
 export interface ShowcaseScenario {
   id: string;
@@ -37,20 +43,40 @@ const CUSTOMER_NAMES = [
   "Silverline Factory",
   "Horizon Tech Park",
   "Cedar Heights",
+  "Summit Corporate Park",
+  "Valley View School",
+  "Northgate Mall",
+  "Beacon Hospital Wing",
+  "Harbor Logistics Hub",
+  "Zenith Co-working",
+  "Crown Residency",
 ] as const;
+
+const LIFECYCLE_ORDER: readonly ShowcaseLifecycle[] = ["fresh", "active", "completed"];
 
 function scenarioId(kind: ProjectKind, lifecycle: ShowcaseLifecycle): string {
   return `${kind.toLowerCase()}_${lifecycle}`;
 }
 
-/** One open + one completed project per main kind (14 showcase projects). */
+function lifecycleLabel(lifecycle: ShowcaseLifecycle): string {
+  switch (lifecycle) {
+    case "fresh":
+      return "New (not started)";
+    case "active":
+      return "In Progress";
+    case "completed":
+      return "Completed";
+  }
+}
+
+/** One fresh + one active + one completed project per main kind (21 showcase projects). */
 export const SHOWCASE_SCENARIOS: ShowcaseScenario[] = SHOWCASE_PROJECT_KINDS.flatMap((kind, kindIdx) =>
-  (["open", "completed"] as const).map((lifecycle, lifeIdx) => ({
+  LIFECYCLE_ORDER.map((lifecycle, lifeIdx) => ({
     id: scenarioId(kind, lifecycle),
-    label: `${kind.replace(/_/g, " ")} (${lifecycle === "open" ? "In Progress" : "Completed"})`,
+    label: `${kind.replace(/_/g, " ")} (${lifecycleLabel(lifecycle)})`,
     projectKind: kind,
     lifecycle,
-    customerName: CUSTOMER_NAMES[(kindIdx * 2 + lifeIdx) % CUSTOMER_NAMES.length],
+    customerName: CUSTOMER_NAMES[(kindIdx * LIFECYCLE_ORDER.length + lifeIdx) % CUSTOMER_NAMES.length],
   })),
 );
 
@@ -61,12 +87,26 @@ export const PIPELINE_EXTRA_STEPS = [
   { id: "quotation_draft", type: "quotation" as const, customerName: "Draft Quote Customer" },
 ] as const;
 
-export function lifecycleToStage(lifecycle: ShowcaseLifecycle): "In Progress" | "Completed" {
-  return lifecycle === "open" ? "In Progress" : "Completed";
+export function lifecycleToStage(lifecycle: ShowcaseLifecycle): ProjectLifecycleStatus {
+  switch (lifecycle) {
+    case "fresh":
+      return "New";
+    case "active":
+      return "In Progress";
+    case "completed":
+      return "Completed";
+  }
 }
 
 export function lifecycleStageIndex(lifecycle: ShowcaseLifecycle): number {
-  return lifecycle === "open" ? 1 : 3;
+  switch (lifecycle) {
+    case "fresh":
+      return 0;
+    case "active":
+      return 1;
+    case "completed":
+      return 3;
+  }
 }
 
 export function getShowcaseScenarioCount(): number {

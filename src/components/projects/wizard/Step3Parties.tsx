@@ -15,13 +15,13 @@ export function Step3Parties() {
     setField 
   } = useWizardStore();
   
-  const { partners, incGiverCompanies, subcontractors } = useAppData();
+  const { partners, incGiverCompanies } = useAppData();
 
   const handleCustomerChange = (field: keyof typeof endCustomer, value: string) => {
     setField("endCustomer", { ...endCustomer, [field]: value });
   };
 
-  const requiresCounterparty = ["PARTNER", "INC_TAKEN", "OUTSOURCED_INC"].includes(dealOrigin);
+  const requiresCounterparty = ["PARTNER", "INC_TAKEN"].includes(dealOrigin);
 
   let counterpartyLabel = "";
   let counterpartyOptions: { id: string; name: string }[] = [];
@@ -32,9 +32,6 @@ export function Step3Parties() {
   } else if (dealOrigin === "INC_TAKEN") {
     counterpartyLabel = "Select INC Giver";
     counterpartyOptions = incGiverCompanies.map(c => ({ id: c.id, name: c.name }));
-  } else if (dealOrigin === "OUTSOURCED_INC") {
-    counterpartyLabel = "Select Subcontractor";
-    counterpartyOptions = (subcontractors ?? []).map((s) => ({ id: s.id, name: s.name }));
   }
 
   return (

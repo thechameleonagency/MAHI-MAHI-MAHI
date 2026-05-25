@@ -23,7 +23,6 @@ export function Step6Commercials() {
     incRateBasis,
     incRateValue,
     partnerProvidesGst,
-    subcontractorPayoutRate,
     setField,
   } = useWizardStore();
 
@@ -186,37 +185,6 @@ export function Step6Commercials() {
                 onChange={(e) => setField("incRateValue", parseFloat(e.target.value) || 0)}
               />
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {dealOrigin === "OUTSOURCED_INC" && (
-        <Card className="border-emerald-200 bg-emerald-50/30 dark:bg-emerald-950/20">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Subcontractor economics</CardTitle>
-            <CardDescription className="text-xs">
-              Payout is calculated as rate × capacity and stored on the project outsource record.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 max-w-xs">
-            <Label htmlFor="wizard-subcontractor-payout-rate">Subcontractor payout rate (₹/kW)</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-2.5 text-muted-foreground">₹</span>
-              <Input
-                id="wizard-subcontractor-payout-rate"
-                type="number"
-                className="pl-8"
-                value={subcontractorPayoutRate || ""}
-                onChange={(e) => setField("subcontractorPayoutRate", parseFloat(e.target.value) || 0)}
-                data-testid="wizard-subcontractor-payout-rate"
-              />
-            </div>
-            {subcontractorPayoutRate != null && capacityKw > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Estimated subcontractor total: ₹{" "}
-                {Math.round(subcontractorPayoutRate * capacityKw).toLocaleString()}
-              </p>
-            )}
           </CardContent>
         </Card>
       )}

@@ -9,7 +9,6 @@ import type {
 import type { ProjectIntakePayload } from "@/application/services/ProjectTypeService";
 import type { Enquiry, Project, Quotation } from "@/types/project";
 import type { INCGiverCompany, Partner, Subcontractor, VendorshipCompany } from "@/types/finance";
-import { resolveSubcontractor } from "@/lib/resolveSubcontractor";
 import { requiresVendorshipFeeInput } from "@/lib/unifiedProjectWizardFlow";
 
 export interface BuildUnifiedProjectContext {
@@ -28,8 +27,6 @@ function deriveProjectKind(state: UnifiedProjectWizardState): ProjectKind {
       return state.partnerModifier === "FIXED_RATE" ? "FIXED_EPC" : "PARTNER_EPC";
     case "INC_TAKEN":
       return "INC_GIVEN";
-    case "OUTSOURCED_INC":
-      return "OUTSOURCED_INC";
     case "VENDORSHIP_ONLY":
       return "VENDORSHIP_ONLY";
     default:
@@ -83,10 +80,6 @@ export function buildProjectFromUnifiedWizardState(
     state.dealOrigin === "INC_TAKEN"
       ? ctx.incGiverCompanies.find((c) => c.id === state.counterpartyId)
       : undefined;
-  const subcontractor =
-    state.dealOrigin === "OUTSOURCED_INC"
-      ? resolveSubcontractor(state.counterpartyId, ctx)
-      : undefined;
   const vendorshipCo =
     state.vendorshipOwner === "CODE_GIVER"
       ? ctx.vendorshipCompanies.find((c) => c.id === state.vendorshipCompanyId)
@@ -109,24 +102,12 @@ export function buildProjectFromUnifiedWizardState(
 
   const scopeVendorshipOwner = resolveScopeVendorshipOwner(state);
   const isIncGiven = projectKind === "INC_GIVEN";
-  const isOutsourcedInc = projectKind === "OUTSOURCED_INC";
   const isPartnerMaterialOnly = state.vendorshipOwner === "PARTNER_OWNED";
   const paymentType =
     normalizeProjectPaymentType(state.paymentType) ??
     (state.vendorshipOwner === "MSS" || state.dealOrigin === "VENDORSHIP_ONLY" ? "cash" : undefined);
 
-  const scope: Project["scope"] = isOutsourcedInc
-    ? {
-        hasMaterial: false,
-        hasInstallation: true,
-        vendorshipOwner: "CLIENT",
-        leadSource: "MSS_DIRECT",
-        billingParty: "MSS",
-        partnerId: subcontractor?.id,
-        installationBy: "Subcontractor",
-        kNumber: state.endCustomer.kNumber,
-      }
-    : {
+  const scope: Project["scope"] = {
     hasMaterial: isIncGiven
       ? false
       : projectKind !== "VENDORSHIP_ONLY" && !isPartnerMaterialOnly,
@@ -165,27 +146,6 @@ export function buildProjectFromUnifiedWizardState(
     installationBy: "MSS",
   };
 
-  const payoutRate =
-    state.subcontractorPayoutRate ?? subcontractor?.defaultRatePerKw ?? 0;
-  const outsourceTotal =
-    isOutsourcedInc && payoutRate > 0 && state.capacityKw > 0
-      ? Math.round(payoutRate * state.capacityKw)
-      : isOutsourcedInc
-        ? state.grossContractValue
-        : 0;
-  const derivedOutsource: Project["outsource"] =
-    isOutsourcedInc && subcontractor
-      ? {
-          partyId: subcontractor.id,
-          partyName: subcontractor.name,
-          rateBasis: "per_kw",
-          rateValue: payoutRate,
-          quantity: state.capacityKw,
-          total: outsourceTotal,
-          attachedAt: new Date().toISOString(),
-        }
-      : null;
-
   const partners =
     partner && state.dealOrigin === "PARTNER"
       ? [
@@ -221,7 +181,7 @@ export function buildProjectFromUnifiedWizardState(
     partnerRole: legacy.partnerRole,
     executionScope: legacy.executionScope,
     dealOrigin: dealOriginForKind(projectKind, state),
-    type: projectKind === "INC_GIVEN" || isOutsourcedInc ? "INC" : "EPC",
+    type: projectKind === "INC_GIVEN" ? "INC" : "EPC",
     projectType: state.projectType,
     projectCategory: "solar",
     capacity: capacityLabel,
@@ -236,8 +196,7 @@ export function buildProjectFromUnifiedWizardState(
     paymentType: paymentType ?? "cash",
     scope,
     partners,
-    outsource: derivedOutsource,
-    incScope: isOutsourcedInc ? "labour" : undefined,
+    outsource: null,
     internalCostEstimate: Math.round(state.grossContractValue * 0.65),
     backendPrice: state.mssBackendFixedRate,
     partnerSellPrice: state.dealOrigin === "PARTNER" ? state.grossContractValue : undefined,
@@ -274,10 +233,6 @@ export function buildIntakeFromUnifiedWizardState(
     state.dealOrigin === "INC_TAKEN"
       ? ctx.incGiverCompanies.find((c) => c.id === state.counterpartyId)
       : undefined;
-  const subcontractor =
-    state.dealOrigin === "OUTSOURCED_INC"
-      ? resolveSubcontractor(state.counterpartyId, ctx)
-      : undefined;
   const vendorshipCo = ctx.vendorshipCompanies.find((c) => c.id === state.vendorshipCompanyId);
   const paymentType = normalizeProjectPaymentType(state.paymentType) ?? "cash";
 
@@ -286,10 +241,7 @@ export function buildIntakeFromUnifiedWizardState(
   };
   if (partner) parties.partner = partner.name;
   if (incGiver) parties.incGiverCompany = incGiver.name;
-  if (subcontractor) parties.subcontractor = subcontractor.name;
-  if (state.dealOrigin !== "OUTSOURCED_INC") {
-    parties.vendorOrDiscom = state.vendorshipOwner === "MSS" ? "MSS" : vendorshipCo?.name;
-  }
+  parties.vendorOrDiscom = state.vendorshipOwner === "MSS" ? "MSS" : vendorshipCo?.name;
 
   return {
     kind,
@@ -370,8 +322,6 @@ export function dealOriginLabel(origin: DealOrigin): string {
       return "Partner Network";
     case "INC_TAKEN":
       return "INC Taken";
-    case "OUTSOURCED_INC":
-      return "Outsourced INC";
     case "VENDORSHIP_ONLY":
       return "Vendorship Only";
   }

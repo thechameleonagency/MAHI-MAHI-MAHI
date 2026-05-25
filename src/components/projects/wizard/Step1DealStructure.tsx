@@ -3,7 +3,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useWizardStore } from "./useWizardStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Handshake, Users, Briefcase, HardHat } from "lucide-react";
+import { Building2, Handshake, Users, Briefcase } from "lucide-react";
 
 export function Step1DealStructure() {
   const { dealOrigin, partnerModifier, setField } = useWizardStore();
@@ -28,12 +28,6 @@ export function Step1DealStructure() {
       icon: <Briefcase className="h-5 w-5 text-amber-500" />,
     },
     {
-      id: "OUTSOURCED_INC" as const,
-      title: "Outsourced INC",
-      description: "MSS holds the customer contract; a subcontractor executes installation.",
-      icon: <HardHat className="h-5 w-5 text-emerald-600" />,
-    },
-    {
       id: "VENDORSHIP_ONLY" as const,
       title: "Vendorship Only",
       description: "Code leasing / billing only — no field execution by MSS.",
@@ -46,7 +40,8 @@ export function Step1DealStructure() {
       <div>
         <h3 className="text-lg font-medium">Deal Structure</h3>
         <p className="text-sm text-muted-foreground">
-          Choose the commercial origin. Outsourced INC links a subcontractor during the parties step.
+          Choose the commercial origin. To outsource installation on an existing project, use Outsource
+          Execution on the project detail page after create.
         </p>
       </div>
 

@@ -97,7 +97,7 @@ export function CreateProjectWizardContainer({
 
         const projectId = result.projectId ?? projectDraft.id;
 
-        if (state.vendorshipOwner === "MSS" && state.dealOrigin !== "OUTSOURCED_INC") {
+        if (state.vendorshipOwner === "MSS") {
           const clientInvoice: Invoice = {
             id: generateId("INV"),
             invoiceNumber: `DRAFT-${projectId}-C`,

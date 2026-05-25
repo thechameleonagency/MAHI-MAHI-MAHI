@@ -33,17 +33,19 @@ describe("unified project wizard flow", () => {
     expect(getVisibleUnifiedWizardSteps(state)).toEqual(["deal", "details", "commercials", "review"]);
   });
 
-  it("includes parties step for OUTSOURCED_INC deals", () => {
-    const state = createInitialUnifiedWizardState({
-      dealOrigin: "OUTSOURCED_INC",
-      vendorshipOwner: "MSS",
-      paymentType: "cash",
+  it("includes parties step for partner and INC taken deals only", () => {
+    const partnerState = createInitialUnifiedWizardState({
+      dealOrigin: "PARTNER",
+      partnerModifier: "PROFIT_SHARE",
     });
+    expect(getVisibleUnifiedWizardSteps(partnerState)).toContain("parties");
 
-    const steps = getVisibleUnifiedWizardSteps(state);
-    expect(steps).toContain("parties");
-    expect(steps).toContain("vendorship");
-    expect(steps.indexOf("parties")).toBeGreaterThan(steps.indexOf("details"));
+    const incState = createInitialUnifiedWizardState({
+      dealOrigin: "INC_TAKEN",
+    });
+    const incSteps = getVisibleUnifiedWizardSteps(incState);
+    expect(incSteps).toContain("parties");
+    expect(incSteps).toContain("vendorship");
   });
 });
 

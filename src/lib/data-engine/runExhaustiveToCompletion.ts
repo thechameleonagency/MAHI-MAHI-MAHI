@@ -1,4 +1,5 @@
 import {
+  ensureProcurementShortfallShowcase,
   getExhaustiveGeneratorIndex,
   getExhaustiveTotalPermutations,
   isExhaustiveGenerationComplete,
@@ -44,6 +45,9 @@ export async function runExhaustiveToCompletion(
     iterations++;
 
     if (isExhaustiveGenerationComplete()) {
+      await act(async () => {
+        ensureProcurementShortfallShowcase(getContext);
+      });
       return { completed: true, iterations };
     }
   }
@@ -51,6 +55,9 @@ export async function runExhaustiveToCompletion(
   const total = getExhaustiveTotalPermutations();
   const index = getExhaustiveGeneratorIndex();
   if (index >= total && isExhaustiveGenerationComplete()) {
+    await act(async () => {
+      ensureProcurementShortfallShowcase(getContext);
+    });
     return { completed: true, iterations };
   }
 

@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useDataEngineStore } from "./useDataEngineStore";
 import {
+  ensureProcurementShortfallShowcase,
   runExhaustiveIteration,
   isExhaustiveGenerationComplete,
   getExhaustiveGenerationProgressPercent,
@@ -30,6 +31,7 @@ export function useAutonomousEngine() {
   contextRef.current = context;
 
   const finalizeGeneration = useCallback(async () => {
+    ensureProcurementShortfallShowcase(() => contextRef.current);
     await waitForReactFlush();
     contextRef.current.flushPersistAppState?.();
     await waitForReactFlush();

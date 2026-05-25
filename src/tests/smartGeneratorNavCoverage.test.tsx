@@ -13,6 +13,7 @@ import { persistAuthenticatedSession, clearAuthenticatedSession } from "@/lib/se
 import { SHOWCASE_PROJECT_KINDS } from "@/lib/data-engine/smartGeneratorScenarios";
 import { buildCalendarEvents } from "@/lib/calendarSources";
 import { NeedToGetService } from "@/application/services/NeedToGetService";
+import { reconcileSiteChecklistNeedToGetState } from "@/lib/siteChecklistNeedToGetSync";
 
 describe("smartGeneratorNavCoverage", () => {
   beforeEach(() => {
@@ -51,18 +52,19 @@ describe("smartGeneratorNavCoverage", () => {
     });
 
     const store = useDataEngineStore.getState();
-    const { completed } = await runExhaustiveToCompletion(
+    const { completed, iterations } = await runExhaustiveToCompletion(
       () => result.current,
       store,
-      { resetBeforeRun: true, maxIterations: 350 },
+      { resetBeforeRun: true, maxIterations: 500 },
     );
 
     expect(completed).toBe(true);
+    expect(iterations).toBeGreaterThan(80);
 
     await waitFor(
       () => {
-        expect(result.current.projects.length).toBeGreaterThanOrEqual(14);
-        expect(result.current.customers.length).toBeGreaterThanOrEqual(14);
+        expect(result.current.projects.length).toBeGreaterThanOrEqual(21);
+        expect(result.current.customers.length).toBeGreaterThanOrEqual(21);
       },
       { timeout: 5000 },
     );
@@ -71,8 +73,8 @@ describe("smartGeneratorNavCoverage", () => {
 
     expect(data.enquiries.length).toBeGreaterThanOrEqual(3);
     expect(data.quotations.length).toBeGreaterThanOrEqual(3);
-    expect(data.projects.length).toBeGreaterThanOrEqual(14);
-    expect(data.customers.length).toBeGreaterThanOrEqual(14);
+    expect(data.projects.length).toBeGreaterThanOrEqual(21);
+    expect(data.customers.length).toBeGreaterThanOrEqual(21);
     expect(data.employees.length).toBeGreaterThanOrEqual(5);
     expect(data.teams.length).toBeGreaterThanOrEqual(3);
     expect(data.agents.length).toBeGreaterThanOrEqual(5);
@@ -95,10 +97,17 @@ describe("smartGeneratorNavCoverage", () => {
       expect(kindsSeen.has(kind)).toBe(true);
     }
 
+    const freshProjects = data.projects.filter((p) => p.lifecycleStatus === "New");
     const openProjects = data.projects.filter((p) => p.lifecycleStatus === "In Progress");
     const completedProjects = data.projects.filter((p) => p.lifecycleStatus === "Completed");
-    expect(openProjects.length).toBeGreaterThanOrEqual(7);
+    expect(freshProjects.length).toBeGreaterThanOrEqual(7);
+    expect(openProjects.length).toBeGreaterThanOrEqual(6);
     expect(completedProjects.length).toBeGreaterThanOrEqual(7);
+
+    const freshWithSites = freshProjects.filter((p) =>
+      data.sites.some((s) => s.projectId === p.id),
+    );
+    expect(freshWithSites.length).toBe(0);
 
     expect(data.sites.length).toBeGreaterThan(0);
     expect((data.scheduledInstallations ?? []).length).toBeGreaterThan(0);
@@ -123,14 +132,27 @@ describe("smartGeneratorNavCoverage", () => {
       ),
     ).not.toThrow();
 
-    const needToGet = new NeedToGetService().buildRows(
-      data.sites,
+    const synced = reconcileSiteChecklistNeedToGetState(
       data.projects,
+      data.sites,
+      data.inventoryItems,
+    );
+    const activeSitesWithChecklist = synced.sites.filter(
+      (s) =>
+        (!s.status || s.status === "active") &&
+        (s.checklistItems?.some((l) => l.requiresMaterial && (l.requiredQuantity ?? 0) > 0) ?? false),
+    );
+    expect(activeSitesWithChecklist.length).toBeGreaterThan(0);
+
+    const needToGet = new NeedToGetService().buildRows(
+      synced.sites,
+      synced.projects,
       data.inventoryItems,
       data.vendorBills ?? [],
       data.materialReservations ?? [],
       data.materialDamageRecords ?? [],
     );
+    expect(needToGet.length).toBeGreaterThan(0);
     expect(() => needToGet.sort((a, b) => (a.needByDate ?? "").localeCompare(b.needByDate ?? ""))).not.toThrow();
   }, 180_000);
 });

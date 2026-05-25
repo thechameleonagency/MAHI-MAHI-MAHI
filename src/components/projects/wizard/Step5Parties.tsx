@@ -7,7 +7,7 @@ import { Building } from "lucide-react";
 
 export function Step5Parties() {
   const { dealOrigin, counterpartyId, setField } = useWizardStore();
-  const { partners, incGiverCompanies, subcontractors } = useAppData();
+  const { partners, incGiverCompanies } = useAppData();
 
   let counterpartyLabel = "";
   let counterpartyOptions: { id: string; name: string }[] = [];
@@ -20,9 +20,6 @@ export function Step5Parties() {
   } else if (dealOrigin === "INC_TAKEN") {
     counterpartyLabel = "INC giver company";
     counterpartyOptions = incGiverCompanies.map((c) => ({ id: c.id, name: c.name }));
-  } else if (dealOrigin === "OUTSOURCED_INC") {
-    counterpartyLabel = "Installation subcontractor";
-    counterpartyOptions = (subcontractors ?? []).map((s) => ({ id: s.id, name: s.name }));
   } else {
     return null;
   }
@@ -58,11 +55,6 @@ export function Step5Parties() {
               ))}
             </SelectContent>
           </Select>
-          {dealOrigin === "OUTSOURCED_INC" && counterpartyOptions.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              No subcontractors configured yet. Add one under Subcontractors before creating this project.
-            </p>
-          )}
         </CardContent>
       </Card>
     </div>

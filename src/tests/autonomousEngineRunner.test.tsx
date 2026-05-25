@@ -65,7 +65,7 @@ describe("Autonomous Engine Runner", () => {
     await waitFor(
       () => {
         expect(result.current.employees.length).toBe(GENERATOR_ENTITY_LIMITS.employees);
-        expect(result.current.projects.length).toBeGreaterThanOrEqual(14);
+        expect(result.current.projects.length).toBeGreaterThanOrEqual(21);
       },
       { timeout: 5000 },
     );
