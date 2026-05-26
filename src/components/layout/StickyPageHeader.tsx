@@ -48,16 +48,18 @@ export function StickyPageHeader({ breadcrumbs, children, subRow, title, classNa
           {typeof title === "string" ? <h1 className="text-xl md:text-2xl font-semibold">{title}</h1> : title}
         </div>
       )}
-      <div className="flex w-full min-h-10 flex-wrap items-center justify-between gap-4">
+      <div className="flex w-full min-h-11 flex-wrap items-stretch justify-between gap-4">
         {/* Left/Middle filters/subRow elements */}
         {subRow && (
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             {subRow}
           </div>
         )}
         
         {/* Right actions */}
-        {children && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 ml-auto">{children}</div>}
+        {children && (
+          <div className="flex shrink-0 flex-wrap items-stretch justify-end gap-2 ml-auto">{children}</div>
+        )}
       </div>
     </div>
   );

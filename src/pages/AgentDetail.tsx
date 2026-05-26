@@ -546,7 +546,7 @@ const AgentDetail = () => {
                         <TableCell className="text-right tabular-nums">{formatINR(q.totalAmount ?? 0)}</TableCell>
                         <TableCell>
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/quotations?id=${q.id}`}>
+                            <Link to={`/quotations?quotation=${encodeURIComponent(q.id)}`}>
                               <ExternalLink className="h-3 w-3" />
                             </Link>
                           </Button>

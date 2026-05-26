@@ -242,7 +242,7 @@ describe("Quotation reject/withdraw → enquiry propagation (C2)", () => {
     expect(lostRepos.enquiryRepository.getById("ENQ-1")?.status).toBe("lost");
   });
 
-  it("create quotation on quotation_rejected enquiry moves back to quotation_sent", async () => {
+  it("create quotation on quotation_rejected enquiry links quote without changing enquiry status", async () => {
     const enquiry = baseEnquiry("quotation_rejected");
     const repositories = emptyRepos(enquiry, {
       ...sentQuotation(),
@@ -271,7 +271,7 @@ describe("Quotation reject/withdraw → enquiry propagation (C2)", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(repositories.enquiryRepository.getById("ENQ-1")?.status).toBe("quotation_sent");
+    expect(repositories.enquiryRepository.getById("ENQ-1")?.status).toBe("quotation_rejected");
     const updated = repositories.enquiryRepository.getById("ENQ-1");
     expect(updated?.quotationId).toBe("Q-2");
     expect(updated?.quotationIds).toEqual(["Q-1", "Q-2"]);

@@ -1,11 +1,14 @@
-import { Calendar, FileText, Send, Check, ExternalLink } from "lucide-react";
+import { Calendar, FileText, Send, Check, ExternalLink, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatEnquiryStatusLabel } from "@/lib/enquiryStatusUi";
-import type { Enquiry } from "@/types/project";
-import { enquiryAllowsNewQuotation } from "@/lib/enquiryQuotationCreateGate";
+import { getEnquiryDisplayStatus } from "@/lib/enquiryStatusReconcile";
+import type { Enquiry, Quotation } from "@/types/project";
+import { deepLink } from "@/lib/deepLinks";
+import { getEnquiryViewActions } from "@/lib/enquiryViewActions";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 import { useCan } from "@/hooks/useCan";
+import { useAppSession } from "@/app/providers/AppSessionProvider";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { getEnquiryFollowUpAging } from "@/lib/agingHelpers";
 import { format } from "date-fns";
@@ -18,26 +21,33 @@ import {
 
 export function DashboardEnquiryRow({
   enquiry,
+  quotations,
   onScheduleMeeting,
   onSendQuotation,
   onConvert,
   onCreateQuotation,
+  onViewQuotation,
 }: {
   enquiry: Enquiry;
+  quotations: Quotation[];
   onScheduleMeeting: () => void;
   onSendQuotation: () => void;
   onConvert: () => void;
   onCreateQuotation: () => void;
+  onViewQuotation: (quotationId: string) => void;
 }) {
+  const { currentRole } = useAppSession();
   const canUpdateEnquiry = useCan("enquiry", "create");
   const canCreateQuotation = useCan("quotation", "create");
   const aging = getEnquiryFollowUpAging(enquiry);
-  const showPipelineActions =
-    enquiry.status === "new" || enquiry.status === "meeting_scheduled";
-  const showConvert = enquiry.status === "quotation_sent";
-  const showNewQuotation =
-    enquiry.status === "quotation_rejected" && enquiryAllowsNewQuotation(enquiry);
-  const hasWorkflowActions = showPipelineActions || showConvert || showNewQuotation;
+  const displayStatus = getEnquiryDisplayStatus(enquiry, quotations);
+  const actions = getEnquiryViewActions(enquiry, quotations, currentRole);
+  const hasWorkflowActions =
+    actions.showScheduleMeeting ||
+    actions.showSendQuotation ||
+    actions.showCreateQuotation ||
+    actions.showMarkAsConverted ||
+    actions.showViewQuotation;
 
   return (
     <div className="rounded-xl border border-border/60 bg-card px-3 py-3">
@@ -50,8 +60,8 @@ export function DashboardEnquiryRow({
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
             <StatusBadge
-              status={enquiry.status}
-              label={formatEnquiryStatusLabel(enquiry.status)}
+              status={displayStatus}
+              label={formatEnquiryStatusLabel(displayStatus)}
               className="text-2xs"
             />
             {aging && <AgingChip signal={aging} />}
@@ -64,51 +74,59 @@ export function DashboardEnquiryRow({
         </div>
         <DashboardCompactRowMenu>
           <DashboardCompactRowMenuLink
-            to="/enquiries"
-            state={{ focusEnquiryId: enquiry.id }}
+            to={deepLink.enquiry(enquiry.id)}
             icon={ExternalLink}
           >
-            View in enquiries
+            View enquiry
           </DashboardCompactRowMenuLink>
           {hasWorkflowActions && <DropdownMenuSeparator />}
-          {showPipelineActions && (
-            <>
-              <PermissionGatedMenuItem
-                allowed={canUpdateEnquiry}
-                deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
-                icon={Calendar}
-                onClick={onScheduleMeeting}
-              >
-                Schedule meeting
-              </PermissionGatedMenuItem>
-              <PermissionGatedMenuItem
-                allowed={canUpdateEnquiry}
-                deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
-                icon={Send}
-                onClick={onSendQuotation}
-              >
-                Mark quote sent
-              </PermissionGatedMenuItem>
-            </>
-          )}
-          {showConvert && (
+          {actions.showScheduleMeeting && (
             <PermissionGatedMenuItem
               allowed={canUpdateEnquiry}
               deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
-              icon={Check}
-              onClick={onConvert}
+              icon={Calendar}
+              onClick={onScheduleMeeting}
             >
-              Mark converted
+              Schedule meeting
             </PermissionGatedMenuItem>
           )}
-          {showNewQuotation && (
+          {actions.showCreateQuotation && (
             <PermissionGatedMenuItem
               allowed={canCreateQuotation}
               deniedHint={PERMISSION_DENIED_HINTS.enquiryCreateQuotation}
               icon={FileText}
               onClick={onCreateQuotation}
             >
-              Create new quotation
+              Create quotation
+            </PermissionGatedMenuItem>
+          )}
+          {actions.showSendQuotation && (
+            <PermissionGatedMenuItem
+              allowed={canUpdateEnquiry}
+              deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
+              icon={Send}
+              onClick={onSendQuotation}
+            >
+              Send quotation
+            </PermissionGatedMenuItem>
+          )}
+          {actions.showMarkAsConverted && (
+            <PermissionGatedMenuItem
+              allowed={canUpdateEnquiry}
+              deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
+              icon={Check}
+              onClick={onConvert}
+            >
+              Mark as converted
+            </PermissionGatedMenuItem>
+          )}
+          {actions.showViewQuotation && actions.currentQuotationId && (
+            <PermissionGatedMenuItem
+              allowed
+              icon={Eye}
+              onClick={() => onViewQuotation(actions.currentQuotationId!)}
+            >
+              View quotation
             </PermissionGatedMenuItem>
           )}
         </DashboardCompactRowMenu>

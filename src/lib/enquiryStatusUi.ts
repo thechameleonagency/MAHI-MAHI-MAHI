@@ -9,8 +9,14 @@ export const ENQUIRY_STATUS_LABELS: Record<Enquiry["status"], string> = {
   lost: "Lost",
 };
 
-export function formatEnquiryStatusLabel(status: Enquiry["status"]): string {
-  return ENQUIRY_STATUS_LABELS[status] ?? status.replace(/_/g, " ");
+/** Display-only phase when a draft quotation is linked but not yet sent. */
+export const ENQUIRY_DISPLAY_STATUS_LABELS: Record<string, string> = {
+  ...ENQUIRY_STATUS_LABELS,
+  quotation_draft: "Quotation drafted",
+};
+
+export function formatEnquiryStatusLabel(status: Enquiry["status"] | "quotation_draft"): string {
+  return ENQUIRY_DISPLAY_STATUS_LABELS[status] ?? status.replace(/_/g, " ");
 }
 
 /** Short date for enquiry table cells and detail sheets (IST-style). */

@@ -7,6 +7,7 @@ const STATUS_MAP: Record<string, string> = {
   new: "bg-blue-100 text-primary border-blue-200",
   meeting_scheduled: "bg-purple-100 text-purple-700 border-purple-200",
   quotation_sent: "bg-amber-100 text-amber-700 border-amber-200",
+  quotation_draft: "bg-slate-100 text-slate-700 border-slate-200",
   quotation_rejected: "bg-orange-100 text-orange-800 border-orange-200",
   converted: "bg-green-100 text-green-700 border-green-200",
   lost: "bg-red-100 text-red-700 border-red-200",

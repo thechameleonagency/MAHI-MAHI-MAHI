@@ -24,6 +24,7 @@ import { reconcileEmployeesAggregates } from "@/lib/employeeAggregates";
 import { reconcileLoansOutstanding } from "@/lib/loanAggregates";
 import { reconcileAuditLogUserNames } from "@/lib/resolveAuditActorUserName";
 import { reconcileEnquiriesConvertedOnProjectLink } from "@/lib/reconcileEnquiryConvertedOnProjectLink";
+import { reconcileAllEnquiryQuotationHistories } from "@/lib/enquiryQuotationHistory";
 import { reconcileVendorBillInventoryReceipt } from "@/lib/vendorBillInventoryLinkage";
 import { reconcileVendorBillVouchers } from "@/lib/vendorBillVoucherPosting";
 import { reconcileVendorPaymentVouchers } from "@/lib/vendorPaymentVoucherPosting";
@@ -171,7 +172,7 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
     sites: withSites.sites,
   };
 
-  return reconcileProjectsLifecycleVocabulary(
+  const hydrated = reconcileProjectsLifecycleVocabulary(
     reconcileQuotationShareDetails(
       reconcileDeletionRequests(
         reconcileProjectTimelineDiscomChecks(
@@ -198,6 +199,11 @@ export function applyAppStateHydrationPipeline(state: AppState): AppState {
       ),
     ),
   );
+
+  return {
+    ...hydrated,
+    enquiries: reconcileAllEnquiryQuotationHistories(hydrated.enquiries, hydrated.quotations),
+  };
 }
 
 function safeSetItem(key: string, value: string): boolean {

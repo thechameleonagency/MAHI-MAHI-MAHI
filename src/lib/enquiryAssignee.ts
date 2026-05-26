@@ -1,5 +1,5 @@
 import type { AppState } from "@/contexts/AppDataContext";
-import type { Enquiry, SettingsTeamMember } from "@/types/project";
+import type { Employee, Enquiry, SettingsTeamMember } from "@/types/project";
 import { normalizeTeamMemberStatus } from "@/lib/seedSessionBootstrap";
 
 export type EnquiryAssigneePatch = Pick<Enquiry, "assignedTo" | "assignedToMemberId">;
@@ -25,9 +25,15 @@ export function resolveMemberById(
 export function getEnquiryAssigneeDisplayName(
   enquiry: Pick<Enquiry, "assignedTo" | "assignedToMemberId">,
   members: SettingsTeamMember[],
+  employees?: Employee[],
 ): string {
   const byId = resolveMemberById(enquiry.assignedToMemberId, members);
   if (byId) return byId.name;
+  const memberId = enquiry.assignedToMemberId?.trim();
+  if (memberId && employees?.length) {
+    const emp = employees.find((e) => String(e.id) === memberId);
+    if (emp) return emp.name;
+  }
   const raw = enquiry.assignedTo?.trim();
   if (!raw) return "";
   const asMember = members.find((m) => m.id === raw);
@@ -38,7 +44,49 @@ export function getEnquiryAssigneeDisplayName(
 export function enquiryHasAssignee(
   enquiry: Pick<Enquiry, "assignedTo" | "assignedToMemberId">,
 ): boolean {
-  return Boolean(enquiry.assignedToMemberId?.trim() || enquiry.assignedTo?.trim());
+  return Boolean(enquiry.assignedToMemberId?.trim());
+}
+
+export type EnquiryAssignableMember = { id: string; name: string; source: "team" | "employee" };
+
+/** Salespeople from settings team + active HR employees (for assign / filter pickers). */
+export function getEnquiryAssignableMembers(
+  teamMembers: SettingsTeamMember[],
+  employees: Employee[],
+): EnquiryAssignableMember[] {
+  const byId = new Map<string, EnquiryAssignableMember>();
+
+  for (const m of getActiveSalesTeamMembers(teamMembers)) {
+    byId.set(m.id, { id: m.id, name: m.name, source: "team" });
+  }
+
+  for (const emp of employees) {
+    if (emp.status !== "Active") continue;
+    const role = (emp.role || "").toLowerCase();
+    if (!role.includes("sales") && role !== "salesperson") continue;
+    const id = String(emp.id);
+    if (!byId.has(id)) {
+      byId.set(id, { id, name: emp.name, source: "employee" });
+    }
+  }
+
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function buildEnquiryAssignmentFromAssignableId(
+  memberId: string,
+  teamMembers: SettingsTeamMember[],
+  employees: Employee[],
+): EnquiryAssigneePatch {
+  const teamPatch = buildEnquiryAssignmentFromMemberId(memberId, teamMembers);
+  if (teamPatch.assignedToMemberId && teamPatch.assignedTo) {
+    return teamPatch;
+  }
+  const emp = employees.find((e) => String(e.id) === memberId.trim());
+  if (emp) {
+    return { assignedToMemberId: String(emp.id), assignedTo: emp.name };
+  }
+  return teamPatch;
 }
 
 /**

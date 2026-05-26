@@ -168,7 +168,8 @@ MSS is a **broad, functional prototype** with a real command-bus pipeline (Enqui
 | Field | Detail |
 |-------|--------|
 | **Module** | `AppDataContext.applySiteChecklistFromTemplate` (~4105–4148) |
-| **Why it's a problem** | Updates site + reservations only; does not push to `project.siteChecklist` or run `syncProjectsSiteReadinessFromChecklist`. |
+| **Why it's a problem** | Updates site + reservations only; does not push to `project.siteChecklist` or
+\ run `syncProjectsSiteReadinessFromChecklist`. |
 | **Impact** | Template apply on site doesn't reflect on project Materials tab or readiness gates for Start Project. |
 | **Fix** | After template apply, sync project BOQ from site lines and recompute readiness. |
 
@@ -184,7 +185,7 @@ MSS is a **broad, functional prototype** with a real command-bus pipeline (Enqui
 ### 17. Project Detail user-visible text encoding corruption (mojibake)
 
 | Field | Detail |
-|-------|--------|
+|-------|--------|`
 | **Module** | `src/pages/ProjectDetail.tsx` (multiple lines: ~877, ~892, ~1393, ~2041, ~2076–2084, financial labels) |
 | **Why it's a problem** | Rupee symbols, em dashes, and arrows render as garbage (`Ã"Ã©â•£`, `â€"`, `Ã"Ã‡Ã¶`). |
 | **Impact** | Demo looks broken/unprofessional; financial edit dialogs show wrong currency labels. |

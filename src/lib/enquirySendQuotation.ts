@@ -42,4 +42,4 @@ export function pickQuotationToSendOnEnquiryMark(
 }
 
 export const ENQUIRY_SEND_QUOTATION_VALIDATION_MESSAGE =
-  "Complete the linked quotation (customer, line items, amount, and payment type) before marking as sent.";
+  "Complete the linked quotation (client name, line items, amount, and payment type) before marking as sent.";

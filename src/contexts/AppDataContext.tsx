@@ -217,7 +217,11 @@ import {
 } from "@/lib/scheduledInstallationValidation";
 import { validateMaterialDamageForm } from "@/lib/materialDamageValidation";
 import { sanitizePhotoUrlList } from "@/lib/photoUrlLines";
-import { getEnquiryQuotationIds } from "@/lib/enquiryQuotationHistory";
+import {
+  getEnquiryQuotationIds,
+  persistSyncedEnquiryQuotationState,
+  reconcileAllEnquiryQuotationHistories,
+} from "@/lib/enquiryQuotationHistory";
 import {
   ENQUIRY_SEND_QUOTATION_VALIDATION_MESSAGE,
   hasEnquirySentQuotationPipeline,
@@ -1596,9 +1600,13 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!result.ok) {
           return { ok: false, error: (result as { message: string }).message };
         }
+        const rawEnquiries = repositories.enquiryRepository.getAll() as Enquiry[];
+        const allQuotations = repositories.quotationRepository.getAll() as Quotation[];
+        const syncedEnquiries = reconcileAllEnquiryQuotationHistories(rawEnquiries, allQuotations);
+        persistSyncedEnquiryQuotationState(repositories, rawEnquiries, syncedEnquiries);
         setState((prev) => ({
           ...prev,
-          quotations: repositories.quotationRepository.getAll() as Quotation[],
+          quotations: allQuotations,
           enquiries: repositories.enquiryRepository.getAll() as Enquiry[],
           auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
         }));
@@ -1736,7 +1744,7 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
       if (nextStatus === "sent") {
         if (!prevQuotation.clientName || (!prevQuotation.presetSnapshot?.length && !prevQuotation.customItems?.length)) {
-          return { ok: false, error: "Sent quotation requires customer and at least one line item" };
+          return { ok: false, error: "Sent quotation requires client name and at least one line item" };
         }
       }
 
@@ -1768,8 +1776,6 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           return { ok: false, error: "Quotation not found after command" };
         }
 
-        const syncedEnquiries = repositories.enquiryRepository.getAll() as Enquiry[];
-
         let merged: Quotation = { ...(fromRepo as Quotation) };
         const isStatusTransitionToSent = prevQuotation.status !== "sent" && merged.status === "sent";
 
@@ -1777,10 +1783,16 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
           merged = { ...merged, commercialSnapshot: createCommercialSnapshot(merged) };
         }
 
-        setState((prev) => {
-          const nextQuotations = prev.quotations.map((q) => (q.id === id ? merged : q));
-          repositories.quotationRepository.replaceAll(nextQuotations);
+        const allQuotations = (repositories.quotationRepository.getAll() as Quotation[]).map((q) =>
+          q.id === id ? merged : q,
+        );
+        repositories.quotationRepository.replaceAll(allQuotations);
+        const rawEnquiries = repositories.enquiryRepository.getAll() as Enquiry[];
+        const syncedEnquiries = reconcileAllEnquiryQuotationHistories(rawEnquiries, allQuotations);
+        persistSyncedEnquiryQuotationState(repositories, rawEnquiries, syncedEnquiries);
+        const enquiriesAfterSync = repositories.enquiryRepository.getAll() as Enquiry[];
 
+        setState((prev) => {
           const nextAccruals = appendAccrualIfMissingOnApproval(
             prev.agentCommissionAccruals ?? [],
             merged,
@@ -1790,8 +1802,8 @@ export const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children })
 
           return {
             ...prev,
-            quotations: nextQuotations,
-            enquiries: syncedEnquiries,
+            quotations: allQuotations,
+            enquiries: enquiriesAfterSync,
             customers: repositories.customerRepository.getAll() as Customer[],
             auditLogs: repositories.auditRepository.getAll() as AuditLogEntry[],
             agentCommissionAccruals: nextAccruals,

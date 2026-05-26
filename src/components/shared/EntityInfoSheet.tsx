@@ -14,6 +14,9 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { formatINR } from "@/lib/formatCurrency";
 import { filterProjectsForIncGiverCompany } from "@/lib/incGiverProjectLink";
 import { deriveIncGiverCompanyEconomics } from "@/lib/deriveIncGiverEconomics";
+import { deepLink } from "@/lib/deepLinks";
+import { formatEnquiryStatusLabel } from "@/lib/enquiryStatusUi";
+import { getCurrentEnquiryQuotationId } from "@/lib/enquiryQuotationHistory";
 
 type EntityType =
   | "project"
@@ -24,6 +27,7 @@ type EntityType =
   | "quotation"
   | "invoice"
   | "agent"
+  | "enquiry"
   | "vendorshipCompany"
   | "incGiverCompany"
   | "subcontractor";
@@ -42,6 +46,7 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
     getEmployeeById, 
     getPartnerById,
     getQuotationById,
+    getEnquiryById,
     getInvoiceById,
     saleBills,
     getAgentById,
@@ -481,7 +486,7 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
         <div className="pt-3 border-t space-y-2">
           <p className="text-xs text-muted-foreground font-medium uppercase">Quick Links</p>
           <div className="flex flex-wrap gap-2">
-            <Link to="/quotations" state={{ focusQuotationId: quotation.id }} onClick={() => onOpenChange(false)}>
+            <Link to={deepLink.quotation(quotation.id)} onClick={() => onOpenChange(false)}>
               <Button variant="outline" size="sm" className="gap-1">
                 <ExternalLink className="h-3 w-3" />
                 View quotation
@@ -575,6 +580,68 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
                 <Button variant="outline" size="sm" className="gap-1">
                   <Briefcase className="h-3 w-3" />
                   Project
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderEnquiryInfo = () => {
+    const enquiry = getEnquiryById(String(entityId));
+    if (!enquiry) return <p className="text-muted-foreground">Enquiry not found</p>;
+
+    const currentQuotationId = getCurrentEnquiryQuotationId(enquiry);
+    const linkedQuotation = currentQuotationId ? getQuotationById(currentQuotationId) : null;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <ClipboardList className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">{enquiry.customerName}</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{formatEnquiryStatusLabel(enquiry.status)}</Badge>
+              <Badge variant="outline" className="capitalize">{enquiry.priority} priority</Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span>{enquiry.customerPhone}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <IndianRupee className="h-4 w-4 text-muted-foreground" />
+            <span>{formatINR(enquiry.estimatedBudget ?? 0)}</span>
+          </div>
+          {enquiry.customerEmail && (
+            <div className="flex items-center gap-2 col-span-2">
+              <Mail className="h-4 w-4 text-muted-foreground" />
+              <span>{enquiry.customerEmail}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="pt-3 border-t space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase">Quick Links</p>
+          <div className="flex flex-wrap gap-2">
+            <Link to={deepLink.enquiry(enquiry.id)} onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" className="gap-1">
+                <ExternalLink className="h-3 w-3" />
+                View enquiry
+              </Button>
+            </Link>
+            {linkedQuotation && (
+              <Link to={deepLink.quotation(linkedQuotation.id)} onClick={() => onOpenChange(false)}>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <FileText className="h-3 w-3" />
+                  View quotation
                 </Button>
               </Link>
             )}
@@ -870,6 +937,8 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
         return renderInvoiceInfo();
       case "agent":
         return renderAgentInfo();
+      case "enquiry":
+        return renderEnquiryInfo();
       case "vendorshipCompany":
         return renderVendorshipCompanyInfo();
       case "incGiverCompany":
@@ -891,6 +960,7 @@ export function EntityInfoSheet({ open, onOpenChange, entityType, entityId }: En
       case "quotation": return "Quotation Info";
       case "invoice": return "Invoice Info";
       case "agent": return "Agent Info";
+      case "enquiry": return "Enquiry Info";
       case "vendorshipCompany": return "Vendorship Company";
       case "incGiverCompany": return "INC Work Source";
       case "subcontractor": return "Subcontractor";

@@ -1,4 +1,5 @@
 import type { Enquiry, Quotation } from "@/types/project";
+import { reconcileEnquiryStatusesFromQuotations } from "@/lib/enquiryStatusReconcile";
 
 /** Append-only quotation ids linked to an enquiry (oldest → newest). */
 export function getEnquiryQuotationIds(enquiry: Pick<Enquiry, "quotationId" | "quotationIds">): string[] {
@@ -76,5 +77,37 @@ export function reconcileAllEnquiryQuotationHistories(
   enquiries: Enquiry[],
   quotations: Quotation[],
 ): Enquiry[] {
-  return enquiries.map((e) => reconcileEnquiryQuotationHistory(e, quotations));
+  const withHistory = enquiries.map((e) => reconcileEnquiryQuotationHistory(e, quotations));
+  return reconcileEnquiryStatusesFromQuotations(withHistory, quotations);
+}
+
+function enquiryQuotationLinkChanged(before: Enquiry, after: Enquiry): boolean {
+  if (before.quotationId !== after.quotationId) return true;
+  const a = before.quotationIds ?? [];
+  const b = after.quotationIds ?? [];
+  return a.length !== b.length || a.some((id, i) => id !== b[i]);
+}
+
+/** Persist enquiry link + status corrections after quotation sync. */
+export function persistSyncedEnquiryQuotationState(
+  repositories: {
+    enquiryRepository: {
+      update: (id: string, patch: Partial<Enquiry>) => void;
+    };
+  },
+  before: Enquiry[],
+  synced: Enquiry[],
+): void {
+  for (const e of synced) {
+    const raw = before.find((x) => x.id === e.id);
+    if (!raw) continue;
+    if (raw.status !== e.status || enquiryQuotationLinkChanged(raw, e)) {
+      repositories.enquiryRepository.update(e.id, {
+        status: e.status,
+        quotationId: e.quotationId,
+        quotationIds: e.quotationIds,
+        updatedAt: e.updatedAt,
+      });
+    }
+  }
 }

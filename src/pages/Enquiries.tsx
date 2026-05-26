@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Plus, Search, Phone, Mail, MapPin, Calendar, UserPlus, FileText,
+  Plus, Phone, Mail, MapPin, Calendar, UserPlus, FileText,
   Send, Eye, Edit, Check, Clock, MessageCircle,
-  Building2, IndianRupee, Filter, ChevronDown, Zap, Share2
+  Building2, IndianRupee, ChevronDown, Zap, Share2, Filter
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { getPriorityColor } from "@/lib/statusColors";
 import { formatEnquiryDisplayDate, formatEnquiryStatusLabel } from "@/lib/enquiryStatusUi";
+import { getEnquiryDisplayStatus } from "@/lib/enquiryStatusReconcile";
 import { formatINR } from "@/lib/formatCurrency";
+import { cn } from "@/lib/utils";
 import { validateContactPhone } from "@/lib/phoneValidators";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -36,7 +38,12 @@ import {
   getCurrentEnquiryQuotationId,
   getEnquiryQuotationIds,
 } from "@/lib/enquiryQuotationHistory";
-import { assertCanLinkNewQuotationToEnquiry, enquiryAllowsNewQuotation } from "@/lib/enquiryQuotationCreateGate";
+import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
+import { deepLink } from "@/lib/deepLinks";
+import {
+  executeEnquirySendQuotation,
+  getEnquiryViewActions,
+} from "@/lib/enquiryViewActions";
 import {
   enquiryTerminalReasonRequiredMessage,
   isEnquiryTerminalReasonValid,
@@ -57,20 +64,34 @@ import { PermissionGatedButton } from "@/components/ui/PermissionGatedButton";
 import { PERMISSION_DENIED_HINTS } from "@/lib/permissionDeniedHints";
 import { formPrimaryLabel } from "@/lib/formActionLabels";
 import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
-import { EnquiryListFilterHint } from "@/components/enquiries/EnquiryListFilterHint";
+import {
+  EnquiryFilterStrip,
+  EnquiryHeaderActionsPanel,
+  EnquiryListAssigneeBar,
+} from "@/components/enquiries/EnquiryListAssigneeBar";
 import {
   clearEnquiryListFilters,
   countEnquiriesHiddenByOpenFilter,
   DEFAULT_ENQUIRY_STATUS_FILTER,
+  countEnquiriesByListFilterKey,
   filterEnquiriesForList,
-  isEnquiryOpenPipelineFilterActive,
+  hasNonDefaultEnquiryListFilters,
+  isOnlyDefaultOpenStatusFilters,
+  parsePriorityFilterIdsFromSearchParam,
+  parseStatusFilterIdsFromSearchParam,
 } from "@/lib/enquiryListFilters";
 import {
+  buildEnquiryAssignmentFromAssignableId,
   buildEnquiryAssignmentFromMemberId,
   enquiryHasAssignee,
-  getActiveSalesTeamMembers,
+  getEnquiryAssignableMembers,
   getEnquiryAssigneeDisplayName,
 } from "@/lib/enquiryAssignee";
+import {
+  buildEnquiryStatusHistory,
+  enquiryShouldHidePriorityChip,
+  getCurrentLinkedQuotation,
+} from "@/lib/enquiryStatusHistory";
 import {
   buildAgentToEnquiryDraft,
   buildEnquiryToQuotationDraft,
@@ -123,6 +144,7 @@ const emptyEnquiryCreateForm = (): EnquiryCreateFormData => ({
 
 const Enquiries = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     enquiries,
@@ -130,6 +152,7 @@ const Enquiries = () => {
     addEnquiry,
     updateEnquiry,
     transitionEnquiryStatus,
+    transitionQuotationStatus,
     convertEnquiryToCustomer,
     employees,
     settingsTeamMembers,
@@ -150,17 +173,22 @@ const Enquiries = () => {
   const canWriteQuotationFromEnquiry = allowOperationalWrite(ceoReadOnly, canCreateQuotation);
   const canWriteReopenLost = allowOperationalWrite(ceoReadOnly, canReopenLost);
 
-  const salesAssignees = useMemo(
-    () => getActiveSalesTeamMembers(settingsTeamMembers),
-    [settingsTeamMembers],
+  const assignableMembers = useMemo(
+    () => getEnquiryAssignableMembers(settingsTeamMembers, employees),
+    [settingsTeamMembers, employees],
   );
 
+  const [assigneeFilterIds, setAssigneeFilterIds] = useState<string[]>([]);
+  const [assigneeFilterPanelOpen, setAssigneeFilterPanelOpen] = useState(true);
+  const [headerSearchExpanded, setHeaderSearchExpanded] = useState(false);
+
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
-  // Default to open pipeline so converted/lost enquiries don't clutter the list (audit B12).
-  const [statusFilter, setStatusFilter] = useState(
-    () => searchParams.get("status") ?? DEFAULT_ENQUIRY_STATUS_FILTER,
+  const [statusFilterIds, setStatusFilterIds] = useState(() =>
+    parseStatusFilterIdsFromSearchParam(searchParams.get("status")),
   );
-  const [priorityFilter, setPriorityFilter] = useState(() => searchParams.get("priority") ?? "all");
+  const [priorityFilterIds, setPriorityFilterIds] = useState(() =>
+    parsePriorityFilterIdsFromSearchParam(searchParams.get("priority")),
+  );
   const salesActorId = memberId.trim() || sessionUserId;
   const [assigneeFilter, setAssigneeFilter] = useState(() => {
     const fromUrl = searchParams.get("assignee");
@@ -184,16 +212,37 @@ const Enquiries = () => {
   }, [currentRole, salesActorId, sessionUserId]);
 
   useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => {
+      if (mq.matches) setHeaderSearchExpanded(false);
+    };
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
         const q = searchQuery.trim();
         if (q) next.set("q", q);
         else next.delete("q");
-        if (statusFilter !== DEFAULT_ENQUIRY_STATUS_FILTER) next.set("status", statusFilter);
-        else next.delete("status");
-        if (priorityFilter !== "all") next.set("priority", priorityFilter);
-        else next.delete("priority");
+        if (isOnlyDefaultOpenStatusFilters(statusFilterIds, priorityFilterIds)) {
+          next.delete("status");
+          next.delete("priority");
+        } else {
+          if (
+            statusFilterIds.length > 0 &&
+            !(statusFilterIds.length === 1 && statusFilterIds[0] === DEFAULT_ENQUIRY_STATUS_FILTER)
+          ) {
+            next.set("status", statusFilterIds.join(","));
+          } else {
+            next.delete("status");
+          }
+          if (priorityFilterIds.length > 0) next.set("priority", priorityFilterIds.join(","));
+          else next.delete("priority");
+        }
         if (assigneeFilter !== "all") next.set("assignee", assigneeFilter);
         else next.delete("assignee");
         if (followUpFilter === "overdue") next.set("followUp", "overdue");
@@ -202,7 +251,7 @@ const Enquiries = () => {
       },
       { replace: true },
     );
-  }, [searchQuery, statusFilter, priorityFilter, assigneeFilter, followUpFilter, setSearchParams]);
+  }, [searchQuery, statusFilterIds, priorityFilterIds, assigneeFilter, followUpFilter, setSearchParams]);
 
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
@@ -215,6 +264,7 @@ const Enquiries = () => {
   const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isScheduleMeetingOpen, setIsScheduleMeetingOpen] = useState(false);
+  const [meetingSheetMode, setMeetingSheetMode] = useState<"schedule" | "reschedule">("schedule");
   const [isMarkLostReasonOpen, setIsMarkLostReasonOpen] = useState(false);
   const [lostReasonText, setLostReasonText] = useState("");
   const [isReopenEnquiryOpen, setIsReopenEnquiryOpen] = useState(false);
@@ -323,22 +373,58 @@ const Enquiries = () => {
     [enquiries],
   );
 
-  const showOpenFilterHint = isEnquiryOpenPipelineFilterActive(statusFilter);
+  const filterCounts = useMemo(
+    () => countEnquiriesByListFilterKey(enquiries, quotations),
+    [enquiries, quotations],
+  );
+
+  const onlyDefaultOpenFilters = isOnlyDefaultOpenStatusFilters(statusFilterIds, priorityFilterIds);
+
+  const hasActiveListFilters = hasNonDefaultEnquiryListFilters({
+    searchQuery,
+    statusFilterIds,
+    priorityFilterIds,
+    assigneeFilterIds,
+    followUpFilter,
+  });
+
+  const clearAllEnquiryFilters = useCallback(() => {
+    const cleared = clearEnquiryListFilters();
+    setSearchQuery(cleared.searchQuery);
+    setStatusFilterIds(cleared.statusFilterIds);
+    setPriorityFilterIds(cleared.priorityFilterIds);
+    setAssigneeFilter(cleared.assigneeFilter);
+    setAssigneeFilterIds([]);
+    setFollowUpFilter("all");
+    setTablePage(1);
+  }, []);
 
   const filteredEnquiries = useMemo(
     () =>
       filterEnquiriesForList(enquiries, {
         searchQuery,
-        statusFilter,
-        priorityFilter,
+        statusFilterIds,
+        priorityFilterIds,
         assigneeFilter,
+        assigneeFilterIds,
         followUpFilter,
+        quotations,
       }),
-    [enquiries, searchQuery, statusFilter, priorityFilter, assigneeFilter, followUpFilter],
+    [
+      enquiries,
+      quotations,
+      searchQuery,
+      statusFilterIds,
+      priorityFilterIds,
+      assigneeFilter,
+      assigneeFilterIds,
+      followUpFilter,
+    ],
   );
 
   const showAllEnquiries = () => {
-    setStatusFilter("all");
+    setStatusFilterIds(["all"]);
+    setPriorityFilterIds([]);
     setTablePage(1);
   };
 
@@ -353,34 +439,45 @@ const Enquiries = () => {
   }, [enquiryTotalPages]);
 
   useEffect(() => {
-    const openId = searchParams.get("open");
+    const stateEnquiryId = (location.state as { focusEnquiryId?: string } | null)?.focusEnquiryId;
+    const openId = searchParams.get("open") ?? stateEnquiryId ?? null;
     if (!openId) return;
     const found = enquiries.find((e) => e.id === openId);
     if (!found) {
       if (enquiries.length > 0) {
-        setSearchParams(
-          (prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("open");
-            return next;
-          },
-          { replace: true },
-        );
+        if (searchParams.get("open")) {
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete("open");
+              return next;
+            },
+            { replace: true },
+          );
+        }
+        if (stateEnquiryId) {
+          navigate(location.pathname + location.search, { replace: true, state: {} });
+        }
         toast({ title: "Enquiry not found", description: `No enquiry matches id ${openId}.`, variant: "destructive" });
       }
       return;
     }
     setSelectedEnquiry(found);
     setIsViewEnquiryOpen(true);
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("open");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [enquiries, searchParams, setSearchParams]);
+    if (searchParams.get("open")) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("open");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+    if (stateEnquiryId) {
+      navigate(location.pathname + location.search, { replace: true, state: {} });
+    }
+  }, [enquiries, searchParams, setSearchParams, location.pathname, location.search, location.state, navigate]);
 
   // Keep detail sheet in sync after schedule meeting / notes / status updates.
   useEffect(() => {
@@ -389,16 +486,121 @@ const Enquiries = () => {
     if (fresh) setSelectedEnquiry(fresh);
   }, [enquiries, selectedEnquiry?.id]);
 
-  // Stats
-  const stats = {
-    total: enquiries.length,
-    new: enquiries.filter(e => e.status === "new").length,
-    meetingScheduled: enquiries.filter(e => e.status === "meeting_scheduled").length,
-    quotationSent: enquiries.filter(e => e.status === "quotation_sent").length,
-    quotationRejected: enquiries.filter(e => e.status === "quotation_rejected").length,
-    converted: enquiries.filter(e => e.status === "converted").length,
-    highPriority: enquiries.filter(e => e.priority === "high" && e.status !== "converted" && e.status !== "lost").length,
-  };
+  const isStatusChipActive = useCallback(
+    (id: string) =>
+      statusFilterIds.length === 0
+        ? id === DEFAULT_ENQUIRY_STATUS_FILTER
+        : statusFilterIds.includes(id),
+    [statusFilterIds],
+  );
+
+  const toggleStatusFilterId = useCallback((id: string) => {
+    setStatusFilterIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      return [...prev, id];
+    });
+    setTablePage(1);
+  }, []);
+
+  const togglePriorityFilterId = useCallback((id: string) => {
+    setPriorityFilterIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+    setTablePage(1);
+  }, []);
+
+  const enquiryKpiFilterItems = useMemo(
+    () => [
+      {
+        label: "Open",
+        value: filterCounts.open,
+        active: isStatusChipActive(DEFAULT_ENQUIRY_STATUS_FILTER),
+        onClick: () => toggleStatusFilterId(DEFAULT_ENQUIRY_STATUS_FILTER),
+      },
+      {
+        label: "All",
+        value: filterCounts.all,
+        active: isStatusChipActive("all"),
+        onClick: () => toggleStatusFilterId("all"),
+      },
+      {
+        label: "New",
+        value: filterCounts.new,
+        active: isStatusChipActive("new"),
+        onClick: () => toggleStatusFilterId("new"),
+      },
+      {
+        label: "Meeting",
+        value: filterCounts.meeting_scheduled,
+        active: isStatusChipActive("meeting_scheduled"),
+        onClick: () => toggleStatusFilterId("meeting_scheduled"),
+      },
+      {
+        label: "Quote draft",
+        value: filterCounts.quotation_draft,
+        active: isStatusChipActive("quotation_draft"),
+        onClick: () => toggleStatusFilterId("quotation_draft"),
+      },
+      {
+        label: "Quote sent",
+        value: filterCounts.quotation_sent,
+        active: isStatusChipActive("quotation_sent"),
+        onClick: () => toggleStatusFilterId("quotation_sent"),
+      },
+      {
+        label: "Rejected",
+        value: filterCounts.quotation_rejected,
+        active: isStatusChipActive("quotation_rejected"),
+        onClick: () => toggleStatusFilterId("quotation_rejected"),
+      },
+      {
+        label: "Converted",
+        value: filterCounts.converted,
+        active: isStatusChipActive("converted"),
+        onClick: () => toggleStatusFilterId("converted"),
+      },
+      {
+        label: "Lost",
+        value: filterCounts.lost,
+        active: isStatusChipActive("lost"),
+        onClick: () => toggleStatusFilterId("lost"),
+      },
+      {
+        label: "Archived",
+        value: filterCounts.archived,
+        active: isStatusChipActive("archived"),
+        onClick: () => toggleStatusFilterId("archived"),
+      },
+      {
+        label: "High",
+        value: enquiries.filter(
+          (e) => e.priority === "high" && e.status !== "converted" && e.status !== "lost",
+        ).length,
+        active: priorityFilterIds.includes("high"),
+        onClick: () => togglePriorityFilterId("high"),
+      },
+      {
+        label: "Medium",
+        value: enquiries.filter((e) => e.priority === "medium").length,
+        active: priorityFilterIds.includes("medium"),
+        onClick: () => togglePriorityFilterId("medium"),
+      },
+      {
+        label: "Low",
+        value: enquiries.filter((e) => e.priority === "low").length,
+        active: priorityFilterIds.includes("low"),
+        onClick: () => togglePriorityFilterId("low"),
+      },
+    ],
+    [
+      enquiries,
+      filterCounts,
+      isStatusChipActive,
+      priorityFilterIds,
+      togglePriorityFilterId,
+      toggleStatusFilterId,
+    ],
+  );
 
 const formatCapacityInput = (capacity: string) => {
   const trimmed = capacity.trim();
@@ -407,9 +609,12 @@ const formatCapacityInput = (capacity: string) => {
   return Number.isFinite(numeric) && String(numeric) === trimmed ? `${trimmed}kW` : trimmed;
 };
 
-  const getStatusBadge = (status: Enquiry["status"]) => (
-    <StatusBadge status={status} label={formatEnquiryStatusLabel(status)} />
-  );
+  const getStatusBadge = (enquiry: Enquiry) => {
+    const displayStatus = getEnquiryDisplayStatus(enquiry, quotations);
+    return (
+      <StatusBadge status={displayStatus} label={formatEnquiryStatusLabel(displayStatus)} />
+    );
+  };
 
   const getPriorityBadge = (priority: Enquiry["priority"]) => (
     <Badge variant="outline" className={`border-0 capitalize ${getPriorityColor(priority)}`}>
@@ -534,7 +739,7 @@ const formatCapacityInput = (capacity: string) => {
     if (!selectedEnquiry || !assignTo) return;
     
     const result = await updateEnquiry(selectedEnquiry.id, {
-      ...buildEnquiryAssignmentFromMemberId(assignTo, settingsTeamMembers),
+      ...buildEnquiryAssignmentFromAssignableId(assignTo, settingsTeamMembers, employees),
       updatedAt: new Date().toISOString().split("T")[0],
     });
     if (!result.ok) {
@@ -552,7 +757,7 @@ const formatCapacityInput = (capacity: string) => {
     setIsAssignOpen(false);
     setAssignTo("");
     const assigneeName = getEnquiryAssigneeDisplayName(
-      buildEnquiryAssignmentFromMemberId(assignTo, settingsTeamMembers),
+      buildEnquiryAssignmentFromAssignableId(assignTo, settingsTeamMembers, employees),
       settingsTeamMembers,
     );
     toast({ title: "Assigned", description: `Enquiry assigned to ${assigneeName || assignTo}` });
@@ -676,9 +881,10 @@ const formatCapacityInput = (capacity: string) => {
     }
   };
 
-  const openScheduleMeetingSheet = () => {
+  const openScheduleMeetingSheet = (mode: "schedule" | "reschedule" = "schedule") => {
     if (!selectedEnquiry) return;
     const existingDate = selectedEnquiry.meetingDate?.trim();
+    setMeetingSheetMode(mode);
     setMeetingDate(existingDate ? existingDate.slice(0, 10) : "");
     setMeetingNotes(selectedEnquiry.meetingNotes ?? "");
     setIsScheduleMeetingOpen(true);
@@ -700,20 +906,32 @@ const formatCapacityInput = (capacity: string) => {
       });
       return;
     }
-    const statusResult = await transitionEnquiryStatus(selectedEnquiry.id, "meeting_scheduled");
-    if (!statusResult.ok) {
-      toast({
-        title: "Meeting saved; status not updated",
-        description: friendlyCommandErrorMessage(statusResult.error, "Invalid transition"),
-        variant: "destructive",
-      });
-      return;
+    if (selectedEnquiry.status !== "meeting_scheduled") {
+      const statusResult = await transitionEnquiryStatus(selectedEnquiry.id, "meeting_scheduled");
+      if (!statusResult.ok) {
+        toast({
+          title: "Meeting saved; status not updated",
+          description: friendlyCommandErrorMessage(statusResult.error, "Invalid transition"),
+          variant: "destructive",
+        });
+        return;
+      }
     }
-    
+
     setIsScheduleMeetingOpen(false);
     setMeetingDate("");
     setMeetingNotes("");
-    toast({ title: "Meeting Scheduled", description: `Meeting set for ${meetingDate}` });
+    toast({
+      title: meetingSheetMode === "reschedule" ? "Meeting rescheduled" : "Meeting scheduled",
+      description: `Meeting set for ${meetingDate}`,
+    });
+  };
+
+  const toggleAssigneeFilterId = (id: string) => {
+    setAssigneeFilterIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+    setTablePage(1);
   };
 
   const handleShare = async () => {
@@ -798,10 +1016,14 @@ const formatCapacityInput = (capacity: string) => {
   };
 
   const handleSendQuotation = async (enquiry: Enquiry) => {
-    const result = await transitionEnquiryStatus(enquiry.id, "quotation_sent");
+    const result = await executeEnquirySendQuotation(enquiry, {
+      transitionEnquiryStatus,
+      transitionQuotationStatus,
+      quotations,
+    });
     if (!result.ok) {
       toast({
-        title: "Could not update",
+        title: "Could not send quotation",
         description: friendlyCommandErrorMessage(result.error, "Invalid transition"),
         variant: "destructive",
       });
@@ -812,6 +1034,11 @@ const formatCapacityInput = (capacity: string) => {
       description: "Enquiry and linked quotation are marked sent. Mark as Converted once the customer confirms.",
     });
   };
+
+  const selectedEnquiryActions = useMemo(() => {
+    if (!selectedEnquiry) return null;
+    return getEnquiryViewActions(selectedEnquiry, quotations, currentRole);
+  }, [selectedEnquiry, quotations, currentRole]);
 
   const handleConvertEnquiry = async (enquiry: Enquiry) => {
     const result = await convertEnquiryToCustomer(enquiry.id);
@@ -850,139 +1077,54 @@ const formatCapacityInput = (capacity: string) => {
       <StickyPageHeader
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Enquiries" }]}
         subRow={
-          <div className="flex w-full min-w-0 flex-col gap-2">
-            <div className="flex min-w-0 w-full flex-1 flex-wrap items-end gap-2">
-              <div className="relative min-w-0 flex-1 max-w-full sm:max-w-sm">
-                <Search className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search name, phone, or ID"
-                  className="h-9 border-border bg-muted/50 pl-9"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
+          <div className="flex w-full min-w-0 items-stretch gap-3">
+            <EnquiryFilterStrip
+              className={cn("min-h-0 flex-1", headerSearchExpanded && "hidden")}
+              assigneePanelOpen={assigneeFilterPanelOpen}
+              assigneeSelectedCount={assigneeFilterIds.length}
+              onToggleAssigneePanel={() => setAssigneeFilterPanelOpen((o) => !o)}
+              assigneeBar={
+                <EnquiryListAssigneeBar
+                  members={assignableMembers}
+                  selectedIds={assigneeFilterIds}
+                  onToggle={toggleAssigneeFilterId}
+                  onClear={() => {
+                    setAssigneeFilterIds([]);
                     setTablePage(1);
                   }}
+                  onClearAllFilters={clearAllEnquiryFilters}
+                  showClearAllFilters={hasActiveListFilters}
                 />
-              </div>
-              <Select
-                value={statusFilter}
-                onValueChange={(v) => {
-                  setStatusFilter(v);
-                  setTablePage(1);
-                }}
-              >
-                <SelectTrigger className="h-9 w-[min(100%,180px)] bg-muted/50">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="open">Open (default)</SelectItem>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="new">New</SelectItem>
-                  <SelectItem value="meeting_scheduled">Meeting Scheduled</SelectItem>
-                  <SelectItem value="quotation_sent">Quotation Sent</SelectItem>
-                  <SelectItem value="quotation_rejected">Quotation Rejected</SelectItem>
-                  <SelectItem value="converted">Converted</SelectItem>
-                  <SelectItem value="lost">Lost</SelectItem>
-                  <SelectItem value="archived">Archived</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select
-                value={priorityFilter}
-                onValueChange={(v) => {
-                  setPriorityFilter(v);
-                  setTablePage(1);
-                }}
-              >
-                <SelectTrigger className="h-9 w-[110px] bg-muted/50">
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Priority</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select
-                value={assigneeFilter}
-                onValueChange={(v) => {
-                  setAssigneeFilter(v);
-                  setTablePage(1);
-                }}
-              >
-                <SelectTrigger className="h-9 w-[130px] bg-muted/50">
-                  <SelectValue placeholder="Assignee" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Assignees</SelectItem>
-                  <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {salesAssignees.map((member) => (
-                    <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {showOpenFilterHint && (
-              <EnquiryListFilterHint
-                hiddenCount={hiddenByOpenFilterCount}
-                onShowAll={showAllEnquiries}
+              }
+            >
+              <InlineKpiStrip
+                singleRow
+                className="!items-center !overflow-x-visible min-w-0 flex-1 !border-0 !bg-transparent !p-0"
+                items={enquiryKpiFilterItems}
               />
-            )}
-            <InlineKpiStrip
-              className="w-full sm:w-auto sm:justify-end"
-              items={[
-                {
-                  label: "Total",
-                  value: stats.total,
-                  active: statusFilter === "all" && priorityFilter === "all",
-                  onClick: () => { setStatusFilter("all"); setPriorityFilter("all"); }
-                },
-                {
-                  label: "New",
-                  value: stats.new,
-                  active: statusFilter === "new",
-                  onClick: () => { setStatusFilter("new"); setPriorityFilter("all"); }
-                },
-                {
-                  label: "Meeting scheduled",
-                  value: stats.meetingScheduled,
-                  active: statusFilter === "meeting_scheduled",
-                  onClick: () => { setStatusFilter("meeting_scheduled"); setPriorityFilter("all"); }
-                },
-                {
-                  label: "Quotation sent",
-                  value: stats.quotationSent,
-                  active: statusFilter === "quotation_sent",
-                  onClick: () => { setStatusFilter("quotation_sent"); setPriorityFilter("all"); }
-                },
-                {
-                  label: "Quote rejected",
-                  value: stats.quotationRejected,
-                  active: statusFilter === "quotation_rejected",
-                  onClick: () => { setStatusFilter("quotation_rejected"); setPriorityFilter("all"); }
-                },
-                {
-                  label: "Converted",
-                  value: stats.converted,
-                  active: statusFilter === "converted",
-                  onClick: () => { setStatusFilter("converted"); setPriorityFilter("all"); }
-                },
-                {
-                  label: "High priority",
-                  value: stats.highPriority,
-                  active: priorityFilter === "high",
-                  onClick: () => { setPriorityFilter("high"); setStatusFilter("all"); }
-                },
-              ]}
+            </EnquiryFilterStrip>
+            <EnquiryHeaderActionsPanel
+              className={cn(
+                "ml-auto",
+                headerSearchExpanded ? "min-w-0 flex-1" : "w-14 lg:w-64",
+              )}
+              searchExpanded={headerSearchExpanded}
+              onSearchExpand={() => setHeaderSearchExpanded(true)}
+              onSearchCollapse={() => setHeaderSearchExpanded(false)}
+              searchQuery={searchQuery}
+              onSearchChange={(value) => {
+                setSearchQuery(value);
+                setTablePage(1);
+              }}
+              onAddEnquiry={() => {
+                resetCreateForm();
+                setIsAddEnquiryOpen(true);
+              }}
+              addDisabled={!canWriteEnquiryCreate}
             />
           </div>
         }
-      >
-        <Button size="sm" onClick={() => { resetCreateForm(); setIsAddEnquiryOpen(true); }} disabled={!canWriteEnquiryCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add enquiry
-        </Button>
-      </StickyPageHeader>
+      />
 
         <DataTableShell
             maxHeight={listTableViewportMaxHeight(tablePageSize)}
@@ -1051,7 +1193,8 @@ const formatCapacityInput = (capacity: string) => {
                             {enquiry.customerAddress}
                           </p>
                         )}
-                        {enquiry.status === "quotation_rejected" && (
+                        {getEnquiryViewActions(enquiry, quotations, currentRole).showCreateQuotation &&
+                          enquiry.status === "quotation_rejected" && (
                           <div
                             className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md border border-orange-200/80 bg-orange-50/90 px-2 py-1 text-xs text-orange-900"
                             onClick={(e) => e.stopPropagation()}
@@ -1065,7 +1208,7 @@ const formatCapacityInput = (capacity: string) => {
                               className="h-auto p-0 text-xs font-semibold text-orange-900"
                               onClick={() => handleCreateQuotation(enquiry)}
                             >
-                              Create new quotation
+                              Create quotation
                             </PermissionGatedButton>
                           </div>
                         )}
@@ -1083,12 +1226,12 @@ const formatCapacityInput = (capacity: string) => {
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground whitespace-nowrap">{enquiry.customerPhone}</TableCell>
-                  <TableCell>{getStatusBadge(enquiry.status)}</TableCell>
+                  <TableCell>{getStatusBadge(enquiry)}</TableCell>
                   <TableCell>{getPriorityBadge(enquiry.priority)}</TableCell>
                   <TableCell className="font-medium">{enquiry.systemCapacity || "—"}</TableCell>
                   <TableCell className="text-primary font-medium">{formatINR(enquiry.estimatedBudget)}</TableCell>
                   <TableCell >
-                    {getEnquiryAssigneeDisplayName(enquiry, settingsTeamMembers) || (
+                    {getEnquiryAssigneeDisplayName(enquiry, settingsTeamMembers, employees) || (
                       <span className="text-warning">Unassigned</span>
                     )}
                   </TableCell>
@@ -1123,14 +1266,14 @@ const formatCapacityInput = (capacity: string) => {
           title={
             enquiries.length === 0
               ? "No enquiries yet"
-              : showOpenFilterHint && hiddenByOpenFilterCount > 0 && !searchQuery.trim()
+              : onlyDefaultOpenFilters && hiddenByOpenFilterCount > 0 && !searchQuery.trim()
                 ? "No open enquiries in the list"
                 : "No enquiries match the current filters"
           }
           description={
             enquiries.length === 0
               ? "Create an enquiry to start the sales pipeline."
-              : showOpenFilterHint && hiddenByOpenFilterCount > 0 && !searchQuery.trim()
+              : onlyDefaultOpenFilters && hiddenByOpenFilterCount > 0 && !searchQuery.trim()
                 ? `${hiddenByOpenFilterCount} converted or lost ${
                     hiddenByOpenFilterCount === 1 ? "enquiry is" : "enquiries are"
                   } hidden while the Open filter is on. Show all to find them.`
@@ -1141,7 +1284,7 @@ const formatCapacityInput = (capacity: string) => {
               ? "Add your first enquiry"
               : enquiries.length === 0
                 ? undefined
-                : showOpenFilterHint && hiddenByOpenFilterCount > 0 && !searchQuery.trim()
+                : onlyDefaultOpenFilters && hiddenByOpenFilterCount > 0 && !searchQuery.trim()
                   ? "Show all enquiries"
                   : "Clear filters"
           }
@@ -1153,16 +1296,12 @@ const formatCapacityInput = (capacity: string) => {
                 }
               : enquiries.length > 0
                 ? () => {
-                    if (showOpenFilterHint && hiddenByOpenFilterCount > 0 && !searchQuery.trim()) {
+                    if (onlyDefaultOpenFilters && hiddenByOpenFilterCount > 0 && !searchQuery.trim()) {
                       showAllEnquiries();
                       return;
                     }
-                    const cleared = clearEnquiryListFilters();
-                    setSearchQuery(cleared.searchQuery);
-                    setStatusFilter(cleared.statusFilter);
-                    setPriorityFilter(cleared.priorityFilter);
-                    setAssigneeFilter(cleared.assigneeFilter);
-                    setTablePage(1);
+                    clearAllEnquiryFilters();
+                    setAssigneeFilterPanelOpen(true);
                   }
                 : undefined
           }
@@ -1432,13 +1571,14 @@ const formatCapacityInput = (capacity: string) => {
               />
             </div>
           )}
-          {selectedEnquiry?.status === "quotation_rejected" && (
+          {selectedEnquiryActions?.showCreateQuotation &&
+            selectedEnquiry?.status === "quotation_rejected" && (
             <div className="mt-4 px-1">
               <LifecycleTerminalBanner
                 variant="rejected"
                 title="Quotation rejected or withdrawn"
-                description="The linked quote is no longer active. Create a new quotation to re-engage this lead, or mark the enquiry as lost if the opportunity is closed."
-                primaryActionLabel={canWriteQuotationFromEnquiry ? "Create new quotation" : undefined}
+                description="The linked quote is no longer active. Create a quotation to re-engage this lead, or mark the enquiry as lost if the opportunity is closed."
+                primaryActionLabel={canWriteQuotationFromEnquiry ? "Create quotation" : undefined}
                 onPrimaryAction={
                   canWriteQuotationFromEnquiry ? () => handleCreateQuotation(selectedEnquiry) : undefined
                 }
@@ -1462,8 +1602,20 @@ const formatCapacityInput = (capacity: string) => {
                           <Badge variant="outline" className="text-2xs uppercase tracking-wider h-5">
                             {selectedEnquiry.customerType}
                           </Badge>
-                          {getStatusBadge(selectedEnquiry.status)}
-                          {getPriorityBadge(selectedEnquiry.priority)}
+                          {getStatusBadge(selectedEnquiry)}
+                          {(() => {
+                            const linked = getCurrentLinkedQuotation(selectedEnquiry, quotations);
+                            if (linked) {
+                              return (
+                                <Badge variant="outline" className="text-2xs capitalize">
+                                  Quote: {linked.status.replace(/_/g, " ")}
+                                </Badge>
+                              );
+                            }
+                            return null;
+                          })()}
+                          {!enquiryShouldHidePriorityChip(selectedEnquiry, quotations) &&
+                            getPriorityBadge(selectedEnquiry.priority)}
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             Created {formatEnquiryDisplayDate(selectedEnquiry.createdAt)}
@@ -1620,6 +1772,41 @@ const formatCapacityInput = (capacity: string) => {
                   </div>
                 ) : null}
 
+                {/* Status History */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <Clock className="h-3 w-3" />
+                    Status history
+                  </h4>
+                  <div className="space-y-4 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-border/60">
+                    {buildEnquiryStatusHistory(selectedEnquiry, quotations).map((e, idx) => {
+                      const toneClass: Record<string, string> = {
+                        primary: "border-primary/20 text-primary/80",
+                        blue: "border-primary/20 text-primary",
+                        teal: "border-primary/20 text-primary",
+                        green: "border-success/20 text-success",
+                        destructive: "border-destructive/20 text-destructive",
+                        muted: "border-muted/40 text-muted-foreground",
+                        orange: "border-warning/30 text-warning",
+                      };
+                      return (
+                        <div key={`${e.label}-${idx}`} className="relative pl-8 group">
+                          <div
+                            className={`absolute left-0 top-[6px] h-3 w-3 rounded-full border-2 bg-background z-10 ${toneClass[e.tone] || "border-muted"}`}
+                          />
+                          <div className="p-3 bg-muted/20 rounded-lg border border-border/40">
+                            <div className="flex items-start justify-between mb-1">
+                              <p className="text-xs font-medium">{e.label}</p>
+                              <time className="text-2xs text-muted-foreground">{e.at}</time>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{e.description}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Follow-up Notes Timeline */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -1722,7 +1909,7 @@ const formatCapacityInput = (capacity: string) => {
                                   variant="ghost"
                                   size="sm"
                                   className="h-7 px-2"
-                                  onClick={() => navigate(`/quotations?id=${q.id}`)}
+                                  onClick={() => navigate(deepLink.quotation(q.id))}
                                 >
                                   <Eye className="h-3.5 w-3.5" />
                                 </Button>
@@ -1737,42 +1924,110 @@ const formatCapacityInput = (capacity: string) => {
               })()}
 
               {/* Action Footer */}
+              {selectedEnquiryActions && (
               <div className="pt-6 mt-6 border-t bg-background/80 backdrop-blur-sm sticky bottom-0 z-20">
                 <div className="flex flex-wrap items-center justify-between gap-3 pb-6">
                   <div className="flex items-center gap-2">
+                    {selectedEnquiryActions.showAssignLead && (
                     <PermissionGatedButton
                       allowed={canWriteEnquiryUpdate}
                       deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                       variant="outline"
                       size="sm"
                       hideWhenDenied
-                      disabled={selectedEnquiry.status === "converted" || selectedEnquiry.status === "lost"}
                       onClick={() => {
                         setAssignTo(selectedEnquiry.assignedToMemberId ?? "");
                         setIsAssignOpen(true);
                       }}
                     >
                       <UserPlus className="h-4 w-4 mr-2" />
-                      {enquiryHasAssignee(selectedEnquiry) ? "Reassign" : "Assign Lead"}
+                      {enquiryHasAssignee(selectedEnquiry) ? "Reassign" : "Assign lead"}
                     </PermissionGatedButton>
-                    {(selectedEnquiry.status === "new" || selectedEnquiry.status === "meeting_scheduled") && (
+                    )}
+                    {selectedEnquiryActions.showScheduleMeeting && (
                       <PermissionGatedButton
                         allowed={canWriteEnquiryUpdate}
                         deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
                         variant="outline"
                         size="sm"
                         hideWhenDenied
-                        onClick={openScheduleMeetingSheet}
+                        onClick={() => openScheduleMeetingSheet("schedule")}
                       >
                         <Calendar className="h-4 w-4 mr-2" />
-                        Schedule Meeting
+                        Schedule meeting
+                      </PermissionGatedButton>
+                    )}
+                    {selectedEnquiryActions.showRescheduleMeeting && (
+                      <PermissionGatedButton
+                        allowed={canWriteEnquiryUpdate}
+                        deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
+                        variant="outline"
+                        size="sm"
+                        hideWhenDenied
+                        onClick={() => openScheduleMeetingSheet("reschedule")}
+                      >
+                        <Calendar className="h-4 w-4 mr-2" />
+                        Reschedule meeting
                       </PermissionGatedButton>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {/* Mark as Lost — available until converted/lost */}
-                    {selectedEnquiry.status !== "converted" && selectedEnquiry.status !== "lost" && (
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {selectedEnquiryActions.showCreateQuotation && (
+                      <PermissionGatedButton
+                        allowed={canWriteQuotationFromEnquiry}
+                        deniedHint={PERMISSION_DENIED_HINTS.enquiryCreateQuotation}
+                        size="sm"
+                        className="bg-primary text-white"
+                        hideWhenDenied
+                        onClick={() => handleCreateQuotation(selectedEnquiry)}
+                      >
+                        <FileText className="h-4 w-4 mr-2" />
+                        Create quotation
+                      </PermissionGatedButton>
+                    )}
+                    {selectedEnquiryActions.showSendQuotation && (
+                      <PermissionGatedButton
+                        allowed={canWriteEnquiryUpdate}
+                        deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
+                        size="sm"
+                        variant="outline"
+                        className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
+                        hideWhenDenied
+                        onClick={() => void handleSendQuotation(selectedEnquiry)}
+                      >
+                        <Send className="h-4 w-4 mr-2" />
+                        Send quotation
+                      </PermissionGatedButton>
+                    )}
+                    {selectedEnquiryActions.showMarkAsConverted && (
+                      <PermissionGatedButton
+                        allowed={canWriteEnquiryUpdate}
+                        deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
+                        size="sm"
+                        className="bg-primary text-white"
+                        hideWhenDenied
+                        onClick={() => void handleConvertEnquiry(selectedEnquiry)}
+                      >
+                        <Check className="h-4 w-4 mr-2" />
+                        Mark as converted
+                      </PermissionGatedButton>
+                    )}
+                    {selectedEnquiryActions.showViewQuotation && selectedEnquiryActions.currentQuotationId && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          navigate(deepLink.quotation(selectedEnquiryActions.currentQuotationId!))
+                        }
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        {getEnquiryQuotationIds(selectedEnquiry).length > 1
+                          ? "View current quotation"
+                          : "View quotation"}
+                      </Button>
+                    )}
+                    {selectedEnquiryActions.showMarkAsLost && (
                       <PermissionGatedButton
                         allowed={canWriteEnquiryUpdate}
                         deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
@@ -1782,10 +2037,10 @@ const formatCapacityInput = (capacity: string) => {
                         onClick={handleMarkAsLost}
                         className="bg-destructive/5 text-destructive hover:bg-destructive hover:text-white border-destructive/20"
                       >
-                        Mark as Lost
+                        Mark as lost
                       </PermissionGatedButton>
                     )}
-                    {selectedEnquiry.status === "lost" && (
+                    {selectedEnquiryActions.showReopen && (
                       <PermissionGatedButton
                         allowed={canWriteReopenLost}
                         deniedHint={PERMISSION_DENIED_HINTS.enquiryReopenLost}
@@ -1796,7 +2051,7 @@ const formatCapacityInput = (capacity: string) => {
                         Reopen
                       </PermissionGatedButton>
                     )}
-                    {selectedEnquiry.archivedAt ? (
+                    {selectedEnquiryActions.showUnarchive && (
                       <PermissionGatedButton
                         allowed={canWriteEnquiryUpdate}
                         deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
@@ -1818,8 +2073,8 @@ const formatCapacityInput = (capacity: string) => {
                       >
                         Unarchive
                       </PermissionGatedButton>
-                    ) : (
-                      (selectedEnquiry.status === "lost" || selectedEnquiry.status === "converted") && (
+                    )}
+                    {selectedEnquiryActions.showArchive && (
                         <PermissionGatedButton
                           allowed={canWriteEnquiryUpdate}
                           deniedHint={PERMISSION_DENIED_HINTS.ceoOperationalReadOnly}
@@ -1845,69 +2100,11 @@ const formatCapacityInput = (capacity: string) => {
                         >
                           Archive
                         </PermissionGatedButton>
-                      )
-                    )}
-
-                    {/* Send Quotation — for active leads pre-conversion */}
-                    {(selectedEnquiry.status === "new" || selectedEnquiry.status === "meeting_scheduled") && (
-                      <PermissionGatedButton
-                        allowed={canWriteEnquiryUpdate}
-                        deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
-                        size="sm"
-                        variant="outline"
-                        className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary"
-                        onClick={() => handleSendQuotation(selectedEnquiry)}
-                      >
-                        <Send className="h-4 w-4 mr-2" />
-                        Send Quotation
-                      </PermissionGatedButton>
-                    )}
-
-                    {/* Mark as Converted — only from quotation_sent */}
-                    {selectedEnquiry.status === "quotation_sent" && (
-                      <PermissionGatedButton
-                        allowed={canWriteEnquiryUpdate}
-                        deniedHint={PERMISSION_DENIED_HINTS.enquiryUpdate}
-                        size="sm"
-                        className="bg-primary text-white"
-                        onClick={() => handleConvertEnquiry(selectedEnquiry)}
-                      >
-                        <Check className="h-4 w-4 mr-2" />
-                        Mark as Converted
-                      </PermissionGatedButton>
-                    )}
-
-                    {/* Re-quote after rejection / withdrawal */}
-                    {selectedEnquiry.status === "quotation_rejected" && (
-                      <PermissionGatedButton
-                        allowed={canWriteQuotationFromEnquiry}
-                        deniedHint={PERMISSION_DENIED_HINTS.enquiryCreateQuotation}
-                        size="sm"
-                        className="bg-primary text-white"
-                        onClick={() => handleCreateQuotation(selectedEnquiry)}
-                      >
-                        <FileText className="h-4 w-4 mr-2" />
-                        Create new quotation
-                      </PermissionGatedButton>
-                    )}
-
-                    {/* View Quotation — once a quotation is linked */}
-                    {getCurrentEnquiryQuotationId(selectedEnquiry) && (
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          navigate(`/quotations?id=${getCurrentEnquiryQuotationId(selectedEnquiry)}`)
-                        }
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        {getEnquiryQuotationIds(selectedEnquiry).length > 1
-                          ? "View current quotation"
-                          : "View quotation"}
-                      </Button>
                     )}
                   </div>
                 </div>
               </div>
+              )}
             </div>
           )}
         </AppSheetContent>
@@ -1978,26 +2175,38 @@ const formatCapacityInput = (capacity: string) => {
       <Sheet open={isAssignOpen} onOpenChange={setIsAssignOpen}>
         <AppSheetContent layout="form" size="xs">
           <SheetHeader>
-            <SheetTitle>Assign Enquiry</SheetTitle>
+            <SheetTitle>{selectedEnquiry && enquiryHasAssignee(selectedEnquiry) ? "Reassign enquiry" : "Assign enquiry"}</SheetTitle>
+            <SheetDescription>
+              {selectedEnquiry && enquiryHasAssignee(selectedEnquiry)
+                ? `Currently assigned to ${getEnquiryAssigneeDisplayName(selectedEnquiry, settingsTeamMembers, employees) || "—"}.`
+                : "Select a salesperson or team member to own this lead."}
+            </SheetDescription>
           </SheetHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Assign To</Label>
+              <Label>Assign to</Label>
               <Select value={assignTo} onValueChange={setAssignTo}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select person" />
                 </SelectTrigger>
                 <SelectContent>
-                  {salesAssignees.map((member) => (
+                  {assignableMembers.map((member) => (
                     <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {assignableMembers.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Add active salespeople under Settings → Team or Employees (sales role).
+                </p>
+              )}
             </div>
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsAssignOpen(false)}>Cancel</Button>
-            <Button onClick={handleAssign} disabled={!assignTo}>Assign</Button>
+            <Button onClick={handleAssign} disabled={!assignTo}>
+              {selectedEnquiry && enquiryHasAssignee(selectedEnquiry) ? "Reassign" : "Assign"}
+            </Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
@@ -2053,11 +2262,11 @@ const formatCapacityInput = (capacity: string) => {
       >
         <AppSheetContent layout="scroll" size="xl">
           <SheetHeader>
-            <SheetTitle>Schedule Meeting</SheetTitle>
+            <SheetTitle>{meetingSheetMode === "reschedule" ? "Reschedule meeting" : "Schedule meeting"}</SheetTitle>
           </SheetHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Meeting Date *</Label>
+              <Label>Meeting date *</Label>
               <Input 
                 type="date" 
                 value={meetingDate} 
@@ -2076,7 +2285,9 @@ const formatCapacityInput = (capacity: string) => {
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => setIsScheduleMeetingOpen(false)}>Cancel</Button>
-            <Button onClick={handleScheduleMeeting} disabled={!meetingDate}>Schedule</Button>
+            <Button onClick={handleScheduleMeeting} disabled={!meetingDate}>
+              {meetingSheetMode === "reschedule" ? "Reschedule" : "Schedule"}
+            </Button>
           </SheetFooter>
         </AppSheetContent>
       </Sheet>
@@ -2201,6 +2412,8 @@ const formatCapacityInput = (capacity: string) => {
                   </SelectContent>
                 </Select>
               </div>
+              {selectedEnquiry &&
+                !enquiryShouldHidePriorityChip(selectedEnquiry, quotations) && (
               <div className="space-y-2">
                 <Label>Priority</Label>
                 <Select 
@@ -2217,6 +2430,7 @@ const formatCapacityInput = (capacity: string) => {
                   </SelectContent>
                 </Select>
               </div>
+              )}
             </div>
             <div className="grid grid-cols-1 gap-2 max-w-lg">
               <Label>Associated agent</Label>

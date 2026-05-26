@@ -80,6 +80,8 @@ import {
 import { DashboardOnboardingHero } from "@/components/dashboard/DashboardOnboardingHero";
 import { useCan } from "@/hooks/useCan";
 import { assertCanLinkNewQuotationToEnquiry } from "@/lib/enquiryQuotationCreateGate";
+import { deepLink } from "@/lib/deepLinks";
+import { executeEnquirySendQuotation } from "@/lib/enquiryViewActions";
 import {
   getEnquiryFollowUpAging,
   getInvoiceOverdueAging,
@@ -155,6 +157,7 @@ const Dashboard = () => {
     siteVisits,
     loanRepayments,
     transitionEnquiryStatus,
+    transitionQuotationStatus,
     convertEnquiryToCustomer,
     materialReservations,
     materialDamageRecords,
@@ -808,10 +811,14 @@ const Dashboard = () => {
     setActiveModal(cardId);
   };
 
-  const handleDashboardSendQuotation = async (enquiryId: string) => {
-    const result = await transitionEnquiryStatus(enquiryId, "quotation_sent");
+  const handleDashboardSendQuotation = async (enquiry: import("@/types/project").Enquiry) => {
+    const result = await executeEnquirySendQuotation(enquiry, {
+      transitionEnquiryStatus,
+      transitionQuotationStatus,
+      quotations,
+    });
     if (!result.ok) {
-      showCommandErrorToast("Could not update", result.error, "Could not update enquiry status.");
+      showCommandErrorToast("Could not send quotation", result.error, "Could not send quotation.");
       return;
     }
     toast({ title: "Quotation sent", description: "Enquiry and linked quotation are marked sent." });
@@ -1440,10 +1447,18 @@ const Dashboard = () => {
                   <DashboardEnquiryRow
                     key={e.id}
                     enquiry={e}
-                    onScheduleMeeting={() => navigateToPage("/enquiries")}
-                    onSendQuotation={() => void handleDashboardSendQuotation(e.id)}
+                    quotations={quotations}
+                    onScheduleMeeting={() => {
+                      setActiveModal(null);
+                      navigate(deepLink.enquiry(e.id));
+                    }}
+                    onSendQuotation={() => void handleDashboardSendQuotation(e)}
                     onConvert={() => void handleDashboardConvertEnquiry(e)}
                     onCreateQuotation={() => handleDashboardCreateQuotation(e)}
+                    onViewQuotation={(quotationId) => {
+                      setActiveModal(null);
+                      navigate(deepLink.quotation(quotationId));
+                    }}
                   />
                 ))}
               {(activeModal === "followUps" ? overdueFollowUpEnquiries : openPipelineEnquiries).length === 0 && (

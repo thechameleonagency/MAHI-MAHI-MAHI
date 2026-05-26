@@ -94,7 +94,6 @@ export const registerQuotationCommands = (
       | {
           enquiryId: string;
           enquiry: NonNullable<ReturnType<typeof repositories.enquiryRepository.getById>>;
-          nextStatus: "quotation_sent";
         }
       | undefined;
 
@@ -118,7 +117,6 @@ export const registerQuotationCommands = (
       enquiryLink = {
         enquiryId: quotationToPersist.enquiryId,
         enquiry,
-        nextStatus: gate.nextStatus,
       };
     }
 
@@ -138,11 +136,11 @@ export const registerQuotationCommands = (
     });
 
     if (enquiryLink) {
-      repositories.enquiryRepository.update(enquiryLink.enquiryId, {
+      const linkPatch = {
         ...buildEnquiryQuotationLinkUpdate(enquiryLink.enquiry, quotationToPersist.id),
-        status: enquiryLink.nextStatus,
         updatedAt: new Date().toISOString(),
-      });
+      };
+      repositories.enquiryRepository.update(enquiryLink.enquiryId, linkPatch);
     }
 
     auditService.write(command, {
@@ -189,11 +187,11 @@ export const registerQuotationCommands = (
 
       if (nextStatus === "sent") {
         const hasLineItems = Boolean(quotation.presetSnapshot?.length || quotation.customItems?.length);
-        if (!quotation.clientName || !hasLineItems) {
+        if (!quotation.clientName?.trim() || !hasLineItems) {
           return {
             ok: false,
             errorCode: "QUOTATION_SEND_VALIDATION_FAILED",
-            message: "Sent quotation requires customer and at least one line item",
+            message: "Sent quotation requires client name and at least one line item",
           };
         }
       }

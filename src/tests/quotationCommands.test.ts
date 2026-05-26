@@ -133,7 +133,7 @@ describe("CreateQuotation command", () => {
     const stored = repositories.quotationRepository.getById("Q-ENQ");
     expect(stored?.enquiryId).toBe("ENQ-O1");
     expect(stored?.withoutEnquiryReason).toBeUndefined();
-    expect(repositories.enquiryRepository.getById("ENQ-O1")?.status).toBe("quotation_sent");
+    expect(repositories.enquiryRepository.getById("ENQ-O1")?.status).toBe("new");
   });
 });
 

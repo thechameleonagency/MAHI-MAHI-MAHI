@@ -9,7 +9,7 @@ import type { Enquiry } from "@/types/project";
 export const ENQUIRY_TERMINAL_FOR_NEW_QUOTATION = new Set<EnquiryStatus>(["converted", "lost"]);
 
 export type EnquiryQuotationCreateGateResult =
-  | { ok: true; nextStatus: "quotation_sent" }
+  | { ok: true; /** Link quotation only — enquiry moves to quotation_sent on send, not on create. */ preserveEnquiryStatus: true }
   | { ok: false; message: string };
 
 /**
@@ -44,7 +44,7 @@ export function assertCanLinkNewQuotationToEnquiry(
     };
   }
 
-  return { ok: true, nextStatus: "quotation_sent" };
+  return { ok: true, preserveEnquiryStatus: true };
 }
 
 export function enquiryAllowsNewQuotation(enquiry: Pick<Enquiry, "status">): boolean {

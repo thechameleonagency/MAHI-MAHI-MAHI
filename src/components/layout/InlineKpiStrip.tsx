@@ -19,7 +19,7 @@ export function InlineKpiStrip({ items, className, singleRow }: { items: InlineK
     <div
       className={cn(
         "flex items-end gap-x-4 gap-y-1.5 rounded-lg border border-border/50 bg-muted/30 px-2 py-1.5 sm:gap-x-6 sm:px-3",
-        singleRow ? "flex-nowrap overflow-x-auto justify-start" : "flex-wrap justify-end",
+        singleRow ? "flex-nowrap overflow-x-auto justify-start pb-0.5" : "flex-wrap justify-end",
         className,
       )}
       role="list"
@@ -30,12 +30,7 @@ export function InlineKpiStrip({ items, className, singleRow }: { items: InlineK
             <span className="block text-2xs font-semibold uppercase tracking-wide text-muted-foreground leading-tight">
               {item.label}
             </span>
-            <span
-              className={cn(
-                "block text-sm font-bold tabular-nums leading-tight text-foreground",
-                item.active && "underline decoration-foreground underline-offset-4",
-              )}
-            >
+            <span className="block text-sm font-bold tabular-nums leading-tight text-foreground">
               {item.value}
             </span>
           </>
@@ -43,18 +38,28 @@ export function InlineKpiStrip({ items, className, singleRow }: { items: InlineK
         if (item.onClick) {
           return (
             <button
-              key={item.label + String(item.value)}
+              key={item.label}
               type="button"
-              onClick={item.onClick}
-              className="min-w-0 text-left transition-opacity hover:opacity-80"
+              onClick={(e) => {
+                e.stopPropagation();
+                item.onClick?.();
+              }}
+              className="relative min-w-0 shrink-0 pb-1 text-left transition-colors hover:opacity-80"
               role="listitem"
+              aria-pressed={item.active}
             >
               {inner}
+              {item.active ? (
+                <span
+                  className="pointer-events-none absolute bottom-0 left-0 h-0.5 w-7 max-w-[28px] rounded-full bg-foreground"
+                  aria-hidden
+                />
+              ) : null}
             </button>
           );
         }
         return (
-          <div key={item.label + String(item.value)} className="min-w-0" role="listitem">
+          <div key={item.label} className="min-w-0" role="listitem">
             {inner}
           </div>
         );
