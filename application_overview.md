@@ -1197,3 +1197,926 @@ All application data is persisted to `localStorage` under a single versioned key
 ### Authentication
 
 The current implementation uses a demo login against a hardcoded user list. Session is stored in `localStorage`. Role-based access is enforced via `PermissionService` which maps `UserRole` values to allowed actions and route access. This is a prototype mechanism intended to be replaced with a server-issued session or JWT when the backend is built.
+
+---
+
+## Part 3: Operational Subsystems and Admin Infrastructure
+
+## 39. Blockages And Operational Tickets
+
+A blockage is a recorded obstruction that prevents a project or site from progressing. A ticket is a service-style work item raised against the operations team. Both feed the same Active Sites and notification flows.
+
+### Blockage Records
+
+| Field | Meaning |
+| --- | --- |
+| Project | Project the blockage relates to |
+| Site | Specific site if applicable |
+| Category | Material shortage, customer delay, weather, documentation, payment, other |
+| Description | What is blocked and why |
+| Raised by | User who logged the blockage |
+| Raised on | Date the blockage was identified |
+| Severity | Low / medium / high — drives notification urgency |
+| Status | Open / in-progress / resolved / waived |
+| Resolution | Description of how the blockage was cleared |
+
+A site cannot transition to its next progress stage while a high-severity blockage is open against it. Open blockages generate `blockage` alerts in the notifications module.
+
+### Operational Tickets
+
+`Ticket` records internal service requests: a customer issue raised post-handover, an internal facility request, a documentation correction request. Tickets have an assignee, due date and status (open / in-progress / closed). Tickets are not blockages — they do not stop site progress.
+
+```mermaid
+flowchart LR
+    ISSUE[Issue Identified] --> CLASS{Blocks Progress?}
+    CLASS -->|Yes| BLK[Blockage Raised]
+    CLASS -->|No| TKT[Ticket Created]
+    BLK --> RES[Resolved / Waived]
+    TKT --> CLOSE[Closed]
+```
+
+---
+
+## 40. Active Sites And Project Timeline Status
+
+The Active Sites view is the operational dashboard for all currently running site work. It draws from a per-project timeline status record that is kept in sync as site progress, blockages and milestone events occur.
+
+### Project Timeline Status
+
+`ProjectTimelineStatus` is a denormalised summary per project that the Active Sites and Progress Report views read directly. It holds:
+
+| Field | Meaning |
+| --- | --- |
+| Current stage | Most advanced stage reached across the project's sites |
+| Stage entered at | Date the project entered the current stage |
+| Open blockages | Count of unresolved blockages on the project |
+| Last activity | Most recent timeline-relevant event date |
+| Next milestone | Upcoming payment or progress milestone |
+| Health | Computed health indicator: on-track / at-risk / delayed |
+
+The timeline status record is updated when:
+
+- A site progress stage changes
+- A blockage is opened or resolved
+- A milestone payment is received
+- A task linked to the project is completed
+- A change request is approved
+
+---
+
+## 41. Client Payment Records And FIFO Invoice Allocation
+
+A customer often pays a lump sum amount that covers multiple outstanding invoices. The `ClientPaymentRecord` captures the received amount as a single receipt, then allocates it across open invoices using FIFO order (oldest invoice first) until the receipt is fully consumed.
+
+### Allocation Flow
+
+```mermaid
+flowchart LR
+    REC[Client Payment Received] --> CPR[ClientPaymentRecord Created]
+    CPR --> OPEN[Find Open Invoices For Customer]
+    OPEN --> SORT[Sort By Invoice Date Ascending]
+    SORT --> APPLY[Apply Receipt FIFO To Each Invoice]
+    APPLY --> PAYROW[Generate Payment Row Per Invoice Allocation]
+    PAYROW --> UPDATE[Invoice Outstanding Balance Reduced]
+```
+
+### Allocation Behaviour
+
+- Each invoice consumed in full produces a `Payment` row tagged with the originating `ClientPaymentRecord`
+- The final partially-consumed invoice (if any) receives the remaining amount and stays open with reduced balance
+- If the received amount exceeds total outstanding, the residual is held as customer credit against future invoices
+- Deleting a `ClientPaymentRecord` reverses every payment row it generated and restores the original invoice balances
+
+The allocation logic is implemented in `fifoApplyClientPaymentToInvoices` and `reconcileClientPaymentLedger`.
+
+---
+
+## 42. Vendor Bills And Vendor Payments
+
+The vendor side mirrors the customer side. A `VendorBill` is a purchase invoice received from a vendor; a `VendorPayment` is an outgoing payment against one or more bills.
+
+### Vendor Bill Records
+
+| Field | Meaning |
+| --- | --- |
+| Vendor | Vendor who issued the bill |
+| Bill number | Vendor's invoice reference |
+| Bill date | Date issued by vendor |
+| Due date | Payment due date based on agreed terms |
+| Line items | Materials, services or expenses billed |
+| Tax breakup | CGST, SGST, IGST split per applicable rule |
+| Total amount | Final billed amount |
+| Outstanding | Unpaid balance |
+| Document URL | Scan or photo of the vendor's bill |
+| Status | Draft / approved / partially-paid / paid / disputed |
+
+### Vendor Payments
+
+A `VendorPayment` records an outgoing payment that settles one or more vendor bills. A single payment can span multiple bills from the same vendor; the allocation per bill is stored on the payment record.
+
+Vendor bills past their due date generate `vendor_bill` notifications. Aging is reported in the Debtors / Creditors view in the Audit module.
+
+---
+
+## 43. Procurement Need-To-Get Workflow
+
+When a project's material checklist identifies items that are not in stock or not yet committed, those items enter the Need-to-Get queue. Each line in the queue is a `ProcurementNeedLine` representing one item that must be acquired before site dispatch.
+
+### Need Line States
+
+```mermaid
+stateDiagram-v2
+    [*] --> Identified
+    Identified --> VendorAssigned
+    VendorAssigned --> Ordered
+    Ordered --> PartiallyReceived
+    PartiallyReceived --> Received
+    Ordered --> Received
+    Identified --> Cancelled
+    VendorAssigned --> Cancelled
+```
+
+### Need Line Fields
+
+| Field | Meaning |
+| --- | --- |
+| Project | Project that needs the item |
+| Site | Site within the project |
+| Item | Inventory item required |
+| Quantity needed | Outstanding quantity to acquire |
+| Assigned vendor | Vendor selected to supply this line |
+| Linked purchase order | PO that fulfils this line, once raised |
+| Acquire state | Identified / vendor-assigned / ordered / partially-received / received |
+| Acquired quantity | Quantity already received against this need |
+
+A demo data generator can populate the Need-to-Get queue from project checklists for testing the workflow end-to-end.
+
+---
+
+## 44. Agent Commission Accruals
+
+Agent commission is recognised in two stages: an accrual is created when commission becomes earnable, and a payment is recorded when it is actually paid. `AgentCommissionAccrual` and `AgentCommissionPayment` are distinct records — the accrual represents the company's obligation; the payment represents settlement of that obligation.
+
+### Accrual Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> Payable
+    Payable --> Paid
+    Pending --> Cancelled
+    Payable --> Cancelled
+```
+
+| State | Meaning |
+| --- | --- |
+| `Pending` | Project started; commission earning conditions not yet fully met |
+| `Payable` | Commission earned and approved for payment |
+| `Paid` | An `AgentCommissionPayment` has been issued against this accrual |
+| `Cancelled` | Project cancelled or commission rule revoked before payment |
+
+### Recalculation On Change Request
+
+When an approved change request modifies the project's contract amount, existing accruals for that project are scaled proportionally by `scaleAgentAccrualsForContractChange`. This ensures the agent's earning reflects the revised project value without losing the audit trail of the original accrual.
+
+Accruals are appended on project approval, marked payable on completion or milestone trigger (per agent rule), and matched against payment records as commission is paid out.
+
+---
+
+## 45. Owner Investments And Capital Tracking
+
+Owner investments record capital injected into the business by one or more owners. These records sit outside operating income and operating expense so that the equity position of each owner can be reported separately.
+
+### Investment Records
+
+| Field | Meaning |
+| --- | --- |
+| Owner | Named owner contributing the capital |
+| Date | Date of contribution |
+| Amount | Contribution amount |
+| Mode | Cash / bank transfer / asset transfer |
+| Purpose | Working capital, asset purchase, business expansion |
+| Linked account | Bank or cash ledger account that received the funds |
+
+Owner drawings (capital taken out) are recorded as `Expense` records with `mainCategory: owner`. The combination of investments and drawings forms the owner's equity movement for the period.
+
+The chart of accounts holds an Owner's Capital account group; `VoucherPostingService` posts the corresponding double-entry when an investment or drawing is recorded.
+
+---
+
+## 46. Employee Wallet Ledger
+
+The employee wallet ledger tracks advances and recoveries that sit outside the monthly payroll cycle. A salary advance issued mid-month, a personal expense recovered from upcoming salary, or a payroll correction all flow through this ledger.
+
+### Wallet Ledger Entries
+
+| Field | Meaning |
+| --- | --- |
+| Employee | Employee the entry belongs to |
+| Date | Entry date |
+| Type | `advance` / `recovery` / `adjustment` |
+| Amount | Signed amount (positive = paid to employee, negative = recovered) |
+| Reason | Free text explanation |
+| Linked payroll | Payroll run that absorbs this entry if any |
+| Linked expense or payment | Cash-side movement that posted this entry |
+
+When the monthly payroll runs, outstanding advances and recoveries from the wallet ledger are netted into the employee's payable salary. The wallet ledger continues to track the running balance independently so corrections do not lose history.
+
+---
+
+## 47. Company Holidays And Employee Paid Holidays
+
+Company holidays and employee paid holidays are separate concepts that both affect attendance and salary calculation.
+
+### Company Holidays
+
+A company holiday is a day the company has declared closed. It applies to all employees and removes the day from attendance requirements.
+
+| Field | Meaning |
+| --- | --- |
+| Date | Holiday date |
+| Name | National holiday, festival, observance, etc. |
+| Scope | All employees / specific team / specific role |
+| Paid | Whether employees are paid for the day |
+
+Named company holidays support per-team scope where some teams (e.g., site work) may operate on a day that office staff have off.
+
+### Employee Paid Holidays
+
+`EmployeePaidHoliday` allocates one paid holiday per employee per month, separate from the company-wide holiday list. An employee can choose a day in the month to mark as paid leave without it counting as unpaid absence. Unused entitlements expire at month end.
+
+The salary calculation:
+
+- Treats company holidays as worked days if paid, or as zero-impact days if unpaid
+- Treats the employee's monthly paid holiday as worked for salary purposes
+- Treats any further leave as either paid (against allowed entitlement) or unpaid (deducted from payable salary)
+
+---
+
+## 48. Tasks And Internal Work
+
+Tasks are internal work items that do not fit the project / site / blockage model — internal admin work, follow-up reminders, document corrections, supplier coordination.
+
+### Task Records
+
+| Field | Meaning |
+| --- | --- |
+| Title | Short description |
+| Description | Detail of the work to be done |
+| Assignee | Employee or team responsible |
+| Linked entity | Optional reference to a project, customer, vendor or quotation |
+| Due date | When the task must be completed |
+| Status | Open / in-progress / completed / cancelled |
+| Priority | Low / medium / high |
+| Completed by | User who marked it complete |
+| Completed on | Completion date |
+
+Tasks appear in the Timeline (Office tab), the Calendar (`task` event source) and the Dashboard's pending items list. Completing a task that is linked to a project triggers an update to the project's timeline status and may release the next stage.
+
+---
+
+## 49. Customer Lifecycle And Auto-Archive
+
+Customers move through a lifecycle from active prospect to active customer to dormant. The system auto-archives customers based on configurable inactivity rules so that the active customer list does not accumulate stale records.
+
+### Auto-Archive Evaluation
+
+`evaluateAutoArchive` examines a customer record and returns whether it qualifies for archival based on:
+
+- No enquiry, quotation or project activity within the configured inactivity window
+- No outstanding receivables
+- No active project or open ticket
+- No upcoming AMC or scheduled service
+
+`applyAutoArchive` then sets the customer to archived state. An archived customer is excluded from default lists but remains discoverable through search and is restored to active state automatically if any new activity is recorded against them.
+
+Archive status is never destructive — historical records remain linked to the customer and are accessible in audit views and historical reports.
+
+---
+
+## 50. Audit Trail And Field-Level Diff
+
+The application records an `AuditLogEntry` for every state-changing action. Each entry captures who acted, when, on which entity and what changed at the field level.
+
+### Audit Entry Fields
+
+| Field | Meaning |
+| --- | --- |
+| Timestamp | When the action occurred |
+| Actor user id | The acting user |
+| Actor user name | Resolved display name for the actor at action time |
+| Action | Created / updated / deleted / approved / rejected / state-transitioned |
+| Entity type | The collection name affected (project, invoice, quotation, etc.) |
+| Entity id | The specific record affected |
+| Field changes | Array of `{field, before, after}` triples for updated fields |
+| Reason | Optional free-text reason supplied by the actor |
+| Context | Linked records affected as a side-effect of this action |
+
+### Field Diff
+
+`auditFieldDiff` compares the before and after entity state and emits one change entry per field whose value changed. Nested fields are flattened using dot notation. This makes the audit log queryable by field name across history.
+
+The Audit module exposes the log via `AuditLogs` view with filters by actor, action, entity type, date range and field name.
+
+---
+
+## 51. Deletion Requests And Admin Approvals
+
+Protected entities — projects, invoices, vendor bills, payments, vouchers — cannot be deleted directly by ordinary users. A deletion request must be raised and reviewed by an admin before the deletion is applied.
+
+### Deletion Request Flow
+
+```mermaid
+flowchart LR
+    USER[User Requests Delete] --> DR[DeletionRequest Created]
+    DR --> Q[Admin Approval Queue]
+    Q --> REV[Admin Reviews]
+    REV -->|Approve| APPLY[Cascade Delete Applied]
+    REV -->|Reject| RJ[Request Rejected With Reason]
+    APPLY --> AUDIT[Audit Log Entry Recorded]
+```
+
+### Deletion Request Records
+
+| Field | Meaning |
+| --- | --- |
+| Requested by | User who raised the request |
+| Requested on | Date raised |
+| Entity type | Type of record to delete |
+| Entity id | Specific record id |
+| Display name | Resolved human-readable label for the record at request time |
+| Reason | Why deletion is needed |
+| Status | Pending / approved / rejected |
+| Reviewed by | Admin who acted on the request |
+| Reviewed on | Date of decision |
+| Decision note | Admin's reason for approve or reject |
+
+Approval triggers a cascade deletion that handles linked records correctly — for a project this includes sites, payment milestones, expense allocations, document references and timeline status. The `applyProjectDeletionToState` and `buildProjectDeletionAuditEntry` helpers carry this out and record a single audit entry summarising the cascade.
+
+---
+
+## 52. Quotation Sharing And Share History
+
+A quotation can be shared with the customer multiple times — initial proposal, revised version, final approved version — across different channels. Each share event is logged in the quotation share history so the company knows what was sent, to whom and when.
+
+### Share Details Record
+
+`QuotationShareDetails` is the canonical share log. The quotation entity carries a denormalised `shareHistory` summary derived from this log for fast display, but the share details collection is the source of truth.
+
+| Field | Meaning |
+| --- | --- |
+| Quotation id | Quotation being shared |
+| Version | Specific version that was shared |
+| Channel | Email / WhatsApp / shareable link / printed copy |
+| Recipient | Customer contact who received the share |
+| Shared by | Internal user who performed the share |
+| Shared on | Date and time of share |
+| Share link | If applicable, the link generated for online viewing |
+| Viewed on | If the link was opened, the most recent view timestamp |
+| Note | Free text comment recorded with the share event |
+
+Share details are kept across all versions so that revising a quotation does not erase the record of what was originally sent.
+
+---
+
+## 53. Permissions And Role-Based Access Control
+
+Access to features and routes is governed by a role-based permission system. Each user is assigned one role; the role determines which actions the user can perform and which routes they can access.
+
+### Roles And Action Mapping
+
+| Role | Example Allowed Actions |
+| --- | --- |
+| Admin / Owner | All actions including settings, deletion approvals, user management, data engine |
+| Sales Staff | Create and edit customers, enquiries, quotations; view assigned projects |
+| Project Manager | Create and edit projects, sites, scheduled installations; assign teams; approve change requests |
+| Store Manager | Material movements, tool movements, reservations, goods receipts |
+| Procurement Staff | Vendor management, purchase orders, vendor bills |
+| HR / Payroll | Employee records, attendance, leaves, payroll runs, wallet ledger |
+| Accountant | Invoices, payments, vendor bills, vendor payments, vouchers, reconciliation |
+| Site Supervisor | View assigned sites, record progress, log material use, raise blockages |
+
+### Enforcement Points
+
+- `PermissionService.can(userRole, action)` returns whether the role allows the action; called by command handlers before applying any state change
+- `AuthGate` wraps the application root and redirects unauthenticated users to login
+- `RouteAccessGate` wraps each route and redirects users without the necessary action permission for that route
+- UI elements (buttons, menu items) are conditionally rendered using the same permission checks so disallowed actions are hidden rather than failing on click
+
+---
+
+## 54. Settings And Configuration
+
+The Settings module holds application-wide configuration that affects how other modules behave.
+
+### Settings Areas
+
+| Area | Content |
+| --- | --- |
+| Solar package presets | Standard panel + inverter + capacity combinations with default pricing |
+| Team directory | Settings-level team member entries used in assignments and document attribution |
+| Quotation visibility presets | Column show/hide configurations applied when printing or sharing a quotation |
+| Company profile | Company name, registration details, addresses, logo, GST and PAN |
+| Document headers | Boilerplate text and styling used on generated documents |
+| Holiday calendar | Named company holidays for the year |
+| Salary policy | Paid leave entitlement per month, overtime rules, deduction rules |
+| Commission terms | Default agent commission rules and approval thresholds |
+| Numbering series | Prefix and starting number for quotations, invoices, projects, vouchers |
+
+### Settings Team Members
+
+`SettingsTeamMember` entries are distinct from `Employee` records. The Employee record is operational — it drives attendance, payroll and team assignment. The settings team member is presentational — it provides the named people who appear on quotations, documents and the public team directory. A single person can have both kinds of record linked.
+
+---
+
+## 55. Master Data And Item Catalogue
+
+The inventory item catalogue is the master data spine for materials, tools, services and AMC items. Every quotation line, invoice line, stock movement and damage record references a catalogue item.
+
+### Master Item Fields
+
+| Field | Meaning |
+| --- | --- |
+| Item code | Internal short code |
+| Display name | Customer-facing name |
+| Category | Panel, inverter, structure, cable, accessory, service, tool, AMC |
+| Unit | kW, watt, metre, piece, set, hour |
+| Default unit price | Standard sale price |
+| Default purchase price | Standard purchase price |
+| HSN or SAC code | Tax code for invoicing |
+| GST rate | Applicable GST percentage |
+| Minimum stock level | Threshold below which a stock alert fires |
+| Reorder quantity | Suggested quantity for replenishment |
+| Solar attributes | Wattage, voltage, panel type, inverter phase — present on solar-specific categories |
+| Active | Whether the item is available for selection in new records |
+
+### Catalogue Use
+
+- A quotation line picks a catalogue item to populate name, unit, default price and tax code
+- A stock movement debits or credits the item's warehouse balance
+- A material reservation holds quantity on the item against a project
+- A damage record references the item to compute replacement cost
+- GST reports group by HSN / SAC code from the catalogue
+
+---
+
+## 56. Workspace Modes And Super Admin Data Engine
+
+The application supports multiple workspace modes that change how data is seeded, persisted and presented for development, demo and live use.
+
+### Workspace Modes
+
+| Mode | Behaviour |
+| --- | --- |
+| Empty | Fresh empty state; no seed data; suitable for live first-use |
+| Seeded | Pre-populated with realistic demo data for showcasing flows |
+| Live | Production mode; data persisted across reloads; demo helpers hidden |
+
+The mode is set via `setWorkspaceMode` and is itself persisted so subsequent app loads continue in the same mode.
+
+### Super Admin Data Engine
+
+The Super Admin Data Engine is an admin-only tool that bootstraps, resets or seeds the application data. It is accessed at `/super-admin/data-engine`.
+
+| Action | Effect |
+| --- | --- |
+| Bootstrap empty workspace | Wipe all data, install seed records required for the app to function (default settings, item categories, default roles) |
+| Seed demo data | Populate realistic customers, enquiries, quotations, projects, sites, vendors, materials and historical transactions |
+| Reset to empty | Clear all stored data and return to the empty workspace mode |
+| Re-seed selected module | Restore demo data for one module without affecting others |
+| Export workspace snapshot | Download the current state for backup or transfer |
+| Import workspace snapshot | Replace the current state with an uploaded snapshot |
+
+Bootstrap and seed routines run through `bootstrapSessionAfterReset` and `bootstrapSessionAfterSeed` to ensure dependent collections (audit logs, voucher posting, timeline status) are recomputed consistently after a data change.
+
+---
+
+## 57. Data Migrations And Storage Hydration
+
+The application state is persisted under a single versioned key in `localStorage`. Every change to the state shape ships with a migration step so existing users continue to load successfully after an update.
+
+### Hydration Pipeline
+
+```mermaid
+flowchart LR
+    LOAD[App Load] --> READ[Read Persisted Blob]
+    READ --> VCHECK{Version Match?}
+    VCHECK -->|Yes| HYDRATE[Hydrate State]
+    VCHECK -->|No| MIGRATE[Run Migration Steps]
+    MIGRATE --> HYDRATE
+    HYDRATE --> RECONCILE[Reconcile Derived State]
+    RECONCILE --> READY[App Ready]
+```
+
+### Pipeline Components
+
+| Component | Responsibility |
+| --- | --- |
+| `APP_DATA_STORAGE_KEY` | The single key under which the state blob is stored |
+| `APP_DATA_STORAGE_VERSION` | The current schema version number |
+| `readPersistedAppState` | Loads and parses the blob from storage |
+| `applyAppStateHydrationPipeline` | Applies sequential migrations from the stored version up to current |
+| `serializeAppState` | Serialises the state back to storage on every change |
+| `syncPrototypeRepositoriesFromAppState` | Synchronises repository-backed views derived from the app state |
+
+### Reconciliation On Load
+
+Several derived collections are rebuilt on every load to guarantee consistency after a migration:
+
+- `reconcileEnquiriesConvertedOnProjectLink` ensures enquiry conversion state matches actual project links
+- `reconcileDeletionRequests` removes stale deletion requests whose target no longer exists
+- `reconcileQuotationShareDetails` keeps the denormalised share history on the quotation aligned with the canonical log
+- `reconcileClientPaymentLedger` rebuilds FIFO payment allocations from the source payment records
+- `syncProjectsSiteReadinessFromChecklist` recomputes site readiness flags from the underlying checklist state
+- `syncBankReconciliationLinks` re-links accounting vouchers to bank statement lines after a state change
+
+This reconciliation layer is what allows the application to recover gracefully from partial state — a corrupted derived view never blocks loading, because it is rebuilt on next hydration.
+
+---
+
+## 58. Sale Bills, Invoices And Income Records
+
+The application keeps three distinct revenue record types because each represents a different commercial document with different downstream effects.
+
+| Record | Use | Voucher Effect |
+| --- | --- | --- |
+| `Invoice` | Tax invoice to a customer for project work; carries GST line items and HSN/SAC codes | Debits Debtors, credits Income, credits GST output |
+| `SaleBill` | Sale of materials or service outside a project (counter sale, AMC charge, replacement part) | Debits Debtors or Cash, credits Income, credits GST output |
+| `Income` | Other income not tied to a customer transaction — interest received, scrap sale, miscellaneous receipts | Credits an Income account, debits Cash or Bank |
+
+A customer-facing tax invoice and an over-the-counter sale bill both carry GST but follow different document templates and numbering series. An `Income` record bypasses the customer ledger entirely.
+
+Each record posts an `AccountingVoucher` through `VoucherPostingService` so the three streams reconcile correctly in the profit and loss view.
+
+---
+
+## 59. Quotation-To-Project Conversion Policy
+
+The transition from quotation to project is governed by a strict policy that protects historical commercial records and the conversion audit trail.
+
+### Conversion Rules
+
+- A quotation can convert into at most one project; once converted, the link is permanent
+- The specific version of the quotation chosen at conversion is locked as the project's commercial reference
+- The quotation is marked `CONVERTED` and its status cannot be reverted to a pre-converted state
+- If the source quotation came from an enquiry, that enquiry is automatically marked as converted
+- A new project can still be created without a quotation; the policy applies only when a link is being established
+
+### Deletion And Unlinking
+
+`canDeleteQuotationRecord` returns whether a quotation can be deleted based on its current links:
+
+| Condition | Deletion Allowed |
+| --- | :---: |
+| Quotation has converted to a project | No |
+| Quotation is referenced by an open invoice or sale bill | No |
+| Quotation is the latest in its share history within retention window | No |
+| Quotation is in `DRAFT` or `CANCELLED` state with no linkage | Yes |
+
+`unlinkQuotationFromEnquiries` reverses the enquiry-to-quotation linkage when a quotation is being removed, restoring the enquiry to its prior status.
+
+---
+
+## 60. Site Checklist Dispatch And Auto-Reservation
+
+When a site is ready for material dispatch, the site's checklist drives an atomic operation that reserves the required quantities, creates the dispatch movement and updates site readiness.
+
+### Dispatch Flow
+
+```mermaid
+flowchart LR
+    READY[Site Marked Ready] --> CHECK[Resolve Checklist Items]
+    CHECK --> COMPARE[Compare Required vs Available]
+    COMPARE --> RES[Auto-Create Material Reservations]
+    RES --> DISP[Dispatch Movement Created]
+    DISP --> SITE[Site Marked Dispatched]
+    SITE --> NEED[Outstanding Items Pushed To Need-To-Get]
+```
+
+### Behaviour
+
+- `applyProjectSiteChecklistDispatch` consumes the checklist and produces reservation + movement records in a single transition
+- Items with insufficient stock generate `ProcurementNeedLine` entries instead of reservations, pushing the gap into the Need-to-Get queue
+- `syncSitesChecklistFromProjects` keeps the site's checklist in sync when the project's quotation version or change request modifies the agreed BOM
+- `findUnknownChecklistInventoryIds` and `stripOrphanChecklistInventoryRefs` clean up references to deleted catalogue items so dispatch never fails on stale ids
+- `syncProjectsSiteReadinessFromChecklist` flips a site's `siteReady` flag once every required item is either reserved or sourced
+
+---
+
+## 61. Customer Addresses And Multi-Location Customers
+
+A customer can have more than one address. Each enquiry, quotation, project and site can reference a specific address rather than the customer's default. This supports commercial customers with multiple installation locations and individuals with separate billing and installation addresses.
+
+### Address Records
+
+| Field | Meaning |
+| --- | --- |
+| Customer | Customer the address belongs to |
+| Label | Home, office, factory, warehouse, billing, installation site |
+| Type | Billing / installation / both |
+| Full address | Door, street, city, state, postcode |
+| GST state code | Two-digit state code used for tax place-of-supply determination |
+| Contact at address | Site contact person if different from primary customer contact |
+| Default | Whether this is the customer's default address |
+
+A project's default site is auto-created using the project address selection; a subsequent site can pick a different stored address or accept a fresh one-off address.
+
+---
+
+## 62. Inventory Audit And Cycle Count
+
+The inventory audit module provides physical-stock verification independent of the day-to-day movement records. Cycle counts catch shrinkage, mis-postings and damage that did not flow through a movement record.
+
+### Cycle Count Flow
+
+| Step | Action |
+| --- | --- |
+| Plan | Select items, warehouse and counting window |
+| Freeze | Suspend movements on selected items for the count window |
+| Count | Record physical quantities item by item |
+| Variance | Compare counted vs system quantities |
+| Adjust | Approve variance adjustments; post compensating stock transactions |
+| Close | Release the freeze and record the count outcome |
+
+Variance entries are posted as `STOCK_ADJUSTMENT` movements with a reason code (shrinkage, found, damaged-not-recorded, mis-posting). The Audit module's Inventory Audit view shows historical counts, variance trends per item and the running adjusted balance.
+
+---
+
+## 63. Expense Audit Review Workflow
+
+Expense audit allows a senior reviewer to sample, scrutinise and re-classify approved expenses after the fact. This is distinct from the initial approval that authorises a single expense before payment.
+
+### Audit Actions
+
+| Action | Effect |
+| --- | --- |
+| Sample | Pull a random or rule-based subset of expenses for a period |
+| Flag | Mark an expense for follow-up without changing it |
+| Reclassify | Move an expense to a different category or project allocation |
+| Reverse | Reverse the expense; post a compensating voucher |
+| Lock | Mark the expense as audited; further edits require admin override |
+
+Reclassification triggers `VoucherPostingService` to back-post and re-post the affected voucher so the chart of accounts remains accurate. All audit actions are recorded in the audit log with the reviewer's identity and reason.
+
+---
+
+## 64. Fixed Assets Register
+
+Fixed assets are long-life items the business owns — vehicles, office equipment, computers, tools that exceed the inventory expense threshold, leasehold improvements. They are separate from inventory because they capitalise rather than expense.
+
+### Fixed Asset Records
+
+| Field | Meaning |
+| --- | --- |
+| Asset code | Internal identifier |
+| Description | Asset name and detail |
+| Category | Vehicle, equipment, computer, furniture, leasehold improvement |
+| Acquisition date | Date of purchase or capitalisation |
+| Acquisition cost | Initial capitalised value |
+| Useful life | Years over which the asset is depreciated |
+| Depreciation method | Straight line / written down value |
+| Accumulated depreciation | Total depreciation booked to date |
+| Net book value | Acquisition cost less accumulated depreciation |
+| Disposal date | Date sold or written off if applicable |
+| Disposal proceeds | Amount realised on disposal |
+| Status | Active / disposed / fully depreciated |
+
+Periodic depreciation runs post `AccountingVoucher` entries against the depreciation expense and accumulated depreciation accounts. Disposal posts the gain or loss to the appropriate income or expense head.
+
+---
+
+## 65. Data Flow Tracing
+
+The Audit module's Data Flow view shows how a single source event propagates through downstream collections. It is a diagnostic tool for understanding why a derived view shows a particular number.
+
+### Flow Examples
+
+| Source Event | Downstream Effects |
+| --- | --- |
+| Customer payment received | `Payment` row → FIFO `ClientPaymentRecord` allocation → invoice outstanding update → debtor ledger update → cash ledger update → accounting voucher → audit log |
+| Vendor bill approved | `VendorBill` row → procurement need line closure → vendor ledger update → expense allocation to project → accounting voucher → GST input register → audit log |
+| Project change request approved | Contract amount recalculation → milestone scaling → delta invoice → agent accrual rescale → material reservation re-evaluation → audit log |
+| Site checklist dispatched | Material reservation → stock movement → site readiness flag → need-to-get push for shortfall → audit log |
+
+The Data Flow view renders these as a navigable graph: click any node to inspect the underlying record and continue tracing.
+
+---
+
+## 66. Partner Transactions And Settlement Distinction
+
+`PartnerTransaction` records individual money movements between the company and a partner. `PartnerSettlement` records the periodic reconciliation that closes out a set of transactions for a defined period.
+
+| Record | Frequency | Content |
+| --- | --- | --- |
+| `PartnerTransaction` | One per movement | Single payment, advance, recovery or share transfer |
+| `PartnerSettlement` | Periodic | Period start and end, all transactions included, computed net position, status (draft / approved / paid) |
+
+A transaction is created whenever money changes hands with a partner. A settlement is created on a defined cadence (monthly, quarterly, per project) and groups transactions to produce a net amount payable or receivable. The settlement view shows the running ledger position and signs off the period as closed.
+
+---
+
+## 67. Inventory Movement Reversal Policy
+
+Stock movements are recorded as immutable transactions. Reversing a movement creates a compensating opposite-direction transaction rather than editing or deleting the original.
+
+### Reversal Conditions
+
+`canReverseInventoryMovement` and `canReverseToolMovement` return whether a given movement is eligible for reversal:
+
+| Condition | Reversal Allowed |
+| --- | :---: |
+| Movement is the most recent for the item at the site | Yes |
+| Movement has been consumed by a downstream movement (e.g., issue followed by use) | No |
+| Movement is locked by an audited expense or invoice posting | No |
+| Movement was part of a cycle count adjustment | Yes, with admin override |
+| Movement crosses a closed accounting period | No |
+
+A reversal carries a reason and links to the original movement, preserving the audit trail. The original movement's effect is undone by the compensating entry, not by deletion.
+
+---
+
+## 68. Tax Breakup, Place Of Supply And Reverse Charge
+
+GST on each invoice line is split into CGST, SGST or IGST based on the place of supply.
+
+### Determination Rule
+
+| Supplier State | Recipient State | Tax Split |
+| --- | --- | --- |
+| Same | Same | CGST + SGST in equal halves |
+| Different | Different | IGST at full rate |
+| Different (export) | Outside India | Zero-rated |
+| Recipient under reverse charge | Any | Tax payable by recipient; supplier invoice shows nil tax with reverse charge flag |
+
+### Stored Per Line
+
+| Field | Meaning |
+| --- | --- |
+| Taxable value | Pre-tax line amount |
+| GST rate | Applicable percentage from the master item |
+| CGST amount | Computed central component |
+| SGST amount | Computed state component |
+| IGST amount | Computed inter-state component |
+| Cess | If applicable |
+| Reverse charge | Boolean flag |
+| Place of supply | Resolved state code used for the determination |
+
+The place of supply is resolved from the customer's billing address state code. Composite supplies (a project line that includes both goods and services) follow the principal supply rule.
+
+---
+
+## 69. Customer Touchpoint And Communication Log
+
+Every interaction with a customer is logged so that the next person engaging with the customer has the full history. The log spans calls, follow-ups, site visits, document shares, payment reminders and informal notes.
+
+### Touchpoint Record
+
+| Field | Meaning |
+| --- | --- |
+| Customer | Customer the touchpoint relates to |
+| Linked entity | Optional reference to enquiry, quotation, project or invoice |
+| Date and time | When the touchpoint occurred |
+| Channel | Phone, in-person, email, WhatsApp, video call, site visit |
+| Direction | Inbound / outbound |
+| Participants | Internal staff involved; customer contacts involved |
+| Subject | Short label |
+| Summary | Notes captured by the staff member |
+| Outcome | Action item, next step, follow-up date |
+| Attachments | Photos or documents recorded during the touchpoint |
+
+Enquiry activities, quotation share history and site visit records all feed into the consolidated customer touchpoint view. A search by customer returns the unified timeline across the lifecycle.
+
+---
+
+## 70. Print, PDF Export And Document Rendering
+
+Generated documents — quotations, invoices, sale bills, agreements, completion certificates — are rendered into HTML using a shared template engine and exported to PDF via `jsPDF` and `html2canvas`.
+
+### Rendering Pipeline
+
+```mermaid
+flowchart LR
+    SRC[Source Record] --> RES[Resolve Template]
+    RES --> CTX[Build Render Context]
+    CTX --> HTML[Render HTML]
+    HTML --> PREV[Preview In App]
+    HTML --> CAP[Capture To Canvas]
+    CAP --> PDF[Generate PDF]
+    PDF --> DL[Download Or Share]
+```
+
+### Render Context
+
+The render context carries the source record plus computed values that the template uses: company profile, customer details, line items with computed totals, GST split, applicable terms and conditions, signature blocks, numbering series prefix and document footer notes.
+
+Quotation visibility presets are applied at this stage so different audiences see different column sets while sharing the same underlying record.
+
+The same pipeline drives email and WhatsApp share — the HTML is converted to a PDF attachment or an inline preview link.
+
+---
+
+## 71. Numbering Series And Sequential Identifiers
+
+Each document type has its own numbering series so document references are unique and sequential within their category.
+
+### Series Configuration
+
+| Document | Prefix Example | Sequence Reset |
+| --- | --- | --- |
+| Quotation | `QTN-2026-` | Financial year |
+| Invoice | `INV-2026-` | Financial year |
+| Sale bill | `SB-2026-` | Financial year |
+| Vendor bill (internal ref) | `VB-` | Continuous |
+| Voucher | `JV-` | Continuous |
+| Project | `PRJ-` | Continuous |
+| Customer | `CUST-` | Continuous |
+| Receipt | `RCPT-2026-` | Financial year |
+
+### Sequential Customer ID
+
+`createNextCustomerId` issues a new sequential customer identifier; `ensureSequentialCustomerId` reconciles imported or legacy records so they slot into the sequence without gaps. A customer id, once issued, is never re-used even if the customer is deleted.
+
+A failed save (validation error, conflict) does not consume the next number — the sequence advances only on successful persistence.
+
+---
+
+## 72. Payment Modes And Mode-Aware Voucher Posting
+
+Every receipt and payment carries a mode that determines which ledger account is debited or credited.
+
+### Supported Modes
+
+| Mode | Ledger Account |
+| --- | --- |
+| Cash | Cash on hand |
+| Bank transfer | Bank account (specific account selected) |
+| UPI | UPI account (mapped to a bank) |
+| Cheque | Bank account with `cheque-in-clearing` sub-state until cleared |
+| Card | Bank account with merchant settlement timing |
+| Adjustment | Internal contra; no cash movement |
+
+### Mode-Aware Posting
+
+`VoucherPostingService` selects the correct ledger leg based on the mode. A cheque receipt posts to a clearing account first and migrates to the destination bank account when cleared; if the cheque bounces, the migration is reversed and a bounce fee voucher is posted.
+
+The Cash Ledger and Bank Ledger views in the Audit module filter by mode so each account's transaction list reflects only the relevant movements.
+
+---
+
+## 73. Solar Package Preset Detailed BOM
+
+A solar package preset is a structured bill of materials for a complete system rather than a flat list of items. It captures the relationships between system components so a quotation or site checklist can be generated with one click.
+
+### Package Structure
+
+| Section | Content |
+| --- | --- |
+| System capacity | Total kW rating of the package |
+| Panel | Model, wattage, count, panel type (mono / poly / bifacial) |
+| Inverter | Model, kW rating, phase (single / three), MPPT count |
+| Mounting structure | Type (railed / penetrating / ballasted), per-kW quantity |
+| Cables and accessories | DC cable lengths, AC cable lengths, junction boxes, fuses |
+| Earthing and lightning | Earthing pits, lightning arrestors per system size |
+| Meter and ACDB | Meter type, ACDB rating, DCDB rating |
+| Optional add-ons | Net meter applied for, monitoring app subscription, AMC year one |
+
+Applying a package preset to a quotation expands the package into individual line items with quantities scaled by the configured system size. The user can then adjust any line before saving.
+
+---
+
+## 74. Project Photo Gallery
+
+Each project carries a photo gallery that records the project visually from initial site survey through commissioning. Photos are stored as URL references; binary content is held outside the application state.
+
+### Gallery Structure
+
+| Field | Meaning |
+| --- | --- |
+| Photo URL | Reference to the stored image |
+| Caption | Optional description |
+| Stage | Survey / pre-installation / mid-installation / commissioning / handover / post-handover |
+| Site | Specific site if the project has multiple |
+| Captured by | User who uploaded the photo |
+| Captured on | Date the photo was taken |
+| Tags | Free tags for searchability |
+
+The `photoGallery` array on the project carries the full record; the denormalised `photos` count is used for list-view summaries. Site visit photos and material damage photos are kept on their own records but surface in the consolidated project gallery view.
+
+---
+
+## 75. Status Reconciliation Across Linked Entities
+
+Multiple entities share status meaning — an enquiry's converted state depends on whether one of its quotations became a project; a quotation's converted state depends on whether a project references it. Reconciliation routines keep these denormalised states aligned with the canonical link records.
+
+### Reconciliation Functions
+
+| Function | Reconciles |
+| --- | --- |
+| `reconcileEnquiriesConvertedOnProjectLink` | Marks an enquiry as converted when any of its quotations is referenced by a project; reverts the marker if the link is removed |
+| `unlinkQuotationFromEnquiries` | Removes the quotation-to-enquiry reference when a quotation is being deleted, restoring the enquiry to its prior status |
+| `applyTaskCompletionToTimeline` | Reflects task completion in the project timeline status without requiring an explicit second action |
+| `applyCommissionAccrualsOnProjectStart` | Creates pending agent commission accruals when a project transitions out of draft, derived from the project's commission rule |
+| `markProjectAccrualsPayable` | Transitions agent accruals from pending to payable when their earning condition is met |
+| `linkAccrualsToProject` | Re-links existing accruals to a project after a data import or migration |
+
+Reconciliation runs on every state change that could affect a derived status, and again on application load through the hydration pipeline. The canonical link records (project's `quotationId`, quotation's `enquiryId`, accrual's `projectId`) remain the source of truth; the derived `status` and `converted` flags are kept consistent with them.

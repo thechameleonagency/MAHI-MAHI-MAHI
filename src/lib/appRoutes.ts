@@ -62,6 +62,7 @@ export const APP_ROUTE_EXACT_PATHS = [
   "/timeline",
   "/calendar",
   "/analytics",
+  "/business-analytics",
   "/notifications",
   "/settings",
   "/settings/design-system",

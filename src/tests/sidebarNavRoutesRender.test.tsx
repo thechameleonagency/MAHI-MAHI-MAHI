@@ -57,6 +57,7 @@ import INCWorkSourceDetail from "@/pages/INCWorkSourceDetail";
 import Subcontractors from "@/pages/Subcontractors";
 import SubcontractorDetail from "@/pages/SubcontractorDetail";
 import Analytics from "@/pages/Analytics";
+import BusinessAnalytics from "@/pages/BusinessAnalytics";
 import Notifications from "@/pages/Notifications";
 import DesignSystem from "@/pages/DesignSystem";
 import SuperAdminDataEngine from "@/pages/SuperAdminDataEngine";
@@ -101,6 +102,7 @@ const ROUTE_ELEMENTS: Record<string, React.ReactElement> = {
   "/subcontractors": <Subcontractors />,
   "/inc-work-sources": <INCWorkSources />,
   "/analytics": <Analytics />,
+  "/business-analytics": <BusinessAnalytics />,
   "/notifications": <Notifications />,
   "/settings/design-system": <DesignSystem />,
   "/super-admin/data-engine": <SuperAdminDataEngine />,

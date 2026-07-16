@@ -33,6 +33,7 @@ export const ROUTE_VIEW_FEATURE: { prefix: string; feature: Feature }[] = [
   { prefix: "/attendance", feature: "attendance" },
   ...auditRouteFeatureEntries(),
   { prefix: "/analytics", feature: "analytics" },
+  { prefix: "/business-analytics", feature: "analytics" },
   { prefix: "/calendar", feature: "calendar" },
   { prefix: "/timeline", feature: "timeline" },
   { prefix: "/notifications", feature: "notifications" },

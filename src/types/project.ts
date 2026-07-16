@@ -805,12 +805,27 @@ export interface Enquiry {
   meetingDate?: string;
   meetingNotes?: string;
   followUpDate?: string;
+  // ---- Sales site-visit tracking (pre-conversion step; captured by the field flow) ----
+  /** When the salesperson is scheduled to / did visit the enquiry site. */
+  siteVisitDate?: string;
+  /** Salesperson who performed / will perform the visit (display name). */
+  siteVisitBy?: string;
+  /** Outcome recorded after the visit. Unset = visit not done yet. */
+  siteVisitOutcome?: "confirmed" | "rejected" | "postponed";
+  siteVisitNotes?: string;
+  /** Document collection after a confirmed visit (aadhaar, PAN, etc.). */
+  docsStatus?: "collected" | "promised" | "pending";
+  /** Customer-committed date to hand over documents (when `docsStatus` is `promised`). */
+  docsPromisedDate?: string;
+  docsCollectedAt?: string;
   /** Latest linked quotation (mirrors last entry in `quotationIds`). */
   quotationId?: string;
   /** All quotations created for this enquiry, oldest → newest. */
   quotationIds?: string[];
   customerId?: string;
   lostReason?: string;
+  /** Structured reason code (see `enquiryLostReasons.ts`); `lostReason` keeps the free-text detail. */
+  lostReasonCode?: string;
   createdAt: string;
   updatedAt: string;
   notes: { date: string; note: string; by: string; updatedBy?: string }[];

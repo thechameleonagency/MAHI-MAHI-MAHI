@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TableEmptyRow } from "@/components/ui/TableEmptyRow";
 
 export default function SuperAdminDataEngine() {
   const store = useDataEngineStore();
@@ -205,11 +206,12 @@ export default function SuperAdminDataEngine() {
                 </TableHeader>
                 <TableBody>
                   {store.logs.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                        No logs yet. Start the engine to generate data.
-                      </TableCell>
-                    </TableRow>
+                    <TableEmptyRow
+                      colSpan={3}
+                      icon={ScrollText}
+                      title="No logs yet"
+                      description="Start the engine to generate data."
+                    />
                   ) : (
                     store.logs.map((log) => (
                       <TableRow key={log.id}>

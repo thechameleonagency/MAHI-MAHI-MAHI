@@ -26,6 +26,7 @@ import {
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { ExpandedCalendarGrid } from "@/components/calendar/ExpandedCalendarGrid";
 import { validateScheduledInstallationDate } from "@/lib/scheduledInstallationValidation";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { DateRange } from "react-day-picker";
@@ -248,7 +249,11 @@ const CalendarPage = () => {
     if (ev.source === "enquiry") {
       const result = await updateEnquiry(ev.id.slice("enq-".length), { followUpDate: toDate });
       if (!result.ok) {
-        toast({ title: "Cannot move follow-up", description: result.error, variant: "destructive" });
+        toast({
+          title: "Cannot move follow-up",
+          description: friendlyCommandErrorMessage(result.error),
+          variant: "destructive",
+        });
         return;
       }
       toast({ title: "Follow-up rescheduled", description: `${ev.title} moved to ${dateLabel}.` });

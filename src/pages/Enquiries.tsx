@@ -50,6 +50,11 @@ import {
   MIN_ENQUIRY_TERMINAL_REASON_LENGTH,
   trimEnquiryReason,
 } from "@/lib/enquiryReasonValidation";
+import {
+  ENQUIRY_LOST_REASON_CODES,
+  ENQUIRY_LOST_REASON_LABELS,
+  type EnquiryLostReasonCode,
+} from "@/lib/enquiryLostReasons";
 import { AgingChip } from "@/components/ui/AgingChip";
 import { LifecycleTerminalBanner } from "@/components/ui/LifecycleTerminalBanner";
 import { ListEmptyState } from "@/components/ui/ListEmptyState";
@@ -267,6 +272,7 @@ const Enquiries = () => {
   const [meetingSheetMode, setMeetingSheetMode] = useState<"schedule" | "reschedule">("schedule");
   const [isMarkLostReasonOpen, setIsMarkLostReasonOpen] = useState(false);
   const [lostReasonText, setLostReasonText] = useState("");
+  const [lostReasonCode, setLostReasonCode] = useState<EnquiryLostReasonCode | "">("");
   const [isReopenEnquiryOpen, setIsReopenEnquiryOpen] = useState(false);
   const [reopenReasonText, setReopenReasonText] = useState("");
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
@@ -798,35 +804,33 @@ const formatCapacityInput = (capacity: string) => {
     toast({ title: "Note Added", description: "Follow-up note has been saved" });
   };
 
+  /** Post-quotation losses must carry a substantive reason (state-machine rule). */
+  const lostReasonDetailsRequired =
+    selectedEnquiry?.status === "quotation_sent" ||
+    selectedEnquiry?.status === "quotation_rejected";
+
   const handleMarkAsLost = () => {
     if (!selectedEnquiry) return;
-    if (
-      selectedEnquiry.status === "quotation_sent" ||
-      selectedEnquiry.status === "quotation_rejected"
-    ) {
-      setLostReasonText("");
-      setIsMarkLostReasonOpen(true);
-      return;
-    }
-    void submitMarkAsLost();
+    setLostReasonCode("");
+    setLostReasonText("");
+    setIsMarkLostReasonOpen(true);
   };
 
-  const submitMarkAsLost = async (reason?: string) => {
+  const submitMarkAsLost = async (reason: string | undefined, code: EnquiryLostReasonCode) => {
     if (!selectedEnquiry) return;
     const result = await transitionEnquiryStatus(selectedEnquiry.id, "lost", reason);
     if (result.ok) {
-      if (reason) {
-        const lostPatch = await updateEnquiry(selectedEnquiry.id, {
-          lostReason: reason,
-          updatedAt: new Date().toISOString().split('T')[0],
+      const lostPatch = await updateEnquiry(selectedEnquiry.id, {
+        lostReasonCode: code,
+        ...(reason ? { lostReason: reason } : {}),
+        updatedAt: new Date().toISOString().split('T')[0],
+      });
+      if (!lostPatch.ok) {
+        toast({
+          title: "Status updated; reason not saved",
+          description: friendlyCommandErrorMessage(lostPatch.error, "Could not save lost reason"),
+          variant: "destructive",
         });
-        if (!lostPatch.ok) {
-          toast({
-            title: "Status updated; reason not saved",
-            description: friendlyCommandErrorMessage(lostPatch.error, "Could not save lost reason"),
-            variant: "destructive",
-          });
-        }
       }
       toast({ title: "Lead Lost", description: "Enquiry marked as lost" });
       setIsMarkLostReasonOpen(false);
@@ -841,16 +845,31 @@ const formatCapacityInput = (capacity: string) => {
   };
 
   const handleConfirmLostWithReason = () => {
-    const trimmed = trimEnquiryReason(lostReasonText);
-    if (!isEnquiryTerminalReasonValid(trimmed)) {
+    if (!lostReasonCode) {
       toast({
         title: "Reason required",
+        description: "Pick why this enquiry was lost.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const details = trimEnquiryReason(lostReasonText);
+    if (lostReasonCode === "other" && lostReasonDetailsRequired && !isEnquiryTerminalReasonValid(details)) {
+      toast({
+        title: "Details required",
         description: enquiryTerminalReasonRequiredMessage(),
         variant: "destructive",
       });
       return;
     }
-    void submitMarkAsLost(trimmed);
+    const label = ENQUIRY_LOST_REASON_LABELS[lostReasonCode];
+    const composedReason =
+      lostReasonCode === "other"
+        ? details || label
+        : details
+          ? `${label} — ${details}`
+          : label;
+    void submitMarkAsLost(composedReason, lostReasonCode);
   };
 
   const handleReopenEnquiry = async () => {
@@ -2115,19 +2134,43 @@ const formatCapacityInput = (capacity: string) => {
           <SheetHeader>
             <SheetTitle>Reason for marking lost</SheetTitle>
             <SheetDescription>
-              After a quotation was sent, record why this enquiry did not convert (at least{" "}
-              {MIN_ENQUIRY_TERMINAL_REASON_LENGTH} characters).
+              Record why this enquiry did not convert — this feeds lost-reason analytics.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="lost-reason">Reason</Label>
+              <Label htmlFor="lost-reason-code">Reason</Label>
+              <Select
+                value={lostReasonCode}
+                onValueChange={(v) => setLostReasonCode(v as EnquiryLostReasonCode)}
+              >
+                <SelectTrigger id="lost-reason-code">
+                  <SelectValue placeholder="Select a reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ENQUIRY_LOST_REASON_CODES.map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {ENQUIRY_LOST_REASON_LABELS[code]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lost-reason">
+                Details{" "}
+                <span className="text-muted-foreground font-normal">
+                  {lostReasonCode === "other" && lostReasonDetailsRequired
+                    ? `(required, at least ${MIN_ENQUIRY_TERMINAL_REASON_LENGTH} characters)`
+                    : "(optional)"}
+                </span>
+              </Label>
               <Textarea
                 id="lost-reason"
                 value={lostReasonText}
                 onChange={(e) => setLostReasonText(e.target.value)}
-                placeholder="e.g., Chose another vendor, budget dropped, no response…"
-                rows={4}
+                placeholder="e.g., Competitor quoted ₹40k less, customer postponed to next year…"
+                rows={3}
               />
             </div>
           </div>

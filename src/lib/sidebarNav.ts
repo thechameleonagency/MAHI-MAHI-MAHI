@@ -102,7 +102,10 @@ export const sidebarNavSections: SidebarNavSection[] = [
   {
     id: "insights",
     title: "Insights",
-    items: [{ label: "Analytics", icon: BarChart3, path: "/analytics" }],
+    items: [
+      { label: "Analytics", icon: BarChart3, path: "/analytics" },
+      { label: "Business Analytics", icon: TrendingUp, path: "/business-analytics" },
+    ],
   },
   {
     id: "audit",

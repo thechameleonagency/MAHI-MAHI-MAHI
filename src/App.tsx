@@ -39,6 +39,7 @@ import SubcontractorDetail from "./pages/SubcontractorDetail";
 import Timeline from "./pages/Timeline";
 import CalendarPage from "./pages/Calendar";
 import Analytics from "./pages/Analytics";
+import BusinessAnalytics from "./pages/BusinessAnalytics";
 import Settings from "./pages/Settings";
 import DesignSystem from "./pages/DesignSystem";
 import NotFound from "./pages/NotFound";
@@ -148,6 +149,7 @@ const App = () => (
                 <Route path="/timeline" element={<Timeline />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/analytics" element={<Analytics />} />
+                <Route path="/business-analytics" element={<BusinessAnalytics />} />
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/settings/design-system" element={<DesignSystem />} />

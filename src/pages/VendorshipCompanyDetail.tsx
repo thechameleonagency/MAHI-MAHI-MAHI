@@ -293,10 +293,13 @@ const VendorshipCompanyDetail = () => {
             </div>
             <div className="space-y-2">
               <Label>Linked project (optional)</Label>
-              <Select value={txnForm.projectId} onValueChange={(v) => setTxnForm({ ...txnForm, projectId: v })}>
+              <Select
+                value={txnForm.projectId || "none"}
+                onValueChange={(v) => setTxnForm({ ...txnForm, projectId: v === "none" ? "" : v })}
+              >
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {linkedProjects.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                   ))}

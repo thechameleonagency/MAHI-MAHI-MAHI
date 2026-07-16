@@ -26,6 +26,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { InlineKpiStrip } from "@/components/layout/InlineKpiStrip";
 import { DateInput } from "@/components/ui/DateInput";
 import { toast } from "@/hooks/use-toast";
+import { friendlyCommandErrorMessage } from "@/lib/commandErrorMessages";
 import { showPermissionDeniedToastForAction } from "@/lib/permissionFeedback";
 import { EntityLink } from "@/components/shared/EntityInfoSheet";
 import { PayrollPolicyService } from "@/application/services/PayrollPolicyService";
@@ -576,7 +577,7 @@ const Attendance = () => {
     if (!result.ok) {
       toast({
         title: "Could not mark holiday",
-        description: result.error ?? "Update failed",
+        description: friendlyCommandErrorMessage(result.error ?? "Update failed"),
         variant: "destructive",
       });
       return;
